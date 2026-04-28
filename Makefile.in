@@ -47,7 +47,7 @@ endif
 
 CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac),$(dir)))
 BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
-PROFILE_STAMP := .build-profile
+BUILD_STATE_FILE := .build-state
 
 .PHONY: all clean install remove cleanconf list preflight $(PROJECT_DIRS)
 
@@ -87,14 +87,24 @@ $(PROJECT_DIRS):
 		(cd "$@" && ./configure $$configure_args); \
 	fi
 	@if [ -f "$@/Makefile" ]; then \
-		if [ -d "$@/build" ] && { [ ! -f "$@/build/$(PROFILE_STAMP)" ] || [ "$$(cat "$@/build/$(PROFILE_STAMP)")" != "$(BUILD_PROFILE)" ]; }; then \
-			echo "Cleaning $@ due to BUILD_PROFILE change"; \
+		configure_args=""; \
+		case "$@" in \
+			libElaraFormat) configure_args="$(LIBELARAFORMAT_CONFIGURE_FLAGS)" ;; \
+			libElaraData) configure_args="$(LIBELARADATA_CONFIGURE_FLAGS)" ;; \
+		esac; \
+		state_tmp="$@/.build-state.tmp"; \
+		printf '%s\n' "BUILD_PROFILE=$(BUILD_PROFILE)" > "$$state_tmp"; \
+		printf '%s\n' "TOOLCHAIN_CFLAGS=$(TOOLCHAIN_CFLAGS)" >> "$$state_tmp"; \
+		printf '%s\n' "TOOLCHAIN_LDFLAGS=$(TOOLCHAIN_LDFLAGS)" >> "$$state_tmp"; \
+		printf '%s\n' "CONFIGURE_ARGS=$$configure_args" >> "$$state_tmp"; \
+		if [ -d "$@/build" ] && { [ ! -f "$@/build/$(BUILD_STATE_FILE)" ] || ! cmp -s "$@/build/$(BUILD_STATE_FILE)" "$$state_tmp"; }; then \
+			echo "Cleaning $@ due to build configuration change"; \
 			$(MAKE) -C $@ clean ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
 		fi; \
 		$(MAKE) -C $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" && \
+		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" && \
 		mkdir -p "$@/build" && \
-		printf '%s\n' "$(BUILD_PROFILE)" > "$@/build/$(PROFILE_STAMP)" && \
-		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)"; \
+		mv "$$state_tmp" "$@/build/$(BUILD_STATE_FILE)"; \
 	else \
 		echo "Skipping $@: no Makefile available after configure"; \
 	fi

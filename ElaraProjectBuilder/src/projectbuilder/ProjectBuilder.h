@@ -17,6 +17,7 @@ namespace elara {
     public:
         ProjectBuilder();
 
+        ProjectOptions defaultOptions();
         void setDefaultOutputDirectory(String output_directory);
         void setExecutablePath(String executable_path);
 

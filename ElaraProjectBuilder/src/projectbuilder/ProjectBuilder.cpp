@@ -14,6 +14,18 @@ namespace elara {
     ProjectBuilder::ProjectBuilder() {
     }
 
+    ProjectOptions ProjectBuilder::defaultOptions() {
+        ProjectOptions options;
+
+        options.project_name = "ElaraReplClient";
+        options.target_name = sanitizeTargetName(options.project_name, "elara-app");
+        options.output_directory = default_output_directory.length() ? default_output_directory : options.target_name;
+        options.worker_name = projectClassPrefix(options.project_name) + "WorkerTask";
+        options.socket_address = "0.0.0.0";
+
+        return options;
+    }
+
     void ProjectBuilder::setDefaultOutputDirectory(String output_directory) {
         if (output_directory.length()) {
             default_output_directory = output_directory;
@@ -52,19 +64,15 @@ namespace elara {
     }
 
     ProjectOptions ProjectBuilder::promptOptions() {
-        ProjectOptions options;
+        ProjectOptions options = defaultOptions();
 
         printf("Elara Project Builder\n");
         printf("=====================\n");
 
-        options.project_name = promptString("Project name", "ElaraReplClient");
+        options.project_name = promptString("Project name", options.project_name);
         options.target_name = promptString("Executable name", sanitizeTargetName(options.project_name, "elara-app"));
 
-        if (default_output_directory.length()) {
-            options.output_directory = promptString("Output directory", default_output_directory);
-        } else {
-            options.output_directory = promptString("Output directory", options.target_name);
-        }
+        options.output_directory = promptString("Output directory", options.output_directory.length() ? options.output_directory : options.target_name);
 
         options.include_repl = promptYesNo("Include REPL client", true);
         options.socket_mode = promptSocketMode();
@@ -258,6 +266,13 @@ namespace elara {
         contents += "ELARA_CPP_LINT?=/usr/local/bin/elara.cpp-lint\n";
         contents += "PREFIX?=$(abspath ./dist)\n";
         contents += "BIN_DIR?=$(PREFIX)/bin\n";
+        contents += "SHARE_DIR?=$(PREFIX)/share/";
+        contents += options.target_name;
+        contents += "\n";
+        contents += "INSTALL_MANIFEST?=$(SHARE_DIR)/install-manifest.txt\n";
+        contents += "BUILDPATH=./build\n";
+        contents += "BUILD_STATE_FILE=$(BUILDPATH)/.build-state\n";
+        contents += "BUILD_STATE_TMP=.build-state.tmp\n";
         contents += "BUILD_PROFILE?=release\n";
         contents += "COMMON_CFLAGS=-std=gnu++11\n";
         contents += "DEBUG_CFLAGS=$(COMMON_CFLAGS) -O0 -g3\n";
@@ -290,15 +305,32 @@ namespace elara {
         contents += "SOURCES=$(shell find ./src -type f -name '*.cpp' -print)\n";
         contents += "OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))\n";
         contents += "LINT_PATHS=./src\n";
-        contents += "BUILDPATH=./build\n";
         contents += "TARGET=";
         contents += options.target_name;
         contents += "\n\n";
-        contents += ".PHONY: all lint install clean remove cleanconf\n\n";
-        contents += "all: $(TARGET)\n\n";
+        contents += ".PHONY: all lint install clean remove cleanconf prepare-build\n\n";
+        contents += "all: prepare-build $(TARGET)\n\n";
+        contents += "prepare-build:\n";
+        contents += "\t@mkdir -p $(BUILDPATH)\n";
+        contents += "\t@printf '%s\\n' \"BUILD_PROFILE=$(BUILD_PROFILE)\" > $(BUILD_STATE_TMP)\n";
+        contents += "\t@printf '%s\\n' \"PROFILE_CFLAGS=$(PROFILE_CFLAGS)\" >> $(BUILD_STATE_TMP)\n";
+        contents += "\t@printf '%s\\n' \"PROFILE_LDFLAGS=$(PROFILE_LDFLAGS)\" >> $(BUILD_STATE_TMP)\n";
+        contents += "\t@printf '%s\\n' \"STD_LDFLAGS=$(STD_LDFLAGS)\" >> $(BUILD_STATE_TMP)\n";
+        contents += "\t@if [ -d \"$(BUILDPATH)\" ] && [ ! -f \"$(BUILD_STATE_FILE)\" ] && [ -n \"$$(find \"$(BUILDPATH)\" -mindepth 1 -print -quit)\" ]; then \\\n";
+        contents += "\t\techo \"Cleaning due to missing build state\"; \\\n";
+        contents += "\t\trm -rf \"$(BUILDPATH)\"; \\\n";
+        contents += "\t\tmkdir -p \"$(BUILDPATH)\"; \\\n";
+        contents += "\tfi\n";
+        contents += "\t@if [ -f \"$(BUILD_STATE_FILE)\" ] && ! cmp -s \"$(BUILD_STATE_FILE)\" \"$(BUILD_STATE_TMP)\"; then \\\n";
+        contents += "\t\techo \"Cleaning due to build configuration change\"; \\\n";
+        contents += "\t\trm -rf \"$(BUILDPATH)\"; \\\n";
+        contents += "\t\tmkdir -p \"$(BUILDPATH)\"; \\\n";
+        contents += "\tfi\n";
+        contents += "\t@mkdir -p $(BUILDPATH)\n";
+        contents += "\t@mv $(BUILD_STATE_TMP) $(BUILD_STATE_FILE)\n\n";
         contents += "$(TARGET): $(OBJECTS)\n";
         contents += "\t$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)\n\n";
-        contents += "build/src/%.o:\n";
+        contents += "build/src/%.o: prepare-build\n";
         contents += "\t@mkdir -p $(dir $@)\n";
         contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
         contents += "lint:\n";
@@ -308,12 +340,26 @@ namespace elara {
         contents += "\tfi\n";
         contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n\n";
         contents += "install:\n";
+        contents += "\t@if [ ! -x \"$(BUILDPATH)/$(TARGET)\" ]; then \\\n";
+        contents += "\t\techo \"Missing built binary $(BUILDPATH)/$(TARGET). Run ./build.sh first.\"; \\\n";
+        contents += "\t\texit 1; \\\n";
+        contents += "\tfi\n";
         contents += "\tmkdir -p $(BIN_DIR)\n";
-        contents += "\tcp $(BUILDPATH)/$(TARGET) $(BIN_DIR)/$(TARGET)\n\n";
+        contents += "\tcp $(BUILDPATH)/$(TARGET) $(BIN_DIR)/$(TARGET)\n";
+        contents += "\tmkdir -p $(SHARE_DIR)\n";
+        contents += "\tprintf '%s\\n' \"$(BIN_DIR)/$(TARGET)\" > $(INSTALL_MANIFEST)\n\n";
         contents += "clean:\n";
         contents += "\trm -rf $(BUILDPATH)\n\n";
         contents += "remove:\n";
-        contents += "\trm -f $(BIN_DIR)/$(TARGET)\n\n";
+        contents += "\t@if [ -f \"$(INSTALL_MANIFEST)\" ]; then \\\n";
+        contents += "\t\twhile IFS= read -r installed_path; do \\\n";
+        contents += "\t\t\trm -f \"$$installed_path\"; \\\n";
+        contents += "\t\tdone < \"$(INSTALL_MANIFEST)\"; \\\n";
+        contents += "\t\trm -f \"$(INSTALL_MANIFEST)\"; \\\n";
+        contents += "\telse \\\n";
+        contents += "\t\trm -f $(BIN_DIR)/$(TARGET); \\\n";
+        contents += "\tfi\n";
+        contents += "\t@rmdir $(SHARE_DIR) 2>/dev/null || true\n\n";
         contents += "cleanconf:\n";
         contents += "\trm -f config.log\n";
         contents += "\trm -f config.status\n";
@@ -351,10 +397,20 @@ namespace elara {
         contents += "TARGET_NAME=\"";
         contents += options.target_name;
         contents += "\"\n";
-        contents += "BUILD_TARGET=\"$ROOT_DIR/build/${TARGET_NAME}\"\n\n";
+        contents += "BUILD_TARGET=\"$ROOT_DIR/build/${TARGET_NAME}\"\n";
+        contents += "MANIFEST_DIR=\"${INSTALL_PREFIX}/share/${TARGET_NAME}\"\n";
+        contents += "MANIFEST_PATH=\"${MANIFEST_DIR}/install-manifest.txt\"\n\n";
         contents += "if [[ \"${1:-}\" == \"--remove\" ]]; then\n";
         contents += "  echo \"Removing from ${INSTALL_PREFIX}...\"\n";
-        contents += "  make remove BUILD_PROFILE=\"${BUILD_PROFILE}\" PREFIX=\"${INSTALL_PREFIX}\"\n";
+        contents += "  if [[ -f \"${MANIFEST_PATH}\" ]]; then\n";
+        contents += "    while IFS= read -r installed_path; do\n";
+        contents += "      rm -f \"${installed_path}\"\n";
+        contents += "    done < \"${MANIFEST_PATH}\"\n";
+        contents += "    rm -f \"${MANIFEST_PATH}\"\n";
+        contents += "    rmdir \"${MANIFEST_DIR}\" 2>/dev/null || true\n";
+        contents += "  else\n";
+        contents += "    make remove BUILD_PROFILE=\"${BUILD_PROFILE}\" PREFIX=\"${INSTALL_PREFIX}\"\n";
+        contents += "  fi\n";
         contents += "  exit 0\n";
         contents += "fi\n\n";
         contents += "if [[ ! -x \"$BUILD_TARGET\" ]]; then\n";
@@ -363,6 +419,8 @@ namespace elara {
         contents += "fi\n\n";
         contents += "echo \"Installing into ${INSTALL_PREFIX}...\"\n";
         contents += "make install BUILD_PROFILE=\"${BUILD_PROFILE}\" PREFIX=\"${INSTALL_PREFIX}\"\n";
+        contents += "mkdir -p \"${MANIFEST_DIR}\"\n";
+        contents += "printf '%s\\n' \"${INSTALL_PREFIX}/bin/${TARGET_NAME}\" > \"${MANIFEST_PATH}\"\n";
         return contents;
     }
 
@@ -406,6 +464,9 @@ namespace elara {
         contents += "2. `make lint`\n";
         contents += "3. `sudo ./install.sh` to install the already-built binary under `/usr/local`\n";
         contents += "4. `sudo ./install.sh --remove` to remove the installed binary\n";
+        contents += "5. install state is tracked in `/usr/local/share/";
+        contents += options.target_name;
+        contents += "/install-manifest.txt` by default\n";
         contents += "\nBuild profiles:\n";
         contents += "- `make BUILD_PROFILE=release` for fast optimized builds\n";
         contents += "- `make BUILD_PROFILE=debug` for easier debugging\n";
@@ -727,6 +788,7 @@ namespace elara {
         contents += server_name;
         contents += "_h\n\n";
         contents += "#include <libelarasockets/Listener.h>\n\n";
+        contents += "#include <libelaracore/memory/String.h>\n\n";
         contents += "class ";
         contents += server_name;
         contents += " : public elara::Listener {\n";
@@ -771,7 +833,7 @@ namespace elara {
         contents += server_name;
         contents += "::start(int port, elara::String address) {\n";
         contents += "    unsigned int ipv4_interface = INADDR_ANY;\n";
-        contents += "    if (address.length() && address != String(\"0.0.0.0\") && address != String(\"*\")) {\n";
+        contents += "    if (address.length() && address != elara::String(\"0.0.0.0\") && address != elara::String(\"*\")) {\n";
         contents += "        ipv4_interface = inet_addr(address.operator char *());\n";
         contents += "    }\n";
         contents += "    listen(port, LISTENER_OPTS_IPV4 | LISTENER_OPTS_IPV4_REQUIRED, ipv4_interface);\n";
@@ -839,7 +901,7 @@ namespace elara {
         contents += "::";
         contents += client_name;
         contents += "(elara::String address, int port) : Socket() {\n";
-        contents += "    if (!connect(Address(Address::ADDR, address.operator char *()), port)) {\n";
+        contents += "    if (!connect(elara::Address(elara::Address::ADDR, address.operator char *()), port)) {\n";
         contents += "        printf(\"Failed to connect to %s:%u\\n\", address.operator char *(), (unsigned int)port);\n";
         contents += "    }\n";
         contents += "}\n\n";
@@ -851,13 +913,13 @@ namespace elara {
         contents += "void ";
         contents += client_name;
         contents += "::sendLine(elara::String text) {\n";
-        contents += "    text += String(\"\\n\");\n";
+        contents += "    text += elara::String(\"\\n\");\n";
         contents += "    send(text.operator char *(), (size_t)text.length());\n";
         contents += "}\n\n";
         contents += "void ";
         contents += client_name;
         contents += "::onReceive() {\n";
-        contents += "    Memory data = read((int)available());\n";
+        contents += "    elara::Memory data = read((int)available());\n";
         contents += "    if (data.length()) {\n";
         contents += "        fwrite(data.operator char *(), 1, (size_t)data.length(), stdout);\n";
         contents += "        fflush(stdout);\n";

@@ -1,6 +1,9 @@
 #include "projectbuilder/ProjectBuilder.h"
 
 #include <limits.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 using namespace elara;
@@ -16,13 +19,262 @@ static String resolveExecutablePath(const char *argv0) {
     return String(argv0);
 }
 
-int main(int argc, const char *argv[]) {
-    ProjectBuilder builder;
-    builder.setExecutablePath(resolveExecutablePath(argv[0]));
+static bool matchesOption(const char *arg, const char *name) {
+    size_t name_length = strlen(name);
+    return !strcmp(arg, name) || (strncmp(arg, name, name_length) == 0 && arg[name_length] == '=');
+}
 
-    if (argc > 1) {
-        builder.setDefaultOutputDirectory(argv[1]);
+static const char *optionValue(int argc, const char *argv[], int *index, const char *arg, const char *name) {
+    size_t name_length = strlen(name);
+
+    if (arg[name_length] == '=') {
+        return arg + name_length + 1;
     }
 
-    return builder.runInteractive() ? 0 : 1;
+    if (*index + 1 >= argc) {
+        fprintf(stderr, "Missing value for %s\n", name);
+        return NULL;
+    }
+
+    *index += 1;
+    return argv[*index];
+}
+
+static bool parseBoolValue(const char *value, bool *result) {
+    if (!strcmp(value, "1") || !strcmp(value, "true") || !strcmp(value, "yes") || !strcmp(value, "on")) {
+        *result = true;
+        return true;
+    }
+    if (!strcmp(value, "0") || !strcmp(value, "false") || !strcmp(value, "no") || !strcmp(value, "off")) {
+        *result = false;
+        return true;
+    }
+    return false;
+}
+
+static bool parseSocketModeValue(const char *value, ProjectOptions::SocketMode *result) {
+    if (!strcmp(value, "none")) {
+        *result = ProjectOptions::SOCKET_DISABLED;
+        return true;
+    }
+    if (!strcmp(value, "server")) {
+        *result = ProjectOptions::SOCKET_SERVER;
+        return true;
+    }
+    if (!strcmp(value, "client")) {
+        *result = ProjectOptions::SOCKET_CLIENT;
+        return true;
+    }
+    return false;
+}
+
+static bool parsePortValue(const char *value, int *result) {
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+
+    if (!end || *end || parsed <= 0 || parsed > 65535) {
+        return false;
+    }
+
+    *result = (int)parsed;
+    return true;
+}
+
+static void printUsage(const char *program_name) {
+    printf("Usage: %s [options] [output-directory]\n", program_name);
+    printf("\n");
+    printf("Interactive mode is the default when no generation options are provided.\n");
+    printf("Non-interactive mode is selected automatically when any generation option is set.\n");
+    printf("\n");
+    printf("Options:\n");
+    printf("  --help                      Show this help text\n");
+    printf("  --interactive               Force the prompt-driven flow\n");
+    printf("  --non-interactive           Generate without prompts\n");
+    printf("  --name <value>              Project class/name prefix\n");
+    printf("  --target <value>            Executable name\n");
+    printf("  --output <path>             Output directory\n");
+    printf("  --repl <yes|no>             Enable or disable the REPL\n");
+    printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
+    printf("  --worker <yes|no>           Enable or disable the threaded worker template\n");
+    printf("  --worker-name <value>       Worker class name\n");
+    printf("  --socket-mode <none|server|client>\n");
+    printf("  --address <value>           Bind address for server or remote address for client\n");
+    printf("  --port <value>              Socket port\n");
+    printf("\n");
+    printf("Examples:\n");
+    printf("  %s --output ./demo\n", program_name);
+    printf("  %s --name SpiritResearch --target spirit-research --output ./spirit-research --socket-mode server --address 0.0.0.0 --port 4040 --thread-pool yes\n", program_name);
+    printf("  %s --name SpiritProbe --target spirit-probe --output ./spirit-probe --socket-mode client --address 127.0.0.1 --port 4040 --repl yes\n", program_name);
+}
+
+int main(int argc, const char *argv[]) {
+    ProjectBuilder builder;
+    ProjectOptions options;
+    bool interactive = true;
+    bool saw_generation_option = false;
+    bool saw_socket_address = false;
+    bool saw_socket_port = false;
+
+    builder.setExecutablePath(resolveExecutablePath(argv[0]));
+    options = builder.defaultOptions();
+
+    for (int i = 1; i < argc; i++) {
+        const char *arg = argv[i];
+
+        if (!strcmp(arg, "--help") || !strcmp(arg, "-h")) {
+            printUsage(argv[0]);
+            return 0;
+        }
+
+        if (!strcmp(arg, "--interactive")) {
+            interactive = true;
+            continue;
+        }
+
+        if (!strcmp(arg, "--non-interactive")) {
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--name")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--name");
+            if (!value) {
+                return 1;
+            }
+            options.project_name = String(value);
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--target")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--target");
+            if (!value) {
+                return 1;
+            }
+            options.target_name = String(value);
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--output")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--output");
+            if (!value) {
+                return 1;
+            }
+            options.output_directory = String(value);
+            builder.setDefaultOutputDirectory(options.output_directory);
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--repl")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--repl");
+            if (!value || !parseBoolValue(value, &options.include_repl)) {
+                fprintf(stderr, "Invalid value for --repl: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--thread-pool")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--thread-pool");
+            if (!value || !parseBoolValue(value, &options.include_thread_pool)) {
+                fprintf(stderr, "Invalid value for --thread-pool: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--worker-name")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--worker-name");
+            if (!value) {
+                return 1;
+            }
+            options.worker_name = String(value);
+            options.include_threaded_worker = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--worker")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--worker");
+            if (!value || !parseBoolValue(value, &options.include_threaded_worker)) {
+                fprintf(stderr, "Invalid value for --worker: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--socket-mode")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--socket-mode");
+            if (!value || !parseSocketModeValue(value, &options.socket_mode)) {
+                fprintf(stderr, "Invalid value for --socket-mode: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--address")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--address");
+            if (!value) {
+                return 1;
+            }
+            options.socket_address = String(value);
+            saw_socket_address = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--port")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--port");
+            if (!value || !parsePortValue(value, &options.socket_port)) {
+                fprintf(stderr, "Invalid value for --port: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_socket_port = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (arg[0] == '-') {
+            fprintf(stderr, "Unknown option: %s\n", arg);
+            fprintf(stderr, "Run %s --help for usage.\n", argv[0]);
+            return 1;
+        }
+
+        if (!saw_generation_option && interactive) {
+            options.output_directory = String(arg);
+            builder.setDefaultOutputDirectory(options.output_directory);
+            continue;
+        }
+
+        fprintf(stderr, "Unexpected positional argument: %s\n", arg);
+        return 1;
+    }
+
+    if (interactive && !saw_generation_option) {
+        return builder.runInteractive() ? 0 : 1;
+    }
+
+    if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {
+        fprintf(stderr, "--address and --port require --socket-mode server or --socket-mode client\n");
+        return 1;
+    }
+
+    return builder.generate(options) ? 0 : 1;
 }
