@@ -1,0 +1,58 @@
+NAME=libelaraserializer
+SOURCE_DIR=elaraserializer
+CC=@CC@
+AR=ar
+DEFS = @DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_LDFLAGS=
+SOURCES=$(shell for file in `@TOOLPATH@find ./$(SOURCE_DIR) -type f -name '*.cpp' -print`;do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find ./$(SOURCE_DIR) -type f -name '*.h' -print`;do echo $$file; done)
+OBJECTS=$(patsubst ./$(SOURCE_DIR)/%.cpp,$(BUILDPATH)/%.o,$(SOURCES))
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+COMPAT_HEADER_PATH=$(STAGE_INCLUDE_DIR)/libelaracore/serializers
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+DST_HEADERS=$(subst ./$(SOURCE_DIR),$(INSTALL_HEADER_PATH),$(HEADERS))
+COMPAT_HEADERS=$(filter %/Serializable.h %/SerializableString.h,$(DST_HEADERS))
+STATIC_LIBRARY=$(NAME).a
+
+all: $(SOURCES) $(STATIC_LIBRARY)
+
+$(STATIC_LIBRARY): $(OBJECTS)
+	$(AR) rcs $(BUILDPATH)/$@ $(OBJECTS)
+
+$(BUILDPATH)/%.o: ./$(SOURCE_DIR)/%.cpp copyconfig
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+
+copyconfig:
+	cp config.h ./$(SOURCE_DIR)/config.h
+
+install: $(DST_HEADERS)
+	mkdir -p $(INSTALL_HEADER_PATH)
+	mkdir -p $(COMPAT_HEADER_PATH)
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	cp $(INSTALL_HEADER_PATH)/Serializable.h $(COMPAT_HEADER_PATH)/Serializable.h
+	cp $(INSTALL_HEADER_PATH)/SerializableString.h $(COMPAT_HEADER_PATH)/SerializableString.h
+
+$(DST_HEADERS):
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	cp $(subst $(INSTALL_HEADER_PATH), ./$(SOURCE_DIR), $@) $@
+
+clean:
+	rm -Rf $(BUILDPATH)
+
+remove:
+	rm -Rf $(INSTALL_HEADER_PATH)
+	rm -f $(COMPAT_HEADER_PATH)/Serializable.h
+	rm -f $(COMPAT_HEADER_PATH)/SerializableString.h
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+cleanconf:
+	rm -Rf config.status
+	rm -f config.log
+	rm -f Makefile

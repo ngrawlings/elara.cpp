@@ -1,0 +1,94 @@
+PROJECT_DIRS := \
+	libElaraCore \
+	libElaraDebug \
+	libElaraThreads \
+	libElaraEncryption \
+	libElaraEvent \
+	libElaraFormat \
+	libElaraIO \
+	libElaraData \
+	libElaraSockets \
+	libElaraSerializer
+
+ROOT_BUILD_DIR := $(abspath ./build)
+BUILD_PROJECTS := @BUILD_PROJECTS@
+DISABLED_PROJECTS := @DISABLED_PROJECTS@
+LIBELARADATA_CONFIGURE_FLAGS := @LIBELARADATA_CONFIGURE_FLAGS@
+LIBELARAFORMAT_CONFIGURE_FLAGS := @LIBELARAFORMAT_CONFIGURE_FLAGS@
+
+CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac),$(dir)))
+BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
+
+.PHONY: all clean install remove cleanconf list preflight $(PROJECT_DIRS)
+
+all: preflight $(BUILD_PROJECTS)
+
+libElaraThreads: libElaraCore
+libElaraIO: libElaraCore libElaraThreads
+libElaraDebug: libElaraCore libElaraThreads libElaraIO
+libElaraEncryption: libElaraCore libElaraDebug
+libElaraEvent: libElaraCore libElaraDebug libElaraThreads
+libElaraFormat: libElaraCore libElaraIO
+libElaraData: libElaraCore
+libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
+libElaraSerializer: libElaraCore
+
+preflight:
+	@if [ -n "$(DISABLED_PROJECTS)" ]; then \
+		echo "Disabled projects: $(DISABLED_PROJECTS)"; \
+	fi
+	@mkdir -p "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib"
+
+$(PROJECT_DIRS):
+	@if [ -f "$@/configure.ac" ]; then \
+		configure_args=""; \
+		case "$@" in \
+			libElaraFormat) configure_args="$(LIBELARAFORMAT_CONFIGURE_FLAGS)" ;; \
+			libElaraData) configure_args="$(LIBELARADATA_CONFIGURE_FLAGS)" ;; \
+		esac; \
+		if [ ! -x "$@/configure" ]; then \
+			echo "Generating $@/configure"; \
+			(cd "$@" && autoreconf -fi); \
+		fi; \
+		echo "Configuring $@"; \
+		(cd "$@" && ./configure $$configure_args); \
+	fi
+	@if [ -f "$@/Makefile" ]; then \
+		$(MAKE) -C $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" && \
+		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)"; \
+	else \
+		echo "Skipping $@: no Makefile available after configure"; \
+	fi
+
+clean install remove cleanconf:
+	@for dir in $(BUILD_PROJECTS); do \
+		if [ -f "$$dir/configure.ac" ]; then \
+			configure_args=""; \
+			case "$$dir" in \
+				libElaraFormat) configure_args="$(LIBELARAFORMAT_CONFIGURE_FLAGS)" ;; \
+				libElaraData) configure_args="$(LIBELARADATA_CONFIGURE_FLAGS)" ;; \
+			esac; \
+			if [ ! -x "$$dir/configure" ]; then \
+				echo "Generating $$dir/configure"; \
+				(cd "$$dir" && autoreconf -fi) || exit $$?; \
+			fi; \
+			echo "Configuring $$dir"; \
+			(cd "$$dir" && ./configure $$configure_args) || exit $$?; \
+		fi; \
+		if [ -f "$$dir/Makefile" ]; then \
+			$(MAKE) -C $$dir $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" || exit $$?; \
+		fi; \
+	done
+	@if [ "$@" = "remove" ]; then \
+		rm -rf "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib"; \
+	fi
+
+list:
+	@echo "Project order: $(PROJECT_DIRS)"
+	@echo "Enabled: $(BUILD_PROJECTS)"
+	@echo "Disabled: $(DISABLED_PROJECTS)"
+	@echo "libElaraFormat flags: $(LIBELARAFORMAT_CONFIGURE_FLAGS)"
+	@echo "libElaraData flags: $(LIBELARADATA_CONFIGURE_FLAGS)"
+	@echo "Configurable: $(CONFIGURE_DIRS)"
+	@echo "Buildable now: $(BUILDABLE_DIRS)"
+	@echo "Stage root: $(ROOT_BUILD_DIR)"

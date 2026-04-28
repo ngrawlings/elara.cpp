@@ -1,0 +1,58 @@
+NAME=libelaraformat
+CC=@CC@
+DEFS = @DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+WITH_XML=@WITH_XML@
+XML_INCLUDE_FLAGS=
+ifneq ($(WITH_XML),0)
+XML_INCLUDE_FLAGS=-I/usr/include/libxml2
+endif
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(XML_INCLUDE_FLAGS) $(DEFS)
+STD_LDFLAGS=
+SOURCES=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* @EXCLUDE@ \) -prune -o -type f -name '*.cpp' -print`;do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* @EXCLUDE@ \) -prune -o -type f -name '*.h' -print`;do echo $$file; done)
+ifeq ($(WITH_XML),0)
+SOURCES := $(filter-out ./$(NAME)/Xml.cpp,$(SOURCES))
+HEADERS := $(filter-out ./$(NAME)/Xml.h,$(HEADERS))
+endif
+OBJECTS=$(patsubst ./$(NAME)/%.cpp,$(BUILDPATH)/%.o,$(SOURCES))
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
+STATIC_LIBRARY=$(NAME).a
+
+all: $(SOURCES) $(STATIC_LIBRARY)
+	
+$(STATIC_LIBRARY): $(OBJECTS)
+	ar rcs $(BUILDPATH)/$@ $(OBJECTS)
+
+$(BUILDPATH)/%.o: ./$(NAME)/%.cpp copyconfig
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+
+copyconfig:
+	cp config.h ./$(NAME)/config.h
+
+install:$(DST_HEADERS)
+	mkdir -p $(INSTALL_HEADER_PATH)
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+$(DST_HEADERS):
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	cp $(subst $(INSTALL_HEADER_PATH), ./$(NAME), $@) $@
+
+clean:
+	rm -Rf $(BUILDPATH)
+
+remove:
+	rm -Rf $(INSTALL_HEADER_PATH)
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+cleanconf:
+	rm -Rf config.status
+	rm -f config.log
+	rm -f Makefile

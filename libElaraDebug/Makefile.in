@@ -1,0 +1,50 @@
+NAME=libelaradebug
+CC=@CC@
+DEFS = @DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) -I/usr/local/include/libxml2 $(DEFS)
+STD_LDFLAGS=
+SOURCES=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* @EXCLUDE@ \) -prune -o -type f -name '*.cpp' -print`;do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* @EXCLUDE@ \) -prune -o -type f -name '*.h' -print`;do echo $$file; done)
+OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
+STATIC_LIBRARY=$(NAME).a
+
+all: $(SOURCES) $(STATIC_LIBRARY)
+	
+$(STATIC_LIBRARY): $(OBJECTS)
+	ar rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
+
+$(BUILDPATH)/%.o: copyconfig
+	+@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
+
+copyconfig:
+	cp config.h ./$(NAME)/config.h
+
+install:$(DST_HEADERS)
+	mkdir -p $(INSTALL_HEADER_PATH)
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+$(DST_HEADERS):
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	cp $(subst $(INSTALL_HEADER_PATH), ./$(NAME), $@) $@
+
+clean:
+	rm -Rf $(BUILDPATH)/*.o
+	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
+
+remove:
+	rm -Rf $(INSTALL_HEADER_PATH)
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+cleanconf:
+	rm -Rf config.status
+	rm -f config.log
+	rm -f Makefile

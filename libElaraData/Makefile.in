@@ -1,0 +1,60 @@
+NAME=libelaradata
+CC=@CC@
+AR=ar
+DEFS = @DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+WITH_MYSQL=@WITH_MYSQL@
+WITH_SQLITE=@WITH_SQLITE@
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_LDFLAGS=
+SOURCES=$(shell for file in `@TOOLPATH@find ./$(NAME) -type f -name '*.cpp' -print`;do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find ./$(NAME) -type f -name '*.h' -print`;do echo $$file; done)
+ifeq ($(WITH_MYSQL),0)
+SOURCES := $(filter-out ./$(NAME)/connectors/MysqlConnector.cpp ./$(NAME)/sql/builders/MysqlBuilder.cpp ./$(NAME)/sql/sections/mysql/AlterTableField.cpp ./$(NAME)/sql/sections/mysql/FieldDescriptor.cpp,$(SOURCES))
+HEADERS := $(filter-out ./$(NAME)/connectors/MysqlConnector.h ./$(NAME)/sql/builders/MysqlBuilder.h ./$(NAME)/sql/sections/mysql/AlterTableField.h ./$(NAME)/sql/sections/mysql/FieldDescriptor.h,$(HEADERS))
+endif
+ifeq ($(WITH_SQLITE),0)
+SOURCES := $(filter-out ./$(NAME)/connectors/SqliteConnector.cpp ./$(NAME)/sql/builders/SqliteBuilder.cpp ./$(NAME)/sql/sections/sqlite/AlterTableField.cpp ./$(NAME)/sql/sections/sqlite/FieldDescriptor.cpp,$(SOURCES))
+HEADERS := $(filter-out ./$(NAME)/connectors/SqliteConnector.h ./$(NAME)/sql/builders/SqliteBuilder.h ./$(NAME)/sql/sections/sqlite/AlterTableField.h ./$(NAME)/sql/sections/sqlite/FieldDescriptor.h,$(HEADERS))
+endif
+OBJECTS=$(patsubst ./$(NAME)/%.cpp,$(BUILDPATH)/%.o,$(SOURCES))
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
+STATIC_LIBRARY=$(NAME).a
+
+all: $(SOURCES) $(STATIC_LIBRARY)
+
+$(STATIC_LIBRARY): $(OBJECTS)
+	$(AR) rcs $(BUILDPATH)/$@ $(OBJECTS)
+
+$(BUILDPATH)/%.o: ./$(NAME)/%.cpp copyconfig
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+
+copyconfig:
+	cp config.h ./$(NAME)/config.h
+
+install: $(DST_HEADERS)
+	mkdir -p $(INSTALL_HEADER_PATH)
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+$(DST_HEADERS):
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	cp $(subst $(INSTALL_HEADER_PATH), ./$(NAME), $@) $@
+
+clean:
+	rm -Rf $(BUILDPATH)
+
+remove:
+	rm -Rf $(INSTALL_HEADER_PATH)
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+
+cleanconf:
+	rm -Rf config.status
+	rm -f config.log
+	rm -f Makefile
