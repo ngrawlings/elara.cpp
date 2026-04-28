@@ -5,7 +5,7 @@ ROOT_BUILD_DIR?=$(abspath ../build)
 STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
 STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
 STAGE_BIN_DIR=$(ROOT_BUILD_DIR)/bin
-STAGE_ASSET_DIR=$(STAGE_BIN_DIR)/elara-project-builder-assets
+STAGE_SHARE_DIR=$(ROOT_BUILD_DIR)/share/elara-project-builder
 STD_CFLAGS=-c -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
 STD_LDFLAGS=-L$(STAGE_LIB_DIR) -lelaraio -lelaracore
 SOURCES=$(shell find ./src -type f -name '*.cpp' -print)
@@ -24,16 +24,16 @@ build/src/%.o:
 
 install:
 	mkdir -p $(STAGE_BIN_DIR)
-	mkdir -p $(STAGE_ASSET_DIR)
+	mkdir -p $(STAGE_SHARE_DIR)
 	cp $(BUILDPATH)/$(TARGET) $(STAGE_BIN_DIR)/$(TARGET)
-	cp ./assets/ELARA_AGENT_API.md $(STAGE_ASSET_DIR)/ELARA_AGENT_API.md
+	cp ./assets/ELARA_AGENT_API.md $(STAGE_SHARE_DIR)/ELARA_AGENT_API.md
 
 clean:
 	rm -rf $(BUILDPATH)
 
 remove:
 	rm -f $(STAGE_BIN_DIR)/$(TARGET)
-	rm -rf $(STAGE_ASSET_DIR)
+	rm -rf $(STAGE_SHARE_DIR)
 
 cleanconf:
 	rm -f config.log

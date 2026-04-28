@@ -1,0 +1,1160 @@
+{
+  "format": "pure-path-project-last-sync",
+  "version": 1,
+  "project_name": "elara.cpp",
+  "branch": "main",
+  "remote_root": "/projects/elarasoft/elara.cpp",
+  "remote_files_root": "/projects/elarasoft/elara.cpp/branches/main/files",
+  "updated_utc": "2026-04-28T15:35:55Z",
+  "source": "push",
+  "snapshot": {
+    ".codex": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    ".gitignore": {
+      "sha256": "dc565209bee77af38fccf8631352ea4da2c594b865b08e3bc860706d224b807a",
+      "bytes": 3771
+    },
+    ".pbignore": {
+      "sha256": "58e38d1c8d163e1882f5a2497677fd80af89859ec778a280b38df5a6ef43edc6",
+      "bytes": 111
+    },
+    "ElaraCppLint/Makefile.in": {
+      "sha256": "8f50d622062829e33d2300d60afa1be9d22069499e6cb66be19009439010e851",
+      "bytes": 896
+    },
+    "ElaraCppLint/configure": {
+      "sha256": "2c586e9ee35c6baeb780a0f91c89bceb2f8c10dd1b7e806a84c96a07d7c09622",
+      "bytes": 109637
+    },
+    "ElaraCppLint/configure.ac": {
+      "sha256": "9c1c80bca4c8b5d79e42577dc9110f3707389d185459a383b0ce9ea54aa163ad",
+      "bytes": 81
+    },
+    "ElaraCppLint/src/cpplint/CppLint.cpp": {
+      "sha256": "bbfc31c1e2ac30a7f3573c62a9939d91f47f87142da6d8b7a3a6da1455ebcdfd",
+      "bytes": 24783
+    },
+    "ElaraCppLint/src/cpplint/CppLint.h": {
+      "sha256": "2f62f954a05f06c7f65397bb1fa9ebb9ee1c7d81db9b20f918b014ff3910597d",
+      "bytes": 3023
+    },
+    "ElaraCppLint/src/main.cpp": {
+      "sha256": "cbe7ce0411aeb7c95a57c34caf551be8c11df53a02fd06109a434559cf4b4174",
+      "bytes": 148
+    },
+    "ElaraProjectBuilder/Makefile.in": {
+      "sha256": "02b4e78e229581cdef17615b3f6460bfefa908ac0c2dbc719587d4361399c82e",
+      "bytes": 1098
+    },
+    "ElaraProjectBuilder/assets/ELARA_AGENT_API.md": {
+      "sha256": "f28d5edf24aca8f22702f6770606d53d6332aca6682fb36046a7cdb6091990eb",
+      "bytes": 29603
+    },
+    "ElaraProjectBuilder/configure": {
+      "sha256": "09dd7b06a215521dd8b8458a471e89765ced4e690569517482e292295c3d12b8",
+      "bytes": 109740
+    },
+    "ElaraProjectBuilder/configure.ac": {
+      "sha256": "a1ac1ec8edea1c4e73a6a2926386150b6c93bfe21cc0fa5d36c1763e79610160",
+      "bytes": 88
+    },
+    "ElaraProjectBuilder/src/main.cpp": {
+      "sha256": "2e010d1143e0491011ec2b4627f878c5de444a37565cf8bc46bd5e6a0e2de814",
+      "bytes": 304
+    },
+    "ElaraProjectBuilder/src/projectbuilder/ProjectBuilder.cpp": {
+      "sha256": "b1357d9e33c522a4cc07cde4c976fcdd9b27ab5ea7309d27df9510ebf2187bac",
+      "bytes": 30950
+    },
+    "ElaraProjectBuilder/src/projectbuilder/ProjectBuilder.h": {
+      "sha256": "0ca8360fed582eb7b4b25a65b0f869afe374db370afff9f9e79a486c2843a908",
+      "bytes": 2340
+    },
+    "ElaraProjectBuilder/src/projectbuilder/ProjectOptions.h": {
+      "sha256": "582032b357f9bed070aca11edc9c4f113c69ebb7eddb1b71519bca2f9bd58661",
+      "bytes": 659
+    },
+    "ElaraUnitTests/Makefile.in": {
+      "sha256": "8d6e6469bac4853774411e8eafcac5b909222757a930c77a39fa00d3bb85b500",
+      "bytes": 947
+    },
+    "ElaraUnitTests/configure": {
+      "sha256": "fcf4beb6b240d5d035fbd85dc87d25201aefb75a782a637e7405a90a39eb2d07",
+      "bytes": 109659
+    },
+    "ElaraUnitTests/configure.ac": {
+      "sha256": "c885d87a15466c99d594df344dd811529d2ce570ac8a9ac26a48b2086445062c",
+      "bytes": 83
+    },
+    "ElaraUnitTests/tests/main.cpp": {
+      "sha256": "01b640cebc49c97fb325be16014c5d9b93aaa8774940a718374e1f59d0405f77",
+      "bytes": 821
+    },
+    "ElaraUnitTests/tests/runtime/RuntimeTests.cpp": {
+      "sha256": "936c1034c1083e097b4e5348638e87e9373f3a8120ef3ec6dfe50fc9f8ca40c2",
+      "bytes": 8331
+    },
+    "ElaraUnitTests/tests/runtime/RuntimeTests.h": {
+      "sha256": "1f45d36f3dd02a13138dcdd6f449ff00156aa3dc5c7cea4c11de1b4de8a02e28",
+      "bytes": 309
+    },
+    "Makefile.in": {
+      "sha256": "39e0f81721fe178f9d33316998f385d4d5dc957d3ac9957e583f99c555f8e5af",
+      "bytes": 4646
+    },
+    "build.sh": {
+      "sha256": "c0216160461e404d89c8470ef5913b2c2e4e8e4cbdf890f25ddbf0ab22d84584",
+      "bytes": 2829
+    },
+    "configure": {
+      "sha256": "6ae9a17b34a37795ffe7fb7c635178845e6a2ff57b6797e2935aedd285916c18",
+      "bytes": 94710
+    },
+    "configure.ac": {
+      "sha256": "42ef256e0375fc4d0a25622deb402c16c9418448058e391405f5839c5f65c81f",
+      "bytes": 7567
+    },
+    "docs/ELARA_AGENT_API.md": {
+      "sha256": "b2196a3db7274723e91672fbfa19bebd132e9c4e56261048b75680676d30348a",
+      "bytes": 270
+    },
+    "libElaraCore/Makefile.in": {
+      "sha256": "9821c387b5940ec1a84235dbd2a5eaf1b2a1db8aac8d5ed6e7498a765adcf70b",
+      "bytes": 1690
+    },
+    "libElaraCore/README.md": {
+      "sha256": "7f1f1ad2b716c0f0fe2c12c90dc628bd43869dd9a951b30ad1d47accf0c1b172",
+      "bytes": 109
+    },
+    "libElaraCore/UnitTests/main.cpp": {
+      "sha256": "95c2474f1a785f2c63711380ee867d9bc61926df093910f2b1955eb693f8c62a",
+      "bytes": 2385
+    },
+    "libElaraCore/config.h": {
+      "sha256": "c2357e2a8bc5da3221da386e834a62dde616e72634283fb4bc0fe52e51c41d21",
+      "bytes": 2933
+    },
+    "libElaraCore/config.h.in": {
+      "sha256": "e28ee3099e8e4a92841ca0b64716fa65bd6f6eee20297b4f855b1af0c8ec863b",
+      "bytes": 2725
+    },
+    "libElaraCore/configure": {
+      "sha256": "c5b6a10a83a8f59aa0a796d66793b1c371dfffd23536e0927cac7a61731f597f",
+      "bytes": 153179
+    },
+    "libElaraCore/configure.ac": {
+      "sha256": "191524e12414086e46c3f6f709db5f23d24d5c9f66ff42976ae14e8b20310ef3",
+      "bytes": 1786
+    },
+    "libElaraCore/libelaracore/config.h": {
+      "sha256": "c2357e2a8bc5da3221da386e834a62dde616e72634283fb4bc0fe52e51c41d21",
+      "bytes": 2933
+    },
+    "libElaraCore/libelaracore/encoding/Base58.cpp": {
+      "sha256": "5cb5e607d628ac14049fb464f659d08e8c4ccbebda5a73ee5ea0844cffbe75e1",
+      "bytes": 766
+    },
+    "libElaraCore/libelaracore/encoding/Base58.h": {
+      "sha256": "d3fcb80e5b6673afc51b503d5bd8955505ce376f05d9b8f5fd451cadd95803e2",
+      "bytes": 401
+    },
+    "libElaraCore/libelaracore/encoding/impl/base58.cpp": {
+      "sha256": "cc6daccbc8a24952b3212911fc3e90df0dd270cbeb9138e69192c9bad1c087ff",
+      "bytes": 5174
+    },
+    "libElaraCore/libelaracore/encoding/impl/base58.h": {
+      "sha256": "cca0c9c13b698493135a0fd30f59d4dbf605f812a969e53b48f9b7fdb0ccb5e8",
+      "bytes": 642
+    },
+    "libElaraCore/libelaracore/exception/Exception.h": {
+      "sha256": "dc0fc34ab58e78048bb64eac92d5de0d21499effd1ab35d38a908fb06db304c6",
+      "bytes": 1391
+    },
+    "libElaraCore/libelaracore/memory/Array.h": {
+      "sha256": "e5afa4ffa5cfb7bb58e892dd3bad9b12f2b66540bb86a9eb32f405669f4e4857",
+      "bytes": 4148
+    },
+    "libElaraCore/libelaracore/memory/ByteArray.cpp": {
+      "sha256": "1c7fd3fad640b13c366c3182e156fe22e2df226da88bce26e167fe5256ea599e",
+      "bytes": 7749
+    },
+    "libElaraCore/libelaracore/memory/ByteArray.h": {
+      "sha256": "049a991d79eab549a28b5962c98667222beebe9729852c712a30e7f81e641af3",
+      "bytes": 2705
+    },
+    "libElaraCore/libelaracore/memory/DescriptorInstanceMap.h": {
+      "sha256": "1a6f28be86075d21c0177d0d859833e4c5e5bd9a79d3015ca05744ff6b222027",
+      "bytes": 2063
+    },
+    "libElaraCore/libelaracore/memory/HashMap.h": {
+      "sha256": "e8278aa738912078b065ef968a1ec026846761e269acf13dc43b6eb5ed956559",
+      "bytes": 5972
+    },
+    "libElaraCore/libelaracore/memory/IndexedList.h": {
+      "sha256": "497bacf9593b6ce0db172dfbe780467a4113488a0d30af502792473496d53ed2",
+      "bytes": 4826
+    },
+    "libElaraCore/libelaracore/memory/InstancePool.h": {
+      "sha256": "2938b6f344852682e459b1d502601cba9f15785a702dbef756fa5f9ccadab522",
+      "bytes": 5949
+    },
+    "libElaraCore/libelaracore/memory/LinkedList.h": {
+      "sha256": "cc8ec54d55032e3e118e667afdcd0f40b7dd84b426619c7e8810cca7e031d4ad",
+      "bytes": 8956
+    },
+    "libElaraCore/libelaracore/memory/Memory.h": {
+      "sha256": "e67a02afefe91ae0a2419b4d8e15230d002cb13c586a9d2b83ca07c6119a8ef7",
+      "bytes": 4153
+    },
+    "libElaraCore/libelaracore/memory/ObjectArray.h": {
+      "sha256": "8a2cbedcbe74edaac0ec79d73a09425e8bbac563687c8457dab246f2ecf0e142",
+      "bytes": 1625
+    },
+    "libElaraCore/libelaracore/memory/ObjectBlockArray.h": {
+      "sha256": "b3582cd4d8c69fe8b8d70cf6773a40b4e8f6f00d32c392b8c00d2bf61e6745a6",
+      "bytes": 4833
+    },
+    "libElaraCore/libelaracore/memory/Ref.h": {
+      "sha256": "bf8b49cdbd4759e742dc5eb515b0ff8759610ea02f558d44e349fc0f4fcbfc2b",
+      "bytes": 4242
+    },
+    "libElaraCore/libelaracore/memory/RefArray.h": {
+      "sha256": "487581fc7e9bba31947e80f8c5b8711213938ccce3c9ad5deff6a416a98fa20c",
+      "bytes": 553
+    },
+    "libElaraCore/libelaracore/memory/RegularExpression.cpp": {
+      "sha256": "2096ffd2a15aa3aa2db0ede80766b2677e615f730cef47de788fb9241a135e70",
+      "bytes": 896
+    },
+    "libElaraCore/libelaracore/memory/RegularExpression.h": {
+      "sha256": "adafc19971a5631935486566ab6f0d5265bcc4dcb1d4677af500473d905b4197",
+      "bytes": 701
+    },
+    "libElaraCore/libelaracore/memory/RingBuffer.cpp": {
+      "sha256": "8443bcbacdbc2b6f58ea435c120342a2ec7357e626ce0af10ccd82b2c5017d72",
+      "bytes": 2172
+    },
+    "libElaraCore/libelaracore/memory/RingBuffer.h": {
+      "sha256": "37afd5d53d536ef0e4ccb3612f9f38be81f92315205c55eeb10afc494b06f911",
+      "bytes": 964
+    },
+    "libElaraCore/libelaracore/memory/StaticArray.h": {
+      "sha256": "d51b6153cf3fb70161e395956fa887102a30fc956b84b87c94be6b209141407c",
+      "bytes": 1661
+    },
+    "libElaraCore/libelaracore/memory/String.cpp": {
+      "sha256": "a0aa890e6f55ff8a6ef305370715c0004c1aead7fd4a94437e13f5b31e2f8950",
+      "bytes": 11466
+    },
+    "libElaraCore/libelaracore/memory/String.h": {
+      "sha256": "4527e112764506f141d2d5399079e49fbea8bc7c926b1a52d79680bcdea7981a",
+      "bytes": 3749
+    },
+    "libElaraCore/libelaracore/memory/StringList.cpp": {
+      "sha256": "2a1b8af7490bd7ef3a4296de40865a4092a27a733217171fde9de7b11f728426",
+      "bytes": 1764
+    },
+    "libElaraCore/libelaracore/memory/StringList.h": {
+      "sha256": "3fac6c9ed0b15d44cd294f27178785fa11637db4d6ee24fbe6938530f53f022b",
+      "bytes": 874
+    },
+    "libElaraCore/libelaracore/types.h": {
+      "sha256": "e9d29a858bf635d0c55829d5b90fb7ab6400c498cefffe9a8702f82a5aa302d5",
+      "bytes": 525
+    },
+    "libElaraCore/libelaracore/utils/ByteUtils.cpp": {
+      "sha256": "439828e71c5a79a130f55f45d96f2b92a1cfe64299e6c0cef599d5b64ce74209",
+      "bytes": 1506
+    },
+    "libElaraCore/libelaracore/utils/ByteUtils.h": {
+      "sha256": "49afae8e5f09424f484a266512b1201e7b45196e68d2d4543dca6091fc54780c",
+      "bytes": 1322
+    },
+    "libElaraData/Makefile.in": {
+      "sha256": "2137148c184b0fdb9a6df34885ead1b3ed656097d2889d6428185f7a0a4650b3",
+      "bytes": 2411
+    },
+    "libElaraData/Tests/TestModel.cpp": {
+      "sha256": "258237f3f6c208ad21e218e6ba63afb2a81e8aadd75e6fc3e86f546a2bfaa6c5",
+      "bytes": 2682
+    },
+    "libElaraData/Tests/TestModel.h": {
+      "sha256": "d1830c7c22d2e5f22284f77d2c9ff37c115231755c8d0c94fd05fa2529ebb280",
+      "bytes": 592
+    },
+    "libElaraData/Tests/main.cpp": {
+      "sha256": "d9e4e3ef948bc4b3bd97fc845bd4bd307adce6d66ac525a82734b3418593add5",
+      "bytes": 1085
+    },
+    "libElaraData/config.h": {
+      "sha256": "1c7dc5a5a4b0cca404b87ee5817027659d3d2cea9592ee8e6c34aa5f00aa923e",
+      "bytes": 2198
+    },
+    "libElaraData/config.h.in": {
+      "sha256": "191ebae0419b1d4a6f5106022a4f63902ec6d4da84a2661f5160a22d5fe2d025",
+      "bytes": 2012
+    },
+    "libElaraData/configure": {
+      "sha256": "d0e8c65ba6e761ae38e33e1ff1e39bd706490d59f6e8996ec64851c03252182a",
+      "bytes": 151732
+    },
+    "libElaraData/configure.ac": {
+      "sha256": "4f31518f425a75052203f0934779e76daf5626587037b9e2b0d14e5c763b3c3f",
+      "bytes": 1706
+    },
+    "libElaraData/libelaradata/config.h": {
+      "sha256": "1c7dc5a5a4b0cca404b87ee5817027659d3d2cea9592ee8e6c34aa5f00aa923e",
+      "bytes": 2198
+    },
+    "libElaraData/libelaradata/connectors/Connector.cpp": {
+      "sha256": "914ebcfc9debc9bf4175e020d27ceef0aa53dac7c3315d1874216bb29cdc4e05",
+      "bytes": 695
+    },
+    "libElaraData/libelaradata/connectors/Connector.h": {
+      "sha256": "efcb8c3525f310432c745b5bef91edbeb78727cb56b0d0d64cf7c1e0d18bea0b",
+      "bytes": 1157
+    },
+    "libElaraData/libelaradata/connectors/MysqlConnector.cpp": {
+      "sha256": "6cd1a759d91d71fa4a739de7aab97b18543d5251d9f6fb9e07e865597874e48f",
+      "bytes": 2995
+    },
+    "libElaraData/libelaradata/connectors/MysqlConnector.h": {
+      "sha256": "711f4650a28b2d13bcbb288967f98f8949a8db351e3bde32aa7b15619d995330",
+      "bytes": 1132
+    },
+    "libElaraData/libelaradata/connectors/SqliteConnector.cpp": {
+      "sha256": "5e560c81f9f5af4adeeaffbfc84aa0a4201c88809131240f20cbe0d0c7bf1a14",
+      "bytes": 1466
+    },
+    "libElaraData/libelaradata/connectors/SqliteConnector.h": {
+      "sha256": "e871efd0bd793994fe0bde0211b4d2553400353afcbafc83dd5548627b413c36",
+      "bytes": 964
+    },
+    "libElaraData/libelaradata/models/Model.cpp": {
+      "sha256": "6dc147533104753d74d0d5048b8a42820ec8d9f91e946a27a640b984ea6c9ba9",
+      "bytes": 1290
+    },
+    "libElaraData/libelaradata/models/Model.h": {
+      "sha256": "fa3d85a1049097d04239f279a93896f9e7e06b1922fa83a1fb2b995e17c3c9a2",
+      "bytes": 803
+    },
+    "libElaraData/libelaradata/models/Schemas.cpp": {
+      "sha256": "e594653421482c7c444891c3e32b35fa2139484e0791ec56ea9893470303709d",
+      "bytes": 2720
+    },
+    "libElaraData/libelaradata/models/Schemas.h": {
+      "sha256": "8bdf5e4812e3d71e246d25110d831813850cffa1a973cee466bd640aecf53d65",
+      "bytes": 671
+    },
+    "libElaraData/libelaradata/result/ResultSet.cpp": {
+      "sha256": "f12cac15a8296634f37c43caa02effac357cd2cd6baeb5d4a3bf6b3f24d27823",
+      "bytes": 1479
+    },
+    "libElaraData/libelaradata/result/ResultSet.h": {
+      "sha256": "ae500d262e6b796ef558ec1aaca1a3b2d70c904f12d7c81bce233e43350d1da0",
+      "bytes": 932
+    },
+    "libElaraData/libelaradata/result/Row.cpp": {
+      "sha256": "49e6530c7127e00f5cb8ce9e3e6be97537a79fdf5e3d649c510fb5043ddfd1fe",
+      "bytes": 2229
+    },
+    "libElaraData/libelaradata/result/Row.h": {
+      "sha256": "be75144fb863c19c24e503cafe5c1ff60d60af4aa63aa3594dcc98eb8ea6d4a1",
+      "bytes": 1093
+    },
+    "libElaraData/libelaradata/sql/builders/Builder.cpp": {
+      "sha256": "c38bb4bb89d51488331bf39f7405f3da8b6b85d45774737136d37d93dd80cdee",
+      "bytes": 3895
+    },
+    "libElaraData/libelaradata/sql/builders/Builder.h": {
+      "sha256": "fb29320b423baedbc87eeab6b7c3c2c8cfd99303d2cf24ae2ac6e4aa9e95a547",
+      "bytes": 2631
+    },
+    "libElaraData/libelaradata/sql/builders/MysqlBuilder.cpp": {
+      "sha256": "70a9a00ded087dc7bb4bda16f1a182b053d23f1e2697a0dcf7d35417a060cb49",
+      "bytes": 5352
+    },
+    "libElaraData/libelaradata/sql/builders/MysqlBuilder.h": {
+      "sha256": "802dfeca211d6c4f0fa067e6c292725c72679c56a0ea1b158191885491fcd788",
+      "bytes": 951
+    },
+    "libElaraData/libelaradata/sql/builders/SqliteBuilder.cpp": {
+      "sha256": "155878140911065385711970fbbf6d624d3fd2a0fbb81a9860d9fc1a3b71f7e0",
+      "bytes": 1990
+    },
+    "libElaraData/libelaradata/sql/builders/SqliteBuilder.h": {
+      "sha256": "46b21b8459d30eb0a95a4a58a86d4170b41f2f9e48d354f2487b879ef080e311",
+      "bytes": 834
+    },
+    "libElaraData/libelaradata/sql/sections/mysql/AlterTableField.cpp": {
+      "sha256": "1ba92888d45cf80c632dd748a1db360d549460168c7bcd5d3d5bc16ee4f60c06",
+      "bytes": 2293
+    },
+    "libElaraData/libelaradata/sql/sections/mysql/AlterTableField.h": {
+      "sha256": "22229d0b82c7b1709f4f18c5abbcceecbbdb2764c0e890aadbe0bad46d41d861",
+      "bytes": 1211
+    },
+    "libElaraData/libelaradata/sql/sections/mysql/FieldDescriptor.cpp": {
+      "sha256": "e2fe56fee181643c4bf01f8e0253523c133077b0de7947dcecc067ddf93147a9",
+      "bytes": 11772
+    },
+    "libElaraData/libelaradata/sql/sections/mysql/FieldDescriptor.h": {
+      "sha256": "a2d9868fc0ea46c92cd93ffe64233506d0d324a97feeac9252e4e76bb4d9edc3",
+      "bytes": 4549
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Clause.cpp": {
+      "sha256": "704dfedc70568c1a7dd0b5e6bf5b50dc83833863191242f25887f5f2a247f114",
+      "bytes": 1468
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Clause.h": {
+      "sha256": "543d590d6098f47ee428fdf32b72ee59643be50b000e9e30ea6076a617acaca6",
+      "bytes": 1285
+    },
+    "libElaraData/libelaradata/sql/sections/sql/ClauseGroup.cpp": {
+      "sha256": "415710be68a8b7699fd5a060fc26151bf8b8eb192dcdb9bf5076b942bca265bd",
+      "bytes": 1050
+    },
+    "libElaraData/libelaradata/sql/sections/sql/ClauseGroup.h": {
+      "sha256": "60b9c6c0edc9b549b335628ca75ad0986f4f923147852ce16f5fdfb0280cdd6b",
+      "bytes": 767
+    },
+    "libElaraData/libelaradata/sql/sections/sql/ClauseValue.cpp": {
+      "sha256": "92393a83cdd3a570db41433f1d1333bdf69dd14e8bad38d10cc9c22297661d35",
+      "bytes": 1050
+    },
+    "libElaraData/libelaradata/sql/sections/sql/ClauseValue.h": {
+      "sha256": "75ec797c5e16aa09f3e01254892439e704578062fd4e40cd3b0479e87e78aeb1",
+      "bytes": 839
+    },
+    "libElaraData/libelaradata/sql/sections/sql/FieldDescriptor.cpp": {
+      "sha256": "4a3d1da5b96daa22b9f75b105a65fcf0a4828a6ddf79f78292e85c54b95dcab4",
+      "bytes": 397
+    },
+    "libElaraData/libelaradata/sql/sections/sql/FieldDescriptor.h": {
+      "sha256": "2e9b089c5e38b059eeae1131c95f938954f2660d32b40cec23ef3fef6b80d124",
+      "bytes": 1662
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Fields.cpp": {
+      "sha256": "e06a5b2de472c71a632908bad15cb4fccbd11f94e3fcfd7b7615ee5c56ec1d59",
+      "bytes": 978
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Fields.h": {
+      "sha256": "4650e6b820c106f21e0428928a2b1d45cba0c604eb65e871fba4c43afa5fcfc7",
+      "bytes": 720
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Join.cpp": {
+      "sha256": "82488861182bab02878d72496cf226fb5beaeba783958f8daf652c04e3399ecc",
+      "bytes": 706
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Join.h": {
+      "sha256": "81aa79a39dd580b051826fa2544e45ff40f4e6cf82e5a5639cf153712af3f814",
+      "bytes": 722
+    },
+    "libElaraData/libelaradata/sql/sections/sql/OffsetLimit.cpp": {
+      "sha256": "c02ed6c1ae8b2fd46490c9f25f005d54d7f8939a19d05ca4b1d08db1ab898e40",
+      "bytes": 1320
+    },
+    "libElaraData/libelaradata/sql/sections/sql/OffsetLimit.h": {
+      "sha256": "98cde619859fd1dceda1d1dc5eded0fb911068592830f3eca49b7e019ccd35ae",
+      "bytes": 900
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Order.cpp": {
+      "sha256": "4e04f3d0692d4bcf8b427e9f1a2a5dd91e10ac1966f314a2cf0007f33f4c5105",
+      "bytes": 1253
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Order.h": {
+      "sha256": "a864df617981c9ef99cdd1f8b0b6d6e318b0443380ced243618411179081608a",
+      "bytes": 1008
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Values.cpp": {
+      "sha256": "2d946c6662673e5787beda9d51c78f66edb54bc771778ed37b2b7f819dbf934a",
+      "bytes": 2369
+    },
+    "libElaraData/libelaradata/sql/sections/sql/Values.h": {
+      "sha256": "d8680f8932b5f0cb3fd30a444b6e258eaecf74aeccfbb121cdd430ea551957a3",
+      "bytes": 1068
+    },
+    "libElaraData/libelaradata/sql/sections/sqlite/AlterTableField.cpp": {
+      "sha256": "fbfe9d1db54f37544049d9498ee749a9bfc89f1f2d4d78b442d46dfef83f49e5",
+      "bytes": 2247
+    },
+    "libElaraData/libelaradata/sql/sections/sqlite/AlterTableField.h": {
+      "sha256": "5adce952494548eebe8dfa37cbe574517801a191504264c616daa153a9dba949",
+      "bytes": 1253
+    },
+    "libElaraData/libelaradata/sql/sections/sqlite/FieldDescriptor.cpp": {
+      "sha256": "7d6dd8657f4a05c304432a24c7540ee955df7e84d295f95f41c8ce36baaa2883",
+      "bytes": 6810
+    },
+    "libElaraData/libelaradata/sql/sections/sqlite/FieldDescriptor.h": {
+      "sha256": "676b96e2bb4fa306b9e744e2e10df1e1299ebaf242ceeb815d1425dfb1fb9963",
+      "bytes": 3174
+    },
+    "libElaraDebug/Makefile.in": {
+      "sha256": "f94bc19109890867395137381272472eebb382426f05e4962289037783a4bfe8",
+      "bytes": 1720
+    },
+    "libElaraDebug/UnitTest/main.cpp": {
+      "sha256": "ce95b6670d79580ed6f6b9e81b906e103f7bd08f4db4bcc434d8675a9f4296ee",
+      "bytes": 744
+    },
+    "libElaraDebug/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraDebug/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraDebug/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraDebug/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraDebug/libelaradebug/Log.cpp": {
+      "sha256": "79676b85d829099dac58001c95e03929a6d3513b6eb96ee4bede52787ff1532b",
+      "bytes": 3889
+    },
+    "libElaraDebug/libelaradebug/Log.h": {
+      "sha256": "3d03fe376d2fe2d10f31b77803f878ca9f93a1b69c66a8a3040882ae8f6e90aa",
+      "bytes": 2589
+    },
+    "libElaraDebug/libelaradebug/TestArtifactBuilder.cpp": {
+      "sha256": "d6c950527b3e90895024ac791ba7d2b7b001f7822c2ac6571671d0df9d6fcb6d",
+      "bytes": 4871
+    },
+    "libElaraDebug/libelaradebug/TestArtifactBuilder.h": {
+      "sha256": "a43fab4aaf53e566bba16094cf83aeda46a6aa165bc97b0197642efb5b4ec6db",
+      "bytes": 1265
+    },
+    "libElaraDebug/libelaradebug/UnitTests.cpp": {
+      "sha256": "db1969f957070ce439f8c518ba6ac7f8c6091992534f67a2e448a9c9b170a888",
+      "bytes": 3292
+    },
+    "libElaraDebug/libelaradebug/UnitTests.h": {
+      "sha256": "e167b398d67d6dfa4ab5dd1616bbd2f74b5d33f11672fd1fdde54fe58bd0573d",
+      "bytes": 1055
+    },
+    "libElaraDebug/libelaradebug/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraEncryption/Makefile.in": {
+      "sha256": "2f12b8dbb6568d67da66eb0504b1f757a38e29a01a6932a66d67d0422baf601b",
+      "bytes": 1705
+    },
+    "libElaraEncryption/UnitTests/main.cpp": {
+      "sha256": "c3848ee258ae03aaebcb60379aa541164cf584389c90faa95b5e35007435f0c8",
+      "bytes": 1305
+    },
+    "libElaraEncryption/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraEncryption/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraEncryption/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraEncryption/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraEncryption/libElaraUnitTests/libelaraunittests/UnitTestManager.cpp": {
+      "sha256": "f445dfdcd4ccace4b6ef0d9bd9956c1f088cc8698e5da632817d7cf204d63ab7",
+      "bytes": 1324
+    },
+    "libElaraEncryption/libElaraUnitTests/libelaraunittests/UnitTestManager.hpp": {
+      "sha256": "aa54a8d0faaed8f4a6276396ad9c3fe1d84412fc7e1a2426fba52e3c000e9cb1",
+      "bytes": 748
+    },
+    "libElaraEncryption/libelaraencryption/Aes.cpp": {
+      "sha256": "c7217417c6a696b7ce4e35167a73def6d5de110884813e3ce36fc8d5cec4b857",
+      "bytes": 66938
+    },
+    "libElaraEncryption/libelaraencryption/Aes.h": {
+      "sha256": "cf39c2adcdaaffcc202a8093bc04dbf2fb8843b6b7f0f1f6739538283d95e466",
+      "bytes": 4178
+    },
+    "libElaraEncryption/libelaraencryption/Hash.h": {
+      "sha256": "10e1af47f625c9e05add6710e611de79bd807e0e45b919be40fe542c98342a91",
+      "bytes": 1157
+    },
+    "libElaraEncryption/libelaraencryption/Keccak256.h": {
+      "sha256": "f92389144f2edfe983a620eb26253cfbf052cf2e5bf06ed99009c58736e6322e",
+      "bytes": 908
+    },
+    "libElaraEncryption/libelaraencryption/Ripemd160.h": {
+      "sha256": "1ee79a12dcfe2de90f6f386d53369345383c430277858d6e736b1937e1530428",
+      "bytes": 963
+    },
+    "libElaraEncryption/libelaraencryption/Rsa.cpp": {
+      "sha256": "4422cbc5901cf459f2b8a0dc173b605be88b4a34977cc5161ad693adda5f6d3a",
+      "bytes": 4360
+    },
+    "libElaraEncryption/libelaraencryption/Rsa.h": {
+      "sha256": "82c4c4d382418f6a0b12b96378868c61175dd53194b1d8eed16896d9637d67c4",
+      "bytes": 2119
+    },
+    "libElaraEncryption/libelaraencryption/Secp256k1Signer.cpp": {
+      "sha256": "7c7e34ed0b5951df1f5166e8595089bef1bd49cd5a9388daac062fe25b4d0399",
+      "bytes": 2526
+    },
+    "libElaraEncryption/libelaraencryption/Secp256k1Signer.h": {
+      "sha256": "752da457a15f5aa89d9bd99c12d5193995074e9280621cafcb9e3a676a92284a",
+      "bytes": 939
+    },
+    "libElaraEncryption/libelaraencryption/Serpent.cpp": {
+      "sha256": "9342d21388794823cf9bafd6f2ed4935c657e9e8c89b7f6c5f33c6dfe452cac2",
+      "bytes": 8136
+    },
+    "libElaraEncryption/libelaraencryption/Serpent.h": {
+      "sha256": "fda5856306bb6fa6cb379b811752dbcaab13673758a4b928d17588ea80e27d75",
+      "bytes": 1626
+    },
+    "libElaraEncryption/libelaraencryption/Sha256.h": {
+      "sha256": "39ddcf096a9c5235e8890f10567a595ad8ffee6f083c1e8171d0b9e34103a5c3",
+      "bytes": 1745
+    },
+    "libElaraEncryption/libelaraencryption/base/Cipher.cpp": {
+      "sha256": "5d7c52d4e44b72a5c08746e88efd5d4f2037c9f291efb340ed4fb490633e4e02",
+      "bytes": 974
+    },
+    "libElaraEncryption/libelaraencryption/base/Cipher.h": {
+      "sha256": "c1d17bbbc26bbb5940f453ecf3afe94220933d7c583645ba5dc7b84223230800",
+      "bytes": 1586
+    },
+    "libElaraEncryption/libelaraencryption/base/Signer.cpp": {
+      "sha256": "c2fb913a152e37c0c522fae7ace368166b1cf1f796b885187c176702f6f4ec16",
+      "bytes": 197
+    },
+    "libElaraEncryption/libelaraencryption/base/Signer.h": {
+      "sha256": "c1206834ef6d8961a0de746555cab38e5a744ff0adf50ebf37e75e5a8d5c632f",
+      "bytes": 513
+    },
+    "libElaraEncryption/libelaraencryption/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraEncryption/libelaraencryption/keccak256/keccak256.cpp": {
+      "sha256": "dc76c36f2df08609b4ca0aea14aa8215a9be19d740b2489024e40364991d055f",
+      "bytes": 7830
+    },
+    "libElaraEncryption/libelaraencryption/keccak256/keccak256.h": {
+      "sha256": "d3a2f37bf6e0186098082186f0ef307450f84f51303bd5ace0e93c6504b930a1",
+      "bytes": 1766
+    },
+    "libElaraEncryption/libelaraencryption/ripemd160/ripemd160.cpp": {
+      "sha256": "05b46eb27e11676eb10d49eb265df232fdf12f912f842ec2fe021a9104147e78",
+      "bytes": 10178
+    },
+    "libElaraEncryption/libelaraencryption/ripemd160/ripemd160.h": {
+      "sha256": "6532bdb05642436675206c61cf55b972e69c44d45f8e373b6d3d36ae8b66643c",
+      "bytes": 726
+    },
+    "libElaraEncryption/libelaraencryption/twofish/platform.h": {
+      "sha256": "2a5700a193dc1e1f49a3bacf6a7a0e8034cb456dcd8a77a8714fc36da9ac5f45",
+      "bytes": 2455
+    },
+    "libElaraEncryption/libelaraencryption/twofish/table.h": {
+      "sha256": "06bfbaf83eb0a45f5da1b2198b14a71f4eed62065aac332adf082b4a8d53f85b",
+      "bytes": 9179
+    },
+    "libElaraEncryption/libelaraencryption/twofish/twofish2.cpp": {
+      "sha256": "e7e682e8900e4e344df67ba357205a514c9e9101b243c162b1b90ceeccd2b17d",
+      "bytes": 35484
+    },
+    "libElaraEncryption/libelaraencryption/twofish/twofish2.h": {
+      "sha256": "91d97337206f636611349f1df1714e03fd5756ceb7747721b49765e83ff6caca",
+      "bytes": 9957
+    },
+    "libElaraEncryption/libelaraencryption/twofish.cpp": {
+      "sha256": "50247d5b61f98e380eff5d2b23c15717599ef0f948bc04c1d24e2cb38cc19793",
+      "bytes": 1408
+    },
+    "libElaraEncryption/libelaraencryption/twofish.h": {
+      "sha256": "7b7cf60f8963aecfc137f9d11e859491c66760c70213faeaa8f9a502d8714400",
+      "bytes": 540
+    },
+    "libElaraEvent/Makefile.in": {
+      "sha256": "cc48990233aed71c9191a89468ccd1cc107675f865406a652fb9d1bc771c1eb0",
+      "bytes": 1720
+    },
+    "libElaraEvent/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraEvent/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraEvent/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraEvent/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraEvent/libelaraevent/EventBase.cpp": {
+      "sha256": "44127d4a9dd411f72a1499a575a5c476f6233566fcac9e8384acb63004086b82",
+      "bytes": 1190
+    },
+    "libElaraEvent/libelaraevent/EventBase.h": {
+      "sha256": "34da4914446136992b68ac6fab1b89d86a611ec5abf2719c9c7d7764fd5641f5",
+      "bytes": 1037
+    },
+    "libElaraEvent/libelaraevent/Timer.cpp": {
+      "sha256": "0086b4b4808d3dd2114631512fd5cf18385210f866022a84708f38d57d0d1e85",
+      "bytes": 1160
+    },
+    "libElaraEvent/libelaraevent/Timer.h": {
+      "sha256": "d8068bbe21abc23a5383453b01f522ca0791fb91bce915e050ebfec8e35e3c34",
+      "bytes": 806
+    },
+    "libElaraEvent/libelaraevent/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraFormat/Makefile.in": {
+      "sha256": "3f2c347a1426aa4126fac384c8d44e403ed182c4b2143ca45d80950b723ad12c",
+      "bytes": 1840
+    },
+    "libElaraFormat/README.md": {
+      "sha256": "44b1f138cab6f5478e674da11c61abca4b3015282ea2edeebaae7cf09855b710",
+      "bytes": 451
+    },
+    "libElaraFormat/UnitTests/main.cpp": {
+      "sha256": "806b7a7b29ffebcfe3616074ab81e535c356cb7a2a09cb95a031e6c44e4352d8",
+      "bytes": 29026
+    },
+    "libElaraFormat/config.h": {
+      "sha256": "fb89a00cd5f0195c6582c3f5562cfa155835a0e35af2a9e0ca08dc0f71a2fb97",
+      "bytes": 2998
+    },
+    "libElaraFormat/config.h.in": {
+      "sha256": "2aa208a0ac4d8e077e83b52cd5796ea530e0adb061c81e8e9b3551400b8a605e",
+      "bytes": 2787
+    },
+    "libElaraFormat/configure": {
+      "sha256": "f3b240f563a1262eb01ea3ad7eb5bea8bba795a9c38e747c91b1a13c561c39a8",
+      "bytes": 153501
+    },
+    "libElaraFormat/configure.ac": {
+      "sha256": "25ea8021532f391d7499b3cb11c11b0edb7d82f4781fb3e143831f661eaa9202",
+      "bytes": 2065
+    },
+    "libElaraFormat/libelaraformat/Csv.cpp": {
+      "sha256": "6bb829585a2ca96fc330f67ee28238f2f31d083d83f293956cf1f79c50ca66f3",
+      "bytes": 1060
+    },
+    "libElaraFormat/libelaraformat/Csv.h": {
+      "sha256": "6e002fd3cb1e823d369f2fb41e83bf3bf3f48b8f37dc97169dbd1e906f3e43b8",
+      "bytes": 687
+    },
+    "libElaraFormat/libelaraformat/Xml.cpp": {
+      "sha256": "41d264620f4c9ecce4c581e7e4288e6260e815963f57e116b15ebe048f053469",
+      "bytes": 3325
+    },
+    "libElaraFormat/libelaraformat/Xml.h": {
+      "sha256": "baa5f893537ed5890f4b0af9db28685f34b3745ec3df55da91726677b0ed329a",
+      "bytes": 1264
+    },
+    "libElaraFormat/libelaraformat/config.h": {
+      "sha256": "fb89a00cd5f0195c6582c3f5562cfa155835a0e35af2a9e0ca08dc0f71a2fb97",
+      "bytes": 2998
+    },
+    "libElaraFormat/libelaraformat/json/Json.cpp": {
+      "sha256": "90b781e21ed8fc6ebfd95267c73473c392a1111ed6200e3e53a81ee53125e77b",
+      "bytes": 4225
+    },
+    "libElaraFormat/libelaraformat/json/Json.h": {
+      "sha256": "d247da37c0946efcdffe97d65a3d84ecda5057f22fa727bd9dd32f53f47441ed",
+      "bytes": 1135
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonArray.cpp": {
+      "sha256": "30ae71d041b4040314bc02d42a7c4efd3e91b7ed7c90b8ee4e37c89d04c8e2cd",
+      "bytes": 4274
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonArray.h": {
+      "sha256": "0bd9c11da689120bd41bffb95ef6d78aab1ab090818502afb2417ec954a5ecfd",
+      "bytes": 787
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonInvalid.cpp": {
+      "sha256": "9badf64936bab03ffd931532ad70424e8b49e08e806a76e6db9855ace4fc80cd",
+      "bytes": 604
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonInvalid.h": {
+      "sha256": "c96d5ea226716b80c41832a2d44fb2742f556fe281dfa2526eba1fddcfc863ad",
+      "bytes": 598
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonNumber.cpp": {
+      "sha256": "cce6953e69c4c8955174579082a7b8e5dcbf036d176dc514d32730012d84170a",
+      "bytes": 691
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonNumber.h": {
+      "sha256": "a62821a48db82e73a8469b569cfdcbc3631056b917f521481a4b6e672cc2b529",
+      "bytes": 621
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonObject.cpp": {
+      "sha256": "6bf3040d505a7e9e7523c593fec2471fb5294ea1c1644c72bdb2b40e19e4f8e6",
+      "bytes": 5950
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonObject.h": {
+      "sha256": "7e79660787c2545cafd40b5e7a2d31aa129b2368a2bfbdffd9bbe2040ead255f",
+      "bytes": 1025
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonString.cpp": {
+      "sha256": "c5a175e6bec16682a4cea0ec7e690e6dd6e45185a7364fd395993afee3c0a1ac",
+      "bytes": 697
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonString.h": {
+      "sha256": "6a4e3cb09ed0c7d3132365ce171f0d84776d8e4f2089749b5753996f0eae572b",
+      "bytes": 626
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonValue.cpp": {
+      "sha256": "62cb75544eb968e2e8062a5299d1d15f38593fb9c06b2fd2856e4035be47bf7f",
+      "bytes": 1448
+    },
+    "libElaraFormat/libelaraformat/json/types/JsonValue.h": {
+      "sha256": "e128c214dff55c17fe1eee2a6447288fc1e1991eca5e40409a80b4867fab5d57",
+      "bytes": 766
+    },
+    "libElaraIO/Makefile.in": {
+      "sha256": "64966f6c945cc94625889ebc8ad5ba530ff7c72d7101e356a099d7e5eed45dc9",
+      "bytes": 1717
+    },
+    "libElaraIO/UnitTests/main.cpp": {
+      "sha256": "e9c9014b0dececbfb0c9ad8e2291098105fd499c63056c73d623412598df4ce6",
+      "bytes": 726
+    },
+    "libElaraIO/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraIO/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraIO/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraIO/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraIO/libelaraio/File.cpp": {
+      "sha256": "b360950f70ba49bbb36f1a33156cca01d3cce79b0215af550b3a5d404cce6810",
+      "bytes": 4472
+    },
+    "libElaraIO/libelaraio/File.h": {
+      "sha256": "92d643ce09ac78e3fe3a82fd52c00372f737b4dd8d78a7bc6d00a4addf042505",
+      "bytes": 1233
+    },
+    "libElaraIO/libelaraio/FileStream.cpp": {
+      "sha256": "00856632b87b38334e4d0f63ca963da85cf93a9528a099dcd4105acaccc45a2c",
+      "bytes": 1599
+    },
+    "libElaraIO/libelaraio/FileStream.h": {
+      "sha256": "2948eacea0bd74d5062bde3ac64603f26054b31feb54336ab8a128fc4a746310",
+      "bytes": 877
+    },
+    "libElaraIO/libelaraio/IndexedDataStore.cpp": {
+      "sha256": "5449e743a1691f15d0d9dbca50fbc66f3ac109bce9192167629942b405b8bdf7",
+      "bytes": 24227
+    },
+    "libElaraIO/libelaraio/IndexedDataStore.h": {
+      "sha256": "0702794eae722de1da6e10a8cffd326e275e3705577c406cc83b6685171454b7",
+      "bytes": 5238
+    },
+    "libElaraIO/libelaraio/Stream.cpp": {
+      "sha256": "1c0a3aed625ff63e3ee670e65d3013a1c55a7defd25b73eb6f7f3d92e8acfa64",
+      "bytes": 1784
+    },
+    "libElaraIO/libelaraio/Stream.h": {
+      "sha256": "6aab41f9a3d7d4690ca2ba9176e9b85ebeb13dd42690ebdfc13d74fe5689b27a",
+      "bytes": 1511
+    },
+    "libElaraIO/libelaraio/StringStreamReader.cpp": {
+      "sha256": "ca1e9329c96f65a34cdb6cb3712583db4b1e138d6abe40bbd88df1e805d21501",
+      "bytes": 2221
+    },
+    "libElaraIO/libelaraio/StringStreamReader.h": {
+      "sha256": "e4996c471ca3ac704916ad51110d7ffc1ad6608f01be4f408ecb1e0e3f70cb6b",
+      "bytes": 1658
+    },
+    "libElaraIO/libelaraio/TextStream.h": {
+      "sha256": "5dca033d000a07324c02fb2fca7f72bbcce4bec8c41b104a72d397ecf3234819",
+      "bytes": 2430
+    },
+    "libElaraIO/libelaraio/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraSerializer/Makefile.in": {
+      "sha256": "36c1bc30a9f077565895a4ec7d2854ccb5e4f845b3ec66b849082af451d58f1e",
+      "bytes": 1970
+    },
+    "libElaraSerializer/config.h": {
+      "sha256": "aedc6b44c1597175df6dcc49052bcd8f2749fda7618e54cb2756c859571bae23",
+      "bytes": 683
+    },
+    "libElaraSerializer/config.h.in": {
+      "sha256": "78f20aeade2268d49cfba5e4bd6785f0afe9ca9da0a03f4f8336e7bdc5b96766",
+      "bytes": 539
+    },
+    "libElaraSerializer/configure": {
+      "sha256": "bf6ec0eb99ab71b6ed6281dc9fd1eba9002d08552a5dcb1945c2219858ede4b6",
+      "bytes": 144023
+    },
+    "libElaraSerializer/configure.ac": {
+      "sha256": "824731f6605a11bab85702adbcad9de085564ee19f830ba96e5d2a03addb6eb2",
+      "bytes": 894
+    },
+    "libElaraSerializer/elaraserializer/LinkedList.h": {
+      "sha256": "a4c13b4def3416b82b8adb9a38aff94c6f1830738672ec65aa095eacf36e3d56",
+      "bytes": 3071
+    },
+    "libElaraSerializer/elaraserializer/Serializable.cpp": {
+      "sha256": "02b9c7d37ed9993dad58e09895f042612f3674b451b1f8d4a84adc586d19e540",
+      "bytes": 8880
+    },
+    "libElaraSerializer/elaraserializer/Serializable.h": {
+      "sha256": "b4af603d55d6f3eadd3bf002e51c8de868f67a8c75c6dca95cc45cfa9f7218f1",
+      "bytes": 2955
+    },
+    "libElaraSerializer/elaraserializer/SerializableString.cpp": {
+      "sha256": "0474628cce1d9edc73673d07cac4deefe3ae4be46fd7b97d89345ec147586716",
+      "bytes": 1487
+    },
+    "libElaraSerializer/elaraserializer/SerializableString.h": {
+      "sha256": "84ed9010c470460554a6c3f205b9fcdfb0740df14a07fc090ac5b5d4569caa98",
+      "bytes": 1213
+    },
+    "libElaraSerializer/elaraserializer/config.h": {
+      "sha256": "aedc6b44c1597175df6dcc49052bcd8f2749fda7618e54cb2756c859571bae23",
+      "bytes": 683
+    },
+    "libElaraSockets/Makefile.in": {
+      "sha256": "19a2fb717c864288aa4e7ff2c33e7de6e444b1a989fb203e42074766ea2e0691",
+      "bytes": 1702
+    },
+    "libElaraSockets/UnitTests/DataLoopServer/Client.cpp": {
+      "sha256": "13970993ef0d146ce67fbf77093c0c2761d5bd7af0398217a7f8f0882f14209b",
+      "bytes": 941
+    },
+    "libElaraSockets/UnitTests/DataLoopServer/Client.h": {
+      "sha256": "b9a953e382515bc9657464f59b9f61f56714415d27b6958de9c0ced78863676e",
+      "bytes": 559
+    },
+    "libElaraSockets/UnitTests/DataLoopServer/Server.cpp": {
+      "sha256": "d7dc660c35e17886775797e34bf2a2ab3d709782ba6cfc930b61f7dfd541d79b",
+      "bytes": 604
+    },
+    "libElaraSockets/UnitTests/DataLoopServer/Server.h": {
+      "sha256": "91d1e85bd8b0fb26b6d86d971ca50682b560afd5574878d299b9fae086012b47",
+      "bytes": 614
+    },
+    "libElaraSockets/UnitTests/Sock5ProxyServer/Server.cpp": {
+      "sha256": "a551c3f17dee14350e23e836b9990d04cc002e32667ea34a8c5f505dce7819ed",
+      "bytes": 1043
+    },
+    "libElaraSockets/UnitTests/Sock5ProxyServer/Server.h": {
+      "sha256": "8a9c4c7ca84ece0aefc30a23a6e75cf8fbcd1b5eefb65a9c7049c73a094d59c4",
+      "bytes": 784
+    },
+    "libElaraSockets/UnitTests/main.cpp": {
+      "sha256": "8fc87d2f5052f53c32fdf149fd01e00eff1f5b6106a2b8c2788f8b4528a42b83",
+      "bytes": 1683
+    },
+    "libElaraSockets/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraSockets/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraSockets/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraSockets/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraSockets/libelarasockets/Address.cpp": {
+      "sha256": "07866dc23727d3b13373aadff19aa8492f9d6326fe222472aeece3623dea9172",
+      "bytes": 3251
+    },
+    "libElaraSockets/libelarasockets/Address.h": {
+      "sha256": "300592ab69bec83cd8374cc13ac355ae083b9ee9a8bca3a84d069de4975d11ae",
+      "bytes": 1127
+    },
+    "libElaraSockets/libelarasockets/Listener.cpp": {
+      "sha256": "bc987712f1ad29efbfca370f4071cbf225dbb86515258874905dac166baaf3ab",
+      "bytes": 8992
+    },
+    "libElaraSockets/libelarasockets/Listener.h": {
+      "sha256": "4cb08c43a251da6547b9d803023ea560f7e0903551886c90515075c7d4988479",
+      "bytes": 2949
+    },
+    "libElaraSockets/libelarasockets/Socket.cpp": {
+      "sha256": "9b72510349cf7f91725bf568c7b4a099c4b9fdf005a7fbf159eb9235dc13fcbb",
+      "bytes": 6802
+    },
+    "libElaraSockets/libelarasockets/Socket.h": {
+      "sha256": "e64844f5d50012f6ef2e9208d5956dc6817dcbe61ffb6dd2d73a5194a3d2839a",
+      "bytes": 2328
+    },
+    "libElaraSockets/libelarasockets/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraSockets/libelarasockets/socks5/BlockLoaders/UsernamePasswordLoader.cpp": {
+      "sha256": "e92ee443a21b930211311161a9667ca807125c9807f1eccf763457a96048d45a",
+      "bytes": 2759
+    },
+    "libElaraSockets/libelarasockets/socks5/BlockLoaders/UsernamePasswordLoader.h": {
+      "sha256": "5c2b944602869cacc39de0d8890cdfb706774b3ee229b2ec84e1bbad5b8843ed",
+      "bytes": 971
+    },
+    "libElaraSockets/libelarasockets/socks5/ClientSocket.cpp": {
+      "sha256": "7fadc561467e49ff2ef390995daa767a9f9720d2504a1f85a4c5591a78572704",
+      "bytes": 1445
+    },
+    "libElaraSockets/libelarasockets/socks5/ClientSocket.h": {
+      "sha256": "4b6f6121277997c3ff943f1ecb9ac06e267f8aad883fae4faa6f4d703777f1a6",
+      "bytes": 729
+    },
+    "libElaraSockets/libelarasockets/socks5/Scoks5Client.cpp": {
+      "sha256": "c62ecb361b0f1371150135b0e5e79215d314f9642f082ed7a3a5a240f4f53434",
+      "bytes": 484
+    },
+    "libElaraSockets/libelarasockets/socks5/Scoks5Client.h": {
+      "sha256": "822ba7aae320b482718c0961621de883b8fc903215292c4bb8626703661b2c17",
+      "bytes": 629
+    },
+    "libElaraSockets/libelarasockets/socks5/Socks5Server.cpp": {
+      "sha256": "b454cfd5d1c2c4993bb56772686a8dbb5cbddcf57929e3b30469dddf93b1bf46",
+      "bytes": 9156
+    },
+    "libElaraSockets/libelarasockets/socks5/Socks5Server.h": {
+      "sha256": "6e5dd503a99c7c68dff55727822b5e6c617b2efa0b2c3e8d2c180484d1725daf",
+      "bytes": 1957
+    },
+    "libElaraSockets/libelarasockets/socks5/Structures.h": {
+      "sha256": "f745ab13ecfbf85b9b3f4e643966b638fc5f1726582e41d5d00c6ffe7dcfbd8e",
+      "bytes": 1945
+    },
+    "libElaraSockets/libelarasockets/utils/BlockLoaderBase.cpp": {
+      "sha256": "53706b4f83c796c6b447e1a484e5adb92a369d77fcf8e4f783f54e79bc9c9f8b",
+      "bytes": 407
+    },
+    "libElaraSockets/libelarasockets/utils/BlockLoaderBase.h": {
+      "sha256": "55afd9faedbe6dfd7aee281d678a8657237393e1023cc1c0d4e4181671d9b440",
+      "bytes": 634
+    },
+    "libElaraThreads/Makefile.in": {
+      "sha256": "c10905c7235f97ddc2961607d3739e48c615174fa691983975f0c513bcebb957",
+      "bytes": 1702
+    },
+    "libElaraThreads/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraThreads/config.h.in": {
+      "sha256": "4e5ecde1a8cae7bff0a8f56fbd20b08d1bd2b3c4cc439f8fbc2025c3d560bcd4",
+      "bytes": 2945
+    },
+    "libElaraThreads/configure": {
+      "sha256": "7d716e02b7b6d447b07a539c58312741a4052b8da55ce93b1ac5577e4fa55bc0",
+      "bytes": 154480
+    },
+    "libElaraThreads/configure.ac": {
+      "sha256": "144e6e34679fa059eaf388654d277a7623a2f87571424d77d69659b4f1b42f2c",
+      "bytes": 2750
+    },
+    "libElaraThreads/libelarathreads/HighResTimer.cpp": {
+      "sha256": "88d8da3c405644889afad67dc2040ad05a5ec6ea90d213732019f0f6fcd1256d",
+      "bytes": 1130
+    },
+    "libElaraThreads/libelarathreads/HighResTimer.h": {
+      "sha256": "6c96c37a2ed7239365dd984afd3bc9a3968103348e6eb00a4db9f74add87b32e",
+      "bytes": 766
+    },
+    "libElaraThreads/libelarathreads/Mutex.cpp": {
+      "sha256": "41f2816058f51548f6fb3fc644f51ca15a0452f01846320bb0d12fee682ad2b9",
+      "bytes": 4549
+    },
+    "libElaraThreads/libelarathreads/Mutex.h": {
+      "sha256": "687ad76a10e9b0c2caca9fa17b1dca8bd62d7782fc4087894e02b4af53402132",
+      "bytes": 2137
+    },
+    "libElaraThreads/libelarathreads/Semaphore.cpp": {
+      "sha256": "23bdcdca5b4418ccef47e9bb9ff7487dfa2dcfe9763071f6bdcc04e5fe8e31d9",
+      "bytes": 1846
+    },
+    "libElaraThreads/libelarathreads/Semaphore.h": {
+      "sha256": "09f1a8d70a69558cf85b1fcb16f4c18abc8830ad2358b0375a98fd14d3f4f947",
+      "bytes": 1536
+    },
+    "libElaraThreads/libelarathreads/Task.cpp": {
+      "sha256": "02036345ee665a99190c38edb1f8001f84d1a3105222c394d7c86ddaacb8571f",
+      "bytes": 4510
+    },
+    "libElaraThreads/libelarathreads/Task.h": {
+      "sha256": "9228269c2281b23530d99fd4deaf334855f309c43a217d192a853ebf061ed76c",
+      "bytes": 2407
+    },
+    "libElaraThreads/libelarathreads/TaskMutex.cpp": {
+      "sha256": "2f473ed4acc62cfb1e27665c6846acea88f98d1ab0798bd4ca9b4942fe0b7418",
+      "bytes": 1734
+    },
+    "libElaraThreads/libelarathreads/TaskMutex.h": {
+      "sha256": "9f6c1c2f461f6fe45e6a7f9eadb0a7d9bc0bf143a566f3e4455e1cc70485b272",
+      "bytes": 1767
+    },
+    "libElaraThreads/libelarathreads/Thread.cpp": {
+      "sha256": "95de6eef230cba880e963a617c2532d815a256158453d2cb84a542e30cb43417",
+      "bytes": 9976
+    },
+    "libElaraThreads/libelarathreads/Thread.h": {
+      "sha256": "0acd6d278889de89e6bf42a41355ca9e3926a5be7ff291f05e8318b94586ddd8",
+      "bytes": 3631
+    },
+    "libElaraThreads/libelarathreads/ThreadSafeObject.h": {
+      "sha256": "2528e06b043a00e7641c790c2f0e29652dfe0b9500ab2f9cdce28f77db30e687",
+      "bytes": 747
+    },
+    "libElaraThreads/libelarathreads/ThreadWaitCondition.cpp": {
+      "sha256": "b40f580230ca68fe711ec879c69223f36801a158e9409538b3b50f1da6bc1bb9",
+      "bytes": 2053
+    },
+    "libElaraThreads/libelarathreads/ThreadWaitCondition.h": {
+      "sha256": "7c15aaed88f60b7eb3688cb72d43c1c4a071837b75430aaa331d5d4e8e964405",
+      "bytes": 1622
+    },
+    "libElaraThreads/libelarathreads/config.h": {
+      "sha256": "9bfdc9f10814da8330859ee105b61cbe72a2acba9bba252ed78d39dce0745c8b",
+      "bytes": 3171
+    },
+    "libElaraThreads/libelarathreads/memory/Ref.h": {
+      "sha256": "a5f451fb6fbae57f22b264432b8a4ae54cce1930efa17b96583c8e269be145bc",
+      "bytes": 3104
+    },
+    "run_valgrind_unit_tests.sh": {
+      "sha256": "5885b8c8d91e3121ba68f72c3313ee3e602a803b88e9408e2f059dedd1bbc535",
+      "bytes": 1060
+    }
+  }
+}

@@ -22,8 +22,8 @@
 // For affordable commercial licensing please contact nyhl@ngrawlings.com
 //
 
-#ifndef __nrcore__Serializable__
-#define __nrcore__Serializable__
+#ifndef __elara__Serializable__
+#define __elara__Serializable__
 
 #include "LinkedList.h"
 #include <libelaracore/memory/Ref.h>
@@ -83,4 +83,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__nrcore__Serializable__) */
+#endif /* defined(__elara__Serializable__) */

@@ -6,8 +6,8 @@
 //  Copyright © 2020 Liquidsoft Studio. All rights reserved.
 //
 
-#ifndef nrcore_File_hpp
-#define nrcore_File_hpp
+#ifndef elara_File_hpp
+#define elara_File_hpp
 
 #include <stdio.h>
 #define FILE_BUFFER_SIZE        4096
@@ -53,4 +53,4 @@ namespace elara {
     
 };
 
-#endif /* nrcore_File_hpp */
+#endif /* elara_File_hpp */

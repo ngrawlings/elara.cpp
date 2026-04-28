@@ -1,0 +1,15 @@
+{
+  "name": "elara.cpp",
+  "local_dir": "/home/nyhl/workspace/elara.cpp",
+  "server": "https://repository.deltamux.com",
+  "remote_root": "/projects/elarasoft/elara.cpp",
+  "current_branch": "main",
+  "rpc": true,
+  "timeout": 30,
+  "read_password": "private",
+  "write_password": "TheRiseOfTruth",
+  "include_local_access": false,
+  "ignore_file": ".pbignore",
+  "app": "Pure Path Project Manager",
+  "version": "0.1"
+}

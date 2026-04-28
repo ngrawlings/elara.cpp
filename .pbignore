@@ -1,0 +1,14 @@
+.git/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+build/
+dist/
+artifacts/
+autom4te.cache/
+*.log
+*~
+*.status
+Makefile

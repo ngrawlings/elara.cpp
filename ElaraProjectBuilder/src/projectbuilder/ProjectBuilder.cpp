@@ -45,10 +45,9 @@ namespace elara {
         printf("Project generated at %s\n", options.output_directory.operator char *());
         printf("Next steps:\n");
         printf("  cd %s\n", options.output_directory.operator char *());
-        printf("  autoreconf -fi\n");
-        printf("  ./configure\n");
-        printf("  make\n");
+        printf("  ./build.sh\n");
         printf("  make lint\n");
+        printf("  sudo ./install.sh\n");
         return true;
     }
 
@@ -68,7 +67,14 @@ namespace elara {
         }
 
         options.include_repl = promptYesNo("Include REPL client", true);
-        options.include_socket_server = promptYesNo("Include socket server", false);
+        options.socket_mode = promptSocketMode();
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+            options.socket_address = promptString("Socket bind address", "0.0.0.0");
+            options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
+        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            options.socket_address = promptString("Socket remote address", "127.0.0.1");
+            options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
+        }
         options.include_thread_pool = promptYesNo("Include thread pool", false);
         options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
 
@@ -76,8 +82,8 @@ namespace elara {
             options.worker_name = promptString("Worker class name", projectClassPrefix(options.project_name) + "WorkerTask");
         }
 
-        if (options.include_socket_server && !options.include_thread_pool) {
-            printf("Socket server support requires a thread pool to run alongside the REPL. Enabling it.\n");
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED && !options.include_thread_pool) {
+            printf("Socket support requires a thread pool. Enabling it.\n");
             options.include_thread_pool = true;
         }
 
@@ -87,6 +93,34 @@ namespace elara {
         }
 
         return options;
+    }
+
+    ProjectOptions::SocketMode ProjectBuilder::promptSocketMode() {
+        char buffer[64];
+
+        while (true) {
+            printf("Socket mode [n]one/[s]erver/[c]lient: ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) {
+                return ProjectOptions::SOCKET_DISABLED;
+            }
+
+            size_t len = strlen(buffer);
+            while (len && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+                buffer[--len] = 0;
+            }
+
+            if (!len || buffer[0] == 'n' || buffer[0] == 'N') {
+                return ProjectOptions::SOCKET_DISABLED;
+            }
+            if (buffer[0] == 's' || buffer[0] == 'S') {
+                return ProjectOptions::SOCKET_SERVER;
+            }
+            if (buffer[0] == 'c' || buffer[0] == 'C') {
+                return ProjectOptions::SOCKET_CLIENT;
+            }
+
+            printf("Please answer n, s, or c.\n");
+        }
     }
 
     void ProjectBuilder::normalizeOptions(ProjectOptions &options) {
@@ -102,7 +136,15 @@ namespace elara {
         }
         options.worker_name = sanitizeClassName(options.worker_name, "GeneratedWorkerTask");
 
-        if (options.include_socket_server || options.include_threaded_worker) {
+        if (!options.socket_address.length()) {
+            options.socket_address = options.socket_mode == ProjectOptions::SOCKET_CLIENT ? String("127.0.0.1") : String("0.0.0.0");
+        }
+
+        if (options.socket_port <= 0 || options.socket_port > 65535) {
+            options.socket_port = 4040;
+        }
+
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED || options.include_threaded_worker) {
             options.include_thread_pool = true;
         }
     }
@@ -159,6 +201,8 @@ namespace elara {
     bool ProjectBuilder::createProjectFiles(const ProjectOptions &options, Array<PROJECT_FILE> &files) {
         addFile(files, "configure.ac", renderConfigureAc(options));
         addFile(files, "Makefile.in", renderMakefileIn(options));
+        addFile(files, "build.sh", renderBuildScript(options));
+        addFile(files, "install.sh", renderInstallScript(options));
         addFile(files, "README.md", renderReadme(options));
         addFile(files, "ELARA_AGENT_API.md", loadAgentReference());
         addFile(files, "src/main.cpp", renderMainCpp(options));
@@ -168,10 +212,14 @@ namespace elara {
             addFile(files, joinPath("src", options.worker_name + ".cpp"), renderWorkerCpp(options));
         }
 
-        if (options.include_socket_server) {
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             String server_name = projectClassPrefix(options.project_name) + "SocketServer";
             addFile(files, joinPath("src", server_name + ".h"), renderSocketServerHeader(options));
             addFile(files, joinPath("src", server_name + ".cpp"), renderSocketServerCpp(options));
+        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+            addFile(files, joinPath("src", client_name + ".h"), renderSocketClientHeader(options));
+            addFile(files, joinPath("src", client_name + ".cpp"), renderSocketClientCpp(options));
         }
 
         return true;
@@ -207,7 +255,7 @@ namespace elara {
         contents += "ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include\n";
         contents += "ELARA_LIB_DIR?=$(ELARA_ROOT)/lib\n";
         contents += "ELARA_BIN_DIR?=$(ELARA_ROOT)/bin\n";
-        contents += "ELARA_CPP_LINT?=$(ELARA_BIN_DIR)/elara.cpp-lint\n";
+        contents += "ELARA_CPP_LINT?=/usr/local/bin/elara.cpp-lint\n";
         contents += "PREFIX?=$(abspath ./dist)\n";
         contents += "BIN_DIR?=$(PREFIX)/bin\n";
         contents += "BUILD_PROFILE?=release\n";
@@ -255,7 +303,7 @@ namespace elara {
         contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
         contents += "lint:\n";
         contents += "\t@if [ ! -x \"$(ELARA_CPP_LINT)\" ]; then \\\n";
-        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Build ElaraCppLint in the framework root first.\"; \\\n";
+        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Install ElaraCppLint or set ELARA_CPP_LINT=/path/to/elara.cpp-lint.\"; \\\n";
         contents += "\t\texit 1; \\\n";
         contents += "\tfi\n";
         contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n\n";
@@ -275,6 +323,49 @@ namespace elara {
         return contents;
     }
 
+    String ProjectBuilder::renderBuildScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+        contents += "BUILD_PROFILE=\"${BUILD_PROFILE:-release}\"\n\n";
+        contents += "autoreconf -fi\n";
+        contents += "./configure\n";
+        contents += "make BUILD_PROFILE=\"${BUILD_PROFILE}\" \"$@\"\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderInstallScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+        contents += "BUILD_PROFILE=\"${BUILD_PROFILE:-release}\"\n";
+        contents += "INSTALL_PREFIX=\"${INSTALL_PREFIX:-/usr/local}\"\n";
+        contents += "TARGET_NAME=\"";
+        contents += options.target_name;
+        contents += "\"\n";
+        contents += "BUILD_TARGET=\"$ROOT_DIR/build/${TARGET_NAME}\"\n\n";
+        contents += "if [[ \"${1:-}\" == \"--remove\" ]]; then\n";
+        contents += "  echo \"Removing from ${INSTALL_PREFIX}...\"\n";
+        contents += "  make remove BUILD_PROFILE=\"${BUILD_PROFILE}\" PREFIX=\"${INSTALL_PREFIX}\"\n";
+        contents += "  exit 0\n";
+        contents += "fi\n\n";
+        contents += "if [[ ! -x \"$BUILD_TARGET\" ]]; then\n";
+        contents += "  echo \"Missing built binary $BUILD_TARGET. Run ./build.sh first, then rerun this installer.\"\n";
+        contents += "  exit 1\n";
+        contents += "fi\n\n";
+        contents += "echo \"Installing into ${INSTALL_PREFIX}...\"\n";
+        contents += "make install BUILD_PROFILE=\"${BUILD_PROFILE}\" PREFIX=\"${INSTALL_PREFIX}\"\n";
+        return contents;
+    }
+
     String ProjectBuilder::renderReadme(const ProjectOptions &options) {
         String contents;
 
@@ -285,8 +376,22 @@ namespace elara {
         contents += "Selected features:\n";
         contents += "- REPL client: ";
         contents += options.include_repl ? "yes\n" : "no\n";
-        contents += "- Socket server: ";
-        contents += options.include_socket_server ? "yes\n" : "no\n";
+        contents += "- Socket mode: ";
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+            contents += "server\n";
+        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "client\n";
+        } else {
+            contents += "disabled\n";
+        }
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+            contents += "- Socket address: ";
+            contents += options.socket_address;
+            contents += "\n";
+            contents += "- Socket port: ";
+            contents += String(options.socket_port);
+            contents += "\n";
+        }
         contents += "- Thread pool: ";
         contents += options.include_thread_pool ? "yes\n" : "no\n";
         contents += "- Threaded worker: ";
@@ -297,21 +402,24 @@ namespace elara {
             contents += "\n";
         }
         contents += "\nBuild steps:\n";
-        contents += "1. `autoreconf -fi`\n";
-        contents += "2. `./configure`\n";
-        contents += "3. `make`\n";
-        contents += "4. `make lint`\n";
+        contents += "1. `./build.sh`\n";
+        contents += "2. `make lint`\n";
+        contents += "3. `sudo ./install.sh` to install the already-built binary under `/usr/local`\n";
+        contents += "4. `sudo ./install.sh --remove` to remove the installed binary\n";
         contents += "\nBuild profiles:\n";
         contents += "- `make BUILD_PROFILE=release` for fast optimized builds\n";
         contents += "- `make BUILD_PROFILE=debug` for easier debugging\n";
         contents += "- `make BUILD_PROFILE=asan` for address/UB sanitizer runs\n";
+        contents += "- `BUILD_PROFILE=debug ./build.sh` and `BUILD_PROFILE=debug ./install.sh` use the same profile via the helper scripts\n";
+        contents += "- `install.sh` does not build; it expects artifacts from `./build.sh`\n";
         contents += "\nLinting:\n";
         contents += "- `make lint` runs `elara.cpp-lint` against `./src`\n";
-        contents += "- the generated project expects the linter at `$(ELARA_ROOT)/bin/elara.cpp-lint`\n";
+        contents += "- the generated project expects the linter at `/usr/local/bin/elara.cpp-lint` by default\n";
+        contents += "- override this with `ELARA_CPP_LINT=/path/to/elara.cpp-lint make lint` if needed\n";
         contents += "- current policy allows primitives, safe Elara value types (`String`, `Memory`, `ByteArray`), plus `Ref`, `RefArray`, and `elara::threading::memory::Ref`\n";
         contents += "- permissable rules are expected to evolve over time as the framework policy is refined\n";
         contents += "\nBy default the project links against Elara staged at `../build`.\n";
-        contents += "Override this with `ELARA_ROOT=/path/to/elara/build make` if needed.\n";
+        contents += "Override this with `ELARA_ROOT=/path/to/elara/build make` or `ELARA_ROOT=/usr/local make` if needed.\n";
         contents += "Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.\n";
         return contents;
     }
@@ -321,7 +429,17 @@ namespace elara {
         String asset;
 
         if (executable_dir.length() && executable_dir != String(".")) {
+            asset = readTextFile(joinPath(joinPath(joinPath(executable_dir, ".."), "share/elara-project-builder"), "ELARA_AGENT_API.md"));
+            if (asset.length()) {
+                return asset;
+            }
+
             asset = readTextFile(joinPath(joinPath(executable_dir, "elara-project-builder-assets"), "ELARA_AGENT_API.md"));
+            if (asset.length()) {
+                return asset;
+            }
+
+            asset = readTextFile(joinPath(joinPath(executable_dir, ".."), "assets/ELARA_AGENT_API.md"));
             if (asset.length()) {
                 return asset;
             }
@@ -361,6 +479,7 @@ namespace elara {
     String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {
         String contents;
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
+        String client_name = projectClassPrefix(options.project_name) + "SocketClient";
 
         contents += "#include <stdio.h>\n";
         contents += "#include <string.h>\n";
@@ -369,12 +488,23 @@ namespace elara {
             contents += "#include <libelarathreads/Thread.h>\n";
             contents += "#include <libelarathreads/Task.h>\n";
         }
+        if (options.include_threaded_worker || options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+            contents += "#include <libelaracore/memory/Ref.h>\n";
+        }
         if (options.include_threaded_worker) {
             contents += "#include \"";
             contents += options.worker_name;
             contents += ".h\"\n";
         }
-        if (options.include_socket_server) {
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "#include <libelaraevent/EventBase.h>\n";
+            contents += "#include <libelarasockets/Socket.h>\n";
+            contents += "#include <unistd.h>\n";
+            contents += "#include \"";
+            contents += client_name;
+            contents += ".h\"\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             contents += "#include \"";
             contents += server_name;
             contents += ".h\"\n";
@@ -388,24 +518,59 @@ namespace elara {
         if (options.include_threaded_worker) {
             contents += "    printf(\"  work <text> - queue the worker task\\n\");\n";
         }
-        if (options.include_socket_server) {
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             contents += "    printf(\"  status - display thread pool state\\n\");\n";
         }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "    printf(\"  send <text> - send text to the remote socket\\n\");\n";
+        }
         contents += "}\n\n";
-        contents += "int main(int argc, const char *argv[]) {\n";
-        contents += "    (void)argc;\n";
-        contents += "    (void)argv;\n\n";
+        contents += "int main() {\n\n";
         if (options.include_thread_pool) {
             contents += "    Thread::pool = true;\n";
+            contents += "    Task::staticInit();\n";
             contents += "    Thread::init(4);\n";
             contents += "    printf(\"Thread pool initialised with 4 worker threads.\\n\");\n\n";
         }
-        if (options.include_socket_server) {
-            contents += "    ";
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+            contents += "    Ref<";
             contents += server_name;
-            contents += " socket_server;\n";
-            contents += "    socket_server.start(4040);\n";
-            contents += "    printf(\"Socket server started on port 4040.\\n\");\n\n";
+            contents += "> socket_server = Ref<";
+            contents += server_name;
+            contents += ">(new ";
+            contents += server_name;
+            contents += "());\n";
+            contents += "    socket_server->start(";
+            contents += String(options.socket_port);
+            contents += ", String(\"";
+            contents += options.socket_address;
+            contents += "\"));\n";
+            contents += "    printf(\"Socket server started on ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += ".\\n\");\n\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
+            contents += "    Socket::init(event_base.getPtr());\n";
+            contents += "    event_base->runEventLoop(true);\n";
+            contents += "    Ref<";
+            contents += client_name;
+            contents += "> socket_client = Ref<";
+            contents += client_name;
+            contents += ">(new ";
+            contents += client_name;
+            contents += "(String(\"";
+            contents += options.socket_address;
+            contents += "\"), ";
+            contents += String(options.socket_port);
+            contents += "));\n";
+            contents += "    printf(\"Socket client connecting to ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += ".\\n\");\n\n";
         }
         if (options.include_repl) {
             contents += "    printHelp();\n";
@@ -417,7 +582,7 @@ namespace elara {
             contents += "        if (!fgets(line, sizeof(line), stdin)) {\n";
             contents += "            break;\n";
             contents += "        }\n";
-            contents += "        String command(line);\n";
+            contents += "        String command = String(line);\n";
             contents += "        command = command.trim();\n";
             contents += "        if (!command.length()) {\n";
             contents += "            continue;\n";
@@ -429,7 +594,7 @@ namespace elara {
             contents += "        if (command == String(\"quit\") || command == String(\"exit\")) {\n";
             contents += "            break;\n";
             contents += "        }\n";
-            if (options.include_socket_server) {
+            if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
                 contents += "        if (command == String(\"status\")) {\n";
                 contents += "            int total = 0;\n";
                 contents += "            int active = 0;\n";
@@ -438,22 +603,35 @@ namespace elara {
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
+            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+                contents += "        if (command.startsWith(\"send \")) {\n";
+                contents += "            socket_client->sendLine(command.substr(5));\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+            }
             if (options.include_threaded_worker) {
                 contents += "        if (command.startsWith(\"work \")) {\n";
-                contents += "            ";
+                contents += "            Ref<";
                 contents += options.worker_name;
-                contents += " *task = new ";
+                contents += "> task = Ref<";
                 contents += options.worker_name;
-                contents += "(command.substr(5));\n";
-                contents += "            Task::queueTask(task);\n";
+                contents += ">(new ";
+                contents += options.worker_name;
+                contents += "(command.substr(5)));\n";
+                contents += "            Task::queueTask(task.getPtr());\n";
                 contents += "            printf(\"Queued worker task.\\n\");\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
             contents += "        printf(\"Unhandled command: %s\\n\", command.operator char *());\n";
             contents += "    }\n";
-        } else if (options.include_socket_server) {
+        } else if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             contents += "    printf(\"Server running. Press Ctrl+C to stop.\\n\");\n";
+            contents += "    while (true) {\n";
+            contents += "        sleep(1);\n";
+            contents += "    }\n";
+        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "    printf(\"Client running. Press Ctrl+C to stop.\\n\");\n";
             contents += "    while (true) {\n";
             contents += "        sleep(1);\n";
             contents += "    }\n";
@@ -463,12 +641,17 @@ namespace elara {
             contents += " generated successfully. Add your application logic here.\\n\");\n";
         }
         contents += "\n";
-        if (options.include_socket_server) {
-            contents += "    socket_server.stop();\n";
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+            contents += "    socket_server->stop();\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "    event_base->breakEventLoop();\n";
+            contents += "    socket_client->close();\n";
         }
         if (options.include_thread_pool) {
             contents += "    Thread::stopAllThreads();\n";
             contents += "    Thread::staticCleanUp();\n";
+            contents += "    Task::staticCleanup();\n";
         }
         contents += "    return 0;\n";
         contents += "}\n";
@@ -554,7 +737,7 @@ namespace elara {
         contents += "    virtual ~";
         contents += server_name;
         contents += "();\n";
-        contents += "    void start(unsigned short port);\n\n";
+        contents += "    void start(int port, elara::String address);\n\n";
         contents += "protected:\n";
         contents += "    virtual void onNewConnection(elara::EventBase *event_base, int fd, unsigned char *addr, int addr_sz);\n";
         contents += "};\n\n";
@@ -569,6 +752,7 @@ namespace elara {
         contents += "#include \"";
         contents += server_name;
         contents += ".h\"\n\n";
+        contents += "#include <arpa/inet.h>\n";
         contents += "#include <stdio.h>\n";
         contents += "#include <string.h>\n";
         contents += "#include <unistd.h>\n";
@@ -585,8 +769,12 @@ namespace elara {
         contents += "}\n\n";
         contents += "void ";
         contents += server_name;
-        contents += "::start(unsigned short port) {\n";
-        contents += "    listen(port, LISTENER_OPTS_IPV4 | LISTENER_OPTS_IPV4_REQUIRED);\n";
+        contents += "::start(int port, elara::String address) {\n";
+        contents += "    unsigned int ipv4_interface = INADDR_ANY;\n";
+        contents += "    if (address.length() && address != String(\"0.0.0.0\") && address != String(\"*\")) {\n";
+        contents += "        ipv4_interface = inet_addr(address.operator char *());\n";
+        contents += "    }\n";
+        contents += "    listen(port, LISTENER_OPTS_IPV4 | LISTENER_OPTS_IPV4_REQUIRED, ipv4_interface);\n";
         contents += "    runEventLoop(true);\n";
         contents += "}\n\n";
         contents += "void ";
@@ -595,12 +783,89 @@ namespace elara {
         contents += "    (void)event_base;\n";
         contents += "    (void)addr;\n";
         contents += "    (void)addr_sz;\n";
-        contents += "    const char *message = \"";
+        contents += "    send(fd, \"";
         contents += options.project_name;
-        contents += " accepted your connection.\\n\";\n";
-        contents += "    send(fd, message, strlen(message), 0);\n";
+        contents += " accepted your connection.\\n\", strlen(\"";
+        contents += options.project_name;
+        contents += " accepted your connection.\\n\"), 0);\n";
         contents += "    ::close(fd);\n";
         contents += "    printf(\"Accepted and closed a socket client.\\n\");\n";
+        contents += "}\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderSocketClientHeader(const ProjectOptions &options) {
+        String contents;
+        String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+
+        contents += "#ifndef ";
+        contents += client_name;
+        contents += "_h\n";
+        contents += "#define ";
+        contents += client_name;
+        contents += "_h\n\n";
+        contents += "#include <libelarasockets/Socket.h>\n";
+        contents += "#include <libelaracore/memory/String.h>\n\n";
+        contents += "class ";
+        contents += client_name;
+        contents += " : public elara::Socket {\n";
+        contents += "public:\n";
+        contents += "    ";
+        contents += client_name;
+        contents += "(elara::String address, int port);\n";
+        contents += "    virtual ~";
+        contents += client_name;
+        contents += "();\n";
+        contents += "    void sendLine(elara::String text);\n\n";
+        contents += "protected:\n";
+        contents += "    virtual void onReceive();\n";
+        contents += "    virtual void onWriteReady();\n";
+        contents += "};\n\n";
+        contents += "#endif\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderSocketClientCpp(const ProjectOptions &options) {
+        String contents;
+        String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+
+        contents += "#include \"";
+        contents += client_name;
+        contents += ".h\"\n\n";
+        contents += "#include <libelarasockets/Address.h>\n";
+        contents += "#include <libelaracore/memory/Memory.h>\n";
+        contents += "#include <stdio.h>\n\n";
+        contents += client_name;
+        contents += "::";
+        contents += client_name;
+        contents += "(elara::String address, int port) : Socket() {\n";
+        contents += "    if (!connect(Address(Address::ADDR, address.operator char *()), port)) {\n";
+        contents += "        printf(\"Failed to connect to %s:%u\\n\", address.operator char *(), (unsigned int)port);\n";
+        contents += "    }\n";
+        contents += "}\n\n";
+        contents += client_name;
+        contents += "::~";
+        contents += client_name;
+        contents += "() {\n";
+        contents += "}\n\n";
+        contents += "void ";
+        contents += client_name;
+        contents += "::sendLine(elara::String text) {\n";
+        contents += "    text += String(\"\\n\");\n";
+        contents += "    send(text.operator char *(), (size_t)text.length());\n";
+        contents += "}\n\n";
+        contents += "void ";
+        contents += client_name;
+        contents += "::onReceive() {\n";
+        contents += "    Memory data = read((int)available());\n";
+        contents += "    if (data.length()) {\n";
+        contents += "        fwrite(data.operator char *(), 1, (size_t)data.length(), stdout);\n";
+        contents += "        fflush(stdout);\n";
+        contents += "    }\n";
+        contents += "}\n\n";
+        contents += "void ";
+        contents += client_name;
+        contents += "::onWriteReady() {\n";
         contents += "}\n";
         return contents;
     }
@@ -617,6 +882,10 @@ namespace elara {
                 return false;
             }
             if (!writeTextFile(output_path, files[i].contents)) {
+                return false;
+            }
+            if (files[i].path.endsWith(".sh") && chmod(output_path.operator char *(), 0755) != 0) {
+                printf("Failed to mark %s executable: %s\n", output_path.operator char *(), strerror(errno));
                 return false;
             }
         }
@@ -783,7 +1052,7 @@ namespace elara {
     String ProjectBuilder::buildElaraLibFlags(const ProjectOptions &options) {
         String flags;
 
-        if (options.include_socket_server) {
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
             flags += "-lelarasockets -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
         } else if (options.include_thread_pool) {
             flags += "-lelarathreads -lelaracore";
@@ -797,7 +1066,7 @@ namespace elara {
     String ProjectBuilder::buildSystemLibFlags(const ProjectOptions &options) {
         String flags;
 
-        if (options.include_socket_server) {
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
             flags += "-levent -levent_pthreads -pthread";
         } else if (options.include_thread_pool) {
             flags += "-pthread";

@@ -1,0 +1,15 @@
+{
+  "format": "pure-path-project-bug",
+  "version": 1,
+  "bug_id": "BUG-00001",
+  "title": "make install does not seem to work correctly, ask codex to have it install to /usr/local(bin/lib/include)",
+  "description": "Feature",
+  "severity": "high",
+  "status": "open",
+  "author": "nyhl",
+  "host": "sbc01",
+  "created_utc": "2026-04-28T15:38:23Z",
+  "updated_utc": "2026-04-28T15:38:23Z",
+  "linked_commits": [],
+  "comments": []
+}

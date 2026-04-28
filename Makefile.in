@@ -13,7 +13,8 @@ PROJECT_DIRS := \
 	ElaraProjectBuilder \
 	ElaraCppLint
 
-ROOT_BUILD_DIR := $(abspath ./build)
+ROOT_BUILD_DIR ?= $(abspath ./build)
+INSTALL_ROOT_DIR ?= /usr/local
 BUILD_PROJECTS := @BUILD_PROJECTS@
 DISABLED_PROJECTS := @DISABLED_PROJECTS@
 LIBELARADATA_CONFIGURE_FLAGS := @LIBELARADATA_CONFIGURE_FLAGS@
@@ -46,6 +47,7 @@ endif
 
 CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac),$(dir)))
 BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
+PROFILE_STAMP := .build-profile
 
 .PHONY: all clean install remove cleanconf list preflight $(PROJECT_DIRS)
 
@@ -85,13 +87,19 @@ $(PROJECT_DIRS):
 		(cd "$@" && ./configure $$configure_args); \
 	fi
 	@if [ -f "$@/Makefile" ]; then \
+		if [ -d "$@/build" ] && { [ ! -f "$@/build/$(PROFILE_STAMP)" ] || [ "$$(cat "$@/build/$(PROFILE_STAMP)")" != "$(BUILD_PROFILE)" ]; }; then \
+			echo "Cleaning $@ due to BUILD_PROFILE change"; \
+			$(MAKE) -C $@ clean ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
+		fi; \
 		$(MAKE) -C $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" && \
+		mkdir -p "$@/build" && \
+		printf '%s\n' "$(BUILD_PROFILE)" > "$@/build/$(PROFILE_STAMP)" && \
 		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)"; \
 	else \
 		echo "Skipping $@: no Makefile available after configure"; \
 	fi
 
-clean install remove cleanconf:
+clean cleanconf:
 	@for dir in $(BUILD_PROJECTS); do \
 		if [ -f "$$dir/configure.ac" ]; then \
 			configure_args=""; \
@@ -110,9 +118,24 @@ clean install remove cleanconf:
 			$(MAKE) -C $$dir $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
 		fi; \
 	done
-	@if [ "$@" = "remove" ]; then \
-		rm -rf "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib" "$(ROOT_BUILD_DIR)/bin"; \
-	fi
+
+install:
+	@for dir in $(BUILD_PROJECTS); do \
+		if [ -f "$$dir/Makefile" ]; then \
+			$(MAKE) -C $$dir install ROOT_BUILD_DIR="$(INSTALL_ROOT_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
+		else \
+			echo "Skipping $$dir install: no Makefile available"; \
+		fi; \
+	done
+
+remove:
+	@for dir in $(BUILD_PROJECTS); do \
+		if [ -f "$$dir/Makefile" ]; then \
+			$(MAKE) -C $$dir remove ROOT_BUILD_DIR="$(INSTALL_ROOT_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
+		else \
+			echo "Skipping $$dir remove: no Makefile available"; \
+		fi; \
+	done
 
 list:
 	@echo "Project order: $(PROJECT_DIRS)"
@@ -125,4 +148,5 @@ list:
 	@echo "Link flags: $(TOOLCHAIN_LDFLAGS)"
 	@echo "Configurable: $(CONFIGURE_DIRS)"
 	@echo "Buildable now: $(BUILDABLE_DIRS)"
-	@echo "Stage root: $(ROOT_BUILD_DIR)"
+	@echo "Build stage root: $(ROOT_BUILD_DIR)"
+	@echo "Install root: $(INSTALL_ROOT_DIR)"

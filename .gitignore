@@ -29,8 +29,10 @@
 *~
 *.swp
 *.swo
+*.log
 .DS_Store
 autom4te.cache
+build
 
 /artifacts
 

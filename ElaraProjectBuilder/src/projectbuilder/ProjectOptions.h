@@ -7,22 +7,31 @@ namespace elara {
 
     class ProjectOptions {
     public:
+        enum SocketMode {
+            SOCKET_DISABLED,
+            SOCKET_SERVER,
+            SOCKET_CLIENT
+        };
+
         ProjectOptions() :
             include_repl(true),
-            include_socket_server(false),
+            socket_mode(SOCKET_DISABLED),
             include_thread_pool(false),
-            include_threaded_worker(false) {
+            include_threaded_worker(false),
+            socket_port(4040) {
         }
 
         String project_name;
         String target_name;
         String output_directory;
         String worker_name;
+        String socket_address;
 
         bool include_repl;
-        bool include_socket_server;
+        SocketMode socket_mode;
         bool include_thread_pool;
         bool include_threaded_worker;
+        int socket_port;
     };
 
 }
