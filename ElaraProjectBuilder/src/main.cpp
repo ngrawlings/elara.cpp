@@ -114,6 +114,11 @@ int main(int argc, const char *argv[]) {
     bool saw_generation_option = false;
     bool saw_socket_address = false;
     bool saw_socket_port = false;
+    bool saw_name = false;
+    bool saw_target = false;
+    bool saw_output = false;
+    bool saw_worker_name = false;
+    bool saw_worker_flag = false;
 
     builder.setExecutablePath(resolveExecutablePath(argv[0]));
     options = builder.defaultOptions();
@@ -143,6 +148,7 @@ int main(int argc, const char *argv[]) {
                 return 1;
             }
             options.project_name = String(value);
+            saw_name = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -154,6 +160,7 @@ int main(int argc, const char *argv[]) {
                 return 1;
             }
             options.target_name = String(value);
+            saw_target = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -166,6 +173,7 @@ int main(int argc, const char *argv[]) {
             }
             options.output_directory = String(value);
             builder.setDefaultOutputDirectory(options.output_directory);
+            saw_output = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -200,6 +208,8 @@ int main(int argc, const char *argv[]) {
             }
             options.worker_name = String(value);
             options.include_threaded_worker = true;
+            saw_worker_name = true;
+            saw_worker_flag = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -211,6 +221,7 @@ int main(int argc, const char *argv[]) {
                 fprintf(stderr, "Invalid value for --worker: %s\n", value ? value : "");
                 return 1;
             }
+            saw_worker_flag = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -269,6 +280,18 @@ int main(int argc, const char *argv[]) {
 
     if (interactive && !saw_generation_option) {
         return builder.runInteractive() ? 0 : 1;
+    }
+
+    if (saw_name) {
+        if (!saw_target) {
+            options.target_name = options.project_name;
+        }
+        if (!saw_output) {
+            options.output_directory = options.project_name;
+        }
+        if (!saw_worker_name && (!saw_worker_flag || options.include_threaded_worker)) {
+            options.worker_name = options.project_name + "WorkerTask";
+        }
     }
 
     if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {

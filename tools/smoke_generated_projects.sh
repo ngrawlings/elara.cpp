@@ -39,6 +39,55 @@ build_builder() {
     -o "${BUILDER_BIN}"
 }
 
+assert_cli_contract() {
+  local help_output=""
+  local error_output=""
+  local invalid_output=""
+  local temp_dir="${TMP_ROOT}/cli-contract"
+
+  help_output="$("${BUILDER_BIN}" --help)"
+  if [[ "${help_output}" != *"Usage:"* || "${help_output}" != *"--socket-mode <none|server|client>"* ]]; then
+    echo "Builder help output is missing expected content" >&2
+    exit 1
+  fi
+
+  if "${BUILDER_BIN}" --port 4040 >"${TMP_ROOT}/cli-port.stdout" 2>"${TMP_ROOT}/cli-port.stderr"; then
+    echo "Builder accepted --port without socket mode" >&2
+    exit 1
+  fi
+  error_output="$(cat "${TMP_ROOT}/cli-port.stderr")"
+  if [[ "${error_output}" != *"--address and --port require --socket-mode server or --socket-mode client"* ]]; then
+    echo "Builder returned the wrong error for port without socket mode" >&2
+    exit 1
+  fi
+
+  if "${BUILDER_BIN}" --socket-mode server --port >"${TMP_ROOT}/cli-missing-port.stdout" 2>"${TMP_ROOT}/cli-missing-port.stderr"; then
+    echo "Builder accepted missing --port value" >&2
+    exit 1
+  fi
+  error_output="$(cat "${TMP_ROOT}/cli-missing-port.stderr")"
+  if [[ "${error_output}" != *"Missing value for --port"* ]]; then
+    echo "Builder returned the wrong error for missing --port value" >&2
+    exit 1
+  fi
+
+  if "${BUILDER_BIN}" --bogus >"${TMP_ROOT}/cli-bogus.stdout" 2>"${TMP_ROOT}/cli-bogus.stderr"; then
+    echo "Builder accepted an unknown flag" >&2
+    exit 1
+  fi
+  invalid_output="$(cat "${TMP_ROOT}/cli-bogus.stderr")"
+  if [[ "${invalid_output}" != *"Unknown option: --bogus"* ]]; then
+    echo "Builder returned the wrong error for an unknown flag" >&2
+    exit 1
+  fi
+
+  "${BUILDER_BIN}" --non-interactive --output "${temp_dir}" --name CliContract --target cli-contract-app --repl yes
+  if [[ ! -f "${temp_dir}/src/main.cpp" ]]; then
+    echo "Builder failed to generate a project in non-interactive mode" >&2
+    exit 1
+  fi
+}
+
 assert_real_agent_doc() {
   local project_dir="$1"
 
@@ -102,6 +151,7 @@ exercise_project() {
 }
 
 build_builder
+assert_cli_contract
 
 exercise_project \
   plain \

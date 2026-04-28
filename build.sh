@@ -131,6 +131,13 @@ run_matrix() {
   ./configure
 }
 
+run_smoke() {
+  echo "Running framework smoke validation..."
+  autoreconf -fi
+  ./configure
+  make smoke BUILD_PROFILE="${BUILD_PROFILE:-release}"
+}
+
 case "${1:-interactive}" in
   interactive)
     run_interactive
@@ -138,8 +145,11 @@ case "${1:-interactive}" in
   --matrix)
     run_matrix
     ;;
+  --smoke)
+    run_smoke
+    ;;
   *)
-    echo "Usage: $0 [interactive|--matrix]" >&2
+    echo "Usage: $0 [interactive|--matrix|--smoke]" >&2
     exit 1
     ;;
 esac

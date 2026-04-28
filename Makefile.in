@@ -48,8 +48,9 @@ endif
 CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac),$(dir)))
 BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
 BUILD_STATE_FILE := .build-state
+SMOKE_SCRIPT := ./tools/smoke_generated_projects.sh
 
-.PHONY: all clean install remove cleanconf list preflight $(PROJECT_DIRS)
+.PHONY: all clean install remove cleanconf list preflight smoke smoke-project-builder-cli $(PROJECT_DIRS)
 
 all: preflight $(BUILD_PROJECTS)
 
@@ -146,6 +147,12 @@ remove:
 			echo "Skipping $$dir remove: no Makefile available"; \
 		fi; \
 	done
+
+smoke: all
+	@$(SMOKE_SCRIPT)
+
+smoke-project-builder-cli: all
+	@$(SMOKE_SCRIPT)
 
 list:
 	@echo "Project order: $(PROJECT_DIRS)"

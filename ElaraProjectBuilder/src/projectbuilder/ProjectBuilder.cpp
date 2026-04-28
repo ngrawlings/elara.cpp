@@ -19,7 +19,7 @@ namespace elara {
 
         options.project_name = "ElaraReplClient";
         options.target_name = sanitizeTargetName(options.project_name, "elara-app");
-        options.output_directory = default_output_directory.length() ? default_output_directory : options.target_name;
+        options.output_directory = default_output_directory.length() ? default_output_directory : options.project_name;
         options.worker_name = projectClassPrefix(options.project_name) + "WorkerTask";
         options.socket_address = "0.0.0.0";
 
@@ -65,14 +65,19 @@ namespace elara {
 
     ProjectOptions ProjectBuilder::promptOptions() {
         ProjectOptions options = defaultOptions();
+        String project_name_default = options.project_name;
+        String target_name_default;
+        String output_directory_default;
 
         printf("Elara Project Builder\n");
         printf("=====================\n");
 
-        options.project_name = promptString("Project name", options.project_name);
-        options.target_name = promptString("Executable name", sanitizeTargetName(options.project_name, "elara-app"));
+        options.project_name = promptString("Project name", project_name_default);
+        target_name_default = sanitizeTargetName(options.project_name, "elara-app");
+        options.target_name = promptString("Executable name", target_name_default);
 
-        options.output_directory = promptString("Output directory", options.output_directory.length() ? options.output_directory : options.target_name);
+        output_directory_default = default_output_directory.length() ? default_output_directory : options.project_name;
+        options.output_directory = promptString("Output directory", output_directory_default);
 
         options.include_repl = promptYesNo("Include REPL client", true);
         options.socket_mode = promptSocketMode();
@@ -330,7 +335,7 @@ namespace elara {
         contents += "\t@mv $(BUILD_STATE_TMP) $(BUILD_STATE_FILE)\n\n";
         contents += "$(TARGET): $(OBJECTS)\n";
         contents += "\t$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)\n\n";
-        contents += "build/src/%.o: prepare-build\n";
+        contents += "build/src/%.o: ./src/%.cpp prepare-build\n";
         contents += "\t@mkdir -p $(dir $@)\n";
         contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
         contents += "lint:\n";
