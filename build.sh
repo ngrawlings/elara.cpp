@@ -17,12 +17,19 @@ PROJECT_FLAGS=(
   "libelarasockets"
   "libelaraserializer"
   "elaraunittests"
+  "elaraprojectbuilder"
 )
 
 FEATURE_FLAGS=(
   "mysql"
   "sqlite"
   "xml"
+)
+
+BUILD_PROFILES=(
+  "release"
+  "debug"
+  "asan"
 )
 
 prompt_yes_no() {
@@ -43,6 +50,7 @@ prompt_yes_no() {
 run_interactive() {
   local -a configure_args=()
   local flag
+  local profile="release"
 
   echo "Select build options."
 
@@ -59,6 +67,18 @@ run_interactive() {
   done
 
   echo
+  echo "Choose build profile."
+  echo "  1. release - fast optimized build"
+  echo "  2. debug   - debug symbols, easier debugging"
+  echo "  3. asan    - AddressSanitizer + UndefinedBehaviorSanitizer"
+  select profile in "${BUILD_PROFILES[@]}"; do
+    if [[ -n "${profile:-}" ]]; then
+      break
+    fi
+    echo "Please choose a valid profile number."
+  done
+
+  echo
   echo "Running autoreconf..."
   autoreconf -fi
 
@@ -70,7 +90,7 @@ run_interactive() {
   fi
 
   echo "Running make..."
-  make
+  make BUILD_PROFILE="$profile"
 }
 
 run_matrix() {

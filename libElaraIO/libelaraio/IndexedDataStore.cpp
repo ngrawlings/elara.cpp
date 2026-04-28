@@ -414,6 +414,7 @@ namespace elara {
     }
 
     bool IndexedDataStore::convertDescriptorListToBankMap(Memory key) {
+        const unsigned long long bank_map_flag = 0x8000000000000000ULL;
         Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> desc = getUserDecriptor();
         
         for (int i=0; i<key.length(); i++) {
@@ -425,24 +426,26 @@ namespace elara {
         if (desc.getPtr()->descriptor.range_start == 0) { // We will only convert a descriptor list to a bank map if we have a lowest possible descriptor
             Memory mem(sizeof(BANK_MAP));
             BANK_MAP *bmap = (BANK_MAP*)mem.operator char *();
-            memset(&bmap, 0, sizeof(BANK_MAP));
+            memset(bmap, 0, sizeof(BANK_MAP));
             bmap->magic_flag = MAGIC_FLAG_BANK_MAP;
 
             Ref<LOADED_INDEX_DESCRIPTOR> next;
+            unsigned long long next_offset = desc.getPtr()->descriptor.next_index_descriptor;
 
             unsigned long long file_offset = file.length();
 
-            if (!(desc.getPtr()->descriptor.next_index_descriptor && 0x8000000000000000)) {
-                desc.getPtr()->descriptor.next_index_descriptor = file_offset | 0x8000000000000000;
+            if ((next_offset & bank_map_flag) == 0) {
+                desc.getPtr()->descriptor.next_index_descriptor = file_offset | bank_map_flag;
                 updateIndexDescriptor(desc);
 
                 bmap->banks[0] = desc.getPtr()->offset;
-                while (desc.getPtr()->descriptor.next_index_descriptor) {
-                    next = loadIndexDescriptor(desc.getPtr()->descriptor.next_index_descriptor);
+                while (next_offset) {
+                    next = loadIndexDescriptor(next_offset);
                     int bank_slot = next.getPtr()->descriptor.range_start/BANK_SIZE;
                     bmap->banks[bank_slot] = next.getPtr()->offset;
 
-                    next.getPtr()->descriptor.next_index_descriptor = file_offset | 0x8000000000000000;
+                    next_offset = next.getPtr()->descriptor.next_index_descriptor;
+                    next.getPtr()->descriptor.next_index_descriptor = file_offset | bank_map_flag;
                     updateIndexDescriptor(next);
                 }
 
@@ -568,7 +571,7 @@ namespace elara {
             ret[i] = list.get(i);
         }
 
-        return RefArray(ret);
+        return RefArray<int>(ret);
     }
 
 }

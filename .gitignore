@@ -31,6 +31,8 @@
 *.swo
 .DS_Store
 
+/artifacts
+
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile
 /libElaraCore/autom4te.cache/
@@ -154,3 +156,12 @@
 /ElaraUnitTests/libtool
 /ElaraUnitTests/stamp-h1
 /ElaraUnitTests/build/
+
+/ElaraProjectBuilder/Makefile
+/ElaraProjectBuilder/autom4te.cache/
+/ElaraProjectBuilder/config.log
+/ElaraProjectBuilder/config.status
+/ElaraProjectBuilder/configure
+/ElaraProjectBuilder/libtool
+/ElaraProjectBuilder/stamp-h1
+/ElaraProjectBuilder/build/

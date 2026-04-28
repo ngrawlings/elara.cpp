@@ -12,6 +12,7 @@ AC_ARG_ENABLE([libelaradata], [AS_HELP_STRING([--disable-libelaradata], [Skip bu
 AC_ARG_ENABLE([libelarasockets], [AS_HELP_STRING([--disable-libelarasockets], [Skip building libElaraSockets])], [], [enable_libelarasockets=yes])
 AC_ARG_ENABLE([libelaraserializer], [AS_HELP_STRING([--disable-libelaraserializer], [Skip building libElaraSerializer])], [], [enable_libelaraserializer=yes])
 AC_ARG_ENABLE([elaraunittests], [AS_HELP_STRING([--disable-elaraunittests], [Skip building ElaraUnitTests])], [], [enable_elaraunittests=yes])
+AC_ARG_ENABLE([elaraprojectbuilder], [AS_HELP_STRING([--disable-elaraprojectbuilder], [Skip building ElaraProjectBuilder])], [], [enable_elaraprojectbuilder=yes])
 AC_ARG_ENABLE([mysql], [AS_HELP_STRING([--disable-mysql], [Disable MySQL support in libElaraData])], [], [enable_mysql=yes])
 AC_ARG_ENABLE([sqlite], [AS_HELP_STRING([--disable-sqlite], [Disable SQLite support in libElaraData])], [], [enable_sqlite=yes])
 AC_ARG_ENABLE([xml], [AS_HELP_STRING([--disable-xml], [Disable XML support in libElaraFormat])], [], [enable_xml=yes])
@@ -69,6 +70,8 @@ require_enabled [libElaraSockets] [$enable_libelarasockets] [libElaraEvent] [$en
 require_enabled [libElaraSerializer] [$enable_libelaraserializer] [libElaraCore] [$enable_libelaracore]
 require_enabled [ElaraUnitTests] [$enable_elaraunittests] [libElaraCore] [$enable_libelaracore]
 require_enabled [ElaraUnitTests] [$enable_elaraunittests] [libElaraDebug] [$enable_libelaradebug]
+require_enabled [ElaraProjectBuilder] [$enable_elaraprojectbuilder] [libElaraCore] [$enable_libelaracore]
+require_enabled [ElaraProjectBuilder] [$enable_elaraprojectbuilder] [libElaraIO] [$enable_libelaraio]
 
 AS_IF([test "x$enable_libelaracore" = "xyes"], [append_project libElaraCore], [append_disabled libElaraCore])
 AS_IF([test "x$enable_libelaradebug" = "xyes"], [append_project libElaraDebug], [append_disabled libElaraDebug])
@@ -81,6 +84,7 @@ AS_IF([test "x$enable_libelaradata" = "xyes"], [append_project libElaraData], [a
 AS_IF([test "x$enable_libelarasockets" = "xyes"], [append_project libElaraSockets], [append_disabled libElaraSockets])
 AS_IF([test "x$enable_libelaraserializer" = "xyes"], [append_project libElaraSerializer], [append_disabled libElaraSerializer])
 AS_IF([test "x$enable_elaraunittests" = "xyes"], [append_project ElaraUnitTests], [append_disabled ElaraUnitTests])
+AS_IF([test "x$enable_elaraprojectbuilder" = "xyes"], [append_project ElaraProjectBuilder], [append_disabled ElaraProjectBuilder])
 
 AS_IF([test "x$enable_mysql" = "xno"], [
 	libelaradata_configure_flags="$libelaradata_configure_flags --disable-mysql"

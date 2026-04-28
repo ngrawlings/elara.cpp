@@ -317,24 +317,25 @@ namespace elara {
     }
 
     void Thread::stopAllThreads() {
-        Thread *thread;
-        
-        LinkedList<Thread*> t;
-        t.copy(threads);
-        
-        while(threads->length()) {
-            t.copy(threads);
-            for (int i=0; i<t.length(); i++) {
-                thread = t.get(i);
-                
-                while (thread->task_queue.length()) {
-                    thread->wake();
-                    thread->waitUntilFinished();
-                }
-                
-                thread->_run = false;
-                thread->wake();
+        while (true) {
+            threads_mutex->lock();
+
+            if (!threads->length()) {
+                threads_mutex->release();
+                break;
             }
+
+            LINKEDLIST_NODE_HANDLE node = threads->firstNode();
+            if (node) {
+                do {
+                    Thread *thread = threads->get(node);
+                    thread->_run = false;
+                    thread->wake();
+                    node = threads->nextNode(node);
+                } while (node && node != threads->firstNode());
+            }
+
+            threads_mutex->release();
             usleep(500);
         }
     }

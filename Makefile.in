@@ -9,13 +9,39 @@ PROJECT_DIRS := \
 	libElaraData \
 	libElaraSockets \
 	libElaraSerializer \
-	ElaraUnitTests
+	ElaraUnitTests \
+	ElaraProjectBuilder
 
 ROOT_BUILD_DIR := $(abspath ./build)
 BUILD_PROJECTS := @BUILD_PROJECTS@
 DISABLED_PROJECTS := @DISABLED_PROJECTS@
 LIBELARADATA_CONFIGURE_FLAGS := @LIBELARADATA_CONFIGURE_FLAGS@
 LIBELARAFORMAT_CONFIGURE_FLAGS := @LIBELARAFORMAT_CONFIGURE_FLAGS@
+BUILD_PROFILE ?= release
+
+COMMON_CFLAGS := -std=gnu++11
+COMMON_WARNINGS := -Wall -Wextra -Wformat=2 -Wnull-dereference -Wimplicit-fallthrough
+DEBUG_CFLAGS := $(COMMON_CFLAGS) $(COMMON_WARNINGS) -O0 -g3
+RELEASE_CFLAGS := $(COMMON_CFLAGS) -O3 -DNDEBUG
+ASAN_CFLAGS := $(COMMON_CFLAGS) $(COMMON_WARNINGS) -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
+
+COMMON_LDFLAGS :=
+DEBUG_LDFLAGS := $(COMMON_LDFLAGS)
+RELEASE_LDFLAGS := $(COMMON_LDFLAGS)
+ASAN_LDFLAGS := $(COMMON_LDFLAGS) -fsanitize=address,undefined
+
+ifeq ($(BUILD_PROFILE),debug)
+TOOLCHAIN_CFLAGS := $(DEBUG_CFLAGS)
+TOOLCHAIN_LDFLAGS := $(DEBUG_LDFLAGS)
+else ifeq ($(BUILD_PROFILE),release)
+TOOLCHAIN_CFLAGS := $(RELEASE_CFLAGS)
+TOOLCHAIN_LDFLAGS := $(RELEASE_LDFLAGS)
+else ifeq ($(BUILD_PROFILE),asan)
+TOOLCHAIN_CFLAGS := $(ASAN_CFLAGS)
+TOOLCHAIN_LDFLAGS := $(ASAN_LDFLAGS)
+else
+$(error Unsupported BUILD_PROFILE '$(BUILD_PROFILE)'. Use debug, release, or asan)
+endif
 
 CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac),$(dir)))
 BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
@@ -34,6 +60,7 @@ libElaraData: libElaraCore
 libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
 libElaraSerializer: libElaraCore
 ElaraUnitTests: libElaraCore libElaraDebug
+ElaraProjectBuilder: libElaraCore libElaraIO
 
 preflight:
 	@if [ -n "$(DISABLED_PROJECTS)" ]; then \
@@ -56,8 +83,8 @@ $(PROJECT_DIRS):
 		(cd "$@" && ./configure $$configure_args); \
 	fi
 	@if [ -f "$@/Makefile" ]; then \
-		$(MAKE) -C $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" && \
-		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)"; \
+		$(MAKE) -C $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" && \
+		$(MAKE) -C $@ install ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)"; \
 	else \
 		echo "Skipping $@: no Makefile available after configure"; \
 	fi
@@ -78,7 +105,7 @@ clean install remove cleanconf:
 			(cd "$$dir" && ./configure $$configure_args) || exit $$?; \
 		fi; \
 		if [ -f "$$dir/Makefile" ]; then \
-			$(MAKE) -C $$dir $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" || exit $$?; \
+			$(MAKE) -C $$dir $@ ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
 		fi; \
 	done
 	@if [ "$@" = "remove" ]; then \
@@ -91,6 +118,9 @@ list:
 	@echo "Disabled: $(DISABLED_PROJECTS)"
 	@echo "libElaraFormat flags: $(LIBELARAFORMAT_CONFIGURE_FLAGS)"
 	@echo "libElaraData flags: $(LIBELARADATA_CONFIGURE_FLAGS)"
+	@echo "Build profile: $(BUILD_PROFILE)"
+	@echo "Compile flags: $(TOOLCHAIN_CFLAGS)"
+	@echo "Link flags: $(TOOLCHAIN_LDFLAGS)"
 	@echo "Configurable: $(CONFIGURE_DIRS)"
 	@echo "Buildable now: $(BUILDABLE_DIRS)"
 	@echo "Stage root: $(ROOT_BUILD_DIR)"

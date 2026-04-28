@@ -124,55 +124,54 @@ namespace elara {
     }
     
     void ByteArray::shift(long bits) {
-        unsigned long _orig_len = _length;
-        long len = bits / 8;
-        int shift = bits % 8;
-        unsigned long index;
-        
-        ByteArray ins, zb;
-        
-        if (len)
-            ins.append((int)len);
-        
-        zb.append(1);
-        
-        if (bits) {
-            if (bits < 0) {
-                if (len)
-                    append(ins);
-                
-                insert(0, zb.operator const char *(), 1);
-                shift *= -1;
-                
-                index = _length;
-                
-                for (long i = 1; i<_orig_len+1; i++) {
-                    unsigned char b = operator char *()[i];
-                    unsigned char b1 = b << bits;
-                    unsigned char b2 = b >> (8+bits);
-                    
-                    operator char *()[i] = b1;
-                    operator char *()[i-1] |= b2;
+        if (!bits || !_length)
+            return;
+
+        ByteArray original(*this);
+        const unsigned long original_length = _length;
+
+        if (bits > 0) {
+            const unsigned long byte_shift = (unsigned long)(bits / 8);
+            const int bit_shift = (int)(bits % 8);
+            const unsigned long new_length = original_length + byte_shift + (bit_shift ? 1UL : 0UL);
+
+            allocateBlock(new_length);
+            memset(buffer, 0, new_length);
+            _length = new_length;
+
+            for (unsigned long i = 0; i < original_length; i++) {
+                const unsigned char b = (unsigned char)original.buffer[i];
+                const unsigned long dest = i + byte_shift;
+
+                if (bit_shift) {
+                    buffer[dest] |= (char)(b >> bit_shift);
+                    buffer[dest + 1] |= (char)(b << (8 - bit_shift));
+                } else {
+                    buffer[dest] = (char)b;
                 }
-                
-            } else {
-                if (len)
-                    insert(0, ins);
-                
-                append(zb.operator const char *(), 1);
-                
-                for (long i = _orig_len-1; i>=0; i--) {
-                    unsigned char b = operator char *()[i];
-                    unsigned char b1 = b >> bits;
-                    unsigned char b2 = b << (8-bits);
-                    
-                    operator char *()[i] = b1;
-                    operator char *()[i+1] |= b2;
+            }
+        } else {
+            const long abs_bits = -bits;
+            const unsigned long byte_shift = (unsigned long)(abs_bits / 8);
+            const int bit_shift = (int)(abs_bits % 8);
+            const unsigned long new_length = original_length + byte_shift + (bit_shift ? 1UL : 0UL);
+
+            allocateBlock(new_length);
+            memset(buffer, 0, new_length);
+            _length = new_length;
+
+            for (unsigned long i = 0; i < original_length; i++) {
+                const unsigned char b = (unsigned char)original.buffer[i];
+                const unsigned long dest = i;
+
+                if (bit_shift) {
+                    buffer[dest] |= (char)(b >> (8 - bit_shift));
+                    buffer[dest + 1] |= (char)(b << bit_shift);
+                } else {
+                    buffer[dest] = (char)b;
                 }
-                
             }
         }
-        
     }
     
     ByteArray ByteArray::subBytes(int offset, int length) {
