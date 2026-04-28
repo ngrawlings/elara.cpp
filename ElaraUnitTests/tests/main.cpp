@@ -5,8 +5,77 @@
 #include <libelaracore/memory/String.h>
 
 #include <libelaradebug/UnitTests.h>
+#include <libelarathreads/Task.h>
+#include <libelarathreads/Thread.h>
+#include <libelarathreads/memory/Ref.h>
+
+#include <atomic>
+#include <unistd.h>
 
 using namespace elara;
+
+namespace {
+
+    class StressPayload {
+    public:
+        StressPayload(int seed) : seed(seed) {
+        }
+
+        int seed;
+        ByteArray bytes;
+        String text;
+    };
+
+    class MemoryStressTask : public Task {
+    public:
+        MemoryStressTask(std::atomic<int> *remaining, std::atomic<long long> *checksum, int seed, int iterations)
+            : Task(true), remaining(remaining), checksum(checksum), seed(seed), iterations(iterations) {
+        }
+
+    protected:
+        void run() {
+            long long local_checksum = 0;
+
+            for (int i=0; i<iterations; i++) {
+                threading::memory::Ref<StressPayload> payload(new StressPayload(seed + i));
+                payload->text = String("payload-%").arg(seed + i);
+                payload->bytes.append(Memory::getRandomBytes(128));
+
+                threading::memory::Ref<StressPayload> copy = payload;
+                threading::memory::Ref<StressPayload> copy2 = copy;
+
+                ByteArray bytes = copy2->bytes.subBytes(32);
+                bytes.shift(i % 7);
+
+                HashMap<String> map;
+                map.set(String("seed"), String("%").arg(copy2->seed));
+                map.set(String("text"), copy2->text);
+
+                Memory seed_key("seed", 4);
+                String stored = map.get(seed_key).get();
+
+                local_checksum += stored.length();
+                local_checksum += bytes.length();
+                local_checksum += copy2->seed & 0xFF;
+
+                copy.release();
+                copy2.release();
+                payload.release();
+            }
+
+            checksum->fetch_add(local_checksum, std::memory_order_relaxed);
+            remaining->fetch_sub(1, std::memory_order_release);
+            finished();
+        }
+
+    private:
+        std::atomic<int> *remaining;
+        std::atomic<long long> *checksum;
+        int seed;
+        int iterations;
+    };
+
+}
 
 bool testByteArrayShift() {
     ByteArray ba((char[]){0x01, 0x01, 0x01, 0x01}, 4);
@@ -89,7 +158,44 @@ bool testBase58() {
     return true;
 }
 
+bool runThreadedMemoryStress(int thread_count, int task_count, int iterations) {
+    std::atomic<int> remaining(task_count);
+    std::atomic<long long> checksum(0);
+
+    Task::staticInit();
+    Thread::init(thread_count);
+
+    for (int i=0; i<task_count; i++)
+        Thread::runTask(new MemoryStressTask(&remaining, &checksum, i * 7919, iterations));
+
+    int waited_ms = 0;
+    const int timeout_ms = 30000;
+    while (remaining.load(std::memory_order_acquire) > 0 && waited_ms < timeout_ms) {
+        usleep(1000);
+        waited_ms++;
+    }
+
+    if (remaining.load(std::memory_order_acquire) != 0)
+        UnitTests::fail("Threaded memory stress timed out; possible deadlock or stalled task");
+
+    Thread::stopAllThreads();
+    Thread::staticCleanUp();
+    Task::staticCleanup();
+
+    if (checksum.load(std::memory_order_relaxed) == 0)
+        UnitTests::fail("Threaded memory stress produced an invalid checksum");
+
+    return true;
+}
+
+bool testThreadedMemoryStress() {
+    return runThreadedMemoryStress(16, 512, 512);
+}
+
 int main(int argc, const char *argv[]) {
+    if (argc > 1 && String(argv[1]) == String("stress-memory"))
+        return runThreadedMemoryStress(32, 2048, 1024) ? 0 : 1;
+
     UnitTests tests;
 
     tests.addTest("testByteArrayShift", testByteArrayShift);
@@ -97,6 +203,7 @@ int main(int argc, const char *argv[]) {
     tests.addTest("testHashMap", testHashMap);
     tests.addTest("testRingBuffer", testRingBuffer);
     tests.addTest("testBase58", testBase58);
+    tests.addTest("testThreadedMemoryStress", testThreadedMemoryStress);
 
     return tests.run() ? 0 : 1;
 }

@@ -13,6 +13,7 @@
 
 # Root build output
 /build/
+/valgrind-logs/
 
 # Generic build artifacts
 *.o
