@@ -45,6 +45,12 @@ It is intentionally biased toward:
     - `elara::String`
     - `elara::Memory`
     - `elara::ByteArray`
+  - allowed borrowed parameter forms include:
+    - `const elara::String&`
+    - `const elara::Memory&`
+    - `const elara::ByteArray&`
+    - `const elara::Ref<T>&`
+    - `elara::Ref<T>&`
   - all other declared object types should use:
     - `elara::Ref<T>`
     - `elara::RefArray<T>`

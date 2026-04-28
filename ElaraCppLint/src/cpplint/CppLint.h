@@ -14,6 +14,11 @@ namespace elara {
         int run(int argc, const char* const* argv);
 
     private:
+        enum TypeContext {
+            GeneralTypeContext,
+            ParameterTypeContext
+        };
+
         struct Violation {
             String path;
             int line;
@@ -57,11 +62,12 @@ namespace elara {
         bool isAllowedPrimitiveSequence(const std::vector<String>& parts) const;
         bool isAllowedSafeValueType(String canonical) const;
         bool isAllowedSmartRef(String canonical) const;
-        bool isAllowedType(const std::vector<String>& parts, String canonical) const;
+        bool isAllowedBorrowedParameterType(String canonical, bool has_reference, bool has_const) const;
+        bool isAllowedType(const std::vector<String>& parts, String canonical, TypeContext context, bool has_pointer, bool has_reference, bool has_const) const;
 
-        bool parseType(const TokenList& tokens, size_t start, size_t* end, String* canonical, bool* allowed) const;
+        bool parseType(const TokenList& tokens, size_t start, size_t* end, String* canonical, bool* allowed, TypeContext context) const;
         bool parseNamedType(const TokenList& tokens, size_t start, size_t* end, std::vector<String>* parts, String* canonical) const;
-        size_t skipPointerReference(const TokenList& tokens, size_t index) const;
+        size_t skipPointerReference(const TokenList& tokens, size_t index, bool* has_pointer, bool* has_reference, bool* has_const) const;
         bool findMatchingParen(const TokenList& tokens, size_t open_index, size_t* close_index) const;
 
         void addViolation(const String& path, int line, const String& message);

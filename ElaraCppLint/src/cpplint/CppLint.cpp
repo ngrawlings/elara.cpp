@@ -334,10 +334,13 @@ namespace elara {
             String canonical;
             bool allowed = false;
 
-            if (!parseType(tokens, i, &type_end, &canonical, &allowed))
+            if (!parseType(tokens, i, &type_end, &canonical, &allowed, GeneralTypeContext))
                 continue;
 
-            size_t after_type = skipPointerReference(tokens, type_end);
+            bool has_pointer = false;
+            bool has_reference = false;
+            bool has_const = false;
+            size_t after_type = skipPointerReference(tokens, type_end, &has_pointer, &has_reference, &has_const);
             if (after_type >= tokens.size())
                 continue;
 
@@ -413,7 +416,7 @@ namespace elara {
         size_t type_end = 0;
         String canonical;
         bool allowed = false;
-        if (!parseType(tokens, start, &type_end, &canonical, &allowed))
+        if (!parseType(tokens, start, &type_end, &canonical, &allowed, ParameterTypeContext))
             return;
 
         if (!allowed) {
@@ -546,13 +549,32 @@ namespace elara {
                canonical.startsWith("elara::threading::memory::Ref<");
     }
 
-    bool CppLint::isAllowedType(const std::vector<String>& parts, String canonical) const {
+    bool CppLint::isAllowedBorrowedParameterType(String canonical, bool has_reference, bool has_const) const {
+        if (!has_reference)
+            return false;
+
+        if (has_const && isAllowedSafeValueType(canonical))
+            return true;
+
+        if (isAllowedSmartRef(canonical))
+            return true;
+
+        return false;
+    }
+
+    bool CppLint::isAllowedType(const std::vector<String>& parts, String canonical, TypeContext context, bool has_pointer, bool has_reference, bool has_const) const {
+        if (context == ParameterTypeContext && isAllowedBorrowedParameterType(canonical, has_reference, has_const))
+            return true;
+
+        if (has_pointer)
+            return false;
+
         return isAllowedPrimitiveSequence(parts) ||
                isAllowedSafeValueType(canonical) ||
                isAllowedSmartRef(canonical);
     }
 
-    bool CppLint::parseType(const TokenList& tokens, size_t start, size_t* end, String* canonical, bool* allowed) const {
+    bool CppLint::parseType(const TokenList& tokens, size_t start, size_t* end, String* canonical, bool* allowed, TypeContext context) const {
         if (start >= tokens.size())
             return false;
 
@@ -589,9 +611,15 @@ namespace elara {
         while (type_end < tokens.size() && (tokens[type_end].text == String("const") || tokens[type_end].text == String("volatile")))
             type_end++;
 
+        bool has_pointer = false;
+        bool has_reference = false;
+        bool has_const = false;
+        size_t final_end = skipPointerReference(tokens, type_end, &has_pointer, &has_reference, &has_const);
+
         *end = type_end;
         *canonical = type_canonical;
-        *allowed = isAllowedType(parts, type_canonical);
+        *allowed = isAllowedType(parts, type_canonical, context, has_pointer, has_reference, has_const);
+        *end = final_end;
         return true;
     }
 
@@ -672,12 +700,20 @@ namespace elara {
         return true;
     }
 
-    size_t CppLint::skipPointerReference(const TokenList& tokens, size_t index) const {
+    size_t CppLint::skipPointerReference(const TokenList& tokens, size_t index, bool* has_pointer, bool* has_reference, bool* has_const) const {
+        *has_pointer = false;
+        *has_reference = false;
+        *has_const = false;
+
         while (index < tokens.size()) {
-            if (tokens[index].text == String("*") ||
-                tokens[index].text == String("&") ||
-                tokens[index].text == String("&&") ||
-                tokens[index].text == String("const")) {
+            if (tokens[index].text == String("*")) {
+                *has_pointer = true;
+                index++;
+            } else if (tokens[index].text == String("&") || tokens[index].text == String("&&")) {
+                *has_reference = true;
+                index++;
+            } else if (tokens[index].text == String("const")) {
+                *has_const = true;
                 index++;
             } else {
                 break;
