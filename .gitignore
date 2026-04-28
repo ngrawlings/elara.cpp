@@ -30,6 +30,7 @@
 *.swp
 *.swo
 .DS_Store
+autom4te.cache
 
 /artifacts
 

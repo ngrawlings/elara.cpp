@@ -10,7 +10,8 @@ PROJECT_DIRS := \
 	libElaraSockets \
 	libElaraSerializer \
 	ElaraUnitTests \
-	ElaraProjectBuilder
+	ElaraProjectBuilder \
+	ElaraCppLint
 
 ROOT_BUILD_DIR := $(abspath ./build)
 BUILD_PROJECTS := @BUILD_PROJECTS@
@@ -61,6 +62,7 @@ libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
 libElaraSerializer: libElaraCore
 ElaraUnitTests: libElaraCore libElaraDebug
 ElaraProjectBuilder: libElaraCore libElaraIO
+ElaraCppLint: libElaraCore libElaraIO
 
 preflight:
 	@if [ -n "$(DISABLED_PROJECTS)" ]; then \

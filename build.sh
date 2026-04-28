@@ -18,6 +18,7 @@ PROJECT_FLAGS=(
   "libelaraserializer"
   "elaraunittests"
   "elaraprojectbuilder"
+  "elaracpplint"
 )
 
 FEATURE_FLAGS=(

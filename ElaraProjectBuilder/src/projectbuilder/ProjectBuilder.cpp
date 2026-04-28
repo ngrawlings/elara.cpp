@@ -48,6 +48,7 @@ namespace elara {
         printf("  autoreconf -fi\n");
         printf("  ./configure\n");
         printf("  make\n");
+        printf("  make lint\n");
         return true;
     }
 
@@ -205,6 +206,8 @@ namespace elara {
         contents += "ELARA_ROOT?=$(abspath ../build)\n";
         contents += "ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include\n";
         contents += "ELARA_LIB_DIR?=$(ELARA_ROOT)/lib\n";
+        contents += "ELARA_BIN_DIR?=$(ELARA_ROOT)/bin\n";
+        contents += "ELARA_CPP_LINT?=$(ELARA_BIN_DIR)/elara.cpp-lint\n";
         contents += "PREFIX?=$(abspath ./dist)\n";
         contents += "BIN_DIR?=$(PREFIX)/bin\n";
         contents += "BUILD_PROFILE?=release\n";
@@ -238,16 +241,24 @@ namespace elara {
         contents += "\n";
         contents += "SOURCES=$(shell find ./src -type f -name '*.cpp' -print)\n";
         contents += "OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))\n";
+        contents += "LINT_PATHS=./src\n";
         contents += "BUILDPATH=./build\n";
         contents += "TARGET=";
         contents += options.target_name;
         contents += "\n\n";
+        contents += ".PHONY: all lint install clean remove cleanconf\n\n";
         contents += "all: $(TARGET)\n\n";
         contents += "$(TARGET): $(OBJECTS)\n";
         contents += "\t$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)\n\n";
         contents += "build/src/%.o:\n";
         contents += "\t@mkdir -p $(dir $@)\n";
         contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
+        contents += "lint:\n";
+        contents += "\t@if [ ! -x \"$(ELARA_CPP_LINT)\" ]; then \\\n";
+        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Build ElaraCppLint in the framework root first.\"; \\\n";
+        contents += "\t\texit 1; \\\n";
+        contents += "\tfi\n";
+        contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n\n";
         contents += "install:\n";
         contents += "\tmkdir -p $(BIN_DIR)\n";
         contents += "\tcp $(BUILDPATH)/$(TARGET) $(BIN_DIR)/$(TARGET)\n\n";
@@ -289,10 +300,16 @@ namespace elara {
         contents += "1. `autoreconf -fi`\n";
         contents += "2. `./configure`\n";
         contents += "3. `make`\n";
+        contents += "4. `make lint`\n";
         contents += "\nBuild profiles:\n";
         contents += "- `make BUILD_PROFILE=release` for fast optimized builds\n";
         contents += "- `make BUILD_PROFILE=debug` for easier debugging\n";
         contents += "- `make BUILD_PROFILE=asan` for address/UB sanitizer runs\n";
+        contents += "\nLinting:\n";
+        contents += "- `make lint` runs `elara.cpp-lint` against `./src`\n";
+        contents += "- the generated project expects the linter at `$(ELARA_ROOT)/bin/elara.cpp-lint`\n";
+        contents += "- current policy allows primitives, safe Elara value types (`String`, `Memory`, `ByteArray`), plus `Ref`, `RefArray`, and `elara::threading::memory::Ref`\n";
+        contents += "- permissable rules are expected to evolve over time as the framework policy is refined\n";
         contents += "\nBy default the project links against Elara staged at `../build`.\n";
         contents += "Override this with `ELARA_ROOT=/path/to/elara/build make` if needed.\n";
         contents += "Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.\n";

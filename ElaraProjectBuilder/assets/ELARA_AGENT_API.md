@@ -35,6 +35,23 @@ It is intentionally biased toward:
 - Convert to raw buffers only at OS or third-party library boundaries.
 - `String` is mutable and not `std::string`-compatible by design.
 
+### Linting Policy
+
+- Generated Elara C++ projects are expected to expose a `make lint` target.
+- The default linter binary is `$(ELARA_ROOT)/bin/elara.cpp-lint`.
+- Current lint policy is intentionally strict:
+  - allowed direct value types are primitives such as `int`, `char`, `bool`, `long`, `float`, `double`, and practical signed/unsigned variants
+  - allowed direct Elara safe value types are:
+    - `elara::String`
+    - `elara::Memory`
+    - `elara::ByteArray`
+  - all other declared object types should use:
+    - `elara::Ref<T>`
+    - `elara::RefArray<T>`
+    - `elara::threading::memory::Ref<T>`
+- If the linter rejects a legitimate framework pattern, treat that as a policy-gap candidate and update the allowed rules deliberately rather than bypassing the lint target casually.
+- Do not introduce STL ownership containers into Elara-facing code unless a human explicitly asks for that policy change.
+
 ### Build/Link Rules
 
 - Generated `config.h` headers are build artifacts, not stable public API.
@@ -1143,4 +1160,3 @@ Avoid in new code unless explicitly requested:
 - event loop: `<libelaraevent/EventBase.h>`, `<libelaraevent/Timer.h>`
 - json: `<libelaraformat/json/Json.h>`
 - sockets: `<libelarasockets/Address.h>`, `<libelarasockets/Socket.h>`, `<libelarasockets/Listener.h>`
-
