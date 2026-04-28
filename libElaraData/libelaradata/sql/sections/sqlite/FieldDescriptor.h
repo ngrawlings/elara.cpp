@@ -16,7 +16,7 @@
 
 #include "../sql/FieldDescriptor.h"
 
-namespace nrcore {
+namespace elara {
     
     namespace sqlite {
         

@@ -11,7 +11,7 @@
 #include <libelarasockets/socks5/BlockLoaders/UsernamePasswordLoader.h>
 #include <libelaracore/memory/ByteArray.h>
 
-namespace nrcore {
+namespace elara {
     
     Socks5Server::Socks5Server(int _fd) : Socket(_fd) {
         state = INIT;
@@ -198,7 +198,7 @@ namespace nrcore {
             
             if (request.getPtr()->cmd == CONNECT) {
                 try {
-                    client = Ref<ClientSocket>(new ClientSocket(this, address, port));
+                    client = Ref<ClientSocket>(new ClientSocket(this, address.get(), port));
                     client.getPtr()->setCallbackInterface(this);
                     
                     SERVER_RESPONSE reply;

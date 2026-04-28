@@ -11,7 +11,7 @@
 #include <libelaracore/exception/Exception.h>
 #include "../sections/mysql/FieldDescriptor.h"
 
-namespace nrcore {
+namespace elara {
     
     MysqlBuilder::MysqlBuilder(MYSQL *mysql, String name) : Builder(name), mysql(mysql) {
         

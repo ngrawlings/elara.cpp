@@ -12,7 +12,7 @@
 #include <libelarasockets/Socket.h>
 #include <libelaracore/memory/ByteArray.h>
 
-using namespace nrcore;
+using namespace elara;
 
 class Client : public Socket {
 public:

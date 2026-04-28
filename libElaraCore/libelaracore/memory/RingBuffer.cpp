@@ -10,7 +10,7 @@
 
 #include <string.h>
 
-namespace nrcore {
+namespace elara {
 
     RingBuffer::RingBuffer(size_t size) {
         buffer = new char[size];

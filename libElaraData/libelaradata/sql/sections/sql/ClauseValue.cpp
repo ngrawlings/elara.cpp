@@ -8,7 +8,7 @@
 
 #include "ClauseValue.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
 
         ClauseValue::ClauseValue(Builder *gb, String f1, String comparitor, String f2) :

@@ -13,7 +13,7 @@
 #include "TestModel.h"
 
 
-using namespace nrcore;
+using namespace elara;
 
 int main(int argc, const char * argv[]) {
 

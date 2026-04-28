@@ -35,7 +35,7 @@
 
 #define HANDLE          void*
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class InstancePool : public Object {

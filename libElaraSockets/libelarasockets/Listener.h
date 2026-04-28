@@ -42,7 +42,7 @@
 #define LISTENER_OPTS_IPV6              4
 #define LISTENER_OPTS_IPV6_REQUIRED     8
 
-namespace nrcore {
+namespace elara {
 
     class Listener : public Task {
     public:

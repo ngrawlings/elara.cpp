@@ -13,7 +13,7 @@
 #include <libelaracore/memory/Memory.h>
 #include <libelaracore/memory/String.h>
 
-namespace nrcore {
+namespace elara {
     
     class ResultSet;
     

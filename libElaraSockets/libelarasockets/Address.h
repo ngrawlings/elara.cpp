@@ -9,7 +9,7 @@
 #ifndef __libElaraCore__Address__
 #define __libElaraCore__Address__
 
-namespace nrcore {
+namespace elara {
     
 #ifdef __APPLE__
 #undef DOMAIN

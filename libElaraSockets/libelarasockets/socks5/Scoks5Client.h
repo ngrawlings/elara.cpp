@@ -15,7 +15,7 @@
 #include <libelarasockets/Listener.h>
 #include <libelarasockets/Socket.h>
 
-namespace nrcore {
+namespace elara {
 
     class Socks5Client : public Socket {
     public:

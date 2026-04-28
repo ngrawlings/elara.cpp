@@ -28,7 +28,7 @@
 //#include <avr/pgmspace.h>
 #include "Serpent.h"
 
-namespace nrcore {
+namespace elara {
 
     /******************************************************************************/
 

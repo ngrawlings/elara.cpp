@@ -24,7 +24,7 @@
 
 #include "Serializable.h"
 
-namespace nrcore {
+namespace elara {
 
     ByteArray Serializable::serialize() {
         beforeSerialization();

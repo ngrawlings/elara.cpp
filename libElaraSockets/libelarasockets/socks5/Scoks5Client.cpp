@@ -8,7 +8,7 @@
 
 #include "Scoks5Client.h"
 
-namespace nrcore {
+namespace elara {
     
     Socks5Client::Socks5Client(int _fd) : Socket(_fd) {
         

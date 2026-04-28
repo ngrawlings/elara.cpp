@@ -30,7 +30,7 @@
 #include <libelaracore/memory/ByteArray.h>
 #include <libelaracore/memory/LinkedList.h>
 
-namespace nrcore {
+namespace elara {
 
     class Serializable {
     public:

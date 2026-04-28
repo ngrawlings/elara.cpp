@@ -8,7 +8,7 @@
 
 #include "JsonInvalid.h"
 
-namespace nrcore {
+namespace elara {
     
     JsonInvalid::JsonInvalid(String json) {
         this->json = json;

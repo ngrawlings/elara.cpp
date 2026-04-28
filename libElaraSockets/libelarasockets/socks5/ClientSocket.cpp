@@ -9,7 +9,7 @@
 #include "ClientSocket.h"
 #include "Socks5Server.h"
 
-namespace nrcore {
+namespace elara {
     
     ClientSocket::ClientSocket(Socks5Server *server, Address address, unsigned short port) : Socket() {
         this->server = server;

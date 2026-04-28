@@ -21,7 +21,7 @@
 
 #include "../result/ResultSet.h"
 
-namespace nrcore {
+namespace elara {
     
     class MysqlConnector : public Connector {
     public:

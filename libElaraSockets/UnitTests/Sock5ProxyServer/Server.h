@@ -15,7 +15,7 @@
 
 #include <libelarasockets/socks5/Socks5Server.h>
 
-using namespace nrcore;
+using namespace elara;
 
 class Server : public Listener, Socket::CallbackInterface {
 public:

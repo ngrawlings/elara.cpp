@@ -16,7 +16,7 @@
 
 #include <libelaracore/encoding/Base58.h>
 
-using namespace nrcore;
+using namespace elara;
 
 bool testByteArrayShift() {
     ByteArray ba((char[]){0x01, 0x01, 0x01, 0x01}, 4);

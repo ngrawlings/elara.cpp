@@ -8,7 +8,7 @@
 
 #include "File.h"
 
-namespace nrcore {
+namespace elara {
 
     File::File(const char *path) : Memory(FILE_BUFFER_SIZE), fill(0), offset(0), update_file(false)  {
         this->path = path;

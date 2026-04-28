@@ -9,7 +9,7 @@
 #include "Connector.h"
 #include <libelaradata/sql/builders/Builder.h>
 
-namespace nrcore {
+namespace elara {
     
     Connector::Connector() {
         connection_instance = 0;

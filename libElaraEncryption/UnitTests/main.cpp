@@ -14,7 +14,7 @@
 #include "../libelaraencryption/Secp256k1Signer.h"
 #include <libelaracore/utils/ByteUtils.h>
 
-using namespace nrcore;
+using namespace elara;
 
 bool testSecp256k1() {
     Ref<char> bytes = ByteUtils::getRandomBytes(32);

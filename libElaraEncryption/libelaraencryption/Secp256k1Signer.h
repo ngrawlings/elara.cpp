@@ -15,7 +15,7 @@
 
 #include <secp256k1.h>
 
-namespace nrcore {
+namespace elara {
     
     class Secp256k1Signer : public Signer {
     public:

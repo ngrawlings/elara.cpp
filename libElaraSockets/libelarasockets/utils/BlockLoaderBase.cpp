@@ -8,7 +8,7 @@
 
 #include "BlockLoaderBase.h"
 
-namespace nrcore {
+namespace elara {
     
     BlockLoaderBase::BlockLoaderBase() {
         

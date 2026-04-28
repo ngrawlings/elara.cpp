@@ -29,7 +29,7 @@
 #include <pthread.h>
 #include "ThreadWaitCondition.h"
 
-namespace nrcore {
+namespace elara {
 
     class Mutex {
     public:

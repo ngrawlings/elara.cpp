@@ -11,7 +11,7 @@
 
 #include <libelaracore/memory/ByteArray.h>
 
-using namespace nrcore;
+using namespace elara;
 
 int main(int argc, const char * argv[]) {
     IndexedDataStore *data = new IndexedDataStore("/media/mint/9d008129-b444-490f-a90d-d3fc4a808f93/output/state.dat");

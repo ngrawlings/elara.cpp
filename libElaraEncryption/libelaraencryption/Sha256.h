@@ -29,7 +29,7 @@
 
 #include <openssl/sha.h>
 
-namespace nrcore {
+namespace elara {
 
     class Sha256 : public Hash {
     public:

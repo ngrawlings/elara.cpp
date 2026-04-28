@@ -35,7 +35,7 @@
 
 #define ERROR_OUT_OF_RANGE      1
 
-namespace nrcore {
+namespace elara {
 
     class Memory {
     public:

@@ -29,7 +29,7 @@
 #include <libelaracore/exception/Exception.h>
 #include <libelaracore/threading/Thread.h>
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class IndexedListBase : public Object {

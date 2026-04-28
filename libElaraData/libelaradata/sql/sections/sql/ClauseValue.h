@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include "Clause.h"
 
-namespace nrcore {
+namespace elara {
     
     class Builder;
     

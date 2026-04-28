@@ -20,7 +20,7 @@
 #include <errno.h>
 #include <libelaracore/exception/Exception.h>
 
-namespace nrcore {
+namespace elara {
 
     class Socket {
     public:

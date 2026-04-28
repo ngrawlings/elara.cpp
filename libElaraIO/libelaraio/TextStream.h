@@ -31,7 +31,7 @@
 
 #define MAX_LINE_LENGTH		4096
 
-namespace nrcore {
+namespace elara {
 
     class TextStream : public Stream { //TODO class incomplete
     public:

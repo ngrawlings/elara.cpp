@@ -27,7 +27,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-namespace nrcore {
+namespace elara {
 
     #if LOG_THREAD_SAFE != 0 && THREADING_DISABLED == 0 && DEBUG_DISABLED == 0
     Mutex *Log::mutex = new Mutex();

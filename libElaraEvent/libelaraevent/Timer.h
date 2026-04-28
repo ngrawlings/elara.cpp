@@ -11,7 +11,7 @@
 
 #include "EventBase.h"
 
-namespace nrcore {
+namespace elara {
 
     class Timer {
     public:

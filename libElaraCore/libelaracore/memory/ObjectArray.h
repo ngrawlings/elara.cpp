@@ -27,7 +27,7 @@
 
 #include <libelaracore/base/Object.h>
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class ObjectArray : public Object {

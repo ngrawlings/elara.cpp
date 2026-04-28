@@ -12,7 +12,7 @@
 #include <libelaradata/sql/builders/MysqlBuilder.h>
 #include <libelaradata/sql/sections/mysql/FieldDescriptor.h>
 
-namespace nrcore {
+namespace elara {
     
     MysqlConnector::MysqlConnector(const char* host, int port, const char* username, const char* password, const char* database) {
         con = mysql_init(NULL);

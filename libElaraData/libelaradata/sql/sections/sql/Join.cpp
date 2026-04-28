@@ -8,7 +8,7 @@
 
 #include "Join.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         Join::Join(String table, Ref<Clause> clause, String type) : type(type), table(table), clause(clause) {
             

@@ -9,7 +9,7 @@
 #ifndef Structures_h
 #define Structures_h
 
-using namespace nrcore;
+using namespace elara;
 
 typedef enum {
     NO_AUTH             = 0,

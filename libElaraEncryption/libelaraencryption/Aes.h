@@ -36,7 +36,7 @@
 
 #define AES_BLOCK_SIZE 16
 
-namespace nrcore {
+namespace elara {
 
     class Aes : public Cipher {
     public:

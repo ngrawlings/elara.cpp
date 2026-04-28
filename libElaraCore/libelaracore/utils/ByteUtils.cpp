@@ -26,7 +26,7 @@
 
 #include <string.h>
 
-namespace nrcore {
+namespace elara {
 
     Ref<char> ByteUtils::getRandomBytes(int length) {
         char *bytes = new char[length];

@@ -27,7 +27,7 @@
 
 #include "Thread.h"
 
-namespace nrcore {
+namespace elara {
 
     class Semaphore {
     public:

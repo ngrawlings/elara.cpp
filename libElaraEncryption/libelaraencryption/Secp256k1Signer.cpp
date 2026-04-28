@@ -8,7 +8,7 @@
 
 #include "Secp256k1Signer.h"
 
-namespace nrcore {
+namespace elara {
     
     Secp256k1Signer::Secp256k1Signer() {
         this->ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);

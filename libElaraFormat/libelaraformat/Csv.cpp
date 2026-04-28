@@ -8,7 +8,7 @@
 
 #include "Csv.h"
 
-namespace nrcore {
+namespace elara {
 
     Csv::Csv() {
         cursor = 0;

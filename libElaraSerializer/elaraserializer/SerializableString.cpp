@@ -8,7 +8,7 @@
 
 #include "SerializableString.h"
 
-namespace nrcore {
+namespace elara {
     
     SerializableString::SerializableString(const char *str) : String(str) {}
     SerializableString::SerializableString(const String &str) : String(str) {}

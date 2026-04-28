@@ -8,7 +8,7 @@
 
 #include "Builder.h"
 
-namespace nrcore {
+namespace elara {
  
     Builder::Builder(String table) : table(table) {
         clear();

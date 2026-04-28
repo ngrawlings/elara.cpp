@@ -9,7 +9,7 @@
 #include "Clause.h"
 #include "../../builders/Builder.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         Clause::Value::Value(Builder *gb, TYPE type, String value) {

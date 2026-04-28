@@ -11,7 +11,7 @@
 
 #include "Mutex.h"
 
-namespace nrcore {
+namespace elara {
     
     template <class T>
     class ThreadSafeObject {

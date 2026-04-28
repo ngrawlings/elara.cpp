@@ -8,7 +8,7 @@
 
 #include "ClauseGroup.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         ClauseGroup::ClauseGroup() {

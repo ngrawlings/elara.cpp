@@ -20,7 +20,7 @@
 #include <libelarasockets/utils/BlockLoaderBase.h>
 #include "ClientSocket.h"
 
-namespace nrcore {
+namespace elara {
 
     class Socks5Server : public Socket, Socket::CallbackInterface {
     public:

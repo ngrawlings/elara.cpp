@@ -15,7 +15,7 @@
 #define GET_HEX_HIGH_CHAR(x) ((x>>4)&0x0F)<10 ? ((x>>4)&0x0F)+48 : ((x>>4)&0x0F)+55;
 #define GET_HEX_LOW_CHAR(x) (x&0x0F)<10 ? (x&0x0F)+48 : (x&0x0F)+55;
 
-namespace nrcore {
+namespace elara {
     
     ByteArray::ByteArray(const void *bytes, int len) : buffer(0), size(0), _length(0) {
         allocateBlock(len);

@@ -30,7 +30,7 @@
 #include <assert.h>
 #include "Array.h"
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class LinkedList {

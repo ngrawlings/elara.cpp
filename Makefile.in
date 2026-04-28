@@ -8,7 +8,8 @@ PROJECT_DIRS := \
 	libElaraIO \
 	libElaraData \
 	libElaraSockets \
-	libElaraSerializer
+	libElaraSerializer \
+	ElaraUnitTests
 
 ROOT_BUILD_DIR := $(abspath ./build)
 BUILD_PROJECTS := @BUILD_PROJECTS@
@@ -32,12 +33,13 @@ libElaraFormat: libElaraCore libElaraIO
 libElaraData: libElaraCore
 libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
 libElaraSerializer: libElaraCore
+ElaraUnitTests: libElaraCore libElaraDebug
 
 preflight:
 	@if [ -n "$(DISABLED_PROJECTS)" ]; then \
 		echo "Disabled projects: $(DISABLED_PROJECTS)"; \
 	fi
-	@mkdir -p "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib"
+	@mkdir -p "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib" "$(ROOT_BUILD_DIR)/bin"
 
 $(PROJECT_DIRS):
 	@if [ -f "$@/configure.ac" ]; then \
@@ -80,7 +82,7 @@ clean install remove cleanconf:
 		fi; \
 	done
 	@if [ "$@" = "remove" ]; then \
-		rm -rf "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib"; \
+		rm -rf "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib" "$(ROOT_BUILD_DIR)/bin"; \
 	fi
 
 list:

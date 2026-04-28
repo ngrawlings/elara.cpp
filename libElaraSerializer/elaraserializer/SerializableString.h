@@ -12,7 +12,7 @@
 #include <libelaracore/memory/String.h>
 #include "Serializable.h"
 
-namespace nrcore {
+namespace elara {
   
     class SerializableString : public String, public Serializable {
     public:

@@ -30,7 +30,7 @@
 
 #include <libelaracore/memory/Ref.h>
 
-namespace nrcore {
+namespace elara {
 
     class ByteUtils {
     public:

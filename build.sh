@@ -16,6 +16,7 @@ PROJECT_FLAGS=(
   "libelaradata"
   "libelarasockets"
   "libelaraserializer"
+  "elaraunittests"
 )
 
 FEATURE_FLAGS=(

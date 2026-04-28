@@ -30,7 +30,7 @@
 
 #include <ctype.h>
 
-namespace nrcore {
+namespace elara {
 
     String::String(const char *str) : strbuf(0), size(0), _length(0) {
         size_t len = str ? strlen(str) : 0;

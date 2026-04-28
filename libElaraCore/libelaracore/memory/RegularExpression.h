@@ -13,7 +13,7 @@
 
 #include "String.h"
 
-namespace nrcore {
+namespace elara {
 
     class RegularExpression {
     public:

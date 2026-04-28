@@ -24,7 +24,7 @@
 
 #include "TaskMutex.h"
 
-namespace nrcore {
+namespace elara {
 
     TaskMutex::~TaskMutex() {
         if (wait_lock)

@@ -14,7 +14,7 @@
 #include "JsonString.h"
 #include "JsonInvalid.h"
 
-namespace nrcore {
+namespace elara {
     
     JsonValue::JsonValue() {
     }

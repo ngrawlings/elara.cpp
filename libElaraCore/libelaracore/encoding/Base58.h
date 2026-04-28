@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include "../memory/Memory.h"
 
-namespace nrcore {
+namespace elara {
 
     class Base58 {
     public:

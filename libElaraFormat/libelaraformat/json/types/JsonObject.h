@@ -18,7 +18,7 @@
 
 #include "JsonValue.h"
 
-namespace nrcore {
+namespace elara {
 
     class JsonObject : public JsonValue {
         

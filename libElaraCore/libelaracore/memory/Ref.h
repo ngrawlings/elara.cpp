@@ -27,7 +27,7 @@
 
 #define REF(X) X.get()
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class Ref {

@@ -8,7 +8,7 @@
 
 #include "Timer.h"
 
-namespace nrcore {
+namespace elara {
 
     Timer::Timer(EventBase *event_base) {
         this->event_base = event_base;

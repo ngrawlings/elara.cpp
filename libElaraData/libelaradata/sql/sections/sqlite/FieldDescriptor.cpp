@@ -10,7 +10,7 @@
 
 #include <libelaracore/exception/Exception.h>
 
-namespace nrcore {
+namespace elara {
     namespace sqlite {
         
         const char* FieldDescriptor::field_types[] = {"TINYINT", "SMALLINT","MEDIUMINT","INT",

@@ -14,7 +14,7 @@
 
 #include "Builder.h"
 
-namespace nrcore {
+namespace elara {
     
     class MysqlBuilder : public Builder {
     public:

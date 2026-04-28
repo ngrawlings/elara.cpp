@@ -13,7 +13,7 @@
 #include "JsonValue.h"
 #include <libelaracore/memory/Array.h>
 
-namespace nrcore {
+namespace elara {
     
     class JsonArray : public JsonValue {
     public:

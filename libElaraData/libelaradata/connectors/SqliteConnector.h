@@ -18,7 +18,7 @@
 
 #include "../result/ResultSet.h"
 
-namespace nrcore {
+namespace elara {
     
     class SqliteConnector : public Connector {
     public:

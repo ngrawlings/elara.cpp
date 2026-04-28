@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <libelaracore/memory/String.h>
 
-namespace nrcore {
+namespace elara {
     
     class JsonValue {
     public:

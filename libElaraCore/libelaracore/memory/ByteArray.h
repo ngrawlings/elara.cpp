@@ -18,7 +18,7 @@
 #include "Memory.h"
 #include "String.h"
 
-namespace nrcore {
+namespace elara {
     
     class Memory;
     

@@ -29,7 +29,7 @@
 #include <libelaracore/memory/LinkedList.h>
 #include "Mutex.h"
 
-namespace nrcore {
+namespace elara {
 
     class Thread;
     

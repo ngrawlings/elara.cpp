@@ -144,3 +144,12 @@
 /libElaraThreads/build/
 /libElaraThreads/config.h
 /libElaraThreads/libelarathreads/config.h
+
+/ElaraUnitTests/Makefile
+/ElaraUnitTests/autom4te.cache/
+/ElaraUnitTests/config.log
+/ElaraUnitTests/config.status
+/ElaraUnitTests/configure
+/ElaraUnitTests/libtool
+/ElaraUnitTests/stamp-h1
+/ElaraUnitTests/build/

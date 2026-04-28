@@ -17,7 +17,7 @@
 #include "DataLoopServer/Server.h"
 #include "DataLoopServer/Client.h"
 
-using namespace nrcore;
+using namespace elara;
 
 Ref<Server> socks5_server;
 EventBase *ev;

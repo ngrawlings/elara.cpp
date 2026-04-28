@@ -27,14 +27,15 @@ $(BUILDPATH)/%.o: copyconfig
 copyconfig:
 	cp config.h ./$(NAME)/config.h
 
-install:$(DST_HEADERS)
-	mkdir -p $(INSTALL_HEADER_PATH)
+install:
+	@for header in $(HEADERS); do \
+		rel="$${header#./$(NAME)/}"; \
+		dst="$(INSTALL_HEADER_PATH)/$$rel"; \
+		[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+		cp "$$header" "$$dst" || exit $$?; \
+	done
 	mkdir -p $(INSTALL_LIB_PATH)
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
-
-$(DST_HEADERS):
-	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
-	cp $(subst $(INSTALL_HEADER_PATH), ./$(NAME), $@) $@
 
 clean:
 	rm -Rf $(BUILDPATH)/*.o

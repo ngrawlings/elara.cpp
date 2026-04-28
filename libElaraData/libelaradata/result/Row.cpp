@@ -12,7 +12,7 @@
 
 #include <string>
 
-namespace nrcore {
+namespace elara {
     
     Row::Row(ResultSet *result_set, Array<Memory> values) : result_set(result_set), values(values) {
         

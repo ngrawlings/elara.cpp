@@ -14,7 +14,7 @@
 #include <libelaracore/memory/String.h>
 #include "Clause.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
     
         class Join {

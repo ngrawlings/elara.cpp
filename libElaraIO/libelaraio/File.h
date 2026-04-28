@@ -16,7 +16,7 @@
 
 #include <libelaracore/memory/Memory.h>
 
-namespace nrcore {
+namespace elara {
     
     class File : public Memory {
     public:

@@ -13,7 +13,7 @@
 
 #include <libelaradata/sql/sections/sql/ClauseValue.h>
 
-namespace nrcore {
+namespace elara {
  
     Model::Model(Connector* con, String table) : con(con), table(table) {
         loadRevision();

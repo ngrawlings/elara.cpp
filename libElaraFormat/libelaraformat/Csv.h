@@ -15,7 +15,7 @@
 #include <libelaracore/memory/String.h>
 #include <libelaracore/memory/StringList.h>
 
-namespace nrcore {
+namespace elara {
 
     class Csv {
     public:

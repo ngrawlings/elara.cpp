@@ -8,7 +8,7 @@
 
 #include "Values.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         Values::Values() {

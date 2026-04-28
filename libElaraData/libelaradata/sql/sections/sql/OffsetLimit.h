@@ -13,7 +13,7 @@
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/String.h>
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         class OffsetLimit {

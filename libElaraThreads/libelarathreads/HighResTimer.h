@@ -14,7 +14,7 @@
 #include "Task.h"
 #include "Thread.h"
 
-namespace nrcore {
+namespace elara {
 
     class HighResTimer : Task {
     public:

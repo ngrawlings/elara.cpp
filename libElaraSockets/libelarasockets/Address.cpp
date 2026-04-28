@@ -20,7 +20,7 @@
 #include <sys/socket.h>
 #include <fcntl.h>
 
-namespace nrcore {
+namespace elara {
 
     Address::Address(ADDRESS_TYPE type, const char* addr) {
         this->type = type;

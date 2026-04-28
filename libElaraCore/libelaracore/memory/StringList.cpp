@@ -10,7 +10,7 @@
 
 #include "LinkedList.h"
 
-namespace nrcore {
+namespace elara {
 
     StringList::StringList() {
         

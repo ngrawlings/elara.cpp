@@ -27,7 +27,7 @@
 
 #include <libelaracore/types.h>
 
-namespace nrcore {
+namespace elara {
 
     class Stream {
     public:

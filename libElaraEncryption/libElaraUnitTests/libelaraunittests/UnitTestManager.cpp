@@ -8,7 +8,7 @@
 
 #include "UnitTestManager.hpp"
 
-namespace nrcore {
+namespace elara {
     
     void UnitTest::addTest(Ref<UNITTEST_ENTRY> test) {
         this->tests.add(test);

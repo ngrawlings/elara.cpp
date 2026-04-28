@@ -49,7 +49,7 @@
 
 #endif
 
-namespace nrcore {
+namespace elara {
 
     class Log {
     public:

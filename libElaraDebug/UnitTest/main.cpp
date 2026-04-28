@@ -9,7 +9,7 @@
 #include <iostream>
 #include <libelaradebug/UnitTests.h>
 
-using namespace nrcore;
+using namespace elara;
 
 bool testUnitTestingSuccess() {
     return true;

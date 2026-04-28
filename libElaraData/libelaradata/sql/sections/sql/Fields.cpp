@@ -8,7 +8,7 @@
 
 #include "Fields.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         Fields::Fields() {

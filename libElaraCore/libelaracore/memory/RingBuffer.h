@@ -13,7 +13,7 @@
 #include "RefArray.h"
 #include "Memory.h"
 
-namespace nrcore {
+namespace elara {
 
     class RingBuffer {
     public:

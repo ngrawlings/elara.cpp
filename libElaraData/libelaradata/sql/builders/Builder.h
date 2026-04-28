@@ -23,7 +23,7 @@
 #include "../sections/sql/FieldDescriptor.h"
 #include "../sections/sql/FieldDescriptor.h"
 
-namespace nrcore {
+namespace elara {
     
     using namespace sql;
     

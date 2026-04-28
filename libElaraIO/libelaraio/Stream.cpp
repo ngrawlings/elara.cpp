@@ -26,7 +26,7 @@
 #include <fcntl.h>
 #include <errno.h>
 
-namespace nrcore {
+namespace elara {
 
     Stream::Stream(int fd) {
         this->fd = fd;

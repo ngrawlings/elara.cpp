@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include "JsonValue.h"
 
-namespace nrcore {
+namespace elara {
     
     class JsonString : public JsonValue {
     public:

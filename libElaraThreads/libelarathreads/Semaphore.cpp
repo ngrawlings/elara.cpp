@@ -24,7 +24,7 @@
 
 #include "Semaphore.h"
 
-namespace nrcore {
+namespace elara {
 
     Semaphore::Semaphore(int max) : count(0), count_mutex("count_mutex") {
         this->max = max;

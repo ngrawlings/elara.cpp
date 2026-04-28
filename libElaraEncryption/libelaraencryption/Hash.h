@@ -25,7 +25,7 @@
 #ifndef PeerConnector_Hash_h
 #define PeerConnector_Hash_h
 
-namespace nrcore {
+namespace elara {
 
     class Hash {
     public:

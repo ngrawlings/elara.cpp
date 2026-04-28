@@ -9,7 +9,7 @@
 #include "Xml.h"
 #include "libelaraio/File.h"
 
-namespace nrcore {
+namespace elara {
     
     XmlState::XmlState() {
         this->doc = 0;

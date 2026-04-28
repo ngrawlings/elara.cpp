@@ -11,7 +11,7 @@
 #include <libelarasockets/Socket.h>
 #include <libelaracore/exception/Exception.h>
 
-namespace nrcore {
+namespace elara {
     
     UsernamePasswordLoader::UsernamePasswordLoader() : state(USERNAME_LEN) {
         username_len = -1;

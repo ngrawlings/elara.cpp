@@ -28,7 +28,7 @@
 #include <core_config.h>
 #include <libelaracore/base/Object.h>
 
-namespace nrcore {
+namespace elara {
 
     template <class T, int BLOCK_COUNT, int BLOCK_SIZE>
     class ObjectBlockArray : public Object {

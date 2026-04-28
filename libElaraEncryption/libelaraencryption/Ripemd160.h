@@ -14,7 +14,7 @@
 
 #include "ripemd160/ripemd160.h"
 
-namespace nrcore {
+namespace elara {
 
     class Ripemd160 : public Hash {
     public:

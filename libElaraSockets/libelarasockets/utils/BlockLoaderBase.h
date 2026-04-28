@@ -13,7 +13,7 @@
 
 #include <libelaracore/memory/ByteArray.h>
 
-namespace nrcore {
+namespace elara {
     
     class Socket;
     

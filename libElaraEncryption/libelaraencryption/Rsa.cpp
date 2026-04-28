@@ -26,7 +26,7 @@
 
 #include <string.h>
 
-namespace nrcore {
+namespace elara {
 
     Rsa::Rsa(const Memory& _cert, const FORMAT cert_format, const Memory& _key, const FORMAT key_format) : privkey(0), pubkey(0), cert(0) {
 

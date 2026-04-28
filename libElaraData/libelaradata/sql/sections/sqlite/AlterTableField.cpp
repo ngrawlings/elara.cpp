@@ -8,7 +8,7 @@
 
 #include "AlterTableField.h"
 
-namespace nrcore {
+namespace elara {
     namespace sqlite {
         
         AlterTableField::AlterTableField(String name, FieldDescriptor::TYPE type) : FieldDescriptor(name, type) {

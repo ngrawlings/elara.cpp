@@ -1,10 +1,93 @@
-#ifndef __CONFIG_H__
-#define __CONFIG_H__
+/* config.h.in.  Generated from configure.ac by autoheader.  */
 
-#define THREADING_DISABLED 	0
-#define SOCKETS_DISABLED	0
-#define DEBUG_DISABLED		0
-#define ENCRYPTION_DISABLED	0
-#define IO_DISABLED		0
+/* Define to 1 if you have the <event2/buffer.h> header file. */
+#undef HAVE_EVENT2_BUFFER_H
 
-#endif//__CONFIG_H__
+/* Define to 1 if you have the <event2/event_compat.h> header file. */
+#undef HAVE_EVENT2_EVENT_COMPAT_H
+
+/* Define to 1 if you have the <event2/event.h> header file. */
+#undef HAVE_EVENT2_EVENT_H
+
+/* Define to 1 if you have the <event2/event_struct.h> header file. */
+#undef HAVE_EVENT2_EVENT_STRUCT_H
+
+/* Define to 1 if you have the <inttypes.h> header file. */
+#undef HAVE_INTTYPES_H
+
+/* Define to 1 if you have the 'crypto' library (-lcrypto). */
+#undef HAVE_LIBCRYPTO
+
+/* Define to 1 if you have the 'event' library (-levent). */
+#undef HAVE_LIBEVENT
+
+/* Define to 1 if you have the <openssl/err.h> header file. */
+#undef HAVE_OPENSSL_ERR_H
+
+/* Define to 1 if you have the <openssl/pem.h> header file. */
+#undef HAVE_OPENSSL_PEM_H
+
+/* Define to 1 if you have the <openssl/rsa.h> header file. */
+#undef HAVE_OPENSSL_RSA_H
+
+/* Define to 1 if you have the <openssl/x509v3.h> header file. */
+#undef HAVE_OPENSSL_X509V3_H
+
+/* Define to 1 if you have the <openssl/x509.h> header file. */
+#undef HAVE_OPENSSL_X509_H
+
+/* Define to 1 if you have the <stdint.h> header file. */
+#undef HAVE_STDINT_H
+
+/* Define to 1 if you have the <stdio.h> header file. */
+#undef HAVE_STDIO_H
+
+/* Define to 1 if you have the <stdlib.h> header file. */
+#undef HAVE_STDLIB_H
+
+/* Define to 1 if you have the <strings.h> header file. */
+#undef HAVE_STRINGS_H
+
+/* Define to 1 if you have the <string.h> header file. */
+#undef HAVE_STRING_H
+
+/* Define to 1 if you have the <sys/stat.h> header file. */
+#undef HAVE_SYS_STAT_H
+
+/* Define to 1 if you have the <sys/types.h> header file. */
+#undef HAVE_SYS_TYPES_H
+
+/* Define to 1 if you have the <unistd.h> header file. */
+#undef HAVE_UNISTD_H
+
+/* Define to 1 to disable IO support */
+#undef IO_DISABLED
+
+/* Define to the address where bug reports for this package should be sent. */
+#undef PACKAGE_BUGREPORT
+
+/* Define to the full name of this package. */
+#undef PACKAGE_NAME
+
+/* Define to the full name and version of this package. */
+#undef PACKAGE_STRING
+
+/* Define to the one symbol short name of this package. */
+#undef PACKAGE_TARNAME
+
+/* Define to the home page for this package. */
+#undef PACKAGE_URL
+
+/* Define to the version of this package. */
+#undef PACKAGE_VERSION
+
+/* Define to 1 if all of the C89 standard headers exist (not just the ones
+   required in a freestanding environment). This macro is provided for
+   backward compatibility; new code need not use it. */
+#undef STDC_HEADERS
+
+/* Define to 1 to disable threading support */
+#undef THREADING_DISABLED
+
+/* Define to 1 to enable libcURL HTTP support */
+#undef WITH_LIBCURL

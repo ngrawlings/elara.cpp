@@ -9,7 +9,7 @@
 #include "ResultSet.h"
 #include <libelaracore/exception/Exception.h>
 
-namespace nrcore {
+namespace elara {
     
     ResultSet::ResultSet(Connector *con, Array<String> columns, unsigned int row_count) : con(con), columns(columns), rows(row_count) {
         cursor_offset = 0;
@@ -27,17 +27,17 @@ namespace nrcore {
     }
     
     Row ResultSet::row(unsigned int offset) {
-        return rows[offset];
+        return rows[offset].get();
     }
     
     Row ResultSet::first() {
         cursor_offset = 0;
-        return rows[0];
+        return rows[0].get();
     }
     
     Row ResultSet::last() {
         cursor_offset = (unsigned int)rows.length()-1;
-        return rows[cursor_offset];
+        return rows[cursor_offset].get();
     }
     
     Row* ResultSet::next() {

@@ -14,7 +14,7 @@
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/Ref.h>
 
-namespace nrcore {
+namespace elara {
     namespace sql {
     
         class ClauseGroup : public Clause {

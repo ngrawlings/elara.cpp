@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-namespace nrcore {
+namespace elara {
     
     Json::Json(String json) {
         value = JsonValue::getJsonValue(json);

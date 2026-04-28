@@ -11,7 +11,7 @@
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/ByteArray.h>
 
-namespace nrcore {
+namespace elara {
 
     IndexedDataStore::IndexedDataStore(String path) : file(path) {
         if (file.length()==0) {

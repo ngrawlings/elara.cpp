@@ -12,7 +12,7 @@
 #include "String.h"
 #include "Array.h"
 
-namespace nrcore {
+namespace elara {
 
     class StringList {
     public:

@@ -50,7 +50,7 @@
 #define SERVER_LISTENER_BACKLOG 20
 #endif
 
-namespace nrcore {
+namespace elara {
 
     Listener::Listener() {
     	event_base = 0;

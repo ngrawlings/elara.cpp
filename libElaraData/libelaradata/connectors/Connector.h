@@ -14,7 +14,7 @@
 #include <libelaradata/models/Schemas.h>
 #include <libelaradata/sql/sections/sql/FieldDescriptor.h>
 
-namespace nrcore {
+namespace elara {
     
     class Connector {
     public:

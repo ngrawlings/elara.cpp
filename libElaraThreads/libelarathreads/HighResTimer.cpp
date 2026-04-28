@@ -8,7 +8,7 @@
 
 #include "HighResTimer.h"
 
-namespace nrcore {
+namespace elara {
 
     HighResTimer::HighResTimer(useconds_t interval) {
         this->interval = interval;

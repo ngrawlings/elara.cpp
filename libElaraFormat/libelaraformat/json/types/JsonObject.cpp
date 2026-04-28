@@ -10,7 +10,7 @@
 #include <libelaracore/memory/LinkedList.h>
 #include <libelaracore/memory/HashMap.h>
 
-namespace nrcore {
+namespace elara {
     
     JsonObject::JsonObject(String json) {
         parse(json);

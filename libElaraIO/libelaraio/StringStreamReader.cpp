@@ -26,7 +26,7 @@
 
 #include <string.h>
 
-namespace nrcore {
+namespace elara {
 
     StringStreamReader::StringStreamReader(Stream *stream) {
         this->stream = stream;

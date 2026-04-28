@@ -13,7 +13,7 @@
 
 #include <libelaradata/connectors/Connector.h>
 
-namespace nrcore {
+namespace elara {
     
     class Model {
     public:

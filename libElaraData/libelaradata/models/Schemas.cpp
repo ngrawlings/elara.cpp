@@ -14,7 +14,7 @@
 
 #include <libelaradata/sql/sections/sql/ClauseValue.h>
 
-namespace nrcore {
+namespace elara {
     
     Schemas::Schemas(Connector* con) : con(con) {
         if (!exists())

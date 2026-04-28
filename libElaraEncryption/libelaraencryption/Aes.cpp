@@ -26,7 +26,7 @@
 
 #include <libelaracore/memory/Memory.h>
 
-namespace nrcore {
+namespace elara {
     
     // Aes randow tables to avoid unecesary cpu usage
     const int Aes::sm_alog[256] =

@@ -12,7 +12,7 @@
 #include <libelaradata/sql/builders/SqliteBuilder.h>
 #include <libelaradata/sql/sections/sqlite/FieldDescriptor.h>
 
-namespace nrcore {
+namespace elara {
 
     SqliteConnector::SqliteConnector(String path) {
         if (sqlite3_open(path, &db) != SQLITE_OK) {

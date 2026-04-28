@@ -18,7 +18,7 @@
 #include <libelarathreads/Task.h>
 #include <libelarathreads/Thread.h>
 
-namespace nrcore {
+namespace elara {
     
     class EventBase : public Task {
     public:

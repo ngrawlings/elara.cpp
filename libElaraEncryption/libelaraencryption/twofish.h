@@ -4,7 +4,7 @@
 #include "base/Cipher.h"
 #include "twofish/twofish2.h"
 
-namespace nrcore {
+namespace elara {
 
     class TwoFish : Cipher
     {

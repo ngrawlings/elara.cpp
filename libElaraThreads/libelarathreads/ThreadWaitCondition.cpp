@@ -25,7 +25,7 @@
 #include "ThreadWaitCondition.h"
 #include <sys/errno.h>
 
-namespace nrcore {
+namespace elara {
 
     ThreadWaitCondition::ThreadWaitCondition() {
         pthread_cond_init(&condition, 0);

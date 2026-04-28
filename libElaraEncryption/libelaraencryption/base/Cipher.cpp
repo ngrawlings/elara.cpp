@@ -8,7 +8,7 @@
 
 #include "Cipher.h"
 
-namespace nrcore {
+namespace elara {
   
     Memory Cipher::pad(const char* bytes, int len, int block_size) {
         char pval = block_size - len%block_size;

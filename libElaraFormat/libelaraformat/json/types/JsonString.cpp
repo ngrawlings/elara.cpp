@@ -8,7 +8,7 @@
 
 #include "JsonString.h"
 
-namespace nrcore {
+namespace elara {
     
     JsonString::JsonString(String json) {
         this->value = json.trim(" \"");

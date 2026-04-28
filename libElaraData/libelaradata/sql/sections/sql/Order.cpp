@@ -8,7 +8,7 @@
 
 #include "Order.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         Order::Order() {

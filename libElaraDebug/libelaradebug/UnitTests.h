@@ -15,11 +15,11 @@
 
 typedef bool (*UNITTEST)();
 typedef struct {
-    nrcore::String name;
+    elara::String name;
     UNITTEST method;
 } UNITTEST_ENTRY;
 
-namespace nrcore {
+namespace elara {
     
     class UnitTests {
     public:

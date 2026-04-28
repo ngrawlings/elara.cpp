@@ -11,7 +11,7 @@
 
 #include "Ref.h"
 
-namespace nrcore {
+namespace elara {
 
     template <class T>
     class RefArray : public Ref<T> {

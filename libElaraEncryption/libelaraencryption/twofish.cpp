@@ -1,6 +1,6 @@
 #include "twofish.h"
 
-namespace nrcore {
+namespace elara {
 
     TwoFish::TwoFish(const Memory &key, const Memory &iv)
     {

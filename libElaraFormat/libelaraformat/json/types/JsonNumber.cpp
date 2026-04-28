@@ -8,7 +8,7 @@
 
 #include "JsonNumber.h"
 
-namespace nrcore {
+namespace elara {
     
     JsonNumber::JsonNumber(String json) {
         this->value = json;

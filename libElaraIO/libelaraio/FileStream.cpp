@@ -10,7 +10,7 @@
 
 
 
-namespace nrcore {
+namespace elara {
     
     FileStream::FileStream(int fd) : Stream(fd), file(0) {
         

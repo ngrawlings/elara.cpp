@@ -9,7 +9,7 @@
 #include "JsonArray.h"
 #include <libelaracore/memory/LinkedList.h>
 
-namespace nrcore {
+namespace elara {
     
     JsonArray::JsonArray(String json) {
         parse(json);

@@ -22,7 +22,7 @@
 
 #define BANK_SIZE 16
 
-namespace nrcore {
+namespace elara {
 
     class IndexedDataStore {
     public:

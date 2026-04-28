@@ -12,7 +12,7 @@
 #include <libelaracore/memory/LinkedList.h>
 #include <libelaracore/memory/ByteArray.h>
 
-namespace nrcore {
+namespace elara {
     
     namespace serializer {
     

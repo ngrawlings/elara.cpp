@@ -12,7 +12,7 @@
 #include <signal.h>
 #include <libelaradebug/Log.h>
 
-namespace nrcore {
+namespace elara {
     
     EventBase::EventBase() {
         event_signal = 0;

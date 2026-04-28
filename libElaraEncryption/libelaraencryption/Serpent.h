@@ -33,7 +33,7 @@
 #define SERPENT_KEY192 192
 #define SERPENT_KEY256 256
 
-namespace nrcore {
+namespace elara {
 
     class Serpent : Cipher {
     public:

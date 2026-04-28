@@ -12,7 +12,7 @@
 #include <stdio.h>
 #include <libelaradata/models/Model.h>
 
-using namespace nrcore;
+using namespace elara;
 
 class TestModel : public Model {
 public:

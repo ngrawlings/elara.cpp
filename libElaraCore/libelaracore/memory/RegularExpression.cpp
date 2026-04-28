@@ -8,7 +8,7 @@
 
 #include "RegularExpression.h"
 
-namespace nrcore {
+namespace elara {
 
     RegularExpression::RegularExpression(String expr) {
         this->expr = expr;

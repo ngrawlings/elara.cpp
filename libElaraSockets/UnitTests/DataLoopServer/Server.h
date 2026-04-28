@@ -13,7 +13,7 @@
 #include <libelarasockets/Listener.h>
 #include "Client.h"
 
-using namespace nrcore;
+using namespace elara;
 
 class DataLoopServer : public Listener {
 public:

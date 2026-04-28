@@ -14,7 +14,7 @@
 #include <libelarasockets/utils/BlockLoaderBase.h>
 #include <libelaracore/memory/String.h>
 
-namespace nrcore {
+namespace elara {
     
     class UsernamePasswordLoader : public BlockLoaderBase {
     public:

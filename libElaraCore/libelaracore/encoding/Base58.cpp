@@ -9,7 +9,7 @@
 #include "Base58.h"
 #include "impl/base58.h"
 
-namespace nrcore {
+namespace elara {
 
     Memory Base58::encode(Memory mem) {
         size_t sz = ((mem.length() * 138) / 100) + 1;

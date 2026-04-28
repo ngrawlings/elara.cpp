@@ -42,7 +42,7 @@
 #include <libelaracore/memory/Memory.h>
 #include "base/Cipher.h"
 
-namespace nrcore {
+namespace elara {
 
     class Rsa : public Cipher {
     public:

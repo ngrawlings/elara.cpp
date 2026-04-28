@@ -8,7 +8,7 @@
 
 #include "FieldDescriptor.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         FieldDescriptor::FieldDescriptor() {

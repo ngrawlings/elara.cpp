@@ -15,7 +15,7 @@
 
 #include <libelarathreads/Thread.h>
 
-namespace nrcore {
+namespace elara {
 
     EventBase* Socket::event_base;
     

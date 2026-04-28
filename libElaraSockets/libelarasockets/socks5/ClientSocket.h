@@ -14,7 +14,7 @@
 #include <libelaracore/memory/ByteArray.h>
 #include <libelarasockets/Socket.h>
 
-namespace nrcore {
+namespace elara {
     
     class Socks5Server;
 

@@ -28,7 +28,7 @@
 #include "Mutex.h"
 #include "ThreadWaitCondition.h"
 
-namespace nrcore {
+namespace elara {
 
     class TaskMutex : public Mutex {
     public:

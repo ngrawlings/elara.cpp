@@ -25,7 +25,7 @@
 #ifndef PeerConnector_StaticArray_h
 #define PeerConnector_StaticArray_h
 
-namespace nrcore {
+namespace elara {
 
     template <class T, unsigned long sz>
     class StaticArray {

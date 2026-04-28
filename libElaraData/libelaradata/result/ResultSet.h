@@ -14,7 +14,7 @@
 #include <libelaracore/memory/Ref.h>
 #include <libelaracore/memory/Array.h>
 
-namespace nrcore {
+namespace elara {
     
     class Connector;
     

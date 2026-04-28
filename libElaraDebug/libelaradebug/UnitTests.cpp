@@ -8,7 +8,7 @@
 
 #include "UnitTests.h"
 
-namespace nrcore {
+namespace elara {
     
     void UnitTests::addTest(String name, UNITTEST cb) {
         UNITTEST_ENTRY *test = new UNITTEST_ENTRY;

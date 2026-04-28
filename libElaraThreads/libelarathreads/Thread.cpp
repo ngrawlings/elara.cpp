@@ -30,7 +30,7 @@
 #include <sys/time.h>
 #endif
 
-namespace nrcore {
+namespace elara {
 
     LinkedList<Thread*> *Thread::threads = 0;
     LinkedList<Thread*> *Thread::wait_threads = 0;

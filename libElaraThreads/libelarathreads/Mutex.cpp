@@ -35,7 +35,7 @@
 
 #include "Thread.h"
 
-namespace nrcore {
+namespace elara {
 
     Mutex::Mutex(const char *tag, bool manage) {
         this->_tag = tag;

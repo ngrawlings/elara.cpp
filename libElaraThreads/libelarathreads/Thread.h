@@ -37,7 +37,7 @@
 #include "ThreadWaitCondition.h"
 #include "Mutex.h"
 
-namespace nrcore {
+namespace elara {
 
     class Thread {
     public:

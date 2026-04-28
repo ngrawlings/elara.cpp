@@ -12,7 +12,7 @@
 #include "Builder.h"
 #include <sqlite3.h>
 
-namespace nrcore {
+namespace elara {
  
     class SqliteBuilder : public Builder {
     public:

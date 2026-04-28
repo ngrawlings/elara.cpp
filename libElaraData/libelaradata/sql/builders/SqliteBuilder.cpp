@@ -11,7 +11,7 @@
 #include <libelaracore/exception/Exception.h>
 #include "../sections/sqlite/FieldDescriptor.h"
 
-namespace nrcore {
+namespace elara {
     
     SqliteBuilder::SqliteBuilder(String name) : Builder(name) {
         

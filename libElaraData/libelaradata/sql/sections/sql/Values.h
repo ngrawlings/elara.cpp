@@ -16,7 +16,7 @@
 
 #define VALUE_HEX 0x01
 
-namespace nrcore {
+namespace elara {
     namespace sql {
  
         class Values {

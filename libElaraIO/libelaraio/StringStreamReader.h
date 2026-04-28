@@ -29,7 +29,7 @@
 #include <libelarathreads/Thread.h>
 #include <libelaraio/Stream.h>
 
-namespace nrcore {
+namespace elara {
 
     class StringStreamReader : public Task {
     public:

@@ -8,7 +8,7 @@
 
 #include "OffsetLimit.h"
 
-namespace nrcore {
+namespace elara {
     namespace sql {
         
         OffsetLimit::OffsetLimit() {

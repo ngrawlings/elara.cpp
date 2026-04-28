@@ -14,7 +14,7 @@
 
 #include "keccak256/keccak256.h"
 
-namespace nrcore {
+namespace elara {
 
     class Keccak256 : public Hash {
     public:

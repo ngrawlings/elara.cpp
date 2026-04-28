@@ -8,6 +8,6 @@
 
 #include "Signer.h"
 
-namespace nrcore {
+namespace elara {
     
 };

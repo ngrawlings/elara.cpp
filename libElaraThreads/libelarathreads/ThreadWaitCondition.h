@@ -28,7 +28,7 @@
 #include <libelaracore/types.h>
 #include <pthread.h>
 
-namespace nrcore {
+namespace elara {
 
     class ThreadWaitCondition {
     public:

@@ -27,7 +27,7 @@
 #include <assert.h>
 #include <libelarathreads/Thread.h>
 
-namespace nrcore {
+namespace elara {
 
     bool Task::shutting_down = false;
     Mutex *Task::task_queue_mutex = 0;
