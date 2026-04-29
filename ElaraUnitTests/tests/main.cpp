@@ -49,9 +49,9 @@ int main(int argc, const char *argv[]) {
     if (!count || !selected_count) {
         printf("No tests matched selector: %s\r\n", (char*)selector);
         printf("Modes: validator, stress, fuzz\r\n");
-        printf("Validator selectors: all, runtime, runtime.bytearray, runtime.hashmap, runtime.ringbuffer, runtime.base58, runtime.base64\r\n");
+        printf("Validator selectors: all, runtime, runtime.bytearray, runtime.hashmap, runtime.ringbuffer, runtime.base58, runtime.base64, runtime.indexeddatastore, runtime.indexeddatastore.integrity, runtime.indexeddatastore.crash\r\n");
         printf("Stress selectors: runtime.stress, stress-memory\r\n");
-        printf("Fuzz selectors: runtime.fuzz, runtime.fuzz.bytearray, runtime.fuzz.hashmap, runtime.fuzz.ringbuffer, runtime.fuzz.string, runtime.fuzz.linkedlist, runtime.fuzz.instancepool\r\n");
+        printf("Fuzz selectors: runtime.fuzz, runtime.fuzz.bytearray, runtime.fuzz.hashmap, runtime.fuzz.ringbuffer, runtime.fuzz.string, runtime.fuzz.linkedlist, runtime.fuzz.instancepool, runtime.fuzz.indexeddatastore\r\n");
         return 2;
     }
 

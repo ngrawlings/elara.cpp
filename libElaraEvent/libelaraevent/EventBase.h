@@ -45,6 +45,12 @@ namespace elara {
         bool _run;
     };
     
+};
+
+namespace elara {
+namespace event {
+    using ::elara::EventBase;
+}
 }
 
 #endif /* defined(__libElaraCore__EventBase__) */

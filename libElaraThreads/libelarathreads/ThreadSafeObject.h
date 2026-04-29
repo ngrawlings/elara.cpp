@@ -37,4 +37,13 @@ namespace elara {
 
 };
 
+namespace elara {
+namespace threading {
+
+template <class T>
+using ThreadSafeObject = ::elara::ThreadSafeObject<T>;
+
+}
+}
+
 #endif /* defined(__libElaraCore__ThreadSafeObject__) */

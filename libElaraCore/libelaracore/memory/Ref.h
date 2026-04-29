@@ -183,4 +183,13 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T>
+    using Ref = ::elara::Ref<T>;
+}
+}
+}
+
 #endif /* defined(__Elara__Ref__) */

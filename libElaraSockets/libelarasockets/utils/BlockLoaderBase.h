@@ -32,4 +32,14 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace sockets {
+namespace utils {
+
+using ::elara::BlockLoaderBase;
+
+}
+}
+}
+
 #endif /* BlockLoaderBase_hpp */

@@ -14,17 +14,19 @@ INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
 INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
 DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
 STATIC_LIBRARY=$(NAME).a
+STATIC_LIBRARY_PATH=$(BUILDPATH)/$(STATIC_LIBRARY)
+COPIED_CONFIG=./$(NAME)/config.h
 
-all: $(SOURCES) $(STATIC_LIBRARY)
+all: $(SOURCES) $(STATIC_LIBRARY_PATH)
 	
-$(STATIC_LIBRARY): $(OBJECTS)
-	ar rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
+$(STATIC_LIBRARY_PATH): $(OBJECTS)
+	ar rcs $@ $(OBJECTS)
 
-$(BUILDPATH)/%.o: copyconfig
-	+@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
-	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
+$(BUILDPATH)/%.o: ./$(NAME)/%.cpp $(COPIED_CONFIG)
+	+@[ -d $(dir $@) ] || mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
 
-copyconfig:
+$(COPIED_CONFIG): config.h
 	cp config.h ./$(NAME)/config.h
 
 install:
@@ -35,11 +37,11 @@ install:
 		cp "$$header" "$$dst" || exit $$?; \
 	done
 	mkdir -p $(INSTALL_LIB_PATH)
-	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	cp $(STATIC_LIBRARY_PATH) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
 
 clean:
 	rm -Rf $(BUILDPATH)/*.o
-	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
+	rm -f $(STATIC_LIBRARY_PATH)
 
 remove:
 	rm -Rf $(INSTALL_HEADER_PATH)

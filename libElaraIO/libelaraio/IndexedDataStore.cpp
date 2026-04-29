@@ -10,8 +10,32 @@
 
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/ByteArray.h>
+#include <unistd.h>
 
 namespace elara {
+
+    namespace {
+        IndexedDataStore::CRASH_TEST_POINT indexed_data_store_crash_point = IndexedDataStore::CRASH_NONE;
+        int indexed_data_store_crash_trigger_count = 0;
+    }
+
+    void IndexedDataStore::setCrashTestPoint(CRASH_TEST_POINT point, int trigger_count) {
+        indexed_data_store_crash_point = point;
+        indexed_data_store_crash_trigger_count = trigger_count > 0 ? trigger_count : 1;
+    }
+
+    void IndexedDataStore::clearCrashTestPoint() {
+        indexed_data_store_crash_point = CRASH_NONE;
+        indexed_data_store_crash_trigger_count = 0;
+    }
+
+    void IndexedDataStore::crashTestHook(CRASH_TEST_POINT point) {
+        if (indexed_data_store_crash_point != point)
+            return;
+
+        if (--indexed_data_store_crash_trigger_count <= 0)
+            _exit(86);
+    }
 
     IndexedDataStore::IndexedDataStore(String path) : file(path) {
         if (file.length()==0) {
@@ -28,6 +52,7 @@ namespace elara {
             root_descriptor.magic_flag = MAGIC_FLAG_INDEX;
             system_descriptor.magic_flag = MAGIC_FLAG_INDEX;
             user_descriptor.magic_flag = MAGIC_FLAG_INDEX;
+            recycled_blocks_file.magic_flag = MAGIC_FLAG_FILE;
             
             root_descriptor.slot[0] = sizeof(INDEX_DESCRIPTOR);   // Offset of system descriptor
             root_descriptor.slot[1] = sizeof(INDEX_DESCRIPTOR)*2; // Offset of user descriptor
@@ -62,6 +87,7 @@ namespace elara {
         file_desc.block_size = block_size;
         unsigned long long offset = file.length();
         file.write(offset, (const char*)&file_desc, sizeof(FILE_DESCRIPTOR));
+        crashTestHook(CRASH_AFTER_CREATE_FILE_DESCRIPTOR_WRITE);
         
         desc.getPtr()->descriptor.file = offset;
         updateIndexDescriptor(desc);
@@ -91,11 +117,17 @@ namespace elara {
         } catch (...) {
             file = createFile(key, block_size);
         }
+
+        if (!file.getPtr())
+            file = createFile(key, block_size);
         
         return file;
     }
 
     bool IndexedDataStore::writeToFile(Ref<LOADED_FILE_DESCRIPTOR> file, Memory data, unsigned long long offset, unsigned long long length) {
+        if (!file.getPtr())
+            throw "Invalid file descriptor";
+
         unsigned long long file_size = getFileSize(file);
         if (offset > file_size)
             return false;
@@ -109,12 +141,14 @@ namespace elara {
             
             unsigned long long file_offset = this->file.length();
             this->file.write(file_offset, (const char*)&desc, sizeof(DATA_BLOCK_DESCRIPTOR));
+            crashTestHook(CRASH_AFTER_FIRST_DATA_DESCRIPTOR_WRITE);
             
             Memory mem(file.getPtr()->descriptor.block_size);
             for (int i=0; i<file.getPtr()->descriptor.block_size; i++) {
                 mem.getPtr()[i] = 0;
             }
             this->file.write(file_offset+sizeof(DATA_BLOCK_DESCRIPTOR), mem.operator char *(), file.getPtr()->descriptor.block_size);
+            crashTestHook(CRASH_AFTER_FIRST_DATA_PAYLOAD_WRITE);
             
             file.getPtr()->descriptor.first_data_block = file_offset;
             file.getPtr()->descriptor.last_data_block = file_offset;
@@ -216,6 +250,8 @@ namespace elara {
         
         unsigned int _offset = (int)(offset-cursor);
         unsigned int len = desc.getPtr()->descriptor.used_bytes-_offset;
+        if (len > length)
+            len = (unsigned int)length;
         
         while (ret.length()<length) {
             ByteArray block = desc.getPtr()->data;
@@ -249,6 +285,10 @@ namespace elara {
     void IndexedDataStore::set(Memory key, Memory value) {
         Ref<LOADED_FILE_DESCRIPTOR> file = getOrCreateFile(key, (int)value.length());
         writeToFile(file, value, 0, value.length());
+        if (file.getPtr()->descriptor.file_size != (unsigned long long)value.length()) {
+            file.getPtr()->descriptor.file_size = value.length();
+            updateFileDescriptor(file);
+        }
     }
 
     void IndexedDataStore::set(Memory key, int value) {
@@ -315,15 +355,15 @@ namespace elara {
     }
 
     Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> IndexedDataStore::getChildDescriptor(Ref<LOADED_INDEX_DESCRIPTOR> descriptor, unsigned char index, bool create_index) {
+        const unsigned long long bank_map_flag = 0x8000000000000000ULL;
         bool repeat;
         
         do {
             repeat = false;
 
-            if (descriptor.getPtr()->descriptor.next_index_descriptor & 0x8000000000000000) {
+            if (descriptor.getPtr()->descriptor.next_index_descriptor & bank_map_flag) {
                 // This is a bank map, select correct node directly
-                printf("Bank map mode\n");
-                Ref<LOADED_BANK_MAP> bmap = loadBankMap(descriptor.getPtr()->descriptor.next_index_descriptor & 0x7FFFFFFFFFFFFFFF);
+                Ref<LOADED_BANK_MAP> bmap = loadBankMap(descriptor.getPtr()->descriptor.next_index_descriptor & ~bank_map_flag);
 
                 unsigned long long slot = index/BANK_SIZE;
 
@@ -335,9 +375,9 @@ namespace elara {
             
             if (descriptor.getPtr()->descriptor.range_start <= index && descriptor.getPtr()->descriptor.range_start+BANK_SIZE > index) {
                 unsigned long long offset = descriptor.getPtr()->descriptor.slot[index-descriptor.getPtr()->descriptor.range_start];
-                if ((offset & 0x8000000000000000) == 0x8000000000000000) {
+                if ((offset & bank_map_flag) == bank_map_flag) {
                     // return existing descriptor
-                    return loadIndexDescriptor(offset & 0x7FFFFFFFFFFFFFFF);
+                    return loadIndexDescriptor(offset & ~bank_map_flag);
                 } else if (create_index) {
                     // Create new descriptor
                     INDEX_DESCRIPTOR ndesc;
@@ -347,10 +387,10 @@ namespace elara {
                     unsigned long long offset = file.length();
                     file.write(offset, (const char*)&ndesc, sizeof(INDEX_DESCRIPTOR));
                     
-                    descriptor.getPtr()->descriptor.slot[index-descriptor.getPtr()->descriptor.range_start] = offset | 0x8000000000000000;
+                    descriptor.getPtr()->descriptor.slot[index-descriptor.getPtr()->descriptor.range_start] = offset | bank_map_flag;
                     updateIndexDescriptor(descriptor);
                     
-                    return loadIndexDescriptor(offset & 0x7FFFFFFFFFFFFFFF);
+                    return loadIndexDescriptor(offset);
                 } else {
                     break;
                 }
@@ -373,7 +413,7 @@ namespace elara {
                 
             }
 
-            if (descriptor.getPtr()->descriptor.next_index_descriptor & 0x8000000000000000)
+            if (descriptor.getPtr()->descriptor.next_index_descriptor & bank_map_flag)
                 throw "Bank map, should never reach this code";
             
             if (descriptor.getPtr()->descriptor.next_index_descriptor) {
@@ -450,6 +490,7 @@ namespace elara {
                 }
 
                 this->file.write(file_offset, mem.operator char *(), sizeof(BANK_MAP));
+                crashTestHook(CRASH_AFTER_BANK_MAP_WRITE);
 
                 return true;
             }
@@ -459,7 +500,7 @@ namespace elara {
     }
 
     Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> IndexedDataStore::loadFileDescriptor(unsigned long long offset) {
-        Memory mem = file.read(offset, sizeof(INDEX_DESCRIPTOR));
+        Memory mem = file.read(offset, sizeof(FILE_DESCRIPTOR));
         
         LOADED_FILE_DESCRIPTOR *desc = new LOADED_FILE_DESCRIPTOR;
         memcpy(&desc->descriptor, mem.operator char *(), sizeof(FILE_DESCRIPTOR));
@@ -489,6 +530,7 @@ namespace elara {
 
     void IndexedDataStore::updateIndexDescriptor(Ref<LOADED_INDEX_DESCRIPTOR> descriptor) {
         file.write(descriptor.getPtr()->offset, (const char*)&descriptor.getPtr()->descriptor, sizeof(INDEX_DESCRIPTOR));
+        crashTestHook(CRASH_AFTER_INDEX_DESCRIPTOR_WRITE);
     }
 
     Ref<IndexedDataStore::LOADED_DATA_BLOCK_DESCRIPTOR> IndexedDataStore::createDataBlock(Ref<LOADED_FILE_DESCRIPTOR> file_desc, Ref<LOADED_DATA_BLOCK_DESCRIPTOR> previous) {
@@ -516,10 +558,12 @@ namespace elara {
         
     void IndexedDataStore::updateFileDescriptor(Ref<LOADED_FILE_DESCRIPTOR> descriptor) {
         file.write(descriptor.getPtr()->offset, (const char*)&descriptor.getPtr()->descriptor, sizeof(FILE_DESCRIPTOR));
+        crashTestHook(CRASH_AFTER_FILE_DESCRIPTOR_WRITE);
     }
 
     void IndexedDataStore::updateDataBlockDescriptor(Ref<LOADED_DATA_BLOCK_DESCRIPTOR> descriptor) {
         file.write(descriptor.getPtr()->offset, (const char*)&descriptor.getPtr()->descriptor, sizeof(DATA_BLOCK_DESCRIPTOR));
+        crashTestHook(CRASH_AFTER_DATA_DESCRIPTOR_WRITE);
     }
 
     void IndexedDataStore::updateDataBlockData(Ref<LOADED_DATA_BLOCK_DESCRIPTOR> descriptor) {
@@ -527,6 +571,7 @@ namespace elara {
         int len = descriptor.getPtr()->descriptor.block_size;
         
         file.write(offset, descriptor.getPtr()->data.operator char *(), len);
+        crashTestHook(CRASH_AFTER_DATA_PAYLOAD_WRITE);
     }
 
     Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> IndexedDataStore::getRootDecriptor() {
@@ -544,6 +589,7 @@ namespace elara {
     }
 
     RefArray<int> IndexedDataStore::getChildIndexes(Memory key) {
+        const unsigned long long bank_map_flag = 0x8000000000000000ULL;
         Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> desc = getUserDecriptor();
         for (int i=0; i<key.length(); i++) {
             desc = getChildDescriptor(desc, (unsigned char)(key.getPtr()[i]&0xFF), false);
@@ -553,23 +599,39 @@ namespace elara {
 
         Array<int> list;
 
-        while (true) {
-            for (int i=0; i<16; i++) {
-                if (desc.getPtr()->descriptor.slot[i] & 0x8000000000000000) 
-                    list.push(i);
+        if (desc.getPtr()->descriptor.next_index_descriptor & bank_map_flag) {
+            Ref<LOADED_BANK_MAP> bmap = loadBankMap(desc.getPtr()->descriptor.next_index_descriptor & ~bank_map_flag);
 
-                if (desc.getPtr()->descriptor.next_index_descriptor)
-                    desc = loadIndexDescriptor(desc.getPtr()->descriptor.next_index_descriptor);
-                else 
+            for (int bank=0; bank<(256/BANK_SIZE); bank++) {
+                if (!bmap.getPtr()->descriptor.banks[bank])
+                    continue;
+
+                Ref<LOADED_INDEX_DESCRIPTOR> bank_desc = loadIndexDescriptor(bmap.getPtr()->descriptor.banks[bank]);
+                for (int i=0; i<BANK_SIZE; i++) {
+                    if (bank_desc.getPtr()->descriptor.slot[i] & bank_map_flag)
+                        list.push(bank_desc.getPtr()->descriptor.range_start + i);
+                }
+            }
+        } else {
+            while (desc.getPtr()) {
+                for (int i=0; i<BANK_SIZE; i++) {
+                    if (desc.getPtr()->descriptor.slot[i] & bank_map_flag)
+                        list.push(desc.getPtr()->descriptor.range_start + i);
+                }
+
+                if (!desc.getPtr()->descriptor.next_index_descriptor)
                     break;
+
+                desc = loadIndexDescriptor(desc.getPtr()->descriptor.next_index_descriptor);
             }
         }
 
         int len = list.length();
-        int *ret = new int[len];
+        int *ret = new int[len+1];
         for (int i=0; i<len; i++) {
             ret[i] = list.get(i);
         }
+        ret[len] = -1;
 
         return RefArray<int>(ret);
     }

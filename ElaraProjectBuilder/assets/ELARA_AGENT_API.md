@@ -130,15 +130,35 @@ It is intentionally biased toward:
 ### Legacy Risk Flags
 
 Treat these as legacy or partially broken until reviewed:
-- `<libelaracore/memory/IndexedList.h>`
-- `<libelaracore/memory/ObjectArray.h>`
-- `<libelaracore/memory/ObjectBlockArray.h>`
-
-Those headers still reference older include paths such as `libelaracore/base/Object.h` and should not be chosen for new code unless the missing layer is restored.
+- no current entries
 
 ## libElaraCore
 
 Primary role: string, memory, byte manipulation, lightweight containers, utility encoding.
+
+### `<libelaracore/addressing/DynamicIdentifier.h>`
+
+Namespace: `elara`
+
+Type: `class DynamicIdentifier`
+
+Purpose:
+- hierarchical identifier with byte-encoded and dot-delimited forms
+
+Key API:
+- `DynamicIdentifier(const Memory &id)`
+- `DynamicIdentifier(String id)`
+- `int componentCount()`
+- `int get(int index)`
+- `Array<int> getIntArray()`
+- `Memory getBytes()`
+- `String getDelimitedStrting()`
+- `void increment()`
+
+Agent notes:
+- the first component is stored as a single byte
+- subsequent components use the existing 7-bit continuation encoding
+- dot-delimited strings such as `1.2130437.6` round-trip through `getBytes()`
 
 ### `<libelaracore/memory/String.h>`
 
@@ -385,6 +405,16 @@ Key API:
 - `static Memory encode(Memory mem)`
 - `static Memory decode(Memory mem)`
 
+### `<libelaracore/encoding/Base64.h>`
+
+Namespace: `elara`
+
+Type: `class Base64`
+
+Key API:
+- `static Memory encode(Memory mem)`
+- `static Memory decode(Memory mem)`
+
 ### `<libelaracore/utils/ByteUtils.h>`
 
 Namespace: `elara`
@@ -442,10 +472,6 @@ Key `SerializableString` API:
 These are installed but should be treated as legacy/specialized:
 - `<libelaracore/memory/StaticArray.h>`
   - fixed-size `set` and `operator[]`
-- `<libelaracore/memory/IndexedList.h>`
-  - sparse byte-key tree, legacy include dependencies
-- `<libelaracore/memory/ObjectArray.h>`
-- `<libelaracore/memory/ObjectBlockArray.h>`
 
 ## libElaraThreads
 

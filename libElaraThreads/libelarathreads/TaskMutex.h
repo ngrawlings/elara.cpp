@@ -58,4 +58,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace threading {
+
+using ::elara::TaskMutex;
+
+}
+}
+
 #endif /* defined(__ElaraCore__TaskMutex__) */

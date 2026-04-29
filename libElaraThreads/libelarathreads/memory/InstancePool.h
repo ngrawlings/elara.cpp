@@ -267,4 +267,13 @@ namespace memory {
 }
 }
 
+namespace elara {
+namespace threading {
+
+template <class T>
+using InstancePool = ::elara::threading::memory::InstancePool<T>;
+
+}
+}
+
 #endif /* defined(__libElaraThreads__memory__InstancePool__) */

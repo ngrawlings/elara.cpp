@@ -27,6 +27,8 @@
 
 #define FILE_NOT_FOUND_EXCEPTION    0x10000001
 
+namespace elara {
+
 class Exception {
 public:
     Exception(int err, const char *message) {
@@ -46,5 +48,13 @@ private:
     int err;
     const char* message;
 };
+
+namespace core {
+namespace exception {
+    using ::elara::Exception;
+}
+}
+
+}
 
 #endif

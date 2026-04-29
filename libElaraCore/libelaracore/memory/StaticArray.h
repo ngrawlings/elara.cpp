@@ -55,4 +55,13 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T, unsigned long sz>
+    using StaticArray = ::elara::StaticArray<T, sz>;
+}
+}
+}
+
 #endif

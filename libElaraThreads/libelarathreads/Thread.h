@@ -128,4 +128,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace threading {
+
+using ::elara::Thread;
+
+}
+}
+
 #endif /* defined(__Elara__Thread__) */

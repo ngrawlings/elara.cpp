@@ -214,4 +214,13 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T>
+    using HashMap = ::elara::HashMap<T>;
+}
+}
+}
+
 #endif /* defined(__libElaraCore__HashMap__) */

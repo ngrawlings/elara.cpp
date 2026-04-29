@@ -96,4 +96,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace sockets {
+
+using ::elara::Socket;
+
+}
+}
+
 #endif /* Socket_hpp */

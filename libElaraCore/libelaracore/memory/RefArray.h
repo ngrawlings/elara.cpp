@@ -29,4 +29,13 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T>
+    using RefArray = ::elara::RefArray<T>;
+}
+}
+}
+
 #endif

@@ -22,4 +22,12 @@ namespace elara {
 
 }
 
+namespace elara {
+namespace core {
+namespace encoding {
+    using ::elara::Base58;
+}
+}
+}
+
 #endif /* Base58_hpp */

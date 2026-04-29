@@ -22,7 +22,7 @@
 // For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __Elara
+#ifndef __Elara__Task__
 #define __Elara__Task__
 
 #include <pthread.h>
@@ -78,6 +78,14 @@ namespace elara {
         Thread *acquired_thread; // thread instance pointer that is currently executing this task, or null if not running
     };
 
+}
+
+namespace elara {
+namespace threading {
+
+using ::elara::Task;
+
+}
 }
 
 #endif /* defined(__Elara__Task__) */

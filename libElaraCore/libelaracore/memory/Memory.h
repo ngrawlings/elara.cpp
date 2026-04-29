@@ -152,4 +152,12 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    using ::elara::Memory;
+}
+}
+}
+
 #endif /* defined(__Elara__Memory__) */

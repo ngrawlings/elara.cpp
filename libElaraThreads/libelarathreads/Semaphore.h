@@ -54,4 +54,12 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace threading {
+
+using ::elara::Semaphore;
+
+}
+}
+
 #endif /* defined(__Elara__Semaphore__) */

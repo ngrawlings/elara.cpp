@@ -39,4 +39,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace core {
+namespace memory {
+    using ::elara::StringList;
+}
+}
+}
+
 #endif /* defined(__libElaraCore__StringList__) */

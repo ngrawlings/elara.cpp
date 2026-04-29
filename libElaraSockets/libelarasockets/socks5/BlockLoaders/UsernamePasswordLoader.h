@@ -43,4 +43,14 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace sockets {
+namespace socks5 {
+
+using ::elara::UsernamePasswordLoader;
+
+}
+}
+}
+
 #endif /* UsernamePasswordLoader_hpp */

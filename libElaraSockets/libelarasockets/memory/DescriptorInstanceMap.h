@@ -53,4 +53,13 @@ namespace memory {
 }
 }
 
+namespace elara {
+namespace sockets {
+
+template <class T>
+using DescriptorInstanceMap = ::elara::sockets::memory::DescriptorInstanceMap<T>;
+
+}
+}
+
 #endif /* defined(__libElaraSockets__memory__DescriptorInstanceMap__) */

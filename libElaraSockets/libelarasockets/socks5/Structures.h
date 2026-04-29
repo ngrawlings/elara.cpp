@@ -9,7 +9,9 @@
 #ifndef Structures_h
 #define Structures_h
 
-using namespace elara;
+namespace elara {
+namespace sockets {
+namespace socks5 {
 
 typedef enum {
     NO_AUTH             = 0,
@@ -92,6 +94,46 @@ typedef struct {
     unsigned char password_len;
     ByteArray password;
 } AUTH_USERNAME_PASSWORD;
+
+}
+}
+}
+
+namespace elara {
+
+using sockets::socks5::NO_AUTH;
+using sockets::socks5::GSSAPI;
+using sockets::socks5::USERNAME_PASSWORD;
+using sockets::socks5::CONNECT;
+using sockets::socks5::BIND;
+using sockets::socks5::UDP_ASSOCIATE;
+using sockets::socks5::AUTH_METHOD;
+using sockets::socks5::REQUEST_COMMAND;
+using sockets::socks5::CLIENT_INIT;
+using sockets::socks5::SERVER_AUTH_SELECT;
+using sockets::socks5::IPV4;
+using sockets::socks5::DOMAIN;
+using sockets::socks5::IPV6;
+using sockets::socks5::ADDRESS_TYPE;
+using sockets::socks5::SUCCESS;
+using sockets::socks5::GENERAL_FAILURE;
+using sockets::socks5::NOT_ALLOWED;
+using sockets::socks5::NETWORK_UNREACHABLE;
+using sockets::socks5::HOST_UNREACHABLE;
+using sockets::socks5::CONNECTION_REFUSED;
+using sockets::socks5::TTL_EXPIRED;
+using sockets::socks5::CMD_NOT_SUPPORTED;
+using sockets::socks5::ADDRESS_NOT_SUPPORTED;
+using sockets::socks5::RESULT;
+using sockets::socks5::AUTH_RESULT;
+using sockets::socks5::CLIENT_REQUEST;
+using sockets::socks5::SERVER_RESPONSE;
+using sockets::socks5::ADDRESS_IPV4;
+using sockets::socks5::ADDRESS_DOMAIN;
+using sockets::socks5::ADDRESS_IPV6;
+using sockets::socks5::AUTH_USERNAME_PASSWORD;
+
+}
 
 
 #endif /* Structures_h */

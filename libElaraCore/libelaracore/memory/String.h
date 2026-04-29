@@ -134,4 +134,12 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    using ::elara::String;
+}
+}
+}
+
 #endif /* defined(__Elara__NString__) */

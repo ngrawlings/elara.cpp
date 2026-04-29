@@ -161,4 +161,13 @@ namespace elara {
 
 };
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T>
+    using Array = ::elara::Array<T>;
+}
+}
+}
+
 #endif

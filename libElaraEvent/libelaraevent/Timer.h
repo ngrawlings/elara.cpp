@@ -36,6 +36,12 @@ namespace elara {
         static void ev_schedule_tick(int fd, short ev, void *arg);
     };
         
+};
+
+namespace elara {
+namespace event {
+    using ::elara::Timer;
+}
 }
 
 #endif /* defined(__libElaraCore__Timer__) */

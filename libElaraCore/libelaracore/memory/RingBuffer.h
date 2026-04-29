@@ -40,4 +40,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace core {
+namespace memory {
+    using ::elara::RingBuffer;
+}
+}
+}
+
 #endif /* defined(__libElaraCore__RingBuffer__) */

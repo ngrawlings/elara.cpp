@@ -90,4 +90,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace sockets {
+
+using ::elara::Listener;
+
+}
+}
+
 #endif /* defined(__Elara__Listener__) */

@@ -31,4 +31,14 @@ namespace elara {
 
 }
 
+namespace elara {
+namespace sockets {
+namespace socks5 {
+
+using ::elara::Socks5Client;
+
+}
+}
+}
+
 #endif /* Scoks5Client_hpp */

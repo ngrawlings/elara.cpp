@@ -329,4 +329,16 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace core {
+namespace memory {
+    template <class T>
+    using LinkedList = ::elara::LinkedList<T>;
+
+    template <class T>
+    using LinkedListState = ::elara::LinkedListState<T>;
+}
+}
+}
+
 #endif

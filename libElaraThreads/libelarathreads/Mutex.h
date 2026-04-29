@@ -74,4 +74,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace threading {
+
+using ::elara::Mutex;
+
+}
+}
+
 #endif /* defined(__Elara__Mutex__) */

@@ -32,4 +32,12 @@ namespace elara {
 
 };
 
+namespace elara {
+namespace core {
+namespace parsing {
+    using ::elara::RegularExpression;
+}
+}
+}
+
 #endif /* defined(__libElaraCore__RegularExpression__) */

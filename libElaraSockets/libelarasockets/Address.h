@@ -43,4 +43,12 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace sockets {
+
+using ::elara::Address;
+
+}
+}
+
 #endif /* defined(__libElaraCore__Address__) */

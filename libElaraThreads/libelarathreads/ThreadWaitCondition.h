@@ -50,4 +50,12 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace threading {
+
+using ::elara::ThreadWaitCondition;
+
+}
+}
+
 #endif /* defined(__ElaraCore__ThreadWaitCondition__) */

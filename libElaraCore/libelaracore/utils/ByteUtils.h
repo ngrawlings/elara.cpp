@@ -44,4 +44,12 @@ namespace elara {
     
 };
 
+namespace elara {
+namespace core {
+namespace utils {
+    using ::elara::ByteUtils;
+}
+}
+}
+
 #endif /* BYTEUTILS_H_ */

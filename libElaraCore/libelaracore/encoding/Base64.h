@@ -21,4 +21,12 @@ namespace elara {
 
 }
 
+namespace elara {
+namespace core {
+namespace encoding {
+    using ::elara::Base64;
+}
+}
+}
+
 #endif /* Base64_h */

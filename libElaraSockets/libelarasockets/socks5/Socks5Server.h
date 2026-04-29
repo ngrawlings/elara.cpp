@@ -76,4 +76,14 @@ namespace elara {
     
 }
 
+namespace elara {
+namespace sockets {
+namespace socks5 {
+
+using ::elara::Socks5Server;
+
+}
+}
+}
+
 #endif /* Socks5Server_hpp */

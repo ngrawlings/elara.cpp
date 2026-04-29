@@ -26,6 +26,18 @@ namespace elara {
 
     class IndexedDataStore {
     public:
+        enum CRASH_TEST_POINT {
+            CRASH_NONE = 0,
+            CRASH_AFTER_CREATE_FILE_DESCRIPTOR_WRITE,
+            CRASH_AFTER_INDEX_DESCRIPTOR_WRITE,
+            CRASH_AFTER_FIRST_DATA_DESCRIPTOR_WRITE,
+            CRASH_AFTER_FIRST_DATA_PAYLOAD_WRITE,
+            CRASH_AFTER_FILE_DESCRIPTOR_WRITE,
+            CRASH_AFTER_DATA_DESCRIPTOR_WRITE,
+            CRASH_AFTER_DATA_PAYLOAD_WRITE,
+            CRASH_AFTER_BANK_MAP_WRITE
+        };
+
         typedef struct {
             unsigned long magic_flag;
             unsigned char range_start;      // Start of first 16 entries
@@ -113,6 +125,9 @@ namespace elara {
 
         RefArray<int> getChildIndexes(Memory key);
 
+        static void setCrashTestPoint(CRASH_TEST_POINT point, int trigger_count=1);
+        static void clearCrashTestPoint();
+
     private:
         File file;
         
@@ -135,6 +150,8 @@ namespace elara {
         Ref<LOADED_INDEX_DESCRIPTOR> getRootDecriptor();
         Ref<LOADED_INDEX_DESCRIPTOR> getSystemDecriptor();
         Ref<LOADED_INDEX_DESCRIPTOR> getUserDecriptor();
+
+        static void crashTestHook(CRASH_TEST_POINT point);
 
     };
 

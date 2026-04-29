@@ -151,4 +151,13 @@ namespace memory {
 }
 }
 
+namespace elara {
+namespace threading {
+
+template <class T>
+using Ref = ::elara::threading::memory::Ref<T>;
+
+}
+}
+
 #endif /* defined(__libElaraThreads__memory__Ref__) */

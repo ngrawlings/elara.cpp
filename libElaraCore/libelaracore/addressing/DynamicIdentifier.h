@@ -25,4 +25,39 @@
 #ifndef Elara_DynamicIdentifier_h
 #define Elara_DynamicIdentifier_h
 
+#include <libelaracore/memory/Array.h>
+#include <libelaracore/memory/Memory.h>
+#include <libelaracore/memory/String.h>
+
+namespace elara {
+
+    class DynamicIdentifier {
+    public:
+        DynamicIdentifier(const Memory &id);
+        DynamicIdentifier(String id);
+        virtual ~DynamicIdentifier();
+
+        int componentCount();
+        int get(int index);
+        Array<int> getIntArray();
+        Memory getBytes();
+        String getDelimitedStrting();
+
+        void increment();
+        void convertToChild(int child_node_id=0);
+
+    private:
+         Array<int> id_components;
+    };
+
+};
+
+namespace elara {
+namespace core {
+namespace addressing {
+    using ::elara::DynamicIdentifier;
+}
+}
+}
+
 #endif
