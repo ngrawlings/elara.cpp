@@ -59,7 +59,9 @@ namespace elara {
         printf("Next steps:\n");
         printf("  cd %s\n", options.output_directory.operator char *());
         printf("  ./build.sh\n");
-        printf("  make lint\n");
+        if (options.include_debug_harness) {
+            printf("  ./debug.sh\n");
+        }
         printf("  sudo ./install.sh\n");
         return true;
     }
@@ -82,6 +84,9 @@ namespace elara {
 
         options.include_repl = promptYesNo("Include REPL client", true);
         options.socket_mode = promptSocketMode();
+        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+            options.socket_transport = promptSocketTransport();
+        }
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             options.socket_address = promptString("Socket bind address", "0.0.0.0");
             options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
@@ -91,6 +96,7 @@ namespace elara {
         }
         options.include_thread_pool = promptYesNo("Include thread pool", false);
         options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
+        options.include_debug_harness = promptYesNo("Include debug harness and artifacts", true);
         options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
 
         if (options.include_threaded_worker) {
@@ -139,6 +145,31 @@ namespace elara {
             }
 
             printf("Please answer n, s, or c.\n");
+        }
+    }
+
+    ProjectOptions::SocketTransport ProjectBuilder::promptSocketTransport() {
+        char buffer[64];
+
+        while (true) {
+            printf("Socket transport [p]lain/[j]son-rpc: ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) {
+                return ProjectOptions::SOCKET_TRANSPORT_PLAIN;
+            }
+
+            size_t len = strlen(buffer);
+            while (len && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+                buffer[--len] = 0;
+            }
+
+            if (!len || buffer[0] == 'p' || buffer[0] == 'P') {
+                return ProjectOptions::SOCKET_TRANSPORT_PLAIN;
+            }
+            if (buffer[0] == 'j' || buffer[0] == 'J') {
+                return ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+            }
+
+            printf("Please answer p or j.\n");
         }
     }
 
@@ -229,10 +260,21 @@ namespace elara {
         addFile(files, "configure.ac", renderConfigureAc(options));
         addFile(files, "Makefile.in", renderMakefileIn(options));
         addFile(files, "build.sh", renderBuildScript(options));
+        if (options.include_debug_harness) {
+            addFile(files, "debug.sh", renderDebugScript(options));
+            addFile(files, "stress.sh", renderStressScript(options));
+            addFile(files, "fuzz.sh", renderFuzzScript(options));
+        }
         addFile(files, "install.sh", renderInstallScript(options));
         addFile(files, "README.md", renderReadme(options));
         addFile(files, "ELARA_AGENT_API.md", loadAgentReference());
         addFile(files, "src/main.cpp", renderMainCpp(options));
+        if (options.include_debug_harness) {
+            String tests_name = projectClassPrefix(options.project_name) + "DebugTests";
+            addFile(files, "tests/main.cpp", renderTestMainCpp(options));
+            addFile(files, joinPath("tests", tests_name + ".h"), renderDebugTestsHeader(options));
+            addFile(files, joinPath("tests", tests_name + ".cpp"), renderDebugTestsCpp(options));
+        }
 
         if (options.include_threaded_worker) {
             addFile(files, joinPath("src", options.worker_name + ".h"), renderWorkerHeader(options));
@@ -240,13 +282,28 @@ namespace elara {
         }
 
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-            String server_name = projectClassPrefix(options.project_name) + "SocketServer";
-            addFile(files, joinPath("src", server_name + ".h"), renderSocketServerHeader(options));
-            addFile(files, joinPath("src", server_name + ".cpp"), renderSocketServerCpp(options));
+            if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                String server_name = projectClassPrefix(options.project_name) + "RpcServer";
+                String service_name = projectClassPrefix(options.project_name) + "RpcService";
+                addFile(files, joinPath("src", server_name + ".h"), renderJsonRPCServerHeader(options));
+                addFile(files, joinPath("src", server_name + ".cpp"), renderJsonRPCServerCpp(options));
+                addFile(files, joinPath("src", service_name + ".h"), renderJsonRPCServiceHeader(options));
+                addFile(files, joinPath("src", service_name + ".cpp"), renderJsonRPCServiceCpp(options));
+            } else {
+                String server_name = projectClassPrefix(options.project_name) + "SocketServer";
+                addFile(files, joinPath("src", server_name + ".h"), renderSocketServerHeader(options));
+                addFile(files, joinPath("src", server_name + ".cpp"), renderSocketServerCpp(options));
+            }
         } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
-            String client_name = projectClassPrefix(options.project_name) + "SocketClient";
-            addFile(files, joinPath("src", client_name + ".h"), renderSocketClientHeader(options));
-            addFile(files, joinPath("src", client_name + ".cpp"), renderSocketClientCpp(options));
+            if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                String client_name = projectClassPrefix(options.project_name) + "RpcClient";
+                addFile(files, joinPath("src", client_name + ".h"), renderJsonRPCClientHeader(options));
+                addFile(files, joinPath("src", client_name + ".cpp"), renderJsonRPCClientCpp(options));
+            } else {
+                String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+                addFile(files, joinPath("src", client_name + ".h"), renderSocketClientHeader(options));
+                addFile(files, joinPath("src", client_name + ".cpp"), renderSocketClientCpp(options));
+            }
         }
 
         return true;
@@ -282,7 +339,9 @@ namespace elara {
         contents += "ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include\n";
         contents += "ELARA_LIB_DIR?=$(ELARA_ROOT)/lib\n";
         contents += "ELARA_BIN_DIR?=$(ELARA_ROOT)/bin\n";
-        contents += "ELARA_CPP_LINT?=$(ELARA_BIN_DIR)/elara.cpp-lint\n";
+        contents += "ELARA_CPP_LINT_LOCAL?=$(ELARA_BIN_DIR)/elara.cpp-lint\n";
+        contents += "ELARA_CPP_LINT_SYSTEM?=/usr/local/bin/elara.cpp-lint\n";
+        contents += "ELARA_CPP_LINT?=$(shell if [ -x \"$(ELARA_CPP_LINT_LOCAL)\" ]; then printf '%s' \"$(ELARA_CPP_LINT_LOCAL)\"; else printf '%s' \"$(ELARA_CPP_LINT_SYSTEM)\"; fi)\n";
         contents += "PREFIX?=$(abspath ./dist)\n";
         contents += "BIN_DIR?=$(PREFIX)/bin\n";
         contents += "SHARE_DIR?=$(PREFIX)/share/";
@@ -323,12 +382,34 @@ namespace elara {
         contents += "\n";
         contents += "SOURCES=$(shell find ./src -type f -name '*.cpp' -print)\n";
         contents += "OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))\n";
-        contents += "LINT_PATHS=./src\n";
+        if (options.include_debug_harness) {
+            contents += "TEST_SOURCES=$(shell find ./tests -type f -name '*.cpp' -print)\n";
+            contents += "TEST_OBJECTS=$(patsubst ./tests/%.cpp,build/tests/%.o,$(TEST_SOURCES))\n";
+            contents += "TEST_TARGET=$(TARGET)-debug\n";
+            contents += "ARTIFACT_ROOT?=./artifacts\n";
+            contents += "TEST_DURATION_SECONDS?=30\n";
+            contents += "TEST_RUNNER=$(BUILDPATH)/$(TEST_TARGET)\n";
+            contents += "TEST_STD_LDFLAGS=$(PROFILE_LDFLAGS) -L$(ELARA_LIB_DIR) -lelaradebug ";
+            contents += buildElaraLibFlags(options);
+            if (system_flags.length()) {
+                contents += " ";
+                contents += system_flags;
+            }
+            contents += "\n";
+            contents += "LINT_PATHS=./src ./tests\n";
+        } else {
+            contents += "LINT_PATHS=./src\n";
+        }
+        contents += "LINT_STAMP=$(BUILDPATH)/.lint-ok\n";
         contents += "TARGET=";
         contents += options.target_name;
         contents += "\n\n";
-        contents += ".PHONY: all lint install clean remove cleanconf prepare-build\n\n";
-        contents += "all: prepare-build $(TARGET)\n\n";
+        contents += ".PHONY: all lint install clean remove cleanconf prepare-build";
+        if (options.include_debug_harness) {
+            contents += " tests debug stress fuzz";
+        }
+        contents += "\n\n";
+        contents += "all: $(TARGET)\n\n";
         contents += "prepare-build:\n";
         contents += "\t@mkdir -p $(BUILDPATH)\n";
         contents += "\t@printf '%s\\n' \"BUILD_PROFILE=$(BUILD_PROFILE)\" > $(BUILD_STATE_TMP)\n";
@@ -349,15 +430,40 @@ namespace elara {
         contents += "\t@mv $(BUILD_STATE_TMP) $(BUILD_STATE_FILE)\n\n";
         contents += "$(TARGET): $(OBJECTS)\n";
         contents += "\t$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)\n\n";
-        contents += "build/src/%.o: ./src/%.cpp prepare-build\n";
-        contents += "\t@mkdir -p $(dir $@)\n";
-        contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
-        contents += "lint:\n";
+        if (options.include_debug_harness) {
+            contents += "$(TEST_TARGET): $(TEST_OBJECTS)\n";
+            contents += "\t$(CC) $(TEST_OBJECTS) $(TEST_STD_LDFLAGS) $(LDFLAGS) -o $(TEST_RUNNER)\n\n";
+        }
+        contents += "$(LINT_STAMP): $(SOURCES) Makefile";
+        if (options.include_debug_harness) {
+            contents += " $(TEST_SOURCES)";
+        }
+        contents += "\n";
+        contents += "\t@mkdir -p $(BUILDPATH)\n";
         contents += "\t@if [ ! -x \"$(ELARA_CPP_LINT)\" ]; then \\\n";
-        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Build ElaraCppLint locally first, install it to /usr/local, or set ELARA_CPP_LINT=/path/to/elara.cpp-lint.\"; \\\n";
+        contents += "\t\techo \"Missing elara.cpp-lint. Checked $(ELARA_CPP_LINT_LOCAL) and $(ELARA_CPP_LINT_SYSTEM). Build ElaraCppLint locally, install it to /usr/local, or set ELARA_CPP_LINT=/path/to/elara.cpp-lint.\"; \\\n";
         contents += "\t\texit 1; \\\n";
         contents += "\tfi\n";
-        contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n\n";
+        contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n";
+        contents += "\t@touch $(LINT_STAMP)\n\n";
+        contents += "build/src/%.o: ./src/%.cpp prepare-build $(LINT_STAMP)\n";
+        contents += "\t@mkdir -p $(dir $@)\n";
+        contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
+        if (options.include_debug_harness) {
+            contents += "build/tests/%.o: ./tests/%.cpp prepare-build $(LINT_STAMP)\n";
+            contents += "\t@mkdir -p $(dir $@)\n";
+            contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./tests/$*.cpp -o $@\n\n";
+        }
+        contents += "lint: $(LINT_STAMP)\n\n";
+        if (options.include_debug_harness) {
+            contents += "tests: $(TEST_TARGET)\n\n";
+            contents += "debug: $(TEST_TARGET)\n";
+            contents += "\tELARA_DEBUG_MODE=validator ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
+            contents += "stress: $(TEST_TARGET)\n";
+            contents += "\tELARA_DEBUG_MODE=stress ELARA_DEBUG_DURATION_SECONDS=\"$(TEST_DURATION_SECONDS)\" ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
+            contents += "fuzz: $(TEST_TARGET)\n";
+            contents += "\tELARA_DEBUG_MODE=fuzz ELARA_DEBUG_DURATION_SECONDS=\"$(TEST_DURATION_SECONDS)\" ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
+        }
         contents += "install:\n";
         contents += "\t@if [ ! -x \"$(BUILDPATH)/$(TARGET)\" ]; then \\\n";
         contents += "\t\techo \"Missing built binary $(BUILDPATH)/$(TARGET). Run ./build.sh first.\"; \\\n";
@@ -400,6 +506,56 @@ namespace elara {
         contents += "autoreconf -fi\n";
         contents += "./configure\n";
         contents += "make BUILD_PROFILE=\"${BUILD_PROFILE}\" \"$@\"\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderDebugScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+        contents += "BUILD_PROFILE=\"${BUILD_PROFILE:-debug}\"\n";
+        contents += "ARTIFACT_ROOT=\"${ARTIFACT_ROOT:-./artifacts}\"\n\n";
+        contents += "autoreconf -fi\n";
+        contents += "./configure\n";
+        contents += "make debug BUILD_PROFILE=\"${BUILD_PROFILE}\" ARTIFACT_ROOT=\"${ARTIFACT_ROOT}\" \"$@\"\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderStressScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+        contents += "BUILD_PROFILE=\"${BUILD_PROFILE:-debug}\"\n";
+        contents += "ARTIFACT_ROOT=\"${ARTIFACT_ROOT:-./artifacts}\"\n";
+        contents += "TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS:-${1:-30}}\"\n\n";
+        contents += "autoreconf -fi\n";
+        contents += "./configure\n";
+        contents += "make stress BUILD_PROFILE=\"${BUILD_PROFILE}\" ARTIFACT_ROOT=\"${ARTIFACT_ROOT}\" TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS}\"\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderFuzzScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+        contents += "BUILD_PROFILE=\"${BUILD_PROFILE:-asan}\"\n";
+        contents += "ARTIFACT_ROOT=\"${ARTIFACT_ROOT:-./artifacts}\"\n";
+        contents += "TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS:-${1:-30}}\"\n\n";
+        contents += "autoreconf -fi\n";
+        contents += "./configure\n";
+        contents += "make fuzz BUILD_PROFILE=\"${BUILD_PROFILE}\" ARTIFACT_ROOT=\"${ARTIFACT_ROOT}\" TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS}\"\n";
         return contents;
     }
 
@@ -462,6 +618,8 @@ namespace elara {
             contents += "disabled\n";
         }
         if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+            contents += "- Socket transport: ";
+            contents += options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC ? "json-rpc\n" : "plain\n";
             contents += "- Socket address: ";
             contents += options.socket_address;
             contents += "\n";
@@ -471,6 +629,8 @@ namespace elara {
         }
         contents += "- Thread pool: ";
         contents += options.include_thread_pool ? "yes\n" : "no\n";
+        contents += "- Debug harness and artifacts: ";
+        contents += options.include_debug_harness ? "yes\n" : "no\n";
         contents += "- Threaded worker: ";
         contents += options.include_threaded_worker ? "yes\n" : "no\n";
         if (options.include_threaded_worker) {
@@ -490,10 +650,18 @@ namespace elara {
         }
         contents += "\nBuild steps:\n";
         contents += "1. `./build.sh`\n";
-        contents += "2. `make lint`\n";
-        contents += "3. `sudo ./install.sh` to install the already-built binary under `/usr/local`\n";
-        contents += "4. `sudo ./install.sh --remove` to remove the installed binary\n";
-        contents += "5. install state is tracked in `/usr/local/share/";
+        if (options.include_debug_harness) {
+            contents += "2. `./debug.sh` to run validator tests with artifacts\n";
+            contents += "3. `./stress.sh 30` to run timed stress tests with artifacts\n";
+            contents += "4. `./fuzz.sh 30` to run timed fuzz tests with artifacts\n";
+            contents += "5. `sudo ./install.sh` to install the already-built binary under `/usr/local`\n";
+            contents += "6. `sudo ./install.sh --remove` to remove the installed binary\n";
+            contents += "7. install state is tracked in `/usr/local/share/";
+        } else {
+            contents += "2. `sudo ./install.sh` to install the already-built binary under `/usr/local`\n";
+            contents += "3. `sudo ./install.sh --remove` to remove the installed binary\n";
+            contents += "4. install state is tracked in `/usr/local/share/";
+        }
         contents += options.target_name;
         contents += "/install-manifest.txt` by default\n";
         contents += "\nBuild profiles:\n";
@@ -502,16 +670,185 @@ namespace elara {
         contents += "- `make BUILD_PROFILE=asan` for address/UB sanitizer runs\n";
         contents += "- `BUILD_PROFILE=debug ./build.sh` and `BUILD_PROFILE=debug ./install.sh` use the same profile via the helper scripts\n";
         contents += "- `install.sh` does not build; it expects artifacts from `./build.sh`\n";
+        if (options.include_debug_harness) {
+            contents += "- `debug.sh`, `stress.sh`, and `fuzz.sh` create structured artifacts under `./artifacts`\n";
+            contents += "- `make debug`, `make stress`, and `make fuzz` invoke the same generated test runner directly\n";
+            contents += "- use `ARTIFACT_ROOT=/path ./debug.sh` to redirect artifacts elsewhere\n";
+        }
         contents += "\nLinting:\n";
-        contents += "- `make lint` runs `elara.cpp-lint` against `./src`\n";
-        contents += "- the generated project expects the linter at `../build/bin/elara.cpp-lint` by default\n";
-        contents += "- if you want the system install instead, use `ELARA_CPP_LINT=/usr/local/bin/elara.cpp-lint make lint`\n";
+        contents += "- `./build.sh` and `make` now run `elara.cpp-lint` before any compilation starts\n";
+        contents += "- a lint failure blocks object compilation and linking entirely\n";
+        contents += "- `make lint` runs the same strict lint pass explicitly against `./src`\n";
+        contents += "- the generated project prefers `../build/bin/elara.cpp-lint` when it exists, then falls back to `/usr/local/bin/elara.cpp-lint`\n";
+        contents += "- if you want to force the system install, use `ELARA_CPP_LINT=/usr/local/bin/elara.cpp-lint make lint`\n";
         contents += "- override this with `ELARA_CPP_LINT=/path/to/elara.cpp-lint make lint` if needed\n";
         contents += "- current policy allows primitives, safe Elara value types (`String`, `Memory`, `ByteArray`), plus `Ref`, `RefArray`, and `elara::threading::memory::Ref`\n";
         contents += "- permissable rules are expected to evolve over time as the framework policy is refined\n";
         contents += "\nBy default the project uses Elara staged at `../build` for includes, libraries, and tools.\n";
         contents += "Override this with `ELARA_ROOT=/path/to/elara/build make` or `ELARA_ROOT=/usr/local make` if needed.\n";
         contents += "Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderTestMainCpp(const ProjectOptions &options) {
+        String contents;
+        String tests_name = projectClassPrefix(options.project_name) + "DebugTests";
+
+        contents += "#include <stdio.h>\n";
+        contents += "#include <stdlib.h>\n";
+        contents += "#include <string.h>\n";
+        contents += "#include <libelaradebug/UnitTests.h>\n";
+        contents += "#include \"";
+        contents += tests_name;
+        contents += ".h\"\n\n";
+        contents += "using namespace elara;\n\n";
+        contents += "int main() {\n";
+        contents += "    String mode(\"validator\");\n";
+        contents += "    long long duration_us = 30000000LL;\n";
+        contents += "    String artifact_root(\"./artifacts\");\n";
+        contents += "    String mode_env = String(getenv(\"ELARA_DEBUG_MODE\") ? getenv(\"ELARA_DEBUG_MODE\") : \"\");\n";
+        contents += "    String duration_env = String(getenv(\"ELARA_DEBUG_DURATION_SECONDS\") ? getenv(\"ELARA_DEBUG_DURATION_SECONDS\") : \"\");\n";
+        contents += "    String artifact_env = String(getenv(\"ELARA_DEBUG_ARTIFACT_ROOT\") ? getenv(\"ELARA_DEBUG_ARTIFACT_ROOT\") : \"\");\n";
+        contents += "    if (mode_env.length()) {\n";
+        contents += "        mode = mode_env;\n";
+        contents += "    }\n";
+        contents += "    if (duration_env.length()) {\n";
+        contents += "        duration_us = ((long long)atoll(duration_env.operator char *())) * 1000000LL;\n";
+        contents += "    }\n";
+        contents += "    if (artifact_env.length()) {\n";
+        contents += "        artifact_root = artifact_env;\n";
+        contents += "    }\n\n";
+        contents += "    UnitTests tests;\n";
+        contents += "    tests.setArtifactRoot(artifact_root);\n";
+        contents += "    tests.addRunMetadata(String(\"project\"), String(\"";
+        contents += options.project_name;
+        contents += "\"));\n";
+        contents += "    tests.addRunMetadata(String(\"target\"), String(\"";
+        contents += options.target_name;
+        contents += "\"));\n";
+        contents += "    tests.addRunMetadata(String(\"artifact_root\"), artifact_root);\n";
+        contents += "    register";
+        contents += tests_name;
+        contents += "(tests);\n\n";
+        contents += "    bool success = false;\n";
+        contents += "    if (mode == String(\"validator\") || mode == String(\"debug\")) {\n";
+        contents += "        tests.setRunMode(String(\"";
+        contents += options.target_name;
+        contents += "-validator\"));\n";
+        contents += "        success = tests.run();\n";
+        contents += "    } else {\n";
+        contents += "        if (mode == String(\"stress\")) {\n";
+        contents += "        tests.setRunMode(String(\"";
+        contents += options.target_name;
+        contents += "-stress\"));\n";
+        contents += "        success = tests.runStress(duration_us);\n";
+        contents += "        } else {\n";
+        contents += "            if (mode == String(\"fuzz\")) {\n";
+        contents += "        tests.setRunMode(String(\"";
+        contents += options.target_name;
+        contents += "-fuzz\"));\n";
+        contents += "        success = tests.runFuzz(duration_us);\n";
+        contents += "            } else {\n";
+        contents += "        fprintf(stderr, \"Unknown mode: %s\\n\", mode.operator char *());\n";
+        contents += "        return 1;\n";
+        contents += "            }\n";
+        contents += "        }\n";
+        contents += "    }\n\n";
+        contents += "    if (tests.getArtifactDirectory().length()) {\n";
+        contents += "        printf(\"Artifacts: %s\\n\", tests.getArtifactDirectory().operator char *());\n";
+        contents += "    }\n";
+        contents += "    return success ? 0 : 1;\n";
+        contents += "}\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderDebugTestsHeader(const ProjectOptions &options) {
+        String contents;
+        String tests_name = projectClassPrefix(options.project_name) + "DebugTests";
+
+        contents += "#ifndef ";
+        contents += tests_name;
+        contents += "_h\n";
+        contents += "#define ";
+        contents += tests_name;
+        contents += "_h\n\n";
+        contents += "#include <libelaradebug/UnitTests.h>\n\n";
+        contents += "using elara::UnitTests;\n\n";
+        contents += "void register";
+        contents += tests_name;
+        contents += "(UnitTests &tests);\n\n";
+        contents += "#endif\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderDebugTestsCpp(const ProjectOptions &options) {
+        String contents;
+        String tests_name = projectClassPrefix(options.project_name) + "DebugTests";
+
+        contents += "#include \"";
+        contents += tests_name;
+        contents += ".h\"\n\n";
+        contents += "#include <stdlib.h>\n";
+        contents += "#include <sys/time.h>\n";
+        contents += "#include <libelaracore/memory/ByteArray.h>\n";
+        contents += "#include <libelaracore/memory/String.h>\n\n";
+        contents += "using namespace elara;\n\n";
+        contents += "namespace {\n";
+        contents += "    long long currentMicros() {\n";
+        contents += "        struct timeval tv;\n";
+        contents += "        gettimeofday(&tv, 0);\n";
+        contents += "        return ((long long)tv.tv_sec * 1000000LL) + tv.tv_usec;\n";
+        contents += "    }\n\n";
+        contents += "    bool validatorBasic() {\n";
+        contents += "        String value(\"debug-ready\");\n";
+        contents += "        return value.trim().length() == 11;\n";
+        contents += "    }\n\n";
+        contents += "    bool stressStrings(long long duration_us) {\n";
+        contents += "        long long end_time = currentMicros() + duration_us;\n";
+        contents += "        unsigned long long iterations = 0;\n";
+        contents += "        String current;\n";
+        contents += "        while (currentMicros() < end_time) {\n";
+        contents += "            current = String(\"stress-\") + String(iterations);\n";
+        contents += "            if (!current.length()) {\n";
+        contents += "                return UnitTests::fail(\"stress string build failed\");\n";
+        contents += "            }\n";
+        contents += "            iterations++;\n";
+        contents += "        }\n";
+        contents += "        return iterations > 0;\n";
+        contents += "    }\n\n";
+        contents += "    bool fuzzByteArray(long long duration_us) {\n";
+        contents += "        long long end_time = currentMicros() + duration_us;\n";
+        contents += "        ByteArray bytes;\n";
+        contents += "        unsigned long long iterations = 0;\n";
+        contents += "        srand(1);\n";
+        contents += "        while (currentMicros() < end_time) {\n";
+        contents += "            int op = rand() % 3;\n";
+        contents += "            if (op == 0) {\n";
+        contents += "                bytes.append((char)('a' + (rand() % 26)));\n";
+        contents += "            } else {\n";
+        contents += "                if (op == 1 && bytes.length()) {\n";
+        contents += "                    bytes = bytes.subBytes(0, bytes.length() - 1);\n";
+        contents += "                } else {\n";
+        contents += "                    int original_length = 0;\n";
+        contents += "                    original_length = bytes.length();\n";
+        contents += "                    ByteArray copy = ByteArray(bytes);\n";
+        contents += "                    if (copy.length() != original_length) {\n";
+        contents += "                        return UnitTests::fail(\"bytearray length mismatch\");\n";
+        contents += "                    }\n";
+        contents += "                }\n";
+        contents += "            }\n";
+        contents += "            iterations++;\n";
+        contents += "        }\n";
+        contents += "        return iterations > 0;\n";
+        contents += "    }\n";
+        contents += "}\n\n";
+        contents += "void register";
+        contents += tests_name;
+        contents += "(UnitTests &tests) {\n";
+        contents += "    tests.addValidatorTest(String(\"generated.validator.basic\"), validatorBasic);\n";
+        contents += "    tests.addStressTest(String(\"generated.stress.strings\"), stressStrings);\n";
+        contents += "    tests.addFuzzTest(String(\"generated.fuzz.bytearray\"), fuzzByteArray);\n";
+        contents += "}\n";
         return contents;
     }
 
@@ -571,6 +908,8 @@ namespace elara {
         String contents;
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+        String rpc_server_name = projectClassPrefix(options.project_name) + "RpcServer";
+        String rpc_client_name = projectClassPrefix(options.project_name) + "RpcClient";
 
         contents += "#include <stdio.h>\n";
         contents += "#include <string.h>\n";
@@ -593,7 +932,7 @@ namespace elara {
             contents += options.worker_name;
             contents += ".h\"\n";
         }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
             contents += "#include <libelaraevent/EventBase.h>\n";
             contents += "#include <libelarasockets/Socket.h>\n";
             contents += "#include <unistd.h>\n";
@@ -601,11 +940,23 @@ namespace elara {
             contents += client_name;
             contents += ".h\"\n";
         }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
             contents += "#include \"";
             contents += server_name;
             contents += ".h\"\n";
             contents += "#include <unistd.h>\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "#include <unistd.h>\n";
+            contents += "#include \"";
+            contents += rpc_server_name;
+            contents += ".h\"\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "#include <unistd.h>\n";
+            contents += "#include \"";
+            contents += rpc_client_name;
+            contents += ".h\"\n";
         }
         contents += "\nusing namespace elara;\n\n";
         contents += "static void printHelp() {\n";
@@ -618,8 +969,16 @@ namespace elara {
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
             contents += "    printf(\"  status - display thread pool state\\n\");\n";
         }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
             contents += "    printf(\"  send <text> - send text to the remote socket\\n\");\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "    printf(\"  ping - call echo.ping on the remote RPC server\\n\");\n";
+            if (options.include_indexed_data_store) {
+                contents += "    printf(\"  remote-initstore - call store.init on the remote RPC server\\n\");\n";
+                contents += "    printf(\"  remote-put <key> <value> - call store.put on the remote RPC server\\n\");\n";
+                contents += "    printf(\"  remote-get <key> - call store.get on the remote RPC server\\n\");\n";
+            }
         }
         if (options.include_indexed_data_store) {
             contents += "    printf(\"  initstore - create or reset the IndexedDataStore file\\n\");\n";
@@ -673,7 +1032,7 @@ namespace elara {
             contents += "    Thread::init(4);\n";
             contents += "    printf(\"Thread pool initialised with 4 worker threads.\\n\");\n\n";
         }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
             contents += "    Ref<";
             contents += server_name;
             contents += "> socket_server = Ref<";
@@ -692,7 +1051,26 @@ namespace elara {
             contents += String(options.socket_port);
             contents += ".\\n\");\n\n";
         }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "    Ref<";
+            contents += rpc_server_name;
+            contents += "> socket_server = Ref<";
+            contents += rpc_server_name;
+            contents += ">(new ";
+            contents += rpc_server_name;
+            contents += "());\n";
+            contents += "    socket_server->start(";
+            contents += String(options.socket_port);
+            contents += ", String(\"";
+            contents += options.socket_address;
+            contents += "\"));\n";
+            contents += "    printf(\"JSON RPC server started on ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += ".\\n\");\n\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
             contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
             contents += "    Socket::init(event_base.getPtr());\n";
             contents += "    event_base->runEventLoop(true);\n";
@@ -712,6 +1090,32 @@ namespace elara {
             contents += ":";
             contents += String(options.socket_port);
             contents += ".\\n\");\n\n";
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "    Ref<";
+            contents += rpc_client_name;
+            contents += "> socket_client = Ref<";
+            contents += rpc_client_name;
+            contents += ">(new ";
+            contents += rpc_client_name;
+            contents += "());\n";
+            contents += "    if (!socket_client->connectTo(String(\"";
+            contents += options.socket_address;
+            contents += "\"), ";
+            contents += String(options.socket_port);
+            contents += ")) {\n";
+            contents += "        printf(\"Failed to connect JSON RPC client to ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += ".\\n\");\n";
+            contents += "    } else {\n";
+            contents += "        printf(\"JSON RPC client connected to ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += ".\\n\");\n";
+            contents += "    }\n\n";
         }
         if (options.include_repl) {
             if (options.include_indexed_data_store) {
@@ -752,9 +1156,22 @@ namespace elara {
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
-            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
                 contents += "        if (command.startsWith(\"send \")) {\n";
                 contents += "            socket_client->sendLine(command.substr(5));\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+            }
+            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                contents += "        if (command == String(\"ping\")) {\n";
+                contents += "            String result_json;\n";
+                contents += "            String error_code;\n";
+                contents += "            String error_message;\n";
+                contents += "            if (socket_client->ping(result_json, error_code, error_message)) {\n";
+                contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                contents += "            } else {\n";
+                contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                contents += "            }\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
@@ -767,17 +1184,21 @@ namespace elara {
                 contents += ">(new ";
                 contents += options.worker_name;
                 contents += "(command.substr(5)));\n";
-                contents += "            Task::queueTask(task.getPtr());\n";
+                contents += "            Thread::runTask(task.getPtr());\n";
                 contents += "            printf(\"Queued worker task.\\n\");\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
             if (options.include_indexed_data_store) {
                 contents += "        if (command == String(\"initstore\")) {\n";
-                contents += "            openIndexedDataStore(true);\n";
-                contents += "            printf(\"IndexedDataStore initialised at ";
+                contents += "            try {\n";
+                contents += "                openIndexedDataStore(true);\n";
+                contents += "                printf(\"IndexedDataStore initialised at ";
                 contents += options.indexed_data_store_path;
                 contents += ".\\n\");\n";
+                contents += "            } catch (const char *error) {\n";
+                contents += "                printf(\"IndexedDataStore init failed: %s\\n\", error);\n";
+                contents += "            }\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
                 contents += "        if (command.startsWith(\"put \")) {\n";
@@ -794,24 +1215,81 @@ namespace elara {
                 contents += "            }\n";
                 contents += "            String key = command.substr(4, split - 4);\n";
                 contents += "            String value = command.substr(split + 1);\n";
-                contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-                contents += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
-                contents += "            printf(\"Stored key '%s'.\\n\", key.operator char *());\n";
+                contents += "            try {\n";
+                contents += "                Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+                contents += "                store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
+                contents += "                printf(\"Stored key '%s'.\\n\", key.operator char *());\n";
+                contents += "            } catch (const char *error) {\n";
+                contents += "                printf(\"IndexedDataStore put failed: %s\\n\", error);\n";
+                contents += "            }\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
                 contents += "        if (command.startsWith(\"get \")) {\n";
                 contents += "            String key = command.substr(4);\n";
-                contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-                contents += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
-                contents += "            if (!file.getPtr()) {\n";
-                contents += "                printf(\"No value for key '%s'.\\n\", key.operator char *());\n";
-                contents += "                continue;\n";
+                contents += "            try {\n";
+                contents += "                Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+                contents += "                Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
+                contents += "                if (!file.getPtr()) {\n";
+                contents += "                    printf(\"No value for key '%s'.\\n\", key.operator char *());\n";
+                contents += "                    continue;\n";
+                contents += "                }\n";
+                contents += "                unsigned long long len = store->getFileSize(file);\n";
+                contents += "                Memory value = store->readFromFile(file, 0, len);\n";
+                contents += "                printf(\"%s\\n\", String((char*)value, value.length()).operator char *());\n";
+                contents += "            } catch (const char *error) {\n";
+                contents += "                printf(\"IndexedDataStore get failed: %s\\n\", error);\n";
                 contents += "            }\n";
-                contents += "            unsigned long long len = store->getFileSize(file);\n";
-                contents += "            Memory value = store->readFromFile(file, 0, len);\n";
-                contents += "            printf(\"%s\\n\", String((char*)value, value.length()).operator char *());\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
+                if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                    contents += "        if (command == String(\"remote-initstore\")) {\n";
+                    contents += "            String result_json;\n";
+                    contents += "            String error_code;\n";
+                    contents += "            String error_message;\n";
+                    contents += "            if (socket_client->storeInit(result_json, error_code, error_message)) {\n";
+                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                    contents += "            } else {\n";
+                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                    contents += "            }\n";
+                    contents += "            continue;\n";
+                    contents += "        }\n";
+                    contents += "        if (command.startsWith(\"remote-put \")) {\n";
+                    contents += "            int split = -1;\n";
+                    contents += "            for (int i=11; i<command.length(); i++) {\n";
+                    contents += "                if (command.operator char *()[i] == ' ') {\n";
+                    contents += "                    split = i;\n";
+                    contents += "                    break;\n";
+                    contents += "                }\n";
+                    contents += "            }\n";
+                    contents += "            if (split == -1) {\n";
+                    contents += "                printf(\"Usage: remote-put <key> <value>\\n\");\n";
+                    contents += "                continue;\n";
+                    contents += "            }\n";
+                    contents += "            String key = command.substr(11, split - 11);\n";
+                    contents += "            String value = command.substr(split + 1);\n";
+                    contents += "            String result_json;\n";
+                    contents += "            String error_code;\n";
+                    contents += "            String error_message;\n";
+                    contents += "            if (socket_client->storePut(key, value, result_json, error_code, error_message)) {\n";
+                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                    contents += "            } else {\n";
+                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                    contents += "            }\n";
+                    contents += "            continue;\n";
+                    contents += "        }\n";
+                    contents += "        if (command.startsWith(\"remote-get \")) {\n";
+                    contents += "            String key = command.substr(11);\n";
+                    contents += "            String result_json;\n";
+                    contents += "            String error_code;\n";
+                    contents += "            String error_message;\n";
+                    contents += "            if (socket_client->storeGet(key, result_json, error_code, error_message)) {\n";
+                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                    contents += "            } else {\n";
+                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                    contents += "            }\n";
+                    contents += "            continue;\n";
+                    contents += "        }\n";
+                }
             }
             contents += "        printf(\"Unhandled command: %s\\n\", command.operator char *());\n";
             contents += "    }\n";
@@ -835,8 +1313,12 @@ namespace elara {
             contents += "    socket_server->stop();\n";
         }
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
-            contents += "    event_base->breakEventLoop();\n";
-            contents += "    socket_client->close();\n";
+            if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
+                contents += "    event_base->breakEventLoop();\n";
+                contents += "    socket_client->close();\n";
+            } else {
+                contents += "    socket_client->close();\n";
+            }
         }
         if (options.include_thread_pool) {
             contents += "    Thread::stopAllThreads();\n";
@@ -1061,6 +1543,346 @@ namespace elara {
         return contents;
     }
 
+    String ProjectBuilder::renderJsonRPCServerHeader(const ProjectOptions &options) {
+        String contents;
+        String server_name = projectClassPrefix(options.project_name) + "RpcServer";
+        String service_name = projectClassPrefix(options.project_name) + "RpcService";
+
+        contents += "#ifndef ";
+        contents += server_name;
+        contents += "_h\n";
+        contents += "#define ";
+        contents += server_name;
+        contents += "_h\n\n";
+        contents += "#include <libelarasockets/rpc/json/JsonRPCServer.h>\n";
+        contents += "#include <libelaracore/memory/Ref.h>\n";
+        contents += "#include \"";
+        contents += service_name;
+        contents += ".h\"\n\n";
+        contents += "class ";
+        contents += server_name;
+        contents += " : public elara::sockets::rpc::json::JsonRPCServer {\n";
+        contents += "public:\n";
+        contents += "    ";
+        contents += server_name;
+        contents += "();\n";
+        contents += "    virtual ~";
+        contents += server_name;
+        contents += "();\n";
+        contents += "    void start(int port, elara::String address);\n\n";
+        contents += "private:\n";
+        contents += "    elara::Ref<elara::sockets::rpc::json::JsonRPCService> service;\n";
+        contents += "};\n\n";
+        contents += "#endif\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderJsonRPCServerCpp(const ProjectOptions &options) {
+        String contents;
+        String server_name = projectClassPrefix(options.project_name) + "RpcServer";
+        String service_name = projectClassPrefix(options.project_name) + "RpcService";
+
+        contents += "#include \"";
+        contents += server_name;
+        contents += ".h\"\n\n";
+        contents += server_name;
+        contents += "::";
+        contents += server_name;
+        contents += "() {\n";
+        contents += "    service = elara::Ref<elara::sockets::rpc::json::JsonRPCService>(new ";
+        contents += service_name;
+        contents += "());\n";
+        contents += "    addService(service);\n";
+        contents += "}\n\n";
+        contents += server_name;
+        contents += "::~";
+        contents += server_name;
+        contents += "() {\n";
+        contents += "}\n\n";
+        contents += "void ";
+        contents += server_name;
+        contents += "::start(int port, elara::String address) {\n";
+        contents += "    listen(address, (unsigned short)port);\n";
+        contents += "    runEventLoop(true);\n";
+        contents += "}\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderJsonRPCServiceHeader(const ProjectOptions &options) {
+        String contents;
+        String service_name = projectClassPrefix(options.project_name) + "RpcService";
+
+        contents += "#ifndef ";
+        contents += service_name;
+        contents += "_h\n";
+        contents += "#define ";
+        contents += service_name;
+        contents += "_h\n\n";
+        contents += "#include <libelarasockets/rpc/json/JsonRPCService.h>\n";
+        if (options.include_indexed_data_store) {
+            contents += "#include <libelaraio/IndexedDataStore.h>\n";
+            contents += "#include <libelaracore/memory/Ref.h>\n";
+            contents += "using elara::IndexedDataStore;\n";
+            contents += "using elara::Memory;\n";
+            contents += "using elara::Ref;\n";
+        }
+        contents += "using elara::String;\n";
+        contents += "\nclass ";
+        contents += service_name;
+        contents += " : public elara::sockets::rpc::json::JsonRPCService {\n";
+        contents += "public:\n";
+        contents += "    ";
+        contents += service_name;
+        contents += "();\n";
+        contents += "    virtual ~";
+        contents += service_name;
+        contents += "();\n";
+        contents += "    virtual bool call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);\n";
+        if (options.include_indexed_data_store) {
+            contents += "\nprivate:\n";
+            contents += "    Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing);\n";
+        }
+        contents += "};\n\n";
+        contents += "#endif\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderJsonRPCServiceCpp(const ProjectOptions &options) {
+        String contents;
+        String service_name = projectClassPrefix(options.project_name) + "RpcService";
+
+        contents += "#include \"";
+        contents += service_name;
+        contents += ".h\"\n\n";
+        contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n";
+        if (options.include_indexed_data_store) {
+            contents += "#include <sys/stat.h>\n";
+            contents += "#include <sys/types.h>\n";
+        }
+        contents += "\n";
+        if (options.include_indexed_data_store) {
+            contents += "namespace {\n";
+            contents += "    void ensureDirectoryPath(String path) {\n";
+            contents += "        String current;\n";
+            contents += "        for (int i=0; i<path.length(); i++) {\n";
+            contents += "            char ch = path.operator char *()[i];\n";
+            contents += "            current += String(ch);\n";
+            contents += "            if (ch == '/') {\n";
+            contents += "                mkdir(current.operator char *(), 0755);\n";
+            contents += "            }\n";
+            contents += "        }\n";
+            contents += "    }\n\n";
+            contents += "    String parentDirectory(String path) {\n";
+            contents += "        int slash = -1;\n";
+            contents += "        for (int i=0; i<path.length(); i++) {\n";
+            contents += "            if (path.operator char *()[i] == '/') {\n";
+            contents += "                slash = i;\n";
+            contents += "            }\n";
+            contents += "        }\n";
+            contents += "        if (slash <= 0) {\n";
+            contents += "            return String();\n";
+            contents += "        }\n";
+            contents += "        return path.substr(0, slash);\n";
+            contents += "    }\n";
+            contents += "}\n\n";
+        }
+        contents += service_name;
+        contents += "::";
+        contents += service_name;
+        contents += "() : JsonRPCService(\"app\") {\n";
+        contents += "}\n\n";
+        contents += service_name;
+        contents += "::~";
+        contents += service_name;
+        contents += "() {\n";
+        contents += "}\n\n";
+        if (options.include_indexed_data_store) {
+            contents += "Ref<IndexedDataStore> ";
+            contents += service_name;
+            contents += "::openIndexedDataStore(bool create_if_missing) {\n";
+            contents += "    String path(\"";
+            contents += options.indexed_data_store_path;
+            contents += "\");\n";
+            contents += "    if (create_if_missing) {\n";
+            contents += "        String directory = parentDirectory(path);\n";
+            contents += "        if (directory.length()) {\n";
+            contents += "            ensureDirectoryPath(directory + String(\"/\"));\n";
+            contents += "        }\n";
+            contents += "        return Ref<IndexedDataStore>(new IndexedDataStore(path, ";
+            contents += String(options.indexed_data_store_bank_map_redundancy);
+            contents += "));\n";
+            contents += "    }\n";
+            contents += "    return Ref<IndexedDataStore>(new IndexedDataStore(path));\n";
+            contents += "}\n\n";
+        }
+        contents += "bool ";
+        contents += service_name;
+        contents += "::call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {\n";
+        contents += "    if (method == String(\"ping\")) {\n";
+        contents += "        result_json = String(\"{\\\"message\\\":\\\"pong\\\"}\");\n";
+        contents += "        return true;\n";
+        contents += "    }\n";
+        if (options.include_indexed_data_store) {
+            contents += "    if (method == String(\"storeInit\")) {\n";
+            contents += "        try {\n";
+            contents += "            openIndexedDataStore(true);\n";
+            contents += "            result_json = String(\"{\\\"initialised\\\":true}\");\n";
+            contents += "            return true;\n";
+            contents += "        } catch (const char *error) {\n";
+            contents += "            error_code = String(\"store_init_failed\");\n";
+            contents += "            error_message = String(error);\n";
+            contents += "            return false;\n";
+            contents += "        }\n";
+            contents += "    }\n";
+            contents += "    if (method == String(\"storePut\")) {\n";
+            contents += "        String key;\n";
+            contents += "        String value;\n";
+            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
+            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"value\"), value);\n";
+            contents += "        if (!key.length()) {\n";
+            contents += "            error_code = String(\"missing_key\");\n";
+            contents += "            error_message = String(\"key is required\");\n";
+            contents += "            return false;\n";
+            contents += "        }\n";
+            contents += "        try {\n";
+            contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+            contents += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
+            contents += "            result_json = String(\"{\\\"stored\\\":true}\");\n";
+            contents += "            return true;\n";
+            contents += "        } catch (const char *error) {\n";
+            contents += "            error_code = String(\"store_put_failed\");\n";
+            contents += "            error_message = String(error);\n";
+            contents += "            return false;\n";
+            contents += "        }\n";
+            contents += "    }\n";
+            contents += "    if (method == String(\"storeGet\")) {\n";
+            contents += "        String key;\n";
+            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
+            contents += "        if (!key.length()) {\n";
+            contents += "            error_code = String(\"missing_key\");\n";
+            contents += "            error_message = String(\"key is required\");\n";
+            contents += "            return false;\n";
+            contents += "        }\n";
+            contents += "        try {\n";
+            contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+            contents += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
+            contents += "            if (!file.getPtr()) {\n";
+            contents += "                error_code = String(\"not_found\");\n";
+            contents += "                error_message = String(\"No value for the requested key\");\n";
+            contents += "                return false;\n";
+            contents += "            }\n";
+            contents += "            unsigned long long len = store->getFileSize(file);\n";
+            contents += "            Memory value = store->readFromFile(file, 0, len);\n";
+            contents += "            String escaped_value = elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(String((char*)value, value.length()));\n";
+            contents += "            result_json = String(\"{\\\"value\\\":\\\"\") + escaped_value + String(\"\\\"}\");\n";
+            contents += "            return true;\n";
+            contents += "        } catch (const char *error) {\n";
+            contents += "            error_code = String(\"store_get_failed\");\n";
+            contents += "            error_message = String(error);\n";
+            contents += "            return false;\n";
+            contents += "        }\n";
+            contents += "    }\n";
+        }
+        contents += "    error_code = String(\"unknown_method\");\n";
+        contents += "    error_message = String(\"Unsupported RPC method\");\n";
+        contents += "    return false;\n";
+        contents += "}\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderJsonRPCClientHeader(const ProjectOptions &options) {
+        String contents;
+        String client_name = projectClassPrefix(options.project_name) + "RpcClient";
+
+        contents += "#ifndef ";
+        contents += client_name;
+        contents += "_h\n";
+        contents += "#define ";
+        contents += client_name;
+        contents += "_h\n\n";
+        contents += "#include <libelarasockets/rpc/json/JsonRPCClient.h>\n";
+        contents += "#include <libelaracore/memory/String.h>\n\n";
+        contents += "using elara::String;\n";
+        contents += "class ";
+        contents += client_name;
+        contents += " {\n";
+        contents += "public:\n";
+        contents += "    ";
+        contents += client_name;
+        contents += "();\n";
+        contents += "    virtual ~";
+        contents += client_name;
+        contents += "();\n";
+        contents += "    bool connectTo(const String &address, int port);\n";
+        contents += "    void close();\n";
+        contents += "    bool ping(String &result_json, String &error_code, String &error_message);\n";
+        if (options.include_indexed_data_store) {
+            contents += "    bool storeInit(String &result_json, String &error_code, String &error_message);\n";
+            contents += "    bool storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message);\n";
+            contents += "    bool storeGet(const String &key, String &result_json, String &error_code, String &error_message);\n";
+        }
+        contents += "\nprivate:\n";
+        contents += "    elara::sockets::rpc::json::JsonRPCClient rpc_client;\n";
+        contents += "};\n\n";
+        contents += "#endif\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderJsonRPCClientCpp(const ProjectOptions &options) {
+        String contents;
+        String client_name = projectClassPrefix(options.project_name) + "RpcClient";
+
+        contents += "#include \"";
+        contents += client_name;
+        contents += ".h\"\n";
+        contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n\n";
+        contents += client_name;
+        contents += "::";
+        contents += client_name;
+        contents += "() {\n";
+        contents += "}\n\n";
+        contents += client_name;
+        contents += "::~";
+        contents += client_name;
+        contents += "() {\n";
+        contents += "}\n\n";
+        contents += "bool ";
+        contents += client_name;
+        contents += "::connectTo(const String &address, int port) {\n";
+        contents += "    return rpc_client.connect(address, (unsigned short)port);\n";
+        contents += "}\n\n";
+        contents += "void ";
+        contents += client_name;
+        contents += "::close() {\n";
+        contents += "    rpc_client.close();\n";
+        contents += "}\n\n";
+        contents += "bool ";
+        contents += client_name;
+        contents += "::ping(String &result_json, String &error_code, String &error_message) {\n";
+        contents += "    return rpc_client.call(String(\"app.ping\"), String(\"{}\"), result_json, error_code, error_message);\n";
+        contents += "}\n\n";
+        if (options.include_indexed_data_store) {
+            contents += "bool ";
+            contents += client_name;
+            contents += "::storeInit(String &result_json, String &error_code, String &error_message) {\n";
+            contents += "    return rpc_client.call(String(\"app.storeInit\"), String(\"{}\"), result_json, error_code, error_message);\n";
+            contents += "}\n\n";
+            contents += "bool ";
+            contents += client_name;
+            contents += "::storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message) {\n";
+            contents += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\",\\\"value\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(value) + String(\"\\\"}\");\n";
+            contents += "    return rpc_client.call(String(\"app.storePut\"), params, result_json, error_code, error_message);\n";
+            contents += "}\n\n";
+            contents += "bool ";
+            contents += client_name;
+            contents += "::storeGet(const String &key, String &result_json, String &error_code, String &error_message) {\n";
+            contents += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\"}\");\n";
+            contents += "    return rpc_client.call(String(\"app.storeGet\"), params, result_json, error_code, error_message);\n";
+            contents += "}\n\n";
+        }
+        return contents;
+    }
+
     bool ProjectBuilder::writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files) {
         if (!ensureDirectory(output_directory)) {
             return false;
@@ -1244,7 +2066,11 @@ namespace elara {
         String flags;
 
         if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
-            flags += "-lelarasockets -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
+            if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                flags += "-lelarasockets -lelaraformat -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
+            } else {
+                flags += "-lelarasockets -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
+            }
         } else if (options.include_indexed_data_store) {
             flags += "-lelaraio -lelaracore";
         } else if (options.include_thread_pool) {

@@ -9,6 +9,7 @@
 #include "JsonObject.h"
 #include <libelaracore/memory/LinkedList.h>
 #include <libelaracore/memory/HashMap.h>
+#include "JsonString.h"
 
 namespace elara {
     
@@ -39,7 +40,7 @@ namespace elara {
             
             len--;
             String v = String("\"%\":%")
-                    .arg(String(ent->key.operator char *(), ent->key.length()))
+                    .arg(JsonString::encode(String(ent->key.operator char *(), ent->key.length())))
                     .arg(ent->obj->toString());
             
             ret = v;
@@ -48,7 +49,7 @@ namespace elara {
                 Ref<HashMap< JsonValue >::MAPENTRY> ent = state.next();
             
                 ret.append(String(",\"%\":%")
-                    .arg(String(ent->key.operator char *(), ent->key.length()))
+                    .arg(JsonString::encode(String(ent->key.operator char *(), ent->key.length())))
                     .arg(ent->obj->toString()));
             }
         }
@@ -68,6 +69,11 @@ namespace elara {
         for (int i=0; i<slen; i++) {
             switch (json[i]) {
                 case '\\':
+                    if (quotation || parsing_value) {
+                        val += json[i];
+                        if (i + 1 < slen)
+                            val += json[i + 1];
+                    }
                     i++;
                     break;
                     

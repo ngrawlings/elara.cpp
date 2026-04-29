@@ -459,6 +459,12 @@ namespace elara {
                token == String("new") ||
                token == String("delete") ||
                token == String("throw") ||
+               token == String("if") ||
+               token == String("else") ||
+               token == String("while") ||
+               token == String("switch") ||
+               token == String("do") ||
+               token == String("for") ||
                token == String("case") ||
                token == String("namespace") ||
                token == String("class") ||
@@ -538,7 +544,9 @@ namespace elara {
                canonical == String("Memory") ||
                canonical == String("elara::Memory") ||
                canonical == String("ByteArray") ||
-               canonical == String("elara::ByteArray");
+               canonical == String("elara::ByteArray") ||
+               canonical == String("UnitTests") ||
+               canonical == String("elara::UnitTests");
     }
 
     bool CppLint::isAllowedSmartRef(String canonical) const {
@@ -552,6 +560,9 @@ namespace elara {
     bool CppLint::isAllowedBorrowedParameterType(String canonical, bool has_reference, bool has_const) const {
         if (!has_reference)
             return false;
+
+        if (canonical == String("UnitTests") || canonical == String("elara::UnitTests"))
+            return true;
 
         if (has_const && isAllowedSafeValueType(canonical))
             return true;

@@ -13,9 +13,16 @@ namespace elara {
             SOCKET_CLIENT
         };
 
+        enum SocketTransport {
+            SOCKET_TRANSPORT_PLAIN,
+            SOCKET_TRANSPORT_JSON_RPC
+        };
+
         ProjectOptions() :
             include_repl(true),
             socket_mode(SOCKET_DISABLED),
+            socket_transport(SOCKET_TRANSPORT_PLAIN),
+            include_debug_harness(true),
             include_thread_pool(false),
             include_threaded_worker(false),
             include_indexed_data_store(false),
@@ -32,6 +39,8 @@ namespace elara {
 
         bool include_repl;
         SocketMode socket_mode;
+        SocketTransport socket_transport;
+        bool include_debug_harness;
         bool include_thread_pool;
         bool include_threaded_worker;
         bool include_indexed_data_store;

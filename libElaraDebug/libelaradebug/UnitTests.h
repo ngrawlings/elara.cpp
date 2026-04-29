@@ -45,6 +45,7 @@ namespace elara {
         bool runFuzz(long long duration_us);
         int countTests(UNITTEST_KIND kind) const;
         void setRunMode(String mode);
+        void setArtifactRoot(String root_path);
         void addRunMetadata(String key, String value);
         String getArtifactDirectory() const;
         

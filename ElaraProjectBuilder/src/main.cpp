@@ -68,6 +68,18 @@ static bool parseSocketModeValue(const char *value, ProjectOptions::SocketMode *
     return false;
 }
 
+static bool parseSocketTransportValue(const char *value, ProjectOptions::SocketTransport *result) {
+    if (!strcmp(value, "plain")) {
+        *result = ProjectOptions::SOCKET_TRANSPORT_PLAIN;
+        return true;
+    }
+    if (!strcmp(value, "json-rpc")) {
+        *result = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+        return true;
+    }
+    return false;
+}
+
 static bool parsePortValue(const char *value, int *result) {
     char *end = NULL;
     long parsed = strtol(value, &end, 10);
@@ -106,6 +118,7 @@ static void printUsage(const char *program_name) {
     printf("  --target <value>            Executable name\n");
     printf("  --output <path>             Output directory\n");
     printf("  --repl <yes|no>             Enable or disable the REPL\n");
+    printf("  --debug-harness <yes|no>    Enable or disable the debug artifact scaffold\n");
     printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
     printf("  --worker <yes|no>           Enable or disable the threaded worker template\n");
     printf("  --worker-name <value>       Worker class name\n");
@@ -113,6 +126,7 @@ static void printUsage(const char *program_name) {
     printf("  --store-path <value>        IndexedDataStore file path inside the generated project\n");
     printf("  --store-bank-map-redundancy <value>\n");
     printf("  --socket-mode <none|server|client>\n");
+    printf("  --socket-transport <plain|json-rpc>\n");
     printf("  --address <value>           Bind address for server or remote address for client\n");
     printf("  --port <value>              Socket port\n");
     printf("\n");
@@ -135,6 +149,7 @@ int main(int argc, const char *argv[]) {
     bool saw_worker_name = false;
     bool saw_worker_flag = false;
     bool saw_store_flag = false;
+    bool saw_socket_transport = false;
 
     builder.setExecutablePath(resolveExecutablePath(argv[0]));
     options = builder.defaultOptions();
@@ -199,6 +214,17 @@ int main(int argc, const char *argv[]) {
             const char *value = optionValue(argc, argv, &i, arg, "--repl");
             if (!value || !parseBoolValue(value, &options.include_repl)) {
                 fprintf(stderr, "Invalid value for --repl: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--debug-harness")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--debug-harness");
+            if (!value || !parseBoolValue(value, &options.include_debug_harness)) {
+                fprintf(stderr, "Invalid value for --debug-harness: %s\n", value ? value : "");
                 return 1;
             }
             interactive = false;
@@ -292,6 +318,18 @@ int main(int argc, const char *argv[]) {
             continue;
         }
 
+        if (matchesOption(arg, "--socket-transport")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--socket-transport");
+            if (!value || !parseSocketTransportValue(value, &options.socket_transport)) {
+                fprintf(stderr, "Invalid value for --socket-transport: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_socket_transport = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
         if (matchesOption(arg, "--address")) {
             const char *value = optionValue(argc, argv, &i, arg, "--address");
             if (!value) {
@@ -350,6 +388,10 @@ int main(int argc, const char *argv[]) {
 
     if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {
         fprintf(stderr, "--address and --port require --socket-mode server or --socket-mode client\n");
+        return 1;
+    }
+    if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && saw_socket_transport) {
+        fprintf(stderr, "--socket-transport requires --socket-mode server or --socket-mode client\n");
         return 1;
     }
 

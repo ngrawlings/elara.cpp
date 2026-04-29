@@ -229,6 +229,10 @@ namespace elara {
         artifact_builder.setRunMode(mode);
     }
 
+    void UnitTests::setArtifactRoot(String root_path) {
+        artifact_builder.setRootPath(root_path);
+    }
+
     void UnitTests::addRunMetadata(String key, String value) {
         artifact_builder.addMetadata(key, value);
     }

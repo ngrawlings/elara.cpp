@@ -34,6 +34,7 @@ namespace elara {
         bool promptYesNo(const char *prompt, bool default_value);
         String promptString(const char *prompt, String default_value);
         ProjectOptions::SocketMode promptSocketMode();
+        ProjectOptions::SocketTransport promptSocketTransport();
 
         bool createProjectFiles(const ProjectOptions &options, Array<PROJECT_FILE> &files);
         void addFile(Array<PROJECT_FILE> &files, String path, String contents);
@@ -41,15 +42,27 @@ namespace elara {
         String renderConfigureAc(const ProjectOptions &options);
         String renderMakefileIn(const ProjectOptions &options);
         String renderBuildScript(const ProjectOptions &options);
+        String renderDebugScript(const ProjectOptions &options);
+        String renderStressScript(const ProjectOptions &options);
+        String renderFuzzScript(const ProjectOptions &options);
         String renderInstallScript(const ProjectOptions &options);
         String renderReadme(const ProjectOptions &options);
         String renderMainCpp(const ProjectOptions &options);
+        String renderTestMainCpp(const ProjectOptions &options);
+        String renderDebugTestsHeader(const ProjectOptions &options);
+        String renderDebugTestsCpp(const ProjectOptions &options);
         String renderWorkerHeader(const ProjectOptions &options);
         String renderWorkerCpp(const ProjectOptions &options);
         String renderSocketServerHeader(const ProjectOptions &options);
         String renderSocketServerCpp(const ProjectOptions &options);
         String renderSocketClientHeader(const ProjectOptions &options);
         String renderSocketClientCpp(const ProjectOptions &options);
+        String renderJsonRPCServerHeader(const ProjectOptions &options);
+        String renderJsonRPCServerCpp(const ProjectOptions &options);
+        String renderJsonRPCServiceHeader(const ProjectOptions &options);
+        String renderJsonRPCServiceCpp(const ProjectOptions &options);
+        String renderJsonRPCClientHeader(const ProjectOptions &options);
+        String renderJsonRPCClientCpp(const ProjectOptions &options);
         String loadAgentReference();
         String readTextFile(String path);
 

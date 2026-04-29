@@ -17,6 +17,7 @@ namespace elara {
     class JsonString : public JsonValue {
     public:
         JsonString(String json);
+        JsonString(String value, bool raw_value);
         JsonString(const JsonString &json);
         virtual ~JsonString();
         
@@ -24,6 +25,9 @@ namespace elara {
         String toString() const;
         
         String getValue();
+
+        static String decode(String json);
+        static String encode(String value);
         
     protected:
         String value;

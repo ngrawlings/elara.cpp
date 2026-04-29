@@ -50,6 +50,11 @@ namespace elara {
         for (int i=0; i<slen; i++) {
             switch (json[i]) {
                 case '\\':
+                    if (quotation || in_array) {
+                        val += json[i];
+                        if (i + 1 < slen)
+                            val += json[i + 1];
+                    }
                     i++;
                     break;
                     
