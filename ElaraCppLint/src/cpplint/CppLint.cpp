@@ -546,7 +546,9 @@ namespace elara {
                canonical == String("ByteArray") ||
                canonical == String("elara::ByteArray") ||
                canonical == String("UnitTests") ||
-               canonical == String("elara::UnitTests");
+               canonical == String("elara::UnitTests") ||
+               canonical == String("CommandLineInvocation") ||
+               canonical == String("elara::CommandLineInvocation");
     }
 
     bool CppLint::isAllowedSmartRef(String canonical) const {
@@ -561,7 +563,8 @@ namespace elara {
         if (!has_reference)
             return false;
 
-        if (canonical == String("UnitTests") || canonical == String("elara::UnitTests"))
+        if (canonical == String("UnitTests") || canonical == String("elara::UnitTests") ||
+            canonical == String("CommandLineInvocation") || canonical == String("elara::CommandLineInvocation"))
             return true;
 
         if (has_const && isAllowedSafeValueType(canonical))

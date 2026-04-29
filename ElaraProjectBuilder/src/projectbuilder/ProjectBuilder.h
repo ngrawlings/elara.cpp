@@ -13,6 +13,11 @@ namespace elara {
         String contents;
     } PROJECT_FILE;
 
+    typedef struct {
+        String marker;
+        String value;
+    } TEMPLATE_REPLACEMENT;
+
     class ProjectBuilder {
     public:
         ProjectBuilder();
@@ -64,6 +69,8 @@ namespace elara {
         String renderJsonRPCClientHeader(const ProjectOptions &options);
         String renderJsonRPCClientCpp(const ProjectOptions &options);
         String loadAgentReference();
+        String loadAsset(String relative_path);
+        String renderAssetTemplate(String relative_path, const Array<TEMPLATE_REPLACEMENT> &replacements);
         String readTextFile(String path);
 
         bool writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files);

@@ -7,9 +7,37 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <string>
+
 #include <libelaraio/File.h>
 
 namespace elara {
+
+    namespace {
+
+        String replaceTemplateMarker(String source, String marker, String value) {
+            if (!marker.length())
+                return source;
+
+            std::string source_text((char*)source, (size_t)source.length());
+            std::string marker_text((char*)marker, (size_t)marker.length());
+            std::string value_text((char*)value, (size_t)value.length());
+            std::string result;
+            std::string::size_type offset = 0;
+            std::string::size_type index = source_text.find(marker_text, offset);
+
+            while (index != std::string::npos) {
+                result.append(source_text, offset, index - offset);
+                result.append(value_text);
+                offset = index + marker_text.length();
+                index = source_text.find(marker_text, offset);
+            }
+
+            result.append(source_text, offset, source_text.length() - offset);
+            return String(result.c_str(), result.length());
+        }
+
+    }
 
     ProjectBuilder::ProjectBuilder() {
     }
@@ -853,32 +881,49 @@ namespace elara {
     }
 
     String ProjectBuilder::loadAgentReference() {
-        String executable_dir = pathDirectory(executable_path);
-        String asset;
-
-        if (executable_dir.length() && executable_dir != String(".")) {
-            asset = readTextFile(joinPath(joinPath(joinPath(executable_dir, ".."), "share/elara-project-builder"), "ELARA_AGENT_API.md"));
-            if (asset.length()) {
-                return asset;
-            }
-
-            asset = readTextFile(joinPath(joinPath(executable_dir, "elara-project-builder-assets"), "ELARA_AGENT_API.md"));
-            if (asset.length()) {
-                return asset;
-            }
-
-            asset = readTextFile(joinPath(joinPath(executable_dir, ".."), "assets/ELARA_AGENT_API.md"));
-            if (asset.length()) {
-                return asset;
-            }
-        }
-
-        asset = readTextFile("./ElaraProjectBuilder/assets/ELARA_AGENT_API.md");
+        String asset = loadAsset("ELARA_AGENT_API.md");
         if (asset.length()) {
             return asset;
         }
 
         return String("# Elara Agent API Reference\n\nAgent reference asset not found beside the project builder installation.\n");
+    }
+
+    String ProjectBuilder::loadAsset(String relative_path) {
+        String executable_dir = pathDirectory(executable_path);
+        String asset;
+
+        if (executable_dir.length() && executable_dir != String(".")) {
+            asset = readTextFile(joinPath(joinPath(joinPath(executable_dir, ".."), "share/elara-project-builder"), relative_path));
+            if (asset.length())
+                return asset;
+
+            asset = readTextFile(joinPath(joinPath(executable_dir, "elara-project-builder-assets"), relative_path));
+            if (asset.length())
+                return asset;
+
+            asset = readTextFile(joinPath(joinPath(executable_dir, ".."), joinPath("assets", relative_path)));
+            if (asset.length())
+                return asset;
+        }
+
+        asset = readTextFile(joinPath("./ElaraProjectBuilder/assets", relative_path));
+        return asset;
+    }
+
+    String ProjectBuilder::renderAssetTemplate(String relative_path, const Array<TEMPLATE_REPLACEMENT> &replacements) {
+        String contents = loadAsset(relative_path);
+
+        if (!contents.length()) {
+            return String("/* Missing template asset: % */\n").arg(relative_path);
+        }
+
+        for (unsigned int i=0; i<replacements.length(); i++) {
+            contents = replaceTemplateMarker(contents, replacements[i].marker, replacements[i].value);
+        }
+
+        contents = replaceTemplateMarker(contents, String("@PERCENT@"), String("%"));
+        return contents;
     }
 
     String ProjectBuilder::readTextFile(String path) {
@@ -1470,561 +1515,342 @@ namespace elara {
     }
 
     String ProjectBuilder::renderWorkerHeader(const ProjectOptions &options) {
-        String contents;
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#ifndef ";
-        contents += options.worker_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += options.worker_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarathreads/Task.h>\n";
-        contents += "#include <libelaracore/memory/String.h>\n\n";
-        contents += "class ";
-        contents += options.worker_name;
-        contents += " : public elara::Task {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += options.worker_name;
-        contents += "(elara::String payload);\n";
-        contents += "    virtual ~";
-        contents += options.worker_name;
-        contents += "();\n\n";
-        contents += "protected:\n";
-        contents += "    virtual void run();\n\n";
-        contents += "private:\n";
-        contents += "    elara::String payload;\n";
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+        replacement.marker = "%WorkerName%";
+        replacement.value = options.worker_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/Worker.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderWorkerCpp(const ProjectOptions &options) {
-        String contents;
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#include \"";
-        contents += options.worker_name;
-        contents += ".h\"\n\n";
-        contents += "#include <stdio.h>\n\n";
-        contents += options.worker_name;
-        contents += "::";
-        contents += options.worker_name;
-        contents += "(elara::String payload) {\n";
-        contents += "    this->payload = payload;\n";
-        contents += "}\n\n";
-        contents += options.worker_name;
-        contents += "::~";
-        contents += options.worker_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += options.worker_name;
-        contents += "::run() {\n";
-        contents += "    printf(\"Worker received: %s\\n\", payload.operator char *());\n";
-        contents += "    finished();\n";
-        contents += "}\n";
-        return contents;
+        replacement.marker = "%WorkerName%";
+        replacement.value = options.worker_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/Worker.cpp.tpl", replacements);
     }
 
     String ProjectBuilder::renderSocketServerHeader(const ProjectOptions &options) {
-        String contents;
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#ifndef ";
-        contents += server_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += server_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarasockets/Listener.h>\n\n";
-        contents += "#include <libelaracore/memory/String.h>\n\n";
-        contents += "class ";
-        contents += server_name;
-        contents += " : public elara::Listener {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += server_name;
-        contents += "();\n";
-        contents += "    virtual ~";
-        contents += server_name;
-        contents += "();\n";
-        contents += "    void start(int port, elara::String address);\n\n";
-        contents += "protected:\n";
-        contents += "    virtual void onNewConnection(elara::EventBase *event_base, int fd, unsigned char *addr, int addr_sz);\n";
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+        replacement.marker = "%SocketServerName%";
+        replacement.value = server_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/SocketServer.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderSocketServerCpp(const ProjectOptions &options) {
-        String contents;
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#include \"";
-        contents += server_name;
-        contents += ".h\"\n\n";
-        contents += "#include <arpa/inet.h>\n";
-        contents += "#include <stdio.h>\n";
-        contents += "#include <string.h>\n";
-        contents += "#include <unistd.h>\n";
-        contents += "#include <sys/socket.h>\n\n";
-        contents += server_name;
-        contents += "::";
-        contents += server_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += server_name;
-        contents += "::~";
-        contents += server_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += server_name;
-        contents += "::start(int port, elara::String address) {\n";
-        contents += "    unsigned int ipv4_interface = INADDR_ANY;\n";
-        contents += "    if (address.length() && address != elara::String(\"0.0.0.0\") && address != elara::String(\"*\")) {\n";
-        contents += "        ipv4_interface = inet_addr(address.operator char *());\n";
-        contents += "    }\n";
-        contents += "    listen(port, LISTENER_OPTS_IPV4 | LISTENER_OPTS_IPV4_REQUIRED, ipv4_interface);\n";
-        contents += "    runEventLoop(true);\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += server_name;
-        contents += "::onNewConnection(elara::EventBase *event_base, int fd, unsigned char *addr, int addr_sz) {\n";
-        contents += "    (void)event_base;\n";
-        contents += "    (void)addr;\n";
-        contents += "    (void)addr_sz;\n";
-        contents += "    send(fd, \"";
-        contents += options.project_name;
-        contents += " accepted your connection.\\n\", strlen(\"";
-        contents += options.project_name;
-        contents += " accepted your connection.\\n\"), 0);\n";
-        contents += "    ::close(fd);\n";
-        contents += "    printf(\"Accepted and closed a socket client.\\n\");\n";
-        contents += "}\n";
-        return contents;
+        replacement.marker = "%SocketServerName%";
+        replacement.value = server_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%ProjectName%";
+        replacement.value = options.project_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/SocketServer.cpp.tpl", replacements);
     }
 
     String ProjectBuilder::renderSocketClientHeader(const ProjectOptions &options) {
-        String contents;
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#ifndef ";
-        contents += client_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += client_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarasockets/Socket.h>\n";
-        contents += "#include <libelaracore/memory/String.h>\n\n";
-        contents += "class ";
-        contents += client_name;
-        contents += " : public elara::Socket {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += client_name;
-        contents += "(elara::String address, int port);\n";
-        contents += "    virtual ~";
-        contents += client_name;
-        contents += "();\n";
-        contents += "    void sendLine(elara::String text);\n\n";
-        contents += "protected:\n";
-        contents += "    virtual void onReceive();\n";
-        contents += "    virtual void onWriteReady();\n";
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+        replacement.marker = "%SocketClientName%";
+        replacement.value = client_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/SocketClient.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderSocketClientCpp(const ProjectOptions &options) {
-        String contents;
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#include \"";
-        contents += client_name;
-        contents += ".h\"\n\n";
-        contents += "#include <libelarasockets/Address.h>\n";
-        contents += "#include <libelaracore/memory/Memory.h>\n";
-        contents += "#include <stdio.h>\n\n";
-        contents += client_name;
-        contents += "::";
-        contents += client_name;
-        contents += "(elara::String address, int port) : Socket() {\n";
-        contents += "    if (!connect(elara::Address(elara::Address::ADDR, address.operator char *()), port)) {\n";
-        contents += "        printf(\"Failed to connect to %s:%u\\n\", address.operator char *(), (unsigned int)port);\n";
-        contents += "    }\n";
-        contents += "}\n\n";
-        contents += client_name;
-        contents += "::~";
-        contents += client_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += client_name;
-        contents += "::sendLine(elara::String text) {\n";
-        contents += "    text += elara::String(\"\\n\");\n";
-        contents += "    send(text.operator char *(), (size_t)text.length());\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += client_name;
-        contents += "::onReceive() {\n";
-        contents += "    elara::Memory data = read((int)available());\n";
-        contents += "    if (data.length()) {\n";
-        contents += "        fwrite(data.operator char *(), 1, (size_t)data.length(), stdout);\n";
-        contents += "        fflush(stdout);\n";
-        contents += "    }\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += client_name;
-        contents += "::onWriteReady() {\n";
-        contents += "}\n";
-        return contents;
+        replacement.marker = "%SocketClientName%";
+        replacement.value = client_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/SocketClient.cpp.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCServerHeader(const ProjectOptions &options) {
-        String contents;
         String server_name = projectClassPrefix(options.project_name) + "RpcServer";
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#ifndef ";
-        contents += server_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += server_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarasockets/rpc/json/JsonRPCServer.h>\n";
-        contents += "#include <libelaracore/memory/Ref.h>\n";
-        contents += "#include \"";
-        contents += service_name;
-        contents += ".h\"\n\n";
-        contents += "class ";
-        contents += server_name;
-        contents += " : public elara::sockets::rpc::json::JsonRPCServer {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += server_name;
-        contents += "();\n";
-        contents += "    virtual ~";
-        contents += server_name;
-        contents += "();\n";
-        contents += "    void start(int port, elara::String address);\n\n";
-        contents += "private:\n";
-        contents += "    elara::Ref<elara::sockets::rpc::json::JsonRPCService> service;\n";
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+        replacement.marker = "%RpcServerName%";
+        replacement.value = server_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%RpcServiceName%";
+        replacement.value = service_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcServer.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCServerCpp(const ProjectOptions &options) {
-        String contents;
         String server_name = projectClassPrefix(options.project_name) + "RpcServer";
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
 
-        contents += "#include \"";
-        contents += server_name;
-        contents += ".h\"\n\n";
-        contents += server_name;
-        contents += "::";
-        contents += server_name;
-        contents += "() {\n";
-        contents += "    service = elara::Ref<elara::sockets::rpc::json::JsonRPCService>(new ";
-        contents += service_name;
-        contents += "());\n";
-        contents += "    addService(service);\n";
-        contents += "}\n\n";
-        contents += server_name;
-        contents += "::~";
-        contents += server_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += server_name;
-        contents += "::start(int port, elara::String address) {\n";
-        contents += "    listen(address, (unsigned short)port);\n";
-        contents += "    runEventLoop(true);\n";
-        contents += "}\n";
-        return contents;
+        replacement.marker = "%RpcServerName%";
+        replacement.value = server_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%RpcServiceName%";
+        replacement.value = service_name;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcServer.cpp.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCServiceHeader(const ProjectOptions &options) {
-        String contents;
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
+        String indexed_data_store_includes;
+        String indexed_data_store_private;
 
-        contents += "#ifndef ";
-        contents += service_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += service_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarasockets/rpc/json/JsonRPCService.h>\n";
         if (options.include_indexed_data_store) {
-            contents += "#include <libelaraio/IndexedDataStore.h>\n";
-            contents += "#include <libelaracore/memory/Ref.h>\n";
-            contents += "using elara::IndexedDataStore;\n";
-            contents += "using elara::Memory;\n";
-            contents += "using elara::Ref;\n";
+            indexed_data_store_includes += "#include <libelaraio/IndexedDataStore.h>\n";
+            indexed_data_store_includes += "#include <libelaracore/memory/Ref.h>\n";
+            indexed_data_store_includes += "using elara::IndexedDataStore;\n";
+            indexed_data_store_includes += "using elara::Memory;\n";
+            indexed_data_store_includes += "using elara::Ref;\n";
+            indexed_data_store_private = "\nprivate:\n    Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing);\n";
         }
-        contents += "using elara::String;\n";
-        contents += "\nclass ";
-        contents += service_name;
-        contents += " : public elara::sockets::rpc::json::JsonRPCService {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += service_name;
-        contents += "();\n";
-        contents += "    virtual ~";
-        contents += service_name;
-        contents += "();\n";
-        contents += "    virtual bool call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);\n";
-        if (options.include_indexed_data_store) {
-            contents += "\nprivate:\n";
-            contents += "    Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing);\n";
-        }
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+
+        replacement.marker = "%RpcServiceName%";
+        replacement.value = service_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStoreIncludes%";
+        replacement.value = indexed_data_store_includes;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStorePrivate%";
+        replacement.value = indexed_data_store_private;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcService.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCServiceCpp(const ProjectOptions &options) {
-        String contents;
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
+        String indexed_data_store_headers;
+        String indexed_data_store_helpers;
+        String open_indexed_data_store;
+        String store_method_handlers;
 
-        contents += "#include \"";
-        contents += service_name;
-        contents += ".h\"\n\n";
-        contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n";
         if (options.include_indexed_data_store) {
-            contents += "#include <sys/stat.h>\n";
-            contents += "#include <sys/types.h>\n";
+            indexed_data_store_headers += "#include <sys/stat.h>\n";
+            indexed_data_store_headers += "#include <sys/types.h>\n";
+
+            indexed_data_store_helpers += "namespace {\n";
+            indexed_data_store_helpers += "    void ensureDirectoryPath(String path) {\n";
+            indexed_data_store_helpers += "        String current;\n";
+            indexed_data_store_helpers += "        for (int i=0; i<path.length(); i++) {\n";
+            indexed_data_store_helpers += "            char ch = path.operator char *()[i];\n";
+            indexed_data_store_helpers += "            current += String(ch);\n";
+            indexed_data_store_helpers += "            if (ch == '/') {\n";
+            indexed_data_store_helpers += "                mkdir(current.operator char *(), 0755);\n";
+            indexed_data_store_helpers += "            }\n";
+            indexed_data_store_helpers += "        }\n";
+            indexed_data_store_helpers += "    }\n\n";
+            indexed_data_store_helpers += "    String parentDirectory(String path) {\n";
+            indexed_data_store_helpers += "        int slash = -1;\n";
+            indexed_data_store_helpers += "        for (int i=0; i<path.length(); i++) {\n";
+            indexed_data_store_helpers += "            if (path.operator char *()[i] == '/') {\n";
+            indexed_data_store_helpers += "                slash = i;\n";
+            indexed_data_store_helpers += "            }\n";
+            indexed_data_store_helpers += "        }\n";
+            indexed_data_store_helpers += "        if (slash <= 0) {\n";
+            indexed_data_store_helpers += "            return String();\n";
+            indexed_data_store_helpers += "        }\n";
+            indexed_data_store_helpers += "        return path.substr(0, slash);\n";
+            indexed_data_store_helpers += "    }\n";
+            indexed_data_store_helpers += "}\n\n";
+
+            open_indexed_data_store += "Ref<IndexedDataStore> ";
+            open_indexed_data_store += service_name;
+            open_indexed_data_store += "::openIndexedDataStore(bool create_if_missing) {\n";
+            open_indexed_data_store += "    String path(\"";
+            open_indexed_data_store += options.indexed_data_store_path;
+            open_indexed_data_store += "\");\n";
+            open_indexed_data_store += "    if (create_if_missing) {\n";
+            open_indexed_data_store += "        String directory = parentDirectory(path);\n";
+            open_indexed_data_store += "        if (directory.length()) {\n";
+            open_indexed_data_store += "            ensureDirectoryPath(directory + String(\"/\"));\n";
+            open_indexed_data_store += "        }\n";
+            open_indexed_data_store += "        return Ref<IndexedDataStore>(new IndexedDataStore(path, ";
+            open_indexed_data_store += String(options.indexed_data_store_bank_map_redundancy);
+            open_indexed_data_store += "));\n";
+            open_indexed_data_store += "    }\n";
+            open_indexed_data_store += "    return Ref<IndexedDataStore>(new IndexedDataStore(path));\n";
+            open_indexed_data_store += "}\n\n";
+
+            store_method_handlers += "    if (method == String(\"storeInit\")) {\n";
+            store_method_handlers += "        try {\n";
+            store_method_handlers += "            openIndexedDataStore(true);\n";
+            store_method_handlers += "            result_json = String(\"{\\\"initialised\\\":true}\");\n";
+            store_method_handlers += "            return true;\n";
+            store_method_handlers += "        } catch (const char *error) {\n";
+            store_method_handlers += "            error_code = String(\"store_init_failed\");\n";
+            store_method_handlers += "            error_message = String(error);\n";
+            store_method_handlers += "            return false;\n";
+            store_method_handlers += "        }\n";
+            store_method_handlers += "    }\n";
+            store_method_handlers += "    if (method == String(\"storePut\")) {\n";
+            store_method_handlers += "        String key;\n";
+            store_method_handlers += "        String value;\n";
+            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
+            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"value\"), value);\n";
+            store_method_handlers += "        if (!key.length()) {\n";
+            store_method_handlers += "            error_code = String(\"missing_key\");\n";
+            store_method_handlers += "            error_message = String(\"key is required\");\n";
+            store_method_handlers += "            return false;\n";
+            store_method_handlers += "        }\n";
+            store_method_handlers += "        try {\n";
+            store_method_handlers += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+            store_method_handlers += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
+            store_method_handlers += "            result_json = String(\"{\\\"stored\\\":true}\");\n";
+            store_method_handlers += "            return true;\n";
+            store_method_handlers += "        } catch (const char *error) {\n";
+            store_method_handlers += "            error_code = String(\"store_put_failed\");\n";
+            store_method_handlers += "            error_message = String(error);\n";
+            store_method_handlers += "            return false;\n";
+            store_method_handlers += "        }\n";
+            store_method_handlers += "    }\n";
+            store_method_handlers += "    if (method == String(\"storeGet\")) {\n";
+            store_method_handlers += "        String key;\n";
+            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
+            store_method_handlers += "        if (!key.length()) {\n";
+            store_method_handlers += "            error_code = String(\"missing_key\");\n";
+            store_method_handlers += "            error_message = String(\"key is required\");\n";
+            store_method_handlers += "            return false;\n";
+            store_method_handlers += "        }\n";
+            store_method_handlers += "        try {\n";
+            store_method_handlers += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+            store_method_handlers += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
+            store_method_handlers += "            if (!file.getPtr()) {\n";
+            store_method_handlers += "                error_code = String(\"not_found\");\n";
+            store_method_handlers += "                error_message = String(\"No value for the requested key\");\n";
+            store_method_handlers += "                return false;\n";
+            store_method_handlers += "            }\n";
+            store_method_handlers += "            unsigned long long len = store->getFileSize(file);\n";
+            store_method_handlers += "            Memory value = store->readFromFile(file, 0, len);\n";
+            store_method_handlers += "            String escaped_value = elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(String((char*)value, value.length()));\n";
+            store_method_handlers += "            result_json = String(\"{\\\"value\\\":\\\"\") + escaped_value + String(\"\\\"}\");\n";
+            store_method_handlers += "            return true;\n";
+            store_method_handlers += "        } catch (const char *error) {\n";
+            store_method_handlers += "            error_code = String(\"store_get_failed\");\n";
+            store_method_handlers += "            error_message = String(error);\n";
+            store_method_handlers += "            return false;\n";
+            store_method_handlers += "        }\n";
+            store_method_handlers += "    }\n";
         }
-        contents += "\n";
-        if (options.include_indexed_data_store) {
-            contents += "namespace {\n";
-            contents += "    void ensureDirectoryPath(String path) {\n";
-            contents += "        String current;\n";
-            contents += "        for (int i=0; i<path.length(); i++) {\n";
-            contents += "            char ch = path.operator char *()[i];\n";
-            contents += "            current += String(ch);\n";
-            contents += "            if (ch == '/') {\n";
-            contents += "                mkdir(current.operator char *(), 0755);\n";
-            contents += "            }\n";
-            contents += "        }\n";
-            contents += "    }\n\n";
-            contents += "    String parentDirectory(String path) {\n";
-            contents += "        int slash = -1;\n";
-            contents += "        for (int i=0; i<path.length(); i++) {\n";
-            contents += "            if (path.operator char *()[i] == '/') {\n";
-            contents += "                slash = i;\n";
-            contents += "            }\n";
-            contents += "        }\n";
-            contents += "        if (slash <= 0) {\n";
-            contents += "            return String();\n";
-            contents += "        }\n";
-            contents += "        return path.substr(0, slash);\n";
-            contents += "    }\n";
-            contents += "}\n\n";
-        }
-        contents += service_name;
-        contents += "::";
-        contents += service_name;
-        contents += "() : JsonRPCService(\"app\") {\n";
-        contents += "}\n\n";
-        contents += service_name;
-        contents += "::~";
-        contents += service_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        if (options.include_indexed_data_store) {
-            contents += "Ref<IndexedDataStore> ";
-            contents += service_name;
-            contents += "::openIndexedDataStore(bool create_if_missing) {\n";
-            contents += "    String path(\"";
-            contents += options.indexed_data_store_path;
-            contents += "\");\n";
-            contents += "    if (create_if_missing) {\n";
-            contents += "        String directory = parentDirectory(path);\n";
-            contents += "        if (directory.length()) {\n";
-            contents += "            ensureDirectoryPath(directory + String(\"/\"));\n";
-            contents += "        }\n";
-            contents += "        return Ref<IndexedDataStore>(new IndexedDataStore(path, ";
-            contents += String(options.indexed_data_store_bank_map_redundancy);
-            contents += "));\n";
-            contents += "    }\n";
-            contents += "    return Ref<IndexedDataStore>(new IndexedDataStore(path));\n";
-            contents += "}\n\n";
-        }
-        contents += "bool ";
-        contents += service_name;
-        contents += "::call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {\n";
-        contents += "    if (method == String(\"ping\")) {\n";
-        contents += "        result_json = String(\"{\\\"message\\\":\\\"pong\\\"}\");\n";
-        contents += "        return true;\n";
-        contents += "    }\n";
-        if (options.include_indexed_data_store) {
-            contents += "    if (method == String(\"storeInit\")) {\n";
-            contents += "        try {\n";
-            contents += "            openIndexedDataStore(true);\n";
-            contents += "            result_json = String(\"{\\\"initialised\\\":true}\");\n";
-            contents += "            return true;\n";
-            contents += "        } catch (const char *error) {\n";
-            contents += "            error_code = String(\"store_init_failed\");\n";
-            contents += "            error_message = String(error);\n";
-            contents += "            return false;\n";
-            contents += "        }\n";
-            contents += "    }\n";
-            contents += "    if (method == String(\"storePut\")) {\n";
-            contents += "        String key;\n";
-            contents += "        String value;\n";
-            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
-            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"value\"), value);\n";
-            contents += "        if (!key.length()) {\n";
-            contents += "            error_code = String(\"missing_key\");\n";
-            contents += "            error_message = String(\"key is required\");\n";
-            contents += "            return false;\n";
-            contents += "        }\n";
-            contents += "        try {\n";
-            contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-            contents += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
-            contents += "            result_json = String(\"{\\\"stored\\\":true}\");\n";
-            contents += "            return true;\n";
-            contents += "        } catch (const char *error) {\n";
-            contents += "            error_code = String(\"store_put_failed\");\n";
-            contents += "            error_message = String(error);\n";
-            contents += "            return false;\n";
-            contents += "        }\n";
-            contents += "    }\n";
-            contents += "    if (method == String(\"storeGet\")) {\n";
-            contents += "        String key;\n";
-            contents += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
-            contents += "        if (!key.length()) {\n";
-            contents += "            error_code = String(\"missing_key\");\n";
-            contents += "            error_message = String(\"key is required\");\n";
-            contents += "            return false;\n";
-            contents += "        }\n";
-            contents += "        try {\n";
-            contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-            contents += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
-            contents += "            if (!file.getPtr()) {\n";
-            contents += "                error_code = String(\"not_found\");\n";
-            contents += "                error_message = String(\"No value for the requested key\");\n";
-            contents += "                return false;\n";
-            contents += "            }\n";
-            contents += "            unsigned long long len = store->getFileSize(file);\n";
-            contents += "            Memory value = store->readFromFile(file, 0, len);\n";
-            contents += "            String escaped_value = elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(String((char*)value, value.length()));\n";
-            contents += "            result_json = String(\"{\\\"value\\\":\\\"\") + escaped_value + String(\"\\\"}\");\n";
-            contents += "            return true;\n";
-            contents += "        } catch (const char *error) {\n";
-            contents += "            error_code = String(\"store_get_failed\");\n";
-            contents += "            error_message = String(error);\n";
-            contents += "            return false;\n";
-            contents += "        }\n";
-            contents += "    }\n";
-        }
-        contents += "    error_code = String(\"unknown_method\");\n";
-        contents += "    error_message = String(\"Unsupported RPC method\");\n";
-        contents += "    return false;\n";
-        contents += "}\n";
-        return contents;
+
+        replacement.marker = "%RpcServiceName%";
+        replacement.value = service_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStoreHeaders%";
+        replacement.value = indexed_data_store_headers;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStoreHelpers%";
+        replacement.value = indexed_data_store_helpers;
+        replacements.push(replacement);
+
+        replacement.marker = "%OpenIndexedDataStoreMethod%";
+        replacement.value = open_indexed_data_store;
+        replacements.push(replacement);
+
+        replacement.marker = "%StoreMethodHandlers%";
+        replacement.value = store_method_handlers;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcService.cpp.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCClientHeader(const ProjectOptions &options) {
-        String contents;
         String client_name = projectClassPrefix(options.project_name) + "RpcClient";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
+        String indexed_data_store_methods;
 
-        contents += "#ifndef ";
-        contents += client_name;
-        contents += "_h\n";
-        contents += "#define ";
-        contents += client_name;
-        contents += "_h\n\n";
-        contents += "#include <libelarasockets/rpc/json/JsonRPCClient.h>\n";
-        contents += "#include <libelaracore/memory/String.h>\n\n";
-        contents += "using elara::String;\n";
-        contents += "class ";
-        contents += client_name;
-        contents += " {\n";
-        contents += "public:\n";
-        contents += "    ";
-        contents += client_name;
-        contents += "();\n";
-        contents += "    virtual ~";
-        contents += client_name;
-        contents += "();\n";
-        contents += "    bool connectTo(const String &address, int port);\n";
-        contents += "    void close();\n";
-        contents += "    bool call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);\n";
-        contents += "    bool ping(String &result_json, String &error_code, String &error_message);\n";
         if (options.include_indexed_data_store) {
-            contents += "    bool storeInit(String &result_json, String &error_code, String &error_message);\n";
-            contents += "    bool storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message);\n";
-            contents += "    bool storeGet(const String &key, String &result_json, String &error_code, String &error_message);\n";
+            indexed_data_store_methods += "    bool storeInit(String &result_json, String &error_code, String &error_message);\n";
+            indexed_data_store_methods += "    bool storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message);\n";
+            indexed_data_store_methods += "    bool storeGet(const String &key, String &result_json, String &error_code, String &error_message);\n";
         }
-        contents += "\nprivate:\n";
-        contents += "    elara::sockets::rpc::json::JsonRPCClient rpc_client;\n";
-        contents += "};\n\n";
-        contents += "#endif\n";
-        return contents;
+
+        replacement.marker = "%RpcClientName%";
+        replacement.value = client_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStoreMethods%";
+        replacement.value = indexed_data_store_methods;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcClient.h.tpl", replacements);
     }
 
     String ProjectBuilder::renderJsonRPCClientCpp(const ProjectOptions &options) {
-        String contents;
         String client_name = projectClassPrefix(options.project_name) + "RpcClient";
+        Array<TEMPLATE_REPLACEMENT> replacements;
+        TEMPLATE_REPLACEMENT replacement;
+        String indexed_data_store_methods;
 
-        contents += "#include \"";
-        contents += client_name;
-        contents += ".h\"\n";
-        contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n\n";
-        contents += client_name;
-        contents += "::";
-        contents += client_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += client_name;
-        contents += "::~";
-        contents += client_name;
-        contents += "() {\n";
-        contents += "}\n\n";
-        contents += "bool ";
-        contents += client_name;
-        contents += "::connectTo(const String &address, int port) {\n";
-        contents += "    return rpc_client.connect(address, (unsigned short)port);\n";
-        contents += "}\n\n";
-        contents += "void ";
-        contents += client_name;
-        contents += "::close() {\n";
-        contents += "    rpc_client.close();\n";
-        contents += "}\n\n";
-        contents += "bool ";
-        contents += client_name;
-        contents += "::call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {\n";
-        contents += "    return rpc_client.call(method, params_json, result_json, error_code, error_message);\n";
-        contents += "}\n\n";
-        contents += "bool ";
-        contents += client_name;
-        contents += "::ping(String &result_json, String &error_code, String &error_message) {\n";
-        contents += "    return rpc_client.call(String(\"app.ping\"), String(\"{}\"), result_json, error_code, error_message);\n";
-        contents += "}\n\n";
         if (options.include_indexed_data_store) {
-            contents += "bool ";
-            contents += client_name;
-            contents += "::storeInit(String &result_json, String &error_code, String &error_message) {\n";
-            contents += "    return rpc_client.call(String(\"app.storeInit\"), String(\"{}\"), result_json, error_code, error_message);\n";
-            contents += "}\n\n";
-            contents += "bool ";
-            contents += client_name;
-            contents += "::storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message) {\n";
-            contents += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\",\\\"value\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(value) + String(\"\\\"}\");\n";
-            contents += "    return rpc_client.call(String(\"app.storePut\"), params, result_json, error_code, error_message);\n";
-            contents += "}\n\n";
-            contents += "bool ";
-            contents += client_name;
-            contents += "::storeGet(const String &key, String &result_json, String &error_code, String &error_message) {\n";
-            contents += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\"}\");\n";
-            contents += "    return rpc_client.call(String(\"app.storeGet\"), params, result_json, error_code, error_message);\n";
-            contents += "}\n\n";
+            indexed_data_store_methods += "bool ";
+            indexed_data_store_methods += client_name;
+            indexed_data_store_methods += "::storeInit(String &result_json, String &error_code, String &error_message) {\n";
+            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storeInit\"), String(\"{}\"), result_json, error_code, error_message);\n";
+            indexed_data_store_methods += "}\n\n";
+            indexed_data_store_methods += "bool ";
+            indexed_data_store_methods += client_name;
+            indexed_data_store_methods += "::storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message) {\n";
+            indexed_data_store_methods += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\",\\\"value\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(value) + String(\"\\\"}\");\n";
+            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storePut\"), params, result_json, error_code, error_message);\n";
+            indexed_data_store_methods += "}\n\n";
+            indexed_data_store_methods += "bool ";
+            indexed_data_store_methods += client_name;
+            indexed_data_store_methods += "::storeGet(const String &key, String &result_json, String &error_code, String &error_message) {\n";
+            indexed_data_store_methods += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\"}\");\n";
+            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storeGet\"), params, result_json, error_code, error_message);\n";
+            indexed_data_store_methods += "}\n\n";
         }
-        return contents;
+
+        replacement.marker = "%RpcClientName%";
+        replacement.value = client_name;
+        replacements.push(replacement);
+
+        replacement.marker = "%IndexedDataStoreClientMethods%";
+        replacement.value = indexed_data_store_methods;
+        replacements.push(replacement);
+
+        return renderAssetTemplate("templates/src/RpcClient.cpp.tpl", replacements);
     }
 
     bool ProjectBuilder::writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files) {
