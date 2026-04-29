@@ -1086,6 +1086,8 @@ namespace elara {
             contents += "    printf(\"Thread pool initialised with 4 worker threads.\\n\");\n\n";
         }
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
+            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
+            contents += "    Socket::init(event_base.getPtr());\n";
             contents += "    Ref<";
             contents += server_name;
             contents += "> socket_server = Ref<";
@@ -1105,6 +1107,8 @@ namespace elara {
             contents += ".\\n\");\n\n";
         }
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
+            contents += "    Socket::init(event_base.getPtr());\n";
             contents += "    Ref<";
             contents += rpc_server_name;
             contents += "> socket_server = Ref<";
