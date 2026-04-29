@@ -150,7 +150,7 @@ namespace elara {
         bool found;
         ssize_t slen = search.length();
         
-        if (!_length || !slen)
+        if (!_length || !slen || slen > _length || start < 0 || (size_t)start >= _length)
             return -1;
         
         for (unsigned int i=start; i<=_length-slen; i++) {
@@ -179,16 +179,30 @@ namespace elara {
     }
     
     String String::substr(int offset, int length) {
+        if (offset < 0)
+            offset = 0;
+
+        if ((size_t)offset >= _length || !strbuf)
+            return String();
+
         length = length ? length : (int)_length-offset;
-        
+        if (length < 0)
+            length = 0;
+
+        if ((size_t)(offset + length) > _length)
+            length = (int)(_length - offset);
+
+        if (!length)
+            return String();
+
         char *buf = new char[length+1];
-        
+
         memcpy(buf, &strbuf[offset], length);
         buf[length] = 0;
-        
+
         String ret(buf);
         delete [] buf;
-        
+
         return ret;
     }
     
@@ -213,29 +227,28 @@ namespace elara {
         
         slen = search.length();
         rlen = replace.length();
+        if (!slen)
+            return *this;
+
         size_dif = rlen - slen;
         
         while ((index = indexOf(search, offset)) != -1) {
             if (maxcnt > 0 && cnt == maxcnt)
                 break;
             
-            if (size_dif > 0) {
-                if (_length+size_dif >= size)
-                    allocateBlock(_length+size_dif);
-        
-                for (ssize_t i=_length; i>=index+slen; i--)
-                    strbuf[i+size_dif] = strbuf[i];
-            } else if (size_dif < 0) {
-                for (ssize_t i=index+rlen; i<_length; i++)
-                    strbuf[i] = strbuf[i-size_dif];
-            }
+            if (size_dif > 0 && _length+size_dif >= size)
+                allocateBlock(_length+size_dif);
             
             memcpy(&strbuf[index], replace.operator char *(), rlen);
+            memmove(&strbuf[index + rlen],
+                &strbuf[index + slen],
+                (_length - (index + slen)) + 1);
             
             _length += size_dif;
             strbuf[_length] = 0;
             
             cnt++;
+            offset = index + rlen;
         }
         
         return *this;
@@ -268,6 +281,13 @@ namespace elara {
     bool String::startsWith(String str) {
         const char *sbuf = str.strbuf;
         ssize_t len = str.length();
+
+        if (len > _length)
+            return false;
+        if (!len)
+            return true;
+        if (!strbuf || !sbuf)
+            return false;
         
         for (int i=0; i<len; i++) {
             if (sbuf[i] != strbuf[i])
@@ -279,6 +299,13 @@ namespace elara {
     bool String::endsWith(String str) {
         const char *sbuf = str.strbuf;
         ssize_t len = str.length();
+
+        if (len > _length)
+            return false;
+        if (!len)
+            return true;
+        if (!strbuf || !sbuf)
+            return false;
         
         for (int i=0; i<len; i++) {
             if (sbuf[i] != strbuf[i+(_length-len)])
@@ -335,6 +362,9 @@ namespace elara {
     }
     
     String String::trim(const char *tchrs) {
+        if (!_length || !strbuf)
+            return String();
+
         ssize_t front_trim, back_trim, x;
         if (!tchrs) tchrs = " \t\r\n\x0";
         size_t len = strlen(tchrs);

@@ -97,6 +97,9 @@ namespace elara {
     int ByteArray::indexOf(ByteArray search, int start) {
         bool found;
         ssize_t slen = search.length();
+
+        if (!_length || !slen || slen > _length || start < 0 || (size_t)start >= _length)
+            return -1;
         
         for (unsigned int i=start; i<=_length-slen; i++) {
             found = true;
@@ -208,28 +211,27 @@ namespace elara {
         
         slen = search.length();
         rlen = replace.length();
+        if (!slen)
+            return *this;
+
         size_dif = rlen - slen;
         
         while ((index = indexOf(search, offset)) != -1) {
             if (maxcnt > 0 && cnt == maxcnt)
                 break;
             
-            if (size_dif > 0) {
-                if (_length+size_dif >= size)
-                    allocateBlock(_length+size_dif);
-                
-                for (ssize_t i=_length; i>=index+slen; i--)
-                    buffer[i+size_dif] = buffer[i];
-            } else if (size_dif < 0) {
-                for (ssize_t i=index+rlen; i<_length; i++)
-                    buffer[i] = buffer[i-size_dif];
-            }
+            if (size_dif > 0 && _length+size_dif >= size)
+                allocateBlock(_length+size_dif);
             
             memcpy(&buffer[index], replace.operator const char *(), rlen);
+            memmove(&buffer[index + rlen],
+                &buffer[index + slen],
+                _length - (index + slen));
             
             _length += size_dif;
             
             cnt++;
+            offset = index + rlen;
         }
         
         return *this;

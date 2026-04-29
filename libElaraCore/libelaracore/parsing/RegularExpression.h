@@ -11,7 +11,7 @@
 
 #include <regex.h>
 
-#include "String.h"
+#include <libelaracore/memory/String.h>
 
 namespace elara {
 
@@ -20,12 +20,11 @@ namespace elara {
         RegularExpression(String expr);
         RegularExpression(const RegularExpression &regex);
         virtual ~RegularExpression();
-        
+
         String &getExpression();
-        
+
         bool match(String str);
 
-        
     protected:
         String expr;
         regex_t regex;

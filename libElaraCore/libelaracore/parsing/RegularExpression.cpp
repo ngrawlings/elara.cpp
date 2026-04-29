@@ -15,7 +15,7 @@ namespace elara {
         if (regcomp(&regex, this->expr, REG_EXTENDED))
             throw "Failed to Compile";
     }
-    
+
     RegularExpression::RegularExpression(const RegularExpression &regex) {
         this->expr = regex.expr;
         if (regcomp(&this->regex, this->expr, REG_EXTENDED))
@@ -25,13 +25,13 @@ namespace elara {
     RegularExpression::~RegularExpression() {
         regfree(&regex);
     }
-    
+
     String &RegularExpression::getExpression() {
         return expr;
     }
 
-    bool RegularExpression::RegularExpression::match(String str) {
+    bool RegularExpression::match(String str) {
         return !regexec(&regex, str, 0, NULL, 0);
     }
-    
+
 }

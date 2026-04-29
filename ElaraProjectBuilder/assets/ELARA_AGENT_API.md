@@ -38,7 +38,8 @@ It is intentionally biased toward:
 ### Linting Policy
 
 - Generated Elara C++ projects are expected to expose a `make lint` target.
-- The default linter binary is `/usr/local/bin/elara.cpp-lint`.
+- The default linter binary for generated projects is `../build/bin/elara.cpp-lint`.
+- If a local framework build is not available, the system fallback is `/usr/local/bin/elara.cpp-lint`.
 - Current lint policy is intentionally strict:
   - allowed direct value types are primitives such as `int`, `char`, `bool`, `long`, `float`, `double`, and practical signed/unsigned variants
   - allowed direct Elara safe value types are:
@@ -104,8 +105,8 @@ It is intentionally biased toward:
   - `--port`
 - `--address` and `--port` are only valid with `--socket-mode server` or `--socket-mode client`.
 - Generated project defaults:
-  - link against Elara staged at `../build`
-  - lint with `/usr/local/bin/elara.cpp-lint`
+  - use Elara staged at `../build` for includes, libraries, and tools
+  - lint with `../build/bin/elara.cpp-lint`
   - install binaries into `/usr/local/bin` by default
 - Generated project install manifests live under:
   - `/usr/local/share/<target>/install-manifest.txt`
@@ -130,7 +131,6 @@ It is intentionally biased toward:
 
 Treat these as legacy or partially broken until reviewed:
 - `<libelaracore/memory/IndexedList.h>`
-- `<libelaracore/memory/InstancePool.h>`
 - `<libelaracore/memory/ObjectArray.h>`
 - `<libelaracore/memory/ObjectBlockArray.h>`
 
@@ -363,7 +363,7 @@ Key API:
 - `Memory getDataUntilEnd()`
 - `void drop(int len)`
 
-### `<libelaracore/memory/RegularExpression.h>`
+### `<libelaracore/parsing/RegularExpression.h>`
 
 Namespace: `elara`
 
@@ -440,14 +440,10 @@ Key `SerializableString` API:
 ### Other Core Headers
 
 These are installed but should be treated as legacy/specialized:
-- `<libelaracore/memory/DescriptorInstanceMap.h>`
-  - descriptor-indexed storage with `set`, `equals`, `get`, `getMaxDescriptors`
 - `<libelaracore/memory/StaticArray.h>`
   - fixed-size `set` and `operator[]`
 - `<libelaracore/memory/IndexedList.h>`
   - sparse byte-key tree, legacy include dependencies
-- `<libelaracore/memory/InstancePool.h>`
-  - blocking acquire/release instance pool, legacy include dependencies
 - `<libelaracore/memory/ObjectArray.h>`
 - `<libelaracore/memory/ObjectBlockArray.h>`
 
@@ -590,6 +586,22 @@ Key API:
 - copy and move construction
 - `operator*`, `operator->`, `explicit operator bool`
 - `T &get()`
+
+### `<libelarathreads/memory/InstancePool.h>`
+
+Namespace: `elara::threading::memory`
+
+Type: `template<class T> class InstancePool`
+
+Purpose:
+- thread-safe pool for scarce reusable server-side instances
+
+Key API:
+- `add(const T &obj)`
+- `HANDLE acquire(bool block, long timeout_ms=0)`
+- `const T &getInstance(HANDLE handle) const`
+- `release(HANDLE handle)`
+- `remove(const T &obj)`
 - `const T &get() const`
 - `T *getPtr()`
 - `const T *getPtr() const`
@@ -982,6 +994,21 @@ Agent note:
 ## libElaraSockets
 
 Primary role: event-driven sockets, listeners, SOCKS5 components.
+
+### `<libelarasockets/memory/DescriptorInstanceMap.h>`
+
+Namespace: `elara::sockets::memory`
+
+Type: `template<class T> class DescriptorInstanceMap`
+
+Purpose:
+- descriptor-indexed storage for socket-side instance lookup
+
+Key API:
+- `set(unsigned long fd, T instance)`
+- `equals(unsigned long fd, T instance)`
+- `get(unsigned long fd)`
+- `getMaxDescriptors()`
 
 ### `<libelarasockets/Address.h>`
 

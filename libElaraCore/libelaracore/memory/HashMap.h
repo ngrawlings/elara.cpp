@@ -86,16 +86,14 @@ namespace elara {
             if (i==key_len) {
                 hm->setObject(Ref<T>());
                 
-                while (!hm->getMapSize()) {
+                while (hm && !hm->getMapSize() && !hm->getObject().getPtr()) {
                     cm = hm;
                     hm = hm->getParent();
-                    if (!hm) {
-                        map.remove(cm);
+                    if (!hm)
                         break;
-                    } else {
-                        hm->removeMap(cm->getKey());
-                        delete cm;
-                    }
+
+                    hm->removeMap(cm->getKey());
+                    delete cm;
                 }
             }
         }

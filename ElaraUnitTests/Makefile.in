@@ -17,7 +17,7 @@ all: $(TARGET)
 $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)
 
-build/tests/%.o:
+build/tests/%.o: ./tests/%.cpp
 	@mkdir -p $(dir $@)
 	$(CC) $(STD_CFLAGS) $(CFLAGS) ./tests/$*.cpp -o $@
 

@@ -268,7 +268,7 @@ namespace elara {
         contents += "ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include\n";
         contents += "ELARA_LIB_DIR?=$(ELARA_ROOT)/lib\n";
         contents += "ELARA_BIN_DIR?=$(ELARA_ROOT)/bin\n";
-        contents += "ELARA_CPP_LINT?=/usr/local/bin/elara.cpp-lint\n";
+        contents += "ELARA_CPP_LINT?=$(ELARA_BIN_DIR)/elara.cpp-lint\n";
         contents += "PREFIX?=$(abspath ./dist)\n";
         contents += "BIN_DIR?=$(PREFIX)/bin\n";
         contents += "SHARE_DIR?=$(PREFIX)/share/";
@@ -340,7 +340,7 @@ namespace elara {
         contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
         contents += "lint:\n";
         contents += "\t@if [ ! -x \"$(ELARA_CPP_LINT)\" ]; then \\\n";
-        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Install ElaraCppLint or set ELARA_CPP_LINT=/path/to/elara.cpp-lint.\"; \\\n";
+        contents += "\t\techo \"Missing $(ELARA_CPP_LINT). Build ElaraCppLint locally first, install it to /usr/local, or set ELARA_CPP_LINT=/path/to/elara.cpp-lint.\"; \\\n";
         contents += "\t\texit 1; \\\n";
         contents += "\tfi\n";
         contents += "\t$(ELARA_CPP_LINT) $(LINT_PATHS)\n\n";
@@ -480,11 +480,12 @@ namespace elara {
         contents += "- `install.sh` does not build; it expects artifacts from `./build.sh`\n";
         contents += "\nLinting:\n";
         contents += "- `make lint` runs `elara.cpp-lint` against `./src`\n";
-        contents += "- the generated project expects the linter at `/usr/local/bin/elara.cpp-lint` by default\n";
+        contents += "- the generated project expects the linter at `../build/bin/elara.cpp-lint` by default\n";
+        contents += "- if you want the system install instead, use `ELARA_CPP_LINT=/usr/local/bin/elara.cpp-lint make lint`\n";
         contents += "- override this with `ELARA_CPP_LINT=/path/to/elara.cpp-lint make lint` if needed\n";
         contents += "- current policy allows primitives, safe Elara value types (`String`, `Memory`, `ByteArray`), plus `Ref`, `RefArray`, and `elara::threading::memory::Ref`\n";
         contents += "- permissable rules are expected to evolve over time as the framework policy is refined\n";
-        contents += "\nBy default the project links against Elara staged at `../build`.\n";
+        contents += "\nBy default the project uses Elara staged at `../build` for includes, libraries, and tools.\n";
         contents += "Override this with `ELARA_ROOT=/path/to/elara/build make` or `ELARA_ROOT=/usr/local make` if needed.\n";
         contents += "Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.\n";
         return contents;

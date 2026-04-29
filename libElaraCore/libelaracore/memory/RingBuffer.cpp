@@ -36,7 +36,7 @@ namespace elara {
     }
 
     size_t RingBuffer::append(const char *data, size_t len) {
-        if (_size-2 < _length+len)
+        if (len > _size - _length)
             len = _size - _length;
         
         if (!len)
