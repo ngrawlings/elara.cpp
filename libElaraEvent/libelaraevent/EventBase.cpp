@@ -19,10 +19,12 @@ namespace elara {
         evthread_use_pthreads();
         ev_base = event_base_new();
         thread = 0;
+        this->self = elara::threading::memory::Ref<Task>(this);
     }
     
     EventBase::~EventBase() {
         event_base_free(ev_base);
+        this->self.release();
     }
     
     Thread* EventBase::getThread() {
@@ -44,7 +46,7 @@ namespace elara {
             thread = 0;
             run();
         } else
-            thread = Thread::runTask(this);
+            thread = Thread::runTask(this->self);
     }
     
     void EventBase::breakEventLoop() {

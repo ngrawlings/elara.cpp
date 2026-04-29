@@ -14,6 +14,7 @@
 #include <netinet/tcp.h>
 
 #include <libelarathreads/Thread.h>
+#include <libelarathreads/memory/Ref.h>
 
 namespace elara {
 
@@ -23,7 +24,7 @@ namespace elara {
         this->fd = _fd;
         event_read = 0;
         event_write = 0;
-        
+
         enableEvents();
         
         int flag = 1;
@@ -128,12 +129,13 @@ namespace elara {
         Socket::event_base = event_base;
     }
 
-    Socket::ReceiveTask::ReceiveTask(Socket *socket) : Task(false) {
+    Socket::ReceiveTask::ReceiveTask(Socket *socket) {
         this->socket = socket;
+        this->self = elara::threading::memory::Ref<Task>(this);
     }
 
     Socket::ReceiveTask::~ReceiveTask() {
-
+        this->self.release();
     }
 
     void Socket::ReceiveTask::run() {
@@ -172,7 +174,7 @@ namespace elara {
             }
             
             recv_lock.release();
-            Thread::runTask(&recv_task);
+            Thread::runTask(recv_task.self);
         }
     }
 

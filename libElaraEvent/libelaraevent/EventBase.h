@@ -43,6 +43,8 @@ namespace elara {
         Thread* thread;
         
         bool _run;
+
+        elara::threading::memory::Ref<Task> self;
     };
     
 };

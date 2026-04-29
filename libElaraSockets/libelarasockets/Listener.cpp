@@ -58,6 +58,8 @@ namespace elara {
         ipv4_fd = ipv6_fd = 0;
         ev_ipv4_accept = ev_ipv6_accept = 0;
         thread = 0;
+
+        this->self = elara::threading::memory::Ref<Task>(this);
     }
     
     Listener::Listener(int listen_port, int opts, EventBase *event_base) {
@@ -74,6 +76,8 @@ namespace elara {
         
         if (evbase_allocated)
             delete event_base;
+
+            this->self.release();
         
         LOG(Log::LOGLEVEL_NOTICE, "Listener Destroyed");
     }
@@ -131,7 +135,7 @@ namespace elara {
         if (!create_task)
             event_base_dispatch(event_base->getEventBase());
         else
-            Thread::runTask(this);
+            Thread::runTask(this->self);
     }
 
     void Listener::breakEventLoop() {

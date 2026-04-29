@@ -109,7 +109,7 @@ namespace elara {
     }
 
     void Thread::thread_loop() {
-        Task *task;
+        elara::threading::memory::Ref<Task> task;
 
         threadStarted();
 
@@ -118,11 +118,9 @@ namespace elara {
                 while ((task = getNextTask())) {
                     task->run();
                     task->acquired_thread = 0;
-                    if (task->dynamicly_allocated && task->task_finished)
-                        delete task;
                 }
                 
-                while ((task = dynamic_cast<Task*>(Task::getNextTask()))) {
+                while ((task = elara::threading::memory::Ref<Task>(Task::getNextTask()))) {
                     int cnt = Task::getQueuedTaskCount();
                     if (cnt) {
                         LinkedListState<Thread*> wt_state(wait_threads);
@@ -137,8 +135,6 @@ namespace elara {
                     
                     task->run();
                     task->acquired_thread = 0;
-                    if (task->dynamicly_allocated && task->task_finished)
-                        delete task;
                 }
                 
                 if (task_queue.length())
@@ -218,7 +214,7 @@ namespace elara {
         wait_any_thread_trigger->trigger();
     }
 
-    Thread *Thread::runTask(Task *task) {
+    Thread *Thread::runTask(elara::threading::memory::Ref<Task> task) {
         Thread *thrd = 0;
         
         if (task)
@@ -310,7 +306,7 @@ namespace elara {
         *active = (*total) - wait_threads->length();
     }
     
-    void Thread::queueTaskToCurrentThread(Task *task) {
+    void Thread::queueTaskToCurrentThread(elara::threading::memory::Ref<Task> task) {
         mutex.lock();
         task_queue.add(task);
         mutex.release();
@@ -340,9 +336,9 @@ namespace elara {
         }
     }
     
-    Task *Thread::getNextTask() {
+    elara::threading::memory::Ref<Task> Thread::getNextTask() {
         mutex.lock();
-        Task *ret = 0;
+        elara::threading::memory::Ref<Task> ret;
         if (task_queue.length()) {
             ret = task_queue.get(0);
             task_queue.remove(0);

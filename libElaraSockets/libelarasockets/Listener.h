@@ -85,6 +85,8 @@ namespace elara {
         
         bool ipv4listen(unsigned int interface, int port);
         bool ipv6listen(in6_addr interface, int port);
+
+        elara::threading::memory::Ref<Task> self;
         
     };
     

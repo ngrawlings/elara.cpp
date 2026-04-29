@@ -31,28 +31,21 @@ namespace elara {
 
     bool Task::shutting_down = false;
     Mutex *Task::task_queue_mutex = 0;
-    LinkedList<Task*> *Task::task_queue = 0;
+    LinkedList< elara::threading::memory::Ref<Task> > *Task::task_queue = 0;
 
     Task::Task() {
-        this->dynamicly_allocated = false;
         acquired_thread = 0;
         task_finished = false;
     }
     
-    Task::Task(bool dynamicly_allocated) {
-        this->dynamicly_allocated = dynamicly_allocated;
-        acquired_thread = 0;
-        task_finished = false;
-    }
-
     Task::~Task() {
-        removeTasks(this);
+        removeTask(this);
         
         if ( acquired_thread && acquired_thread != Thread::getThreadInstance() )
             reinterpret_cast<Thread*>(acquired_thread)->waitUntilFinished();
     }
     
-    bool Task::taskExists(Task *task) {
+    bool Task::taskExists(elara::threading::memory::Ref<Task> task) {
         bool ret;
         task_queue_mutex->lock();
         ret = _taskExists(task);
@@ -60,17 +53,17 @@ namespace elara {
         return ret;
     }
     
-    bool Task::_taskExists(Task *task) {
-        LinkedListState<Task*> tq(task_queue);
+    bool Task::_taskExists(elara::threading::memory::Ref<Task> task) {
+        LinkedListState< elara::threading::memory::Ref<Task> > tq(task_queue);
         int cnt = tq.length();
         while (cnt--) {
-            if (tq.next() == task)
+            if (tq.next().getPtr() == task.getPtr())
                 return true;
         }
         return false;
     }
 
-    void Task::queueTask(Task *task) {
+    void Task::queueTask(elara::threading::memory::Ref<Task> task) {
         if (!shutting_down) {
             task->reset();
             task_queue_mutex->lock();
@@ -80,7 +73,7 @@ namespace elara {
         }
     }
 
-    void Task::removeTasks(Task *task) {
+    void Task::removeTask(Task* task) {
         task_queue_mutex->lock();
         
         LINKEDLIST_NODE_HANDLE node;
@@ -91,7 +84,7 @@ namespace elara {
             if (node) {
                 do {
                     
-                    if (task_queue->get(node) == task) {
+                    if (task_queue->get(node).getPtr() == task) {
                         task_queue->removeNode(node);
                     
                         if (!task_queue->length())
@@ -106,8 +99,12 @@ namespace elara {
         task_queue_mutex->release();
     }
 
-    Task* Task::getNextTask() {
-        Task *ret=0;
+    void Task::removeTask(elara::threading::memory::Ref<Task>task) {
+        Task::removeTask(task.getPtr());
+    }
+
+    elara::threading::memory::Ref<Task> Task::getNextTask() {
+        elara::threading::memory::Ref<Task> ret;
         
         try {
             task_queue_mutex->lock();
@@ -128,10 +125,6 @@ namespace elara {
 
         return ret;
     }
-    
-    bool Task::isDynamiclyAllocated() {
-        return dynamicly_allocated;
-    }
 
     unsigned long Task::getThreadId() {
         return (unsigned long)pthread_self();
@@ -139,7 +132,7 @@ namespace elara {
 
     void Task::staticInit() {
         task_queue_mutex = new Mutex("task_queue_mutex");
-        task_queue = new LinkedList<Task*>();
+        task_queue = new LinkedList< elara::threading::memory::Ref<Task> >();
     }
 
     void Task::staticCleanup() {
@@ -150,7 +143,7 @@ namespace elara {
     void Task::shuttingDown() {
         shutting_down = true;
         
-        Task *task;
+        elara::threading::memory::Ref<Task> task;
         while((task = getNextTask())) {
             task->run();
         }

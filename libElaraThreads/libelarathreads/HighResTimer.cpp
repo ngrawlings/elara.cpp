@@ -12,16 +12,18 @@ namespace elara {
 
     HighResTimer::HighResTimer(useconds_t interval) {
         this->interval = interval;
+        this->self = elara::threading::memory::Ref<Task>(this);
     }
 
     HighResTimer::~HighResTimer() {
         if (thread)
             thread->waitUntilFinished();
+        this->self.release();
     }
     
     void HighResTimer::start() {
         _run = true;
-        Thread::runTask(this);
+        Thread::runTask(this->self);
     }
     
     void HighResTimer::stop() {

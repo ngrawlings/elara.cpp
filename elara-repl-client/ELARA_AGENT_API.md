@@ -496,7 +496,7 @@ Key API:
   - `static int max_threads`
 - `static void init(int thread_count)`
 - `static Thread *addThread()`
-- `static Thread *runTask(Task *task)`
+- `static Thread *runTask(elara::threading::memory::Ref<Task> task)`
 - `static Thread *getWaitingThread()`
 - `THREAD_STATUS getStatus()`
 - `static void stopAllThreads()`

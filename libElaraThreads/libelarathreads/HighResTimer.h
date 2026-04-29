@@ -34,6 +34,7 @@ namespace elara {
         bool _run;
         useconds_t interval;
         Thread *thread;
+        elara::threading::memory::Ref<Task> self;
     };
     
 };

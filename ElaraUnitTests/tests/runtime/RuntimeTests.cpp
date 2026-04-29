@@ -447,7 +447,7 @@ namespace elara {
         class MemoryStressTask : public Task {
         public:
             MemoryStressTask(std::atomic<int> *remaining, std::atomic<long long> *checksum, int seed, int iterations)
-                : Task(true), remaining(remaining), checksum(checksum), seed(seed), iterations(iterations) {
+                : remaining(remaining), checksum(checksum), seed(seed), iterations(iterations) {
             }
 
         protected:
@@ -1037,7 +1037,7 @@ namespace elara {
             Thread::init(thread_count);
 
             for (int i=0; i<task_count; i++)
-                Thread::runTask(new MemoryStressTask(&remaining, &checksum, i * 7919, iterations));
+                Thread::runTask(elara::threading::memory::Ref<Task>(new MemoryStressTask(&remaining, &checksum, i * 7919, iterations)));
 
             int waited_ms = 0;
             const int timeout_ms = 30000;

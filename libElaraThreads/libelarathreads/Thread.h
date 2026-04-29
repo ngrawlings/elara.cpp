@@ -31,7 +31,7 @@
 #include "Task.h"
 
 #include <libelaracore/exception/Exception.h>
-#include <libelaracore/memory/Ref.h>
+#include <libelarathreads/memory/Ref.h>
 #include <libelaracore/memory/LinkedList.h>
 
 #include "ThreadWaitCondition.h"
@@ -59,7 +59,7 @@ namespace elara {
         static void init(int thread_count);
         
         static Thread *addThread();
-        static Thread *runTask(Task *task);
+        static Thread *runTask(elara::threading::memory::Ref<Task> task);
         static Thread *getWaitingThread();
         THREAD_STATUS getStatus() { return status; }
         static void stopAllThreads();
@@ -76,7 +76,7 @@ namespace elara {
         
         static void getThreadPoolState(int *total, int *active);
         
-        void queueTaskToCurrentThread(Task *task);
+        void queueTaskToCurrentThread(elara::threading::memory::Ref<Task> task);
         
         void wake();
         
@@ -85,7 +85,7 @@ namespace elara {
         
         void finished();
         
-        Task *getNextTask();
+        elara::threading::memory::Ref<Task> getNextTask();
         
         bool _run;
         
@@ -107,7 +107,7 @@ namespace elara {
         ThreadWaitCondition wait_for_thread_trigger;
         Mutex wait_for_thread_finish;
         
-        LinkedList<Task*> task_queue;
+        LinkedList< elara::threading::memory::Ref<Task> > task_queue;
         
         static void *threadEntry( void *inst );
         

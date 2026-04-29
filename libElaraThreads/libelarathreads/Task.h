@@ -27,6 +27,7 @@
 
 #include <pthread.h>
 #include <libelaracore/memory/LinkedList.h>
+#include <libelarathreads/memory/Ref.h>
 #include "Mutex.h"
 
 namespace elara {
@@ -38,13 +39,13 @@ namespace elara {
         friend class Thread;
         
         Task();
-        Task(bool dynamicly_allocated);
         virtual ~Task();
 
-        static bool taskExists(Task *task);
-        static void queueTask(Task *task);
-        static void removeTasks(Task *task);
-        static Task* getNextTask();
+        static bool taskExists(elara::threading::memory::Ref<Task> task);
+        static void queueTask(elara::threading::memory::Ref<Task> task);
+        static void removeTask(Task* task);
+        static void removeTask(elara::threading::memory::Ref<Task> task);
+        static elara::threading::memory::Ref<Task> getNextTask();
         
         
         static int getQueuedTaskCount();
@@ -61,19 +62,17 @@ namespace elara {
         virtual void run() = 0;
         void finished() { task_finished = true; }
         void reset() { task_finished = false; }
-        bool isDynamiclyAllocated();
         
-        static bool _taskExists(Task *task);
+        static bool _taskExists(elara::threading::memory::Ref<Task> task);
         
         unsigned long getThreadId();
 
-        bool dynamicly_allocated;
         bool task_finished;
 
     private:
         static bool shutting_down;
         static Mutex *task_queue_mutex;
-        static LinkedList<Task*> *task_queue;
+        static LinkedList< elara::threading::memory::Ref<Task> > *task_queue;
         
         Thread *acquired_thread; // thread instance pointer that is currently executing this task, or null if not running
     };

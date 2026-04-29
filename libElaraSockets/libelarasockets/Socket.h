@@ -68,6 +68,7 @@ namespace elara {
             
         private:
             Socket *socket;
+            elara::threading::memory::Ref<Task> self;
         };
         
     protected:

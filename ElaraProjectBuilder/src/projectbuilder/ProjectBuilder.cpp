@@ -1177,14 +1177,10 @@ namespace elara {
             }
             if (options.include_threaded_worker) {
                 contents += "        if (command.startsWith(\"work \")) {\n";
-                contents += "            Ref<";
-                contents += options.worker_name;
-                contents += "> task = Ref<";
-                contents += options.worker_name;
-                contents += ">(new ";
+                contents += "            elara::threading::memory::Ref<Task> task = elara::threading::memory::Ref<Task>(new ";
                 contents += options.worker_name;
                 contents += "(command.substr(5)));\n";
-                contents += "            Thread::runTask(task.getPtr());\n";
+                contents += "            Thread::runTask(task);\n";
                 contents += "            printf(\"Queued worker task.\\n\");\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
@@ -1371,7 +1367,7 @@ namespace elara {
         contents += options.worker_name;
         contents += "::";
         contents += options.worker_name;
-        contents += "(elara::String payload) : elara::Task(true) {\n";
+        contents += "(elara::String payload) {\n";
         contents += "    this->payload = payload;\n";
         contents += "}\n\n";
         contents += options.worker_name;
