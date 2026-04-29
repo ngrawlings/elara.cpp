@@ -7,6 +7,7 @@
 #include <libelaracore/memory/LinkedList.h>
 #include <libelaracore/memory/RingBuffer.h>
 #include <libelaracore/memory/String.h>
+#include <libelaracore/parsing/CommandLineParser.h>
 #include <libelaraio/IndexedDataStore.h>
 
 #include <libelarathreads/Task.h>
@@ -581,6 +582,85 @@ namespace elara {
 
             if (!(dec == src))
                 UnitTests::fail("Base64 encode/decode failed");
+
+            return true;
+        }
+
+        bool testCommandLineParser() {
+            CommandLineInvocation invocation;
+            String error;
+            bool ok = CommandLineParser::parse(
+                String("module_name.method_name(param1, \"param 2 is multi worded with                 \xC2\xBA escaping \\\" \");"),
+                invocation,
+                error);
+
+            if (!ok)
+                UnitTests::fail(String("CommandLineParser valid command failed: %").arg(error));
+            if (!(invocation.profile_name == String("rpc-default")))
+                UnitTests::fail("CommandLineParser profile mismatch");
+            if (!(invocation.module_name == String("module_name")))
+                UnitTests::fail("CommandLineParser module mismatch");
+            if (!(invocation.method_name == String("method_name")))
+                UnitTests::fail("CommandLineParser method mismatch");
+            if (!(invocation.getQualifiedMethod() == String("module_name.method_name")))
+                UnitTests::fail("CommandLineParser qualified method mismatch");
+            if (invocation.parameters.length() != 2)
+                UnitTests::fail("CommandLineParser parameter count mismatch");
+            if (!(invocation.parameters[0] == String("param1")))
+                UnitTests::fail("CommandLineParser first parameter mismatch");
+            if (!(invocation.parameters[1] == String("param 2 is multi worded with                 \xC2\xBA escaping \" ")))
+                UnitTests::fail("CommandLineParser quoted parameter mismatch");
+
+            ok = CommandLineParser::parse(
+                String("core.rpc.deep_module.fetch_value(alpha, beta, \"gamma, delta\")"),
+                invocation,
+                error);
+            if (!ok)
+                UnitTests::fail(String("CommandLineParser nested module command failed: %").arg(error));
+            if (!(invocation.module_name == String("core.rpc.deep_module")))
+                UnitTests::fail("CommandLineParser nested module mismatch");
+            if (!(invocation.method_name == String("fetch_value")))
+                UnitTests::fail("CommandLineParser nested method mismatch");
+            if (invocation.parameters.length() != 3)
+                UnitTests::fail("CommandLineParser nested parameter count mismatch");
+            if (!(invocation.parameters[2] == String("gamma, delta")))
+                UnitTests::fail("CommandLineParser quoted comma mismatch");
+
+            ok = CommandLineParser::parse(String("module.only("), invocation, error);
+            if (ok || !error.length())
+                UnitTests::fail("CommandLineParser accepted an incomplete command");
+
+            ok = CommandLineParser::parse(String("module.method(one, )"), invocation, error);
+            if (ok || !error.length())
+                UnitTests::fail("CommandLineParser accepted a trailing comma");
+
+            ok = CommandLineParser::parse(String("module.method(\"unterminated)"), invocation, error);
+            if (ok || !error.length())
+                UnitTests::fail("CommandLineParser accepted an unterminated quoted parameter");
+
+            ok = CommandLineParser::parse(
+                String("module_name method_name param1 \"multi word param with      \\\" escaping\""),
+                invocation,
+                error,
+                String("simple"));
+            if (!ok)
+                UnitTests::fail(String("CommandLineParser simple command failed: %").arg(error));
+            if (!(invocation.profile_name == String("simple")))
+                UnitTests::fail("CommandLineParser simple profile mismatch");
+            if (!(invocation.module_name == String("module_name")))
+                UnitTests::fail("CommandLineParser simple module mismatch");
+            if (!(invocation.method_name == String("method_name")))
+                UnitTests::fail("CommandLineParser simple method mismatch");
+            if (invocation.parameters.length() != 2)
+                UnitTests::fail("CommandLineParser simple parameter count mismatch");
+            if (!(invocation.parameters[0] == String("param1")))
+                UnitTests::fail("CommandLineParser simple first parameter mismatch");
+            if (!(invocation.parameters[1] == String("multi word param with      \" escaping")))
+                UnitTests::fail("CommandLineParser simple quoted parameter mismatch");
+
+            ok = CommandLineParser::parse(String("module_only"), invocation, error, String("simple"));
+            if (ok || !error.length())
+                UnitTests::fail("CommandLineParser accepted a simple command without a method");
 
             return true;
         }
@@ -1629,6 +1709,11 @@ namespace elara {
 
         if (matchesSelector(selector, "base64")) {
             tests.addTest("runtime.base64.roundtrip", testBase64);
+            count++;
+        }
+
+        if (matchesSelector(selector, "commandline")) {
+            tests.addTest("runtime.commandline.rpcdefault", testCommandLineParser);
             count++;
         }
 

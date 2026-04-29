@@ -953,6 +953,8 @@ namespace elara {
             contents += ".h\"\n";
         }
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "#include <libelaracore/parsing/CommandLineParser.h>\n";
+            contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n";
             contents += "#include <unistd.h>\n";
             contents += "#include \"";
             contents += rpc_client_name;
@@ -976,6 +978,9 @@ namespace elara {
             contents += "    printf(\"  rpc connect [address] [port] - connect the JSON RPC client\\n\");\n";
             contents += "    printf(\"  rpc call <method> [params-json] - call a JSON RPC method\\n\");\n";
             contents += "    printf(\"  rpc disconnect - close the JSON RPC client socket\\n\");\n";
+            contents += "    printf(\"  rpc profile - show the current command-line profile\\n\");\n";
+            contents += "    printf(\"  rpc profile <rpc-default|simple> - select the invocation profile\\n\");\n";
+            contents += "    printf(\"  rpc invoke <command-line> - parse and invoke a remote RPC method\\n\");\n";
             contents += "    printf(\"  ping - call echo.ping on the remote RPC server\\n\");\n";
             if (options.include_indexed_data_store) {
                 contents += "    printf(\"  remote-initstore - call store.init on the remote RPC server\\n\");\n";
@@ -1108,6 +1113,7 @@ namespace elara {
             contents += "    int rpc_port = ";
             contents += String(options.socket_port);
             contents += ";\n";
+            contents += "    String rpc_profile(\"rpc-default\");\n";
             contents += "    bool rpc_connected = false;\n";
             contents += "    if (!socket_client->connectTo(String(\"";
             contents += options.socket_address;
@@ -1174,6 +1180,20 @@ namespace elara {
                 contents += "        }\n";
             }
             if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                contents += "        if (command == String(\"rpc profile\")) {\n";
+                contents += "            printf(\"RPC profile: %s\\n\", rpc_profile.operator char *());\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"rpc profile \")) {\n";
+                contents += "            String requested_profile = command.substr(12).trim();\n";
+                contents += "            if (requested_profile == String(\"rpc-default\") || requested_profile == String(\"simple\")) {\n";
+                contents += "                rpc_profile = requested_profile;\n";
+                contents += "                printf(\"RPC profile set to %s\\n\", rpc_profile.operator char *());\n";
+                contents += "            } else {\n";
+                contents += "                printf(\"Unsupported RPC profile: %s\\n\", requested_profile.operator char *());\n";
+                contents += "            }\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
                 contents += "        if (command == String(\"rpc connect\")) {\n";
                 contents += "            socket_client->close();\n";
                 contents += "            rpc_connected = socket_client->connectTo(rpc_address, rpc_port);\n";
@@ -1243,6 +1263,36 @@ namespace elara {
                 contents += "                printf(\"Usage: rpc call <method> [params-json]\\n\");\n";
                 contents += "                continue;\n";
                 contents += "            }\n";
+                contents += "            String result_json;\n";
+                contents += "            String error_code;\n";
+                contents += "            String error_message;\n";
+                contents += "            if (socket_client->call(method, params_json, result_json, error_code, error_message)) {\n";
+                contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                contents += "            } else {\n";
+                contents += "                rpc_connected = false;\n";
+                contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                contents += "            }\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"rpc invoke \")) {\n";
+                contents += "            CommandLineInvocation invocation;\n";
+                contents += "            String invocation_text = command.substr(11).trim();\n";
+                contents += "            String parse_error;\n";
+                contents += "            String params_json(\"[\");\n";
+                contents += "            String method;\n";
+                contents += "            if (!CommandLineParser::parse(invocation_text, invocation, parse_error, rpc_profile)) {\n";
+                contents += "                printf(\"RPC parse error: %s\\n\", parse_error.operator char *());\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            method = invocation.getQualifiedMethod();\n";
+                contents += "            for (unsigned int i=0; i<invocation.parameters.length(); i++) {\n";
+                contents += "                if (i)\n";
+                contents += "                    params_json += String(\",\");\n";
+                contents += "                params_json += String(\"\\\"\");\n";
+                contents += "                params_json += elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(invocation.parameters[i]);\n";
+                contents += "                params_json += String(\"\\\"\");\n";
+                contents += "            }\n";
+                contents += "            params_json += String(\"]\");\n";
                 contents += "            String result_json;\n";
                 contents += "            String error_code;\n";
                 contents += "            String error_message;\n";
