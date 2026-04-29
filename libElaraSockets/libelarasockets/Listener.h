@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __PeerConnector__Listener__
-#define __PeerConnector__Listener__
+#ifndef __Elara__Listener__
+#define __Elara__Listener__
 
 #include <libelarathreads/Thread.h>
 #include <libelarathreads/Task.h>
@@ -90,4 +90,4 @@ namespace elara {
     
 }
 
-#endif /* defined(__PeerConnector__Listener__) */
+#endif /* defined(__Elara__Listener__) */

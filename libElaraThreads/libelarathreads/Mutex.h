@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __PeerConnector__Mutex__
-#define __PeerConnector__Mutex__
+#ifndef __Elara__Mutex__
+#define __Elara__Mutex__
 
 #include <libelaracore/types.h>
 #include <pthread.h>
@@ -74,4 +74,4 @@ namespace elara {
     
 }
 
-#endif /* defined(__PeerConnector__Mutex__) */
+#endif /* defined(__Elara__Mutex__) */

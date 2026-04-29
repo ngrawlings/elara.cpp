@@ -1,5 +1,5 @@
 //
-//  Cipher.h
+//  DynamicIdentifier.h
 //  libElaraCore
 //
 //  Created by Nyhl Rawlings on 06/11/2012.
@@ -19,34 +19,10 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact ngrawlings@gmail.comm
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef Elara_Cipher_h
-#define Elara_Cipher_h
-
-#define ERROR_INVALID_KEY      1
-
-#include <libelaracore/memory/Memory.h>
-
-namespace elara {
-
-    class Cipher {
-    public:
-        virtual ~Cipher() {}
-
-        virtual void setKey(const Memory &key, const Memory &iv) {};
-        
-        virtual Memory encrypt(const char* buf, int len) = 0;
-        virtual Memory decrypt(const char* buf, int len) = 0;
-        
-        virtual int getBlockSize() = 0;
-        
-    protected:
-        Memory pad(const char* bytes, int len, int block_size);
-        int unpaddedLength(const char* bytes, int len);
-    };
-    
-};
+#ifndef Elara_DynamicIdentifier_h
+#define Elara_DynamicIdentifier_h
 
 #endif

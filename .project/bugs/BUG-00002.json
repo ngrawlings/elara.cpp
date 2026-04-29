@@ -1,0 +1,15 @@
+{
+  "format": "pure-path-project-bug",
+  "version": 1,
+  "bug_id": "BUG-00002",
+  "title": "DynamicIdentifier",
+  "description": "The DynamicIdentifier must be implemented within elara.cpp to continue",
+  "severity": "high",
+  "status": "open",
+  "author": "nyhl",
+  "host": "sbc01",
+  "created_utc": "2026-04-29T06:43:49Z",
+  "updated_utc": "2026-04-29T06:43:49Z",
+  "linked_commits": [],
+  "comments": []
+}

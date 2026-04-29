@@ -5,11 +5,11 @@
   "title": "make install does not seem to work correctly, ask codex to have it install to /usr/local(bin/lib/include)",
   "description": "Feature",
   "severity": "high",
-  "status": "open",
+  "status": "closed",
   "author": "nyhl",
   "host": "sbc01",
   "created_utc": "2026-04-28T15:38:23Z",
-  "updated_utc": "2026-04-28T15:38:23Z",
+  "updated_utc": "2026-04-29T06:42:53Z",
   "linked_commits": [],
   "comments": []
 }

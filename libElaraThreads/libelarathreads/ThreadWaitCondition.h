@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef __PeerConnectorCore__ThreadWaitCondition__
-#define __PeerConnectorCore__ThreadWaitCondition__
+#ifndef __ElaraCore__ThreadWaitCondition__
+#define __ElaraCore__ThreadWaitCondition__
 
 #include <libelaracore/types.h>
 #include <pthread.h>
@@ -50,4 +50,4 @@ namespace elara {
     
 }
 
-#endif /* defined(__PeerConnectorCore__ThreadWaitCondition__) */
+#endif /* defined(__ElaraCore__ThreadWaitCondition__) */

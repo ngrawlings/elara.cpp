@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.commm
 //
 
-#ifndef __PeerConnectorCore__Stream__
-#define __PeerConnectorCore__Stream__
+#ifndef __ElaraCore__Stream__
+#define __ElaraCore__Stream__
 
 #include <libelaracore/types.h>
 
@@ -48,4 +48,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnectorCore__Stream__) */
+#endif /* defined(__ElaraCore__Stream__) */

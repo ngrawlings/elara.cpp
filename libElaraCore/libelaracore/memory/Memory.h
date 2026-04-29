@@ -1,6 +1,6 @@
 //
 //  Memory.h
-//  PeerConnector
+//  Elara
 //
 //  Created by Nyhl Rawlings on 05/11/2012.
 //  Copyright (c) 2013. All rights reserved.
@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef __PeerConnector__Memory__
-#define __PeerConnector__Memory__
+#ifndef __Elara__Memory__
+#define __Elara__Memory__
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -152,4 +152,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnector__Memory__) */
+#endif /* defined(__Elara__Memory__) */

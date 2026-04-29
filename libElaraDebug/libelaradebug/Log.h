@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef PeerConnector_Log_h
-#define PeerConnector_Log_h
+#ifndef Elara_Log_h
+#define Elara_Log_h
 
 #include <stdio.h>
 #include <string.h>

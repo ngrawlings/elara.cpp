@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef PeerConnector_LinkedList_h
-#define PeerConnector_LinkedList_h
+#ifndef Elara_LinkedList_h
+#define Elara_LinkedList_h
 
 #define LINKEDLIST_NODE_HANDLE  void*
 

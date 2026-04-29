@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __PeerConnector__Semaphore__
-#define __PeerConnector__Semaphore__
+#ifndef __Elaraore__
+#define __Elara__Semaphore__
 
 #include "Thread.h"
 
@@ -54,4 +54,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnector__Semaphore__) */
+#endif /* defined(__Elara__Semaphore__) */

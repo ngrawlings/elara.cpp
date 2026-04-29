@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef PeerConnectorCore_Array_h
-#define PeerConnectorCore_Array_h
+#ifndef ElaraCore_Array_h
+#define ElaraCore_Array_h
 
 #include <stdio.h>
 #include <stdlib.h>

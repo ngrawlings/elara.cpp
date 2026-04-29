@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.com
 //
 
-#ifndef __PeerConnector__Ref__
-#define __PeerConnector__Ref__
+#ifndef __Elara__Ref__
+#define __Elara__Ref__
 
 #define REF(X) X.get()
 
@@ -183,4 +183,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnector__Ref__) */
+#endif /* defined(__Elara__Ref__) */

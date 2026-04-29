@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __PeerConnectorCore__StreamReader__
-#define __PeerConnectorCore__StreamReader__
+#ifndef __ElaraCore__StreamReader__
+#define __ElaraCore__StreamReader__
 
 #include <libelarathreads/Task.h>
 #include <libelarathreads/Thread.h>
@@ -54,4 +54,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnectorCore__StreamReader__) */
+#endif /* defined(__ElaraCore__StreamReader__) */

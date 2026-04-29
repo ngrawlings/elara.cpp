@@ -19,11 +19,11 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.comm
 //
 
-#ifndef __PeerConnector__Thread__
-#define __PeerConnector__Thread__
+#ifndef __Elara__Thread__
+#define __Elara__Thread__
 
 #include <pthread.h>
 #include <signal.h>
@@ -128,4 +128,4 @@ namespace elara {
     
 }
 
-#endif /* defined(__PeerConnector__Thread__) */
+#endif /* defined(__Elara__Thread__) */

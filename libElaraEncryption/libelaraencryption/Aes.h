@@ -19,7 +19,7 @@
 // License along with this library; if not, write to the Free Software
 // Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
 //
-// For affordable commercial licensing please contact nyhl@ngrawlings.com
+// For affordable commercial licensing please contact ngrawlings@gmail.commmm
 //
 
 //
@@ -28,8 +28,8 @@
 // This class acts as a wrapper to the aes256cdc and conforms it to the Standard Cipher interface
 //
 
-#ifndef __PeerConnector__Aes__
-#define __PeerConnector__Aes__
+#ifndef __Elara__Aes__
+#define __Elara__Aes__
 
 #include "base/Cipher.h"
 #include <libelaracore/memory/Memory.h>
@@ -127,4 +127,4 @@ namespace elara {
     
 };
 
-#endif /* defined(__PeerConnector__Aes__) */
+#endif /* defined(__Elara__Aes__) */
