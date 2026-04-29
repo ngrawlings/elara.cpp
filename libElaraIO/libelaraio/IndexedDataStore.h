@@ -19,6 +19,8 @@
 #define MAGIC_FLAG_FILE     0xBBBBBBBB
 #define MAGIC_FLAG_DATA     0xCCCCCCCC
 #define MAGIC_FLAG_BANK_MAP 0xDDDDDDDD
+#define MAGIC_FLAG_STORE    0xEEEEEEEE
+#define INDEXED_DATA_STORE_VERSION 2
 
 #define BANK_SIZE 16
 
@@ -40,6 +42,16 @@ namespace elara {
 
         typedef struct {
             unsigned long magic_flag;
+            unsigned int version;
+            unsigned int bank_map_redundancy_count;
+            unsigned long long root_descriptor_offset;
+            unsigned long long system_descriptor_offset;
+            unsigned long long user_descriptor_offset;
+            unsigned long long recycled_blocks_file_offset;
+        } STORE_HEADER;
+
+        typedef struct {
+            unsigned long magic_flag;
             unsigned char range_start;      // Start of first 16 entries
             unsigned long long next_index_descriptor; // if the most significant bit is a 1, this is a bank map, not a chained list
             unsigned long long file;        // File which holds data block for recycling
@@ -50,6 +62,11 @@ namespace elara {
             unsigned long magic_flag;
             unsigned long long banks[256/BANK_SIZE];
         } BANK_MAP;
+
+        typedef struct {
+            BANK_MAP descriptor;
+            unsigned int crc32;
+        } BANK_MAP_RECORD;
         
         typedef struct {
             unsigned long long offset;
@@ -94,6 +111,7 @@ namespace elara {
         
     public:
         IndexedDataStore(String path);
+        IndexedDataStore(String path, unsigned int bank_map_redundancy_count);
         virtual ~IndexedDataStore();
         
         Ref<LOADED_FILE_DESCRIPTOR> createFile(Memory key, unsigned int block_size);
@@ -124,18 +142,21 @@ namespace elara {
         bool convertDescriptorListToBankMap(Memory key); // Needs to be debuged, works but not time proven
 
         RefArray<int> getChildIndexes(Memory key);
+        unsigned int getBankMapRedundancyCount() const;
 
         static void setCrashTestPoint(CRASH_TEST_POINT point, int trigger_count=1);
         static void clearCrashTestPoint();
 
     private:
         File file;
+        STORE_HEADER store_header;
         
         Ref<LOADED_INDEX_DESCRIPTOR> getChildDescriptor(Ref<LOADED_INDEX_DESCRIPTOR> descriptor, unsigned char index, bool create_index);
         Ref<LOADED_INDEX_DESCRIPTOR> loadIndexDescriptor(unsigned long long offset);
         void updateIndexDescriptor(Ref<LOADED_INDEX_DESCRIPTOR> descriptor);
 
         Ref<LOADED_BANK_MAP> loadBankMap(unsigned long long offset);
+        void updateBankMap(Ref<LOADED_BANK_MAP> descriptor);
         
         Ref<LOADED_FILE_DESCRIPTOR> loadFileDescriptor(unsigned long long offset);
         void updateFileDescriptor(Ref<LOADED_FILE_DESCRIPTOR> descriptor);
@@ -150,6 +171,10 @@ namespace elara {
         Ref<LOADED_INDEX_DESCRIPTOR> getRootDecriptor();
         Ref<LOADED_INDEX_DESCRIPTOR> getSystemDecriptor();
         Ref<LOADED_INDEX_DESCRIPTOR> getUserDecriptor();
+
+        void initializeStore(unsigned int bank_map_redundancy_count);
+        unsigned long long getBankMapStorageLength() const;
+        static unsigned int computeBankMapCRC(const BANK_MAP &descriptor);
 
         static void crashTestHook(CRASH_TEST_POINT point);
 

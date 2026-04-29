@@ -92,6 +92,24 @@ namespace elara {
             return Memory((char*)value, value.length());
         }
 
+        unsigned int computeBankMapCRC(const IndexedDataStore::BANK_MAP &descriptor) {
+            unsigned int crc = 0xFFFFFFFFU;
+            const unsigned char *data = (const unsigned char*)&descriptor;
+
+            for (size_t i=0; i<sizeof(IndexedDataStore::BANK_MAP); i++) {
+                crc ^= data[i];
+
+                for (int bit=0; bit<8; bit++) {
+                    if (crc & 1)
+                        crc = (crc >> 1) ^ 0xEDB88320U;
+                    else
+                        crc >>= 1;
+                }
+            }
+
+            return ~crc;
+        }
+
         bool memoryEquals(const Memory &left, const Memory &right) {
             if (left.length() != right.length())
                 return false;
@@ -131,8 +149,16 @@ namespace elara {
             File file((char*)path);
             unsigned long long file_length = (unsigned long long)file.length();
 
-            if (file_length < (sizeof(IndexedDataStore::INDEX_DESCRIPTOR) * 3ULL) + sizeof(IndexedDataStore::FILE_DESCRIPTOR))
+            if (file_length < sizeof(IndexedDataStore::STORE_HEADER) + (sizeof(IndexedDataStore::INDEX_DESCRIPTOR) * 3ULL) + sizeof(IndexedDataStore::FILE_DESCRIPTOR))
                 UnitTests::fail("IndexedDataStore integrity file too small");
+
+            IndexedDataStore::STORE_HEADER header = readIndexedStoreStruct<IndexedDataStore::STORE_HEADER>(file, 0, "IndexedDataStore integrity failed to read store header");
+            if (header.magic_flag != MAGIC_FLAG_STORE)
+                UnitTests::fail("IndexedDataStore integrity invalid store header magic");
+            if (header.version != INDEXED_DATA_STORE_VERSION)
+                UnitTests::fail("IndexedDataStore integrity invalid store version");
+
+            const unsigned long long bank_map_storage_length = (unsigned long long)(header.bank_map_redundancy_count + 1) * sizeof(IndexedDataStore::BANK_MAP_RECORD);
 
             std::set<unsigned long long> reachable_indexes;
             std::set<unsigned long long> reachable_files;
@@ -178,14 +204,31 @@ namespace elara {
                 return true;
             };
 
+            auto loadValidBankMap = [&](unsigned long long offset, const char *error_context) {
+                ensureOffsetInFile(offset, bank_map_storage_length, "IndexedDataStore integrity bank map storage out of range");
+
+                for (unsigned int copy=0; copy<=header.bank_map_redundancy_count; copy++) {
+                    unsigned long long copy_offset = offset + ((unsigned long long)copy * sizeof(IndexedDataStore::BANK_MAP_RECORD));
+                    IndexedDataStore::BANK_MAP_RECORD record = readIndexedStoreStruct<IndexedDataStore::BANK_MAP_RECORD>(file, copy_offset, error_context);
+
+                    if (record.descriptor.magic_flag != MAGIC_FLAG_BANK_MAP)
+                        continue;
+
+                    if (computeBankMapCRC(record.descriptor) != record.crc32)
+                        continue;
+
+                    return record.descriptor;
+                }
+
+                UnitTests::fail(error_context);
+                return IndexedDataStore::BANK_MAP();
+            };
+
             visitBankMap = [&](unsigned long long offset) {
-                ensureOffsetInFile(offset, sizeof(IndexedDataStore::BANK_MAP), "IndexedDataStore integrity bank map offset out of range");
                 if (reachable_banks.count(offset))
                     return;
 
-                IndexedDataStore::BANK_MAP bmap = readIndexedStoreStruct<IndexedDataStore::BANK_MAP>(file, offset, "IndexedDataStore integrity failed to read bank map");
-                if (bmap.magic_flag != MAGIC_FLAG_BANK_MAP)
-                    UnitTests::fail("IndexedDataStore integrity invalid bank map magic");
+                IndexedDataStore::BANK_MAP bmap = loadValidBankMap(offset, "IndexedDataStore integrity failed to load a valid bank map replica");
 
                 reachable_banks.insert(offset);
 
@@ -286,7 +329,7 @@ namespace elara {
                     if (slot & bank_map_flag) {
                         visitIndex(slot & ~bank_map_flag);
                     } else {
-                        if (offset == 0 && (i == 0 || i == 1))
+                        if (offset == header.root_descriptor_offset && (i == 0 || i == 1))
                             visitIndex(slot);
                         else
                             UnitTests::fail("IndexedDataStore integrity unflagged child slot encountered");
@@ -306,14 +349,14 @@ namespace elara {
                 scanning_indexes.erase(offset);
             };
 
-            visitIndex(0);
+            visitIndex(header.root_descriptor_offset);
 
-            IndexedDataStore::INDEX_DESCRIPTOR root = readIndexedStoreStruct<IndexedDataStore::INDEX_DESCRIPTOR>(file, 0, "IndexedDataStore integrity failed to reread root descriptor");
-            if (root.slot[0] != sizeof(IndexedDataStore::INDEX_DESCRIPTOR))
+            IndexedDataStore::INDEX_DESCRIPTOR root = readIndexedStoreStruct<IndexedDataStore::INDEX_DESCRIPTOR>(file, header.root_descriptor_offset, "IndexedDataStore integrity failed to reread root descriptor");
+            if (root.slot[0] != header.system_descriptor_offset)
                 UnitTests::fail("IndexedDataStore integrity invalid system descriptor offset");
-            if (root.slot[1] != sizeof(IndexedDataStore::INDEX_DESCRIPTOR) * 2ULL)
+            if (root.slot[1] != header.user_descriptor_offset)
                 UnitTests::fail("IndexedDataStore integrity invalid user descriptor offset");
-            if (root.file != sizeof(IndexedDataStore::INDEX_DESCRIPTOR) * 3ULL)
+            if (root.file != header.recycled_blocks_file_offset)
                 UnitTests::fail("IndexedDataStore integrity invalid recycled file descriptor offset");
 
             std::set<unsigned long long> scanned_indexes;
@@ -321,8 +364,16 @@ namespace elara {
             std::set<unsigned long long> scanned_banks;
             std::set<unsigned long long> scanned_data;
 
-            unsigned long long offset = 0;
+            unsigned long long offset = sizeof(IndexedDataStore::STORE_HEADER);
             while (offset < file_length) {
+                if (reachable_banks.count(offset)) {
+                    ensureOffsetInFile(offset, bank_map_storage_length, "IndexedDataStore integrity scanned bank map overflow");
+                    loadValidBankMap(offset, "IndexedDataStore integrity bank map replicas all invalid");
+                    scanned_banks.insert(offset);
+                    offset += bank_map_storage_length;
+                    continue;
+                }
+
                 ensureOffsetInFile(offset, sizeof(unsigned long), "IndexedDataStore integrity scan overran file");
                 unsigned long magic = readIndexedStoreStruct<unsigned long>(file, offset, "IndexedDataStore integrity failed to read scanned magic");
 
@@ -335,9 +386,10 @@ namespace elara {
                     scanned_files.insert(offset);
                     offset += sizeof(IndexedDataStore::FILE_DESCRIPTOR);
                 } else if (magic == MAGIC_FLAG_BANK_MAP) {
-                    ensureOffsetInFile(offset, sizeof(IndexedDataStore::BANK_MAP), "IndexedDataStore integrity scanned bank map overflow");
+                    ensureOffsetInFile(offset, bank_map_storage_length, "IndexedDataStore integrity scanned bank map overflow");
+                    loadValidBankMap(offset, "IndexedDataStore integrity bank map replicas all invalid");
                     scanned_banks.insert(offset);
-                    offset += sizeof(IndexedDataStore::BANK_MAP);
+                    offset += bank_map_storage_length;
                 } else if (magic == MAGIC_FLAG_DATA) {
                     IndexedDataStore::DATA_BLOCK_DESCRIPTOR block = readIndexedStoreStruct<IndexedDataStore::DATA_BLOCK_DESCRIPTOR>(file, offset, "IndexedDataStore integrity failed to read scanned data block");
                     unsigned long long record_length = sizeof(IndexedDataStore::DATA_BLOCK_DESCRIPTOR) + block.block_size;
@@ -538,7 +590,7 @@ namespace elara {
             unlink((char*)path);
 
             {
-                IndexedDataStore store(path);
+                IndexedDataStore store(path, 2);
 
                 String primary_key("validator/root");
                 ByteArray initial = buildIndexedDataStoreValue(101, 24);
@@ -655,6 +707,15 @@ namespace elara {
                         UnitTests::fail("IndexedDataStore validator bank-map read mismatch");
                 }
 
+                String late_bank_key = prefix + String((char)240) + String("/late");
+                ByteArray late_bank_value = buildIndexedDataStoreValue(777, 10);
+                store.set(memoryFromString(late_bank_key), late_bank_value);
+                expected_children[240] = true;
+
+                Memory late_bank_read = store.read(memoryFromString(late_bank_key), (unsigned int)late_bank_value.length());
+                if (!memoryEquals(late_bank_read, late_bank_value))
+                    UnitTests::fail("IndexedDataStore validator late bank-map insert mismatch");
+
                 RefArray<int> children = store.getChildIndexes(memoryFromString(prefix));
                 bool seen_children[256];
                 for (int i=0; i<256; i++)
@@ -671,7 +732,7 @@ namespace elara {
                     child_count++;
                 }
 
-                if (child_count != 16)
+                if (child_count != 17)
                     UnitTests::fail("IndexedDataStore validator child index count mismatch");
 
                 for (int i=0; i<256; i++) {
@@ -720,6 +781,11 @@ namespace elara {
                     UnitTests::fail("IndexedDataStore validator reopen unsigned long long mismatch");
 
                 String prefix("validator/bank/");
+                ByteArray late_bank_value = buildIndexedDataStoreValue(777, 10);
+                Memory late_bank_read = reopened.read(memoryFromString(prefix + String((char)240) + String("/late")), (unsigned int)late_bank_value.length());
+                if (!memoryEquals(late_bank_read, late_bank_value))
+                    UnitTests::fail("IndexedDataStore validator reopen late bank-map insert mismatch");
+
                 RefArray<int> children = reopened.getChildIndexes(memoryFromString(prefix));
                 bool seen_children[256];
                 for (int i=0; i<256; i++)
@@ -734,7 +800,7 @@ namespace elara {
                     child_count++;
                 }
 
-                if (child_count != 16)
+                if (child_count != 17)
                     UnitTests::fail("IndexedDataStore validator reopened child index count mismatch");
 
                 for (int i=0; i<16; i++) {
@@ -742,6 +808,8 @@ namespace elara {
                     if (!seen_children[suffix])
                         UnitTests::fail("IndexedDataStore validator reopened child index missing");
                 }
+                if (!seen_children[240])
+                    UnitTests::fail("IndexedDataStore validator reopened late child index missing");
             }
 
             if (!validateIndexedDataStoreFile(path))
@@ -756,7 +824,7 @@ namespace elara {
             unlink((char*)path);
 
             {
-                IndexedDataStore store(path);
+                IndexedDataStore store(path, 2);
 
                 for (int i=0; i<12; i++) {
                     String key = String("integrity/key/%").arg(i);
@@ -795,7 +863,7 @@ namespace elara {
             unlink((char*)path);
 
             {
-                IndexedDataStore store(path);
+                IndexedDataStore store(path, 2);
                 Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store.getOrCreateFile(memoryFromString(String("crash/blob")), 16);
                 ByteArray base = buildIndexedDataStoreValue(2100, 64);
                 if (!store.writeToFile(file, base, 0, (unsigned long long)base.length()))
@@ -871,7 +939,7 @@ namespace elara {
                 unlink((char*)alloc_path);
 
                 {
-                    IndexedDataStore seeded(alloc_path);
+                    IndexedDataStore seeded(alloc_path, 2);
                     ByteArray stable = buildIndexedDataStoreValue(3200, 18);
                     seeded.set(memoryFromString(String("crash/stable")), stable);
 
@@ -1479,7 +1547,7 @@ namespace elara {
                 for (int i=0; i<slot_count; i++)
                     active[i] = false;
 
-                IndexedDataStore *store = new IndexedDataStore(path);
+                IndexedDataStore *store = new IndexedDataStore(path, 2);
 
                 for (int step=0; step<32; step++) {
                     int slot = step % slot_count;

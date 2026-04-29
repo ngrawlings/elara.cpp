@@ -17,6 +17,23 @@ namespace elara {
     namespace {
         IndexedDataStore::CRASH_TEST_POINT indexed_data_store_crash_point = IndexedDataStore::CRASH_NONE;
         int indexed_data_store_crash_trigger_count = 0;
+
+        unsigned int crc32Update(unsigned int crc, const unsigned char *data, size_t length) {
+            crc = ~crc;
+
+            for (size_t i=0; i<length; i++) {
+                crc ^= data[i];
+
+                for (int bit=0; bit<8; bit++) {
+                    if (crc & 1)
+                        crc = (crc >> 1) ^ 0xEDB88320U;
+                    else
+                        crc >>= 1;
+                }
+            }
+
+            return ~crc;
+        }
     }
 
     void IndexedDataStore::setCrashTestPoint(CRASH_TEST_POINT point, int trigger_count) {
@@ -37,36 +54,79 @@ namespace elara {
             _exit(86);
     }
 
-    IndexedDataStore::IndexedDataStore(String path) : file(path) {
-        if (file.length()==0) {
-            INDEX_DESCRIPTOR root_descriptor;
-            INDEX_DESCRIPTOR system_descriptor;
-            INDEX_DESCRIPTOR user_descriptor;
-            FILE_DESCRIPTOR recycled_blocks_file;
-            
-            memset(&root_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
-            memset(&system_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
-            memset(&user_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
-            memset(&recycled_blocks_file, 0, sizeof(FILE_DESCRIPTOR));
-            
-            root_descriptor.magic_flag = MAGIC_FLAG_INDEX;
-            system_descriptor.magic_flag = MAGIC_FLAG_INDEX;
-            user_descriptor.magic_flag = MAGIC_FLAG_INDEX;
-            recycled_blocks_file.magic_flag = MAGIC_FLAG_FILE;
-            
-            root_descriptor.slot[0] = sizeof(INDEX_DESCRIPTOR);   // Offset of system descriptor
-            root_descriptor.slot[1] = sizeof(INDEX_DESCRIPTOR)*2; // Offset of user descriptor
-            root_descriptor.file = sizeof(INDEX_DESCRIPTOR)*3;
-            
-            file.write(0, (const char*)&root_descriptor, sizeof(INDEX_DESCRIPTOR));
-            file.write(sizeof(INDEX_DESCRIPTOR), (const char*)&system_descriptor, sizeof(INDEX_DESCRIPTOR));
-            file.write(sizeof(INDEX_DESCRIPTOR)*2, (const char*)&user_descriptor, sizeof(INDEX_DESCRIPTOR));
-            file.write(sizeof(INDEX_DESCRIPTOR)*3, (const char*)&recycled_blocks_file, sizeof(FILE_DESCRIPTOR));
-        }
+    IndexedDataStore::IndexedDataStore(String path) : file(path, false) {
+        if (file.length() < sizeof(STORE_HEADER))
+            throw "IndexedDataStore is not initialized";
+
+        Memory mem = file.read(0, sizeof(STORE_HEADER));
+        if (mem.length() != sizeof(STORE_HEADER))
+            throw "Failed to read store header";
+
+        memcpy(&store_header, (char*)mem, sizeof(STORE_HEADER));
+
+        if (store_header.magic_flag != MAGIC_FLAG_STORE)
+            throw "Invalid store header";
+
+        if (store_header.version != INDEXED_DATA_STORE_VERSION)
+            throw "Unsupported store version";
+    }
+
+    IndexedDataStore::IndexedDataStore(String path, unsigned int bank_map_redundancy_count) : file(path) {
+        initializeStore(bank_map_redundancy_count);
     }
 
     IndexedDataStore::~IndexedDataStore() {
         
+    }
+
+    void IndexedDataStore::initializeStore(unsigned int bank_map_redundancy_count) {
+        INDEX_DESCRIPTOR root_descriptor;
+        INDEX_DESCRIPTOR system_descriptor;
+        INDEX_DESCRIPTOR user_descriptor;
+        FILE_DESCRIPTOR recycled_blocks_file;
+
+        memset(&store_header, 0, sizeof(STORE_HEADER));
+        memset(&root_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
+        memset(&system_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
+        memset(&user_descriptor, 0, sizeof(INDEX_DESCRIPTOR));
+        memset(&recycled_blocks_file, 0, sizeof(FILE_DESCRIPTOR));
+
+        store_header.magic_flag = MAGIC_FLAG_STORE;
+        store_header.version = INDEXED_DATA_STORE_VERSION;
+        store_header.bank_map_redundancy_count = bank_map_redundancy_count;
+        store_header.root_descriptor_offset = sizeof(STORE_HEADER);
+        store_header.system_descriptor_offset = store_header.root_descriptor_offset + sizeof(INDEX_DESCRIPTOR);
+        store_header.user_descriptor_offset = store_header.system_descriptor_offset + sizeof(INDEX_DESCRIPTOR);
+        store_header.recycled_blocks_file_offset = store_header.user_descriptor_offset + sizeof(INDEX_DESCRIPTOR);
+
+        root_descriptor.magic_flag = MAGIC_FLAG_INDEX;
+        system_descriptor.magic_flag = MAGIC_FLAG_INDEX;
+        user_descriptor.magic_flag = MAGIC_FLAG_INDEX;
+        recycled_blocks_file.magic_flag = MAGIC_FLAG_FILE;
+
+        root_descriptor.slot[0] = store_header.system_descriptor_offset;
+        root_descriptor.slot[1] = store_header.user_descriptor_offset;
+        root_descriptor.file = store_header.recycled_blocks_file_offset;
+
+        file.truncate();
+        file.write(0, (const char*)&store_header, sizeof(STORE_HEADER));
+        file.write(store_header.root_descriptor_offset, (const char*)&root_descriptor, sizeof(INDEX_DESCRIPTOR));
+        file.write(store_header.system_descriptor_offset, (const char*)&system_descriptor, sizeof(INDEX_DESCRIPTOR));
+        file.write(store_header.user_descriptor_offset, (const char*)&user_descriptor, sizeof(INDEX_DESCRIPTOR));
+        file.write(store_header.recycled_blocks_file_offset, (const char*)&recycled_blocks_file, sizeof(FILE_DESCRIPTOR));
+        file.flush();
+    }
+
+    unsigned int IndexedDataStore::getBankMapRedundancyCount() const {
+        return store_header.bank_map_redundancy_count;
+    }
+
+    unsigned long long IndexedDataStore::getBankMapStorageLength() const {
+        return (unsigned long long)(store_header.bank_map_redundancy_count + 1) * sizeof(BANK_MAP_RECORD);
+    }
+
+    unsigned int IndexedDataStore::computeBankMapCRC(const BANK_MAP &descriptor) {
+        return crc32Update(0, (const unsigned char*)&descriptor, sizeof(BANK_MAP));
     }
 
     Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> IndexedDataStore::createFile(Memory key, unsigned int block_size) {
@@ -369,8 +429,21 @@ namespace elara {
 
                 if (bmap.getPtr()->descriptor.banks[slot]) {
                     descriptor = loadIndexDescriptor(bmap.getPtr()->descriptor.banks[slot]);
-                } else 
+                } else if (create_index) {
+                    INDEX_DESCRIPTOR ndesc;
+                    memset(&ndesc, 0, sizeof(INDEX_DESCRIPTOR));
+                    ndesc.magic_flag = MAGIC_FLAG_INDEX;
+                    ndesc.range_start = (unsigned char)(slot * BANK_SIZE);
+
+                    unsigned long long offset = file.length();
+                    file.write(offset, (const char*)&ndesc, sizeof(INDEX_DESCRIPTOR));
+
+                    bmap.getPtr()->descriptor.banks[slot] = offset;
+                    updateBankMap(bmap);
+                    descriptor = loadIndexDescriptor(offset);
+                } else {
                     return Ref<LOADED_INDEX_DESCRIPTOR>();
+                }
             }
             
             if (descriptor.getPtr()->descriptor.range_start <= index && descriptor.getPtr()->descriptor.range_start+BANK_SIZE > index) {
@@ -441,16 +514,51 @@ namespace elara {
     }
 
     Ref<IndexedDataStore::LOADED_BANK_MAP> IndexedDataStore::loadBankMap(unsigned long long offset) {
-        Memory mem = file.read(offset, sizeof(BANK_MAP));
+        unsigned long long record_offset = offset;
+        unsigned int copies = store_header.bank_map_redundancy_count + 1;
 
-        LOADED_BANK_MAP *bmap = new LOADED_BANK_MAP;
-        memcpy(&bmap->descriptor, mem.operator char *(), sizeof(BANK_MAP));
-        bmap->offset = offset;
+        for (unsigned int i=0; i<copies; i++) {
+            Memory mem = file.read(record_offset, sizeof(BANK_MAP_RECORD));
+            if (mem.length() != sizeof(BANK_MAP_RECORD)) {
+                record_offset += sizeof(BANK_MAP_RECORD);
+                continue;
+            }
 
-        if (bmap->descriptor.magic_flag != MAGIC_FLAG_BANK_MAP)
-            throw "Invalid bank map";
+            BANK_MAP_RECORD record;
+            memcpy(&record, (char*)mem, sizeof(BANK_MAP_RECORD));
 
-        return Ref<LOADED_BANK_MAP>(bmap);
+            if (record.descriptor.magic_flag != MAGIC_FLAG_BANK_MAP) {
+                record_offset += sizeof(BANK_MAP_RECORD);
+                continue;
+            }
+
+            if (computeBankMapCRC(record.descriptor) != record.crc32) {
+                record_offset += sizeof(BANK_MAP_RECORD);
+                continue;
+            }
+
+            LOADED_BANK_MAP *bmap = new LOADED_BANK_MAP;
+            bmap->descriptor = record.descriptor;
+            bmap->offset = offset;
+            return Ref<LOADED_BANK_MAP>(bmap);
+        }
+
+        throw "Invalid bank map";
+    }
+
+    void IndexedDataStore::updateBankMap(Ref<LOADED_BANK_MAP> descriptor) {
+        BANK_MAP_RECORD record;
+        memset(&record, 0, sizeof(BANK_MAP_RECORD));
+        record.descriptor = descriptor.getPtr()->descriptor;
+        record.crc32 = computeBankMapCRC(record.descriptor);
+
+        unsigned int copies = store_header.bank_map_redundancy_count + 1;
+        for (unsigned int i=0; i<copies; i++) {
+            unsigned long long offset = descriptor.getPtr()->offset + ((unsigned long long)i * sizeof(BANK_MAP_RECORD));
+            file.write(offset, (const char*)&record, sizeof(BANK_MAP_RECORD));
+            file.flush();
+            crashTestHook(CRASH_AFTER_BANK_MAP_WRITE);
+        }
     }
 
     bool IndexedDataStore::convertDescriptorListToBankMap(Memory key) {
@@ -464,10 +572,9 @@ namespace elara {
         }
 
         if (desc.getPtr()->descriptor.range_start == 0) { // We will only convert a descriptor list to a bank map if we have a lowest possible descriptor
-            Memory mem(sizeof(BANK_MAP));
-            BANK_MAP *bmap = (BANK_MAP*)mem.operator char *();
-            memset(bmap, 0, sizeof(BANK_MAP));
-            bmap->magic_flag = MAGIC_FLAG_BANK_MAP;
+            BANK_MAP bmap;
+            memset(&bmap, 0, sizeof(BANK_MAP));
+            bmap.magic_flag = MAGIC_FLAG_BANK_MAP;
 
             Ref<LOADED_INDEX_DESCRIPTOR> next;
             unsigned long long next_offset = desc.getPtr()->descriptor.next_index_descriptor;
@@ -475,22 +582,26 @@ namespace elara {
             unsigned long long file_offset = file.length();
 
             if ((next_offset & bank_map_flag) == 0) {
+                file.grow(getBankMapStorageLength());
+
                 desc.getPtr()->descriptor.next_index_descriptor = file_offset | bank_map_flag;
                 updateIndexDescriptor(desc);
 
-                bmap->banks[0] = desc.getPtr()->offset;
+                bmap.banks[0] = desc.getPtr()->offset;
                 while (next_offset) {
                     next = loadIndexDescriptor(next_offset);
                     int bank_slot = next.getPtr()->descriptor.range_start/BANK_SIZE;
-                    bmap->banks[bank_slot] = next.getPtr()->offset;
+                    bmap.banks[bank_slot] = next.getPtr()->offset;
 
                     next_offset = next.getPtr()->descriptor.next_index_descriptor;
                     next.getPtr()->descriptor.next_index_descriptor = file_offset | bank_map_flag;
                     updateIndexDescriptor(next);
                 }
 
-                this->file.write(file_offset, mem.operator char *(), sizeof(BANK_MAP));
-                crashTestHook(CRASH_AFTER_BANK_MAP_WRITE);
+                LOADED_BANK_MAP *loaded = new LOADED_BANK_MAP;
+                loaded->offset = file_offset;
+                loaded->descriptor = bmap;
+                updateBankMap(Ref<LOADED_BANK_MAP>(loaded));
 
                 return true;
             }
@@ -575,17 +686,15 @@ namespace elara {
     }
 
     Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> IndexedDataStore::getRootDecriptor() {
-        return loadIndexDescriptor(0);
+        return loadIndexDescriptor(store_header.root_descriptor_offset);
     }
 
     Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> IndexedDataStore::getSystemDecriptor() {
-        Ref<LOADED_INDEX_DESCRIPTOR> root = getRootDecriptor();
-        return loadIndexDescriptor(root.getPtr()->descriptor.slot[0]);
+        return loadIndexDescriptor(store_header.system_descriptor_offset);
     }
 
     Ref<IndexedDataStore::LOADED_INDEX_DESCRIPTOR> IndexedDataStore::getUserDecriptor() {
-        Ref<LOADED_INDEX_DESCRIPTOR> root = getRootDecriptor();
-        return loadIndexDescriptor(root.getPtr()->descriptor.slot[1]);
+        return loadIndexDescriptor(store_header.user_descriptor_offset);
     }
 
     RefArray<int> IndexedDataStore::getChildIndexes(Memory key) {

@@ -80,6 +80,18 @@ static bool parsePortValue(const char *value, int *result) {
     return true;
 }
 
+static bool parseNonNegativeIntValue(const char *value, int *result) {
+    char *end = NULL;
+    long parsed = strtol(value, &end, 10);
+
+    if (!end || *end || parsed < 0 || parsed > 1024) {
+        return false;
+    }
+
+    *result = (int)parsed;
+    return true;
+}
+
 static void printUsage(const char *program_name) {
     printf("Usage: %s [options] [output-directory]\n", program_name);
     printf("\n");
@@ -97,6 +109,9 @@ static void printUsage(const char *program_name) {
     printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
     printf("  --worker <yes|no>           Enable or disable the threaded worker template\n");
     printf("  --worker-name <value>       Worker class name\n");
+    printf("  --indexed-data-store <yes|no>\n");
+    printf("  --store-path <value>        IndexedDataStore file path inside the generated project\n");
+    printf("  --store-bank-map-redundancy <value>\n");
     printf("  --socket-mode <none|server|client>\n");
     printf("  --address <value>           Bind address for server or remote address for client\n");
     printf("  --port <value>              Socket port\n");
@@ -119,6 +134,7 @@ int main(int argc, const char *argv[]) {
     bool saw_output = false;
     bool saw_worker_name = false;
     bool saw_worker_flag = false;
+    bool saw_store_flag = false;
 
     builder.setExecutablePath(resolveExecutablePath(argv[0]));
     options = builder.defaultOptions();
@@ -227,6 +243,44 @@ int main(int argc, const char *argv[]) {
             continue;
         }
 
+        if (matchesOption(arg, "--indexed-data-store")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--indexed-data-store");
+            if (!value || !parseBoolValue(value, &options.include_indexed_data_store)) {
+                fprintf(stderr, "Invalid value for --indexed-data-store: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_store_flag = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--store-path")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--store-path");
+            if (!value) {
+                return 1;
+            }
+            options.indexed_data_store_path = String(value);
+            options.include_indexed_data_store = true;
+            saw_store_flag = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--store-bank-map-redundancy")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--store-bank-map-redundancy");
+            if (!value || !parseNonNegativeIntValue(value, &options.indexed_data_store_bank_map_redundancy)) {
+                fprintf(stderr, "Invalid value for --store-bank-map-redundancy: %s\n", value ? value : "");
+                return 1;
+            }
+            options.include_indexed_data_store = true;
+            saw_store_flag = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
         if (matchesOption(arg, "--socket-mode")) {
             const char *value = optionValue(argc, argv, &i, arg, "--socket-mode");
             if (!value || !parseSocketModeValue(value, &options.socket_mode)) {
@@ -297,6 +351,10 @@ int main(int argc, const char *argv[]) {
     if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {
         fprintf(stderr, "--address and --port require --socket-mode server or --socket-mode client\n");
         return 1;
+    }
+
+    if (!saw_store_flag && options.include_indexed_data_store && !options.indexed_data_store_path.length()) {
+        options.indexed_data_store_path = "data/store.dat";
     }
 
     return builder.generate(options) ? 0 : 1;

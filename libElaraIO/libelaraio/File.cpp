@@ -8,17 +8,24 @@
 
 #include "File.h"
 
+#include <unistd.h>
+
 namespace elara {
 
-    File::File(const char *path) : Memory(FILE_BUFFER_SIZE), fill(0), offset(0), update_file(false)  {
+    File::File(const char *path) : File(path, true) {
+    }
+
+    File::File(const char *path, bool create_if_missing) : Memory(FILE_BUFFER_SIZE), fill(0), offset(0), update_file(false)  {
         this->path = path;
         
         fp = fopen(path, "r+");
-        if (!fp) {
+        if (!fp && create_if_missing) {
             fp = fopen(path, "w+");
             if (!fp)
                 throw "Failed to open";
         }
+        if (!fp)
+            throw "Failed to open";
         
         updateFileSize();
         
@@ -148,6 +155,11 @@ namespace elara {
         return ::fileno(fp);
     }
 
+    void File::flush() {
+        fflush(fp);
+        fsync(::fileno(fp));
+    }
+
     void File::updateFileSize() {
         fseek(fp, 0L, SEEK_END);
         sz = ftell(fp);
@@ -159,7 +171,7 @@ namespace elara {
         size_t written = 0;
         while(written < fill)
             fwrite(&buffer.getPtr()[written], 1, fill, fp);
-        fflush(fp);
+        flush();
     }
     
     void File::writeToFile(size_t offset, const char* data, size_t length) {

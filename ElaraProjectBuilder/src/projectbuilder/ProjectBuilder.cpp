@@ -22,6 +22,7 @@ namespace elara {
         options.output_directory = default_output_directory.length() ? default_output_directory : options.project_name;
         options.worker_name = projectClassPrefix(options.project_name) + "WorkerTask";
         options.socket_address = "0.0.0.0";
+        options.indexed_data_store_path = "data/store.dat";
 
         return options;
     }
@@ -90,9 +91,14 @@ namespace elara {
         }
         options.include_thread_pool = promptYesNo("Include thread pool", false);
         options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
+        options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
 
         if (options.include_threaded_worker) {
             options.worker_name = promptString("Worker class name", projectClassPrefix(options.project_name) + "WorkerTask");
+        }
+        if (options.include_indexed_data_store) {
+            options.indexed_data_store_path = promptString("IndexedDataStore path", "data/store.dat");
+            options.indexed_data_store_bank_map_redundancy = atoi(promptString("IndexedDataStore bank map redundancy", "2").operator char *());
         }
 
         if (options.socket_mode != ProjectOptions::SOCKET_DISABLED && !options.include_thread_pool) {
@@ -151,6 +157,14 @@ namespace elara {
 
         if (!options.socket_address.length()) {
             options.socket_address = options.socket_mode == ProjectOptions::SOCKET_CLIENT ? String("127.0.0.1") : String("0.0.0.0");
+        }
+
+        if (!options.indexed_data_store_path.length()) {
+            options.indexed_data_store_path = "data/store.dat";
+        }
+
+        if (options.indexed_data_store_bank_map_redundancy < 0) {
+            options.indexed_data_store_bank_map_redundancy = 0;
         }
 
         if (options.socket_port <= 0 || options.socket_port > 65535) {
@@ -464,6 +478,16 @@ namespace elara {
             contents += options.worker_name;
             contents += "\n";
         }
+        contents += "- IndexedDataStore skeleton: ";
+        contents += options.include_indexed_data_store ? "yes\n" : "no\n";
+        if (options.include_indexed_data_store) {
+            contents += "- IndexedDataStore path: ";
+            contents += options.indexed_data_store_path;
+            contents += "\n";
+            contents += "- IndexedDataStore bank-map redundancy: ";
+            contents += String(options.indexed_data_store_bank_map_redundancy);
+            contents += "\n";
+        }
         contents += "\nBuild steps:\n";
         contents += "1. `./build.sh`\n";
         contents += "2. `make lint`\n";
@@ -551,6 +575,12 @@ namespace elara {
         contents += "#include <stdio.h>\n";
         contents += "#include <string.h>\n";
         contents += "#include <libelaracore/memory/String.h>\n";
+        if (options.include_indexed_data_store) {
+            contents += "#include <libelaracore/memory/ByteArray.h>\n";
+            contents += "#include <libelaraio/IndexedDataStore.h>\n";
+            contents += "#include <sys/stat.h>\n";
+            contents += "#include <sys/types.h>\n";
+        }
         if (options.include_thread_pool) {
             contents += "#include <libelarathreads/Thread.h>\n";
             contents += "#include <libelarathreads/Task.h>\n";
@@ -591,7 +621,51 @@ namespace elara {
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
             contents += "    printf(\"  send <text> - send text to the remote socket\\n\");\n";
         }
+        if (options.include_indexed_data_store) {
+            contents += "    printf(\"  initstore - create or reset the IndexedDataStore file\\n\");\n";
+            contents += "    printf(\"  put <key> <value> - persist a UTF-8 string value\\n\");\n";
+            contents += "    printf(\"  get <key> - load and print a UTF-8 string value\\n\");\n";
+        }
         contents += "}\n\n";
+        if (options.include_indexed_data_store) {
+            contents += "static void ensureDirectoryPath(String path) {\n";
+            contents += "    String current;\n";
+            contents += "    for (int i=0; i<path.length(); i++) {\n";
+            contents += "        char ch = path.operator char *()[i];\n";
+            contents += "        current += String(ch);\n";
+            contents += "        if (ch == '/') {\n";
+            contents += "            mkdir(current.operator char *(), 0755);\n";
+            contents += "        }\n";
+            contents += "    }\n";
+            contents += "}\n\n";
+            contents += "static String parentDirectory(String path) {\n";
+            contents += "    int slash = -1;\n";
+            contents += "    for (int i=0; i<path.length(); i++) {\n";
+            contents += "        if (path.operator char *()[i] == '/') {\n";
+            contents += "            slash = i;\n";
+            contents += "        }\n";
+            contents += "    }\n";
+            contents += "    if (slash <= 0) {\n";
+            contents += "        return String();\n";
+            contents += "    }\n";
+            contents += "    return path.substr(0, slash);\n";
+            contents += "}\n\n";
+            contents += "static Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing) {\n";
+            contents += "    String path(\"";
+            contents += options.indexed_data_store_path;
+            contents += "\");\n";
+            contents += "    if (create_if_missing) {\n";
+            contents += "        String directory = parentDirectory(path);\n";
+            contents += "        if (directory.length()) {\n";
+            contents += "            ensureDirectoryPath(directory + String(\"/\"));\n";
+            contents += "        }\n";
+            contents += "        return Ref<IndexedDataStore>(new IndexedDataStore(path, ";
+            contents += String(options.indexed_data_store_bank_map_redundancy);
+            contents += "));\n";
+            contents += "    }\n";
+            contents += "    return Ref<IndexedDataStore>(new IndexedDataStore(path));\n";
+            contents += "}\n\n";
+        }
         contents += "int main() {\n\n";
         if (options.include_thread_pool) {
             contents += "    Thread::pool = true;\n";
@@ -640,6 +714,14 @@ namespace elara {
             contents += ".\\n\");\n\n";
         }
         if (options.include_repl) {
+            if (options.include_indexed_data_store) {
+                contents += "    printf(\"IndexedDataStore path: ";
+                contents += options.indexed_data_store_path;
+                contents += " (bank-map redundancy ";
+                contents += String(options.indexed_data_store_bank_map_redundancy);
+                contents += ")\\n\");\n";
+                contents += "    printf(\"Run 'initstore' before using persistence commands on a new project.\\n\");\n";
+            }
             contents += "    printHelp();\n";
             contents += "    char line[1024];\n";
             contents += "    while (true) {\n";
@@ -687,6 +769,47 @@ namespace elara {
                 contents += "(command.substr(5)));\n";
                 contents += "            Task::queueTask(task.getPtr());\n";
                 contents += "            printf(\"Queued worker task.\\n\");\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+            }
+            if (options.include_indexed_data_store) {
+                contents += "        if (command == String(\"initstore\")) {\n";
+                contents += "            openIndexedDataStore(true);\n";
+                contents += "            printf(\"IndexedDataStore initialised at ";
+                contents += options.indexed_data_store_path;
+                contents += ".\\n\");\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"put \")) {\n";
+                contents += "            int split = -1;\n";
+                contents += "            for (int i=4; i<command.length(); i++) {\n";
+                contents += "                if (command.operator char *()[i] == ' ') {\n";
+                contents += "                    split = i;\n";
+                contents += "                    break;\n";
+                contents += "                }\n";
+                contents += "            }\n";
+                contents += "            if (split == -1) {\n";
+                contents += "                printf(\"Usage: put <key> <value>\\n\");\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            String key = command.substr(4, split - 4);\n";
+                contents += "            String value = command.substr(split + 1);\n";
+                contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+                contents += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
+                contents += "            printf(\"Stored key '%s'.\\n\", key.operator char *());\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"get \")) {\n";
+                contents += "            String key = command.substr(4);\n";
+                contents += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
+                contents += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
+                contents += "            if (!file.getPtr()) {\n";
+                contents += "                printf(\"No value for key '%s'.\\n\", key.operator char *());\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            unsigned long long len = store->getFileSize(file);\n";
+                contents += "            Memory value = store->readFromFile(file, 0, len);\n";
+                contents += "            printf(\"%s\\n\", String((char*)value, value.length()).operator char *());\n";
                 contents += "            continue;\n";
                 contents += "        }\n";
             }
@@ -1122,6 +1245,8 @@ namespace elara {
 
         if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
             flags += "-lelarasockets -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
+        } else if (options.include_indexed_data_store) {
+            flags += "-lelaraio -lelaracore";
         } else if (options.include_thread_pool) {
             flags += "-lelarathreads -lelaracore";
         } else {

@@ -21,6 +21,7 @@ namespace elara {
     class File : public Memory {
     public:
         File(const char *path);
+        File(const char *path, bool create_if_missing);
         virtual ~File();
         
         char& operator [](size_t index);
@@ -33,6 +34,7 @@ namespace elara {
         void grow(size_t size);
         void truncate();
         int fileno();
+        void flush();
         
     private:
         FILE* fp;

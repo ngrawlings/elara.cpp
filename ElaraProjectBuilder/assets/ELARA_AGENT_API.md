@@ -100,10 +100,14 @@ It is intentionally biased toward:
   - `--thread-pool`
   - `--worker`
   - `--worker-name`
+  - `--indexed-data-store`
+  - `--store-path`
+  - `--store-bank-map-redundancy`
   - `--socket-mode`
   - `--address`
   - `--port`
 - `--address` and `--port` are only valid with `--socket-mode server` or `--socket-mode client`.
+- `--store-path` and `--store-bank-map-redundancy` imply `--indexed-data-store yes`.
 - Generated project defaults:
   - use Elara staged at `../build` for includes, libraries, and tools
   - lint with `../build/bin/elara.cpp-lint`
@@ -114,6 +118,13 @@ It is intentionally biased toward:
   - server mode
   - client mode
 - Socket-enabled generated projects automatically enable the thread pool.
+- Storage-enabled generated projects scaffold a minimal REPL around `IndexedDataStore` with:
+  - `initstore`
+  - `put <key> <value>`
+  - `get <key>`
+- Generated storage projects use explicit store creation:
+  - `IndexedDataStore(path, redundancy_count)` for initialization
+  - `IndexedDataStore(path)` to reopen an existing store
 
 ### Smoke Validation
 
@@ -720,6 +731,45 @@ Agent note:
 Namespace: `elara`
 
 Type: `class IndexedDataStore`
+
+Purpose:
+- persistent indexed file store
+- index topology durability is prioritized over payload-level validation
+
+Construction rules:
+- `IndexedDataStore(String path)` opens an existing store only
+- `IndexedDataStore(String path, unsigned int bank_map_redundancy_count)` explicitly creates or resets a store
+- do not assume opening a missing path will implicitly initialize a store anymore
+
+Format notes:
+- stores begin with a `STORE_HEADER`
+- bank maps are stored as replicated `BANK_MAP_RECORD` entries
+- each bank-map record contains:
+  - `BANK_MAP`
+  - `crc32`
+- on load, the first valid bank-map replica by CRC is trusted
+- bank-map redundancy count is stored in the header and controls how many sequential replicas are reserved and written
+
+Key API:
+- `IndexedDataStore(String path)`
+- `IndexedDataStore(String path, unsigned int bank_map_redundancy_count)`
+- `Ref<LOADED_FILE_DESCRIPTOR> createFile(Memory key, unsigned int block_size)`
+- `Ref<LOADED_FILE_DESCRIPTOR> getFile(Memory key)`
+- `Ref<LOADED_FILE_DESCRIPTOR> getOrCreateFile(Memory key, unsigned int block_size)`
+- `bool writeToFile(Ref<LOADED_FILE_DESCRIPTOR> file, Memory data, unsigned long long offset, unsigned long long length)`
+- `unsigned long long getFileSize(Ref<LOADED_FILE_DESCRIPTOR> file)`
+- `Memory readFromFile(Ref<LOADED_FILE_DESCRIPTOR> file, unsigned long long offset, unsigned long long length)`
+- `void set(Memory key, Memory value)`
+- `Memory read(Memory key, unsigned int length)`
+- `Memory readOrSet(Memory key, Memory default_value)`
+- `bool convertDescriptorListToBankMap(Memory key)`
+- `RefArray<int> getChildIndexes(Memory key)`
+- `unsigned int getBankMapRedundancyCount() const`
+
+Agent notes:
+- if creating a brand-new store, create parent directories first
+- if storage is layered, validate or checksum payload semantics one level above `IndexedDataStore`
+- the bank-map replicas protect index readability; payload blocks are not currently CRC-protected at this layer
 
 Purpose:
 - indexed file-backed storage abstraction
