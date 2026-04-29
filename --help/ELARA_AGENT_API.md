@@ -451,7 +451,7 @@ Key API:
 - `static void waitForAnyAvailableThread()`
 - `static Thread *getThreadInstance()`
 - `static void getThreadPoolState(int *total, int *active)`
-- `void queueTaskToCurrentThread(Task *task)`
+- `void queueTaskToCurrentThread(elara::threading::memory::Ref<Task> task);`
 - `void wake()`
 
 Agent notes:

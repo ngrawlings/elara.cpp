@@ -389,7 +389,7 @@ namespace elara {
             contents += "ARTIFACT_ROOT?=./artifacts\n";
             contents += "TEST_DURATION_SECONDS?=30\n";
             contents += "TEST_RUNNER=$(BUILDPATH)/$(TEST_TARGET)\n";
-            contents += "TEST_STD_LDFLAGS=$(PROFILE_LDFLAGS) -L$(ELARA_LIB_DIR) -lelaradebug ";
+            contents += "TEST_STD_LDFLAGS=$(PROFILE_LDFLAGS) -L$(ELARA_LIB_DIR) -lelaradebug -lelaraio ";
             contents += buildElaraLibFlags(options);
             if (system_flags.length()) {
                 contents += " ";
@@ -462,7 +462,7 @@ namespace elara {
             contents += "stress: $(TEST_TARGET)\n";
             contents += "\tELARA_DEBUG_MODE=stress ELARA_DEBUG_DURATION_SECONDS=\"$(TEST_DURATION_SECONDS)\" ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
             contents += "fuzz: $(TEST_TARGET)\n";
-            contents += "\tELARA_DEBUG_MODE=fuzz ELARA_DEBUG_DURATION_SECONDS=\"$(TEST_DURATION_SECONDS)\" ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
+            contents += "\tASAN_OPTIONS=\"detect_leaks=0\" LSAN_OPTIONS=\"detect_leaks=0\" ELARA_DEBUG_MODE=fuzz ELARA_DEBUG_DURATION_SECONDS=\"$(TEST_DURATION_SECONDS)\" ELARA_DEBUG_ARTIFACT_ROOT=\"$(ARTIFACT_ROOT)\" $(TEST_RUNNER)\n\n";
         }
         contents += "install:\n";
         contents += "\t@if [ ! -x \"$(BUILDPATH)/$(TARGET)\" ]; then \\\n";
@@ -555,7 +555,7 @@ namespace elara {
         contents += "TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS:-${1:-30}}\"\n\n";
         contents += "autoreconf -fi\n";
         contents += "./configure\n";
-        contents += "make fuzz BUILD_PROFILE=\"${BUILD_PROFILE}\" ARTIFACT_ROOT=\"${ARTIFACT_ROOT}\" TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS}\"\n";
+        contents += "ASAN_OPTIONS=\"detect_leaks=0\" LSAN_OPTIONS=\"detect_leaks=0\" make fuzz BUILD_PROFILE=\"${BUILD_PROFILE}\" ARTIFACT_ROOT=\"${ARTIFACT_ROOT}\" TEST_DURATION_SECONDS=\"${TEST_DURATION_SECONDS}\"\n";
         return contents;
     }
 
@@ -973,6 +973,9 @@ namespace elara {
             contents += "    printf(\"  send <text> - send text to the remote socket\\n\");\n";
         }
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+            contents += "    printf(\"  rpc connect [address] [port] - connect the JSON RPC client\\n\");\n";
+            contents += "    printf(\"  rpc call <method> [params-json] - call a JSON RPC method\\n\");\n";
+            contents += "    printf(\"  rpc disconnect - close the JSON RPC client socket\\n\");\n";
             contents += "    printf(\"  ping - call echo.ping on the remote RPC server\\n\");\n";
             if (options.include_indexed_data_store) {
                 contents += "    printf(\"  remote-initstore - call store.init on the remote RPC server\\n\");\n";
@@ -1099,6 +1102,13 @@ namespace elara {
             contents += ">(new ";
             contents += rpc_client_name;
             contents += "());\n";
+            contents += "    String rpc_address(\"";
+            contents += options.socket_address;
+            contents += "\");\n";
+            contents += "    int rpc_port = ";
+            contents += String(options.socket_port);
+            contents += ";\n";
+            contents += "    bool rpc_connected = false;\n";
             contents += "    if (!socket_client->connectTo(String(\"";
             contents += options.socket_address;
             contents += "\"), ";
@@ -1110,6 +1120,7 @@ namespace elara {
             contents += String(options.socket_port);
             contents += ".\\n\");\n";
             contents += "    } else {\n";
+            contents += "        rpc_connected = true;\n";
             contents += "        printf(\"JSON RPC client connected to ";
             contents += options.socket_address;
             contents += ":";
@@ -1163,6 +1174,86 @@ namespace elara {
                 contents += "        }\n";
             }
             if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
+                contents += "        if (command == String(\"rpc connect\")) {\n";
+                contents += "            socket_client->close();\n";
+                contents += "            rpc_connected = socket_client->connectTo(rpc_address, rpc_port);\n";
+                contents += "            if (rpc_connected) {\n";
+                contents += "                printf(\"Connected JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port);\n";
+                contents += "            } else {\n";
+                contents += "                printf(\"Failed to connect JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port);\n";
+                contents += "            }\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"rpc connect \")) {\n";
+                contents += "            String endpoint = command.substr(12).trim();\n";
+                contents += "            int split = -1;\n";
+                contents += "            for (int i=0; i<endpoint.length(); i++) {\n";
+                contents += "                if (endpoint.operator char *()[i] == ' ') {\n";
+                contents += "                    split = i;\n";
+                contents += "                    break;\n";
+                contents += "                }\n";
+                contents += "            }\n";
+                contents += "            if (split == -1) {\n";
+                contents += "                printf(\"Usage: rpc connect <address> <port>\\n\");\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            String address = endpoint.substr(0, split).trim();\n";
+                contents += "            String port_text = endpoint.substr(split + 1).trim();\n";
+                contents += "            int port = atoi(port_text.operator char *());\n";
+                contents += "            if (!address.length() || port <= 0 || port > 65535) {\n";
+                contents += "                printf(\"Usage: rpc connect <address> <port>\\n\");\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            socket_client->close();\n";
+                contents += "            rpc_address = address;\n";
+                contents += "            rpc_port = port;\n";
+                contents += "            rpc_connected = socket_client->connectTo(rpc_address, rpc_port);\n";
+                contents += "            if (rpc_connected) {\n";
+                contents += "                printf(\"Connected JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port);\n";
+                contents += "            } else {\n";
+                contents += "                printf(\"Failed to connect JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port);\n";
+                contents += "            }\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command == String(\"rpc disconnect\")) {\n";
+                contents += "            socket_client->close();\n";
+                contents += "            rpc_connected = false;\n";
+                contents += "            printf(\"JSON RPC client disconnected.\\n\");\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
+                contents += "        if (command.startsWith(\"rpc call \")) {\n";
+                contents += "            String payload = command.substr(9).trim();\n";
+                contents += "            int split = -1;\n";
+                contents += "            for (int i=0; i<payload.length(); i++) {\n";
+                contents += "                if (payload.operator char *()[i] == ' ') {\n";
+                contents += "                    split = i;\n";
+                contents += "                    break;\n";
+                contents += "                }\n";
+                contents += "            }\n";
+                contents += "            String method = payload;\n";
+                contents += "            String params_json(\"{}\");\n";
+                contents += "            if (split != -1) {\n";
+                contents += "                method = payload.substr(0, split).trim();\n";
+                contents += "                params_json = payload.substr(split + 1).trim();\n";
+                contents += "                if (!params_json.length()) {\n";
+                contents += "                    params_json = String(\"{}\");\n";
+                contents += "                }\n";
+                contents += "            }\n";
+                contents += "            if (!method.length()) {\n";
+                contents += "                printf(\"Usage: rpc call <method> [params-json]\\n\");\n";
+                contents += "                continue;\n";
+                contents += "            }\n";
+                contents += "            String result_json;\n";
+                contents += "            String error_code;\n";
+                contents += "            String error_message;\n";
+                contents += "            if (socket_client->call(method, params_json, result_json, error_code, error_message)) {\n";
+                contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+                contents += "            } else {\n";
+                contents += "                rpc_connected = false;\n";
+                contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+                contents += "            }\n";
+                contents += "            continue;\n";
+                contents += "        }\n";
                 contents += "        if (command == String(\"ping\")) {\n";
                 contents += "            String result_json;\n";
                 contents += "            String error_code;\n";
@@ -1170,6 +1261,7 @@ namespace elara {
                 contents += "            if (socket_client->ping(result_json, error_code, error_message)) {\n";
                 contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
                 contents += "            } else {\n";
+                contents += "                rpc_connected = false;\n";
                 contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
                 contents += "            }\n";
                 contents += "            continue;\n";
@@ -1811,6 +1903,7 @@ namespace elara {
         contents += "();\n";
         contents += "    bool connectTo(const String &address, int port);\n";
         contents += "    void close();\n";
+        contents += "    bool call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);\n";
         contents += "    bool ping(String &result_json, String &error_code, String &error_message);\n";
         if (options.include_indexed_data_store) {
             contents += "    bool storeInit(String &result_json, String &error_code, String &error_message);\n";
@@ -1851,6 +1944,11 @@ namespace elara {
         contents += client_name;
         contents += "::close() {\n";
         contents += "    rpc_client.close();\n";
+        contents += "}\n\n";
+        contents += "bool ";
+        contents += client_name;
+        contents += "::call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {\n";
+        contents += "    return rpc_client.call(method, params_json, result_json, error_code, error_message);\n";
         contents += "}\n\n";
         contents += "bool ";
         contents += client_name;
