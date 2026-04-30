@@ -32,7 +32,7 @@ namespace elara {
     
     JsonValue::TYPE JsonValue::getJsonType(String json) {
         json = json.trim();
-        switch (json[0]) {
+        switch (json.byteAt(0)) {
             case '{':
                 return OBJECT;
        

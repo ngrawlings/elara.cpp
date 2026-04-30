@@ -178,7 +178,7 @@ namespace elara {
         return cnt;
     }
     
-    String String::substr(int offset, int length) {
+    String String::substr(int offset, int length) const {
         if (offset < 0)
             offset = 0;
 
@@ -423,7 +423,7 @@ namespace elara {
         int index = 0;
   
         while ((index = str.indexOf("%", index)) != -1) {
-            if (((a = str[index+1]) && (b = str[index+2])) && (isxdigit(a) && isxdigit(b))) {
+            if (((a = str.byteAt(index+1)) && (b = str.byteAt(index+2))) && (isxdigit(a) && isxdigit(b))) {
                 if (a >= 'a')
                     a -= 'a'-'A';
                 if (a >= 'A')
@@ -444,6 +444,165 @@ namespace elara {
         }
         
         return str;
+    }
+
+        ssize_t String::byteLength() const {
+        return _length;
+    }
+
+    int String::utf8CharSize(const char *ptr, size_t remaining) {
+        if (!ptr || !remaining)
+            return 0;
+
+        unsigned char c = (unsigned char)ptr[0];
+
+        if (c < 0x80)
+            return 1;
+
+        if ((c & 0xE0) == 0xC0) {
+            if (remaining < 2)
+                return 1;
+            if (((unsigned char)ptr[1] & 0xC0) != 0x80)
+                return 1;
+            return 2;
+        }
+
+        if ((c & 0xF0) == 0xE0) {
+            if (remaining < 3)
+                return 1;
+            if (((unsigned char)ptr[1] & 0xC0) != 0x80)
+                return 1;
+            if (((unsigned char)ptr[2] & 0xC0) != 0x80)
+                return 1;
+            return 3;
+        }
+
+        if ((c & 0xF8) == 0xF0) {
+            if (remaining < 4)
+                return 1;
+            if (((unsigned char)ptr[1] & 0xC0) != 0x80)
+                return 1;
+            if (((unsigned char)ptr[2] & 0xC0) != 0x80)
+                return 1;
+            if (((unsigned char)ptr[3] & 0xC0) != 0x80)
+                return 1;
+            return 4;
+        }
+
+        return 1;
+    }
+
+    ssize_t String::utf8Length() const {
+        if (!_length || !strbuf)
+            return 0;
+
+        ssize_t count = 0;
+        size_t offset = 0;
+
+        while (offset < _length) {
+            int step = utf8CharSize(&strbuf[offset], _length - offset);
+            if (step <= 0)
+                break;
+
+            offset += step;
+            count++;
+        }
+
+        return count;
+    }
+
+    char String::byteAt(int index) const {
+        if (index < 0 || (size_t)index >= _length || !strbuf)
+            return 0;
+
+        return strbuf[index];
+    }
+
+    String String::utf8At(int index) const {
+        if (index < 0 || !_length || !strbuf)
+            return String();
+
+        int current = 0;
+        size_t offset = 0;
+
+        while (offset < _length) {
+            int step = utf8CharSize(&strbuf[offset], _length - offset);
+
+            if (current == index)
+                return String(&strbuf[offset], step);
+
+            offset += step;
+            current++;
+        }
+
+        return String();
+    }
+
+    String String::operator[](int index) const {
+        return utf8At(index);
+    }
+
+    String String::utf8Substr(int offset, int length) {
+        if (offset < 0)
+            offset = 0;
+
+        if (!_length || !strbuf)
+            return String();
+
+        int current = 0;
+        size_t byte_start = 0;
+        size_t byte_end = _length;
+        size_t pos = 0;
+
+        while (pos < _length) {
+            int step = utf8CharSize(&strbuf[pos], _length - pos);
+
+            if (current == offset) {
+                byte_start = pos;
+                break;
+            }
+
+            pos += step;
+            current++;
+        }
+
+        if (current < offset)
+            return String();
+
+        if (length <= 0)
+            return String(&strbuf[byte_start], _length - byte_start);
+
+        int taken = 0;
+        pos = byte_start;
+
+        while (pos < _length && taken < length) {
+            int step = utf8CharSize(&strbuf[pos], _length - pos);
+            pos += step;
+            taken++;
+        }
+
+        byte_end = pos;
+
+        return String(&strbuf[byte_start], byte_end - byte_start);
+    }
+
+    bool String::isValidUtf8() const {
+        if (!_length || !strbuf)
+            return true;
+
+        size_t offset = 0;
+
+        while (offset < _length) {
+            unsigned char c = (unsigned char)strbuf[offset];
+            int step = utf8CharSize(&strbuf[offset], _length - offset);
+
+            if (c >= 0x80 && step == 1)
+                return false;
+
+            offset += step;
+        }
+
+        return true;
     }
     
 };

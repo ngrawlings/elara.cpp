@@ -51,10 +51,10 @@ namespace elara {
         }
 
         for (int i=start; i<end; i++) {
-            char ch = trimmed[i];
+            char ch = trimmed.byteAt(i);
             if (ch == '\\' && i + 1 < end) {
                 i++;
-                switch (trimmed[i]) {
+                switch (trimmed.byteAt(i)) {
                 case '"':
                     decoded += String('"');
                     break;
@@ -80,7 +80,7 @@ namespace elara {
                     decoded += String('\t');
                     break;
                 default:
-                    decoded += String(trimmed[i]);
+                    decoded += String(trimmed.byteAt(i));
                     break;
                 }
             } else {
@@ -95,7 +95,7 @@ namespace elara {
         String encoded;
 
         for (int i=0; i<value.length(); i++) {
-            char ch = value[i];
+            char ch = value.byteAt(i);
             switch (ch) {
             case '\\':
                 encoded += "\\\\";

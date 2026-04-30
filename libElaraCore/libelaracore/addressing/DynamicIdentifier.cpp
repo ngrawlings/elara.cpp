@@ -34,7 +34,7 @@ namespace elara {
         bool has_digit = false;
 
         for (ssize_t i = 0; i < id.length(); i++) {
-            char c = id[i];
+            char c = id.byteAt(i);
 
             if (c >= '0' && c <= '9') {
                 value = (value * 10) + (c - '0');

@@ -54,12 +54,16 @@ namespace elara {
         
         virtual ~String();
         
-        ssize_t length() {
+        ssize_t length() const {
         	return _length;
         }
 
         operator char*() {
             return strbuf;
+        }
+
+        operator const char*() const {
+            return (const char*)strbuf;
         }
         
         String &operator =(String str) {
@@ -103,7 +107,7 @@ namespace elara {
         int indexOf(String search, int start=0);
         int occuranceCount(String search);
         
-        String substr(int offset, int length=0);
+        String substr(int offset, int length=0) const;
         String &insert(int index, String ins);
         String &replace(String search, String replace, int offset=0, int maxcnt=0);
         
@@ -124,6 +128,19 @@ namespace elara {
         String toLowerCase();
         
         static String urlDecode(String str);
+
+        // UTF8 extention
+        ssize_t byteLength() const;
+        ssize_t utf8Length() const;
+
+        String operator[](int index) const;
+
+        char byteAt(int index) const;
+        String utf8At(int index) const;
+        String utf8Substr(int offset, int length=0);
+        bool isValidUtf8() const;
+
+        static int utf8CharSize(const char *ptr, size_t remaining);
         
     protected:
         char *strbuf;

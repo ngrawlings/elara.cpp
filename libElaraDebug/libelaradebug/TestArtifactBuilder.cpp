@@ -101,7 +101,7 @@ namespace elara {
         String out(value);
         ssize_t len = out.length();
         for (int i=0; i<len; i++) {
-            char &c = out[i];
+            char c = out.byteAt(i);
             bool ok = (c >= 'a' && c <= 'z')
                 || (c >= 'A' && c <= 'Z')
                 || (c >= '0' && c <= '9')
@@ -122,7 +122,7 @@ namespace elara {
         ssize_t len = path.length();
         for (int i=0; i<len; i++) {
             current += path[i];
-            if (path[i] != '/' && i != len-1)
+            if (path.byteAt(i) != '/' && i != len-1)
                 continue;
 
             if (current.length() == 1 && current[0] == '/')

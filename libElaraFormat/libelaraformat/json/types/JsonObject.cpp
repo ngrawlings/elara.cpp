@@ -67,10 +67,10 @@ namespace elara {
         
         ssize_t slen = json.length();
         for (int i=0; i<slen; i++) {
-            switch (json[i]) {
+            switch (json.byteAt(i)) {
                 case '\\':
                     if (quotation || parsing_value) {
-                        val += json[i];
+                        val += json.byteAt(i);
                         if (i + 1 < slen)
                             val += json[i + 1];
                     }
@@ -83,11 +83,11 @@ namespace elara {
                             if (symbols.get(symbols.prevNode(symbols.lastNode())) != '\"') {
                                 quotation = false;
                             } else {
-                                val += json[i];
+                                val += json.byteAt(i);
                             }
                             symbols.removeNode(symbols.lastNode());
                         } else {
-                            val += json[i];
+                            val += json.byteAt(i);
                             if (symbols.get(symbols.lastNode()) == '\"')
                                 symbols.removeNode(symbols.lastNode());
                             else
@@ -97,7 +97,7 @@ namespace elara {
                         if (!parsing_value)
                             quotation = true;
                         else
-                            val += json[i];
+                            val += json.byteAt(i);
                         
                         if (symbols.get(symbols.lastNode()) != '\"')
                             symbols.add('\"');
@@ -107,20 +107,20 @@ namespace elara {
                     break;
                     
                 case '[':
-                    symbols.add(json[i]);
+                    symbols.add(json.byteAt(i));
                     if (parsing_value)
-                        val += json[i];
+                        val += json.byteAt(i);
                     break;
                     
                 case '{':
-                    symbols.add(json[i]);
+                    symbols.add(json.byteAt(i));
                     if (parsing_value)
-                        val += json[i];
+                        val += json.byteAt(i);
                     break;
                     
                 default:
                 {
-                    switch (json[i]) {
+                    switch (json.byteAt(i)) {
                         case ']':
                             if (symbols.get(symbols.lastNode()) == '[') {
                                 symbols.removeNode(symbols.lastNode());
@@ -136,7 +136,7 @@ namespace elara {
                     
                     if (!parsing_value && !quotation) {
             
-                        if (json[i] == ':' && symbols.length() == 1) {
+                        if (json.byteAt(i) == ':' && symbols.length() == 1) {
                             parsing_value = true;
                             parsing_value_symbol_count = symbols.length();
                             name = val;
@@ -144,7 +144,7 @@ namespace elara {
                         }
                         
                     } else {
-                        if (parsing_value && ((symbols.length() == parsing_value_symbol_count && json[i] == ',') || (!symbols.length() && (json[i] == '}' || json[i] == ']')))) {
+                        if (parsing_value && ((symbols.length() == parsing_value_symbol_count && json.byteAt(i) == ',') || (!symbols.length() && (json.byteAt(i) == '}' || json.byteAt(i) == ']')))) {
                             parsing_value = false;
                             
                             Memory n(name.operator char *(), name.length());
@@ -152,7 +152,7 @@ namespace elara {
                             
                             val = "";
                         } else {
-                            val += json[i];
+                            val += json.byteAt(i);
                         }
                     }
                 }

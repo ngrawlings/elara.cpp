@@ -48,10 +48,10 @@ namespace elara {
         
         ssize_t slen = json.length();
         for (int i=0; i<slen; i++) {
-            switch (json[i]) {
+            switch (json.byteAt(i)) {
                 case '\\':
                     if (quotation || in_array) {
-                        val += json[i];
+                        val += json.byteAt(i);
                         if (i + 1 < slen)
                             val += json[i + 1];
                     }
@@ -64,10 +64,10 @@ namespace elara {
                             if (symbols.get(symbols.prevNode(symbols.lastNode())) != '\"')
                                 quotation = false;
                             
-                            val += json[i];
+                            val += json.byteAt(i);
                             symbols.removeNode(symbols.lastNode());
                         } else {
-                            val += json[i];
+                            val += json.byteAt(i);
                             if (symbols.get(symbols.lastNode()) == '\"')
                                 symbols.removeNode(symbols.lastNode());
                             else
@@ -75,7 +75,7 @@ namespace elara {
                         }
                     } else {
                         quotation = true;
-                        val += json[i];
+                        val += json.byteAt(i);
                         
                         if (symbols.get(symbols.lastNode()) != '\"')
                             symbols.add('\"');
@@ -85,39 +85,39 @@ namespace elara {
                     break;
                     
                 case '[':
-                    symbols.add(json[i]);
+                    symbols.add(json.byteAt(i));
                     in_array = true;
                     if (symbols.length()>1)
-                        val += json[i];
+                        val += json.byteAt(i);
                     break;
                     
                 case '{':
-                    symbols.add(json[i]);
+                    symbols.add(json.byteAt(i));
                     in_array = true;
                     if (symbols.length()>1)
-                        val += json[i];
+                        val += json.byteAt(i);
                     break;
                     
                 default:
                 {
                     if (in_array) {
-                        if (symbols.length() == 1 && (json[i] == ',' || json[i] == ']')) {
+                        if (symbols.length() == 1 && (json.byteAt(i) == ',' || json.byteAt(i) == ']')) {
                             if (val.length()) {
                                 values.push(JsonValue::getJsonValue(val));
                                 val = "";
                             }
-                            if (json[i] == ']')
+                            if (json.byteAt(i) == ']')
                                 in_array = false;
-                        } else if (json[i] == ']') {
-                            val += json[i];
+                        } else if (json.byteAt(i) == ']') {
+                            val += json.byteAt(i);
                             symbols.removeNode(symbols.lastNode());
                             if (!symbols.length())
                                 in_array = false;
-                        } else if (json[i] == '}') {
-                            val += json[i];
+                        } else if (json.byteAt(i) == '}') {
+                            val += json.byteAt(i);
                             symbols.removeNode(symbols.lastNode());
                         } else {
-                            val += json[i];
+                            val += json.byteAt(i);
                         }
                     }
                 }

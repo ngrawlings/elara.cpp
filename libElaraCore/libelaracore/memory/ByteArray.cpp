@@ -256,8 +256,8 @@ namespace elara {
         char buf[hex.length()/2], h, l;
         int i, len = (int)hex.length();
         for (i=0; i<len; i+=2) {
-            h = hex[i] - 48;
-            l = hex[i+1] - 48;
+            h = hex.byteAt(i) - 48;
+            l = hex.byteAt(i+1) - 48;
             
             if (h > 10)
                 h -= 7;
