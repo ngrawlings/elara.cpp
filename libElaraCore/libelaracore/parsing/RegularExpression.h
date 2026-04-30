@@ -11,7 +11,9 @@
 
 #include <regex.h>
 
+#include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/String.h>
+#include <libelaracore/memory/StringList.h>
 
 namespace elara {
 
@@ -24,6 +26,8 @@ namespace elara {
         String &getExpression();
 
         bool match(String str);
+
+        StringList extract(String str, int max_matches=16);
 
     protected:
         String expr;

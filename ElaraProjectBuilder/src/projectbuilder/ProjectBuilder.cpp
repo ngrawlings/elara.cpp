@@ -13,7 +13,6 @@
 
 #include <libelaracore/memory/String.h>
 #include <libelaracore/memory/StringList.h>
-#include <libelaracore/parsing/CodeTemplate.h>
 
 namespace elara {
 
@@ -96,6 +95,12 @@ namespace elara {
         }
         printf("  sudo ./install.sh\n");
         return true;
+    }
+
+    String ProjectBuilder::loadTemplate(const String& template_name, const String& block_name, const StringList& attrs) {
+        CodeTemplate tpl;
+        tpl.loadData(loadAsset(String("templates/src/%.tpl").arg(template_name)));
+        return tpl.getCode(block_name, attrs);
     }
 
     ProjectOptions ProjectBuilder::promptOptions() {
@@ -955,6 +960,7 @@ namespace elara {
 
     String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {
         CodeTemplate tpl;
+        tpl.setTemplateLoader(this);
         tpl.loadData(loadAsset(String("templates/src/main.cpp.blocks.tpl")));
 
         String contents;
@@ -1195,105 +1201,10 @@ namespace elara {
                 contents += "        }\n";
             }
             if (options.include_indexed_data_store) {
-                contents += "        if (command == String(\"initstore\")) {\n";
-                contents += "            try {\n";
-                contents += "                openIndexedDataStore(true);\n";
-                contents += "                printf(\"IndexedDataStore initialised at ";
-                contents += options.indexed_data_store_path;
-                contents += ".\\n\");\n";
-                contents += "            } catch (const char *error) {\n";
-                contents += "                printf(\"IndexedDataStore init failed: %s\\n\", error);\n";
-                contents += "            }\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
-                contents += "        if (command.startsWith(\"put \")) {\n";
-                contents += "            int split = -1;\n";
-                contents += "            for (int i=4; i<command.length(); i++) {\n";
-                contents += "                if (command.operator char *()[i] == ' ') {\n";
-                contents += "                    split = i;\n";
-                contents += "                    break;\n";
-                contents += "                }\n";
-                contents += "            }\n";
-                contents += "            if (split == -1) {\n";
-                contents += "                printf(\"Usage: put <key> <value>\\n\");\n";
-                contents += "                continue;\n";
-                contents += "            }\n";
-                contents += "            String key = command.substr(4, split - 4);\n";
-                contents += "            String value = command.substr(split + 1);\n";
-                contents += "            try {\n";
-                contents += "                Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-                contents += "                store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
-                contents += "                printf(\"Stored key '%s'.\\n\", key.operator char *());\n";
-                contents += "            } catch (const char *error) {\n";
-                contents += "                printf(\"IndexedDataStore put failed: %s\\n\", error);\n";
-                contents += "            }\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
-                contents += "        if (command.startsWith(\"get \")) {\n";
-                contents += "            String key = command.substr(4);\n";
-                contents += "            try {\n";
-                contents += "                Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-                contents += "                Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
-                contents += "                if (!file.getPtr()) {\n";
-                contents += "                    printf(\"No value for key '%s'.\\n\", key.operator char *());\n";
-                contents += "                    continue;\n";
-                contents += "                }\n";
-                contents += "                unsigned long long len = store->getFileSize(file);\n";
-                contents += "                Memory value = store->readFromFile(file, 0, len);\n";
-                contents += "                printf(\"%s\\n\", String((char*)value, value.length()).operator char *());\n";
-                contents += "            } catch (const char *error) {\n";
-                contents += "                printf(\"IndexedDataStore get failed: %s\\n\", error);\n";
-                contents += "            }\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
+                StringList attr(String("%").arg(options.indexed_data_store_path), ";");
+                contents += tpl.getCode("indexed_data_store_cli_logic", attr);
                 if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-                    contents += "        if (command == String(\"remote-initstore\")) {\n";
-                    contents += "            String result_json;\n";
-                    contents += "            String error_code;\n";
-                    contents += "            String error_message;\n";
-                    contents += "            if (socket_client->storeInit(result_json, error_code, error_message)) {\n";
-                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
-                    contents += "            } else {\n";
-                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
-                    contents += "            }\n";
-                    contents += "            continue;\n";
-                    contents += "        }\n";
-                    contents += "        if (command.startsWith(\"remote-put \")) {\n";
-                    contents += "            int split = -1;\n";
-                    contents += "            for (int i=11; i<command.length(); i++) {\n";
-                    contents += "                if (command.operator char *()[i] == ' ') {\n";
-                    contents += "                    split = i;\n";
-                    contents += "                    break;\n";
-                    contents += "                }\n";
-                    contents += "            }\n";
-                    contents += "            if (split == -1) {\n";
-                    contents += "                printf(\"Usage: remote-put <key> <value>\\n\");\n";
-                    contents += "                continue;\n";
-                    contents += "            }\n";
-                    contents += "            String key = command.substr(11, split - 11);\n";
-                    contents += "            String value = command.substr(split + 1);\n";
-                    contents += "            String result_json;\n";
-                    contents += "            String error_code;\n";
-                    contents += "            String error_message;\n";
-                    contents += "            if (socket_client->storePut(key, value, result_json, error_code, error_message)) {\n";
-                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
-                    contents += "            } else {\n";
-                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
-                    contents += "            }\n";
-                    contents += "            continue;\n";
-                    contents += "        }\n";
-                    contents += "        if (command.startsWith(\"remote-get \")) {\n";
-                    contents += "            String key = command.substr(11);\n";
-                    contents += "            String result_json;\n";
-                    contents += "            String error_code;\n";
-                    contents += "            String error_message;\n";
-                    contents += "            if (socket_client->storeGet(key, result_json, error_code, error_message)) {\n";
-                    contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
-                    contents += "            } else {\n";
-                    contents += "                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
-                    contents += "            }\n";
-                    contents += "            continue;\n";
-                    contents += "        }\n";
+                    contents += tpl.getCode("indexed_data_store_cli_logic+json_rpc");
                 }
             }
             contents += "        printf(\"Unhandled command: %s\\n\", command.operator char *());\n";

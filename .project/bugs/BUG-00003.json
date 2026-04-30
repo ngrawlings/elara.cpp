@@ -1,0 +1,21 @@
+{
+  "format": "pure-path-project-bug",
+  "version": 1,
+  "bug_id": "BUG-00003",
+  "title": "Template features",
+  "description": "Templates should be able to recursively include other blocks. And each block should support conditions using the attrributes as input",
+  "severity": "medium",
+  "status": "in_progress",
+  "author": "nyhl",
+  "host": "sbc01",
+  "created_utc": "2026-04-30T17:01:55Z",
+  "updated_utc": "2026-04-30T20:26:58Z",
+  "linked_commits": [],
+  "comments": [
+    {
+      "author": "nyhl",
+      "created_utc": "2026-04-30T20:26:58Z",
+      "text": "Code complete but untested"
+    }
+  ]
+}

@@ -204,3 +204,105 @@ static Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing) {
             continue; 
         }
 <<<<<<<<<<socket_client_rpc
+
+>>>>>>>>>>indexed_data_store_cli_logic>>>>INDEXED_DATA_STORE_PATH
+         if (command == String(\"initstore\")) {  
+             try {  
+                 openIndexedDataStore(true);  
+                 printf(\"IndexedDataStore initialised at %INDEXED_DATA_STORE_PATH%.\\n\");  
+             } catch (const char *error) {  
+                 printf(\"IndexedDataStore init failed: %s\\n\", error);  
+             }  
+             continue;  
+         }  
+         if (command.startsWith(\"put \")) {  
+             int split = -1;  
+             for (int i=4; i<command.length(); i++) {  
+                 if (command.operator char *()[i] == ' ') {  
+                     split = i;  
+                     break;  
+                 }  
+             }  
+             if (split == -1) {  
+                 printf(\"Usage: put <key> <value>\\n\");  
+                 continue;  
+             }  
+             String key = command.substr(4, split - 4);  
+             String value = command.substr(split + 1);  
+             try {  
+                 Ref<IndexedDataStore> store = openIndexedDataStore(false);  
+                 store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));  
+                 printf(\"Stored key '%s'.\\n\", key.operator char *());  
+             } catch (const char *error) {  
+                 printf(\"IndexedDataStore put failed: %s\\n\", error);  
+             }  
+             continue;  
+         }  
+         if (command.startsWith(\"get \")) {  
+             String key = command.substr(4);  
+             try {  
+                 Ref<IndexedDataStore> store = openIndexedDataStore(false);  
+                 Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));  
+                 if (!file.getPtr()) {  
+                     printf(\"No value for key '%s'.\\n\", key.operator char *());  
+                     continue;  
+                 }  
+                 unsigned long long len = store->getFileSize(file);  
+                 Memory value = store->readFromFile(file, 0, len);  
+                 printf(\"%s\\n\", String((char*)value, value.length()).operator char *());  
+             } catch (const char *error) {  
+                 printf(\"IndexedDataStore get failed: %s\\n\", error);  
+             }  
+             continue;  
+         }  
+<<<<<<<<<<indexed_data_store_cli_logic
+
+>>>>>>>>>>indexed_data_store_cli_logic+json_rpc
+         if (command == String(\"remote-initstore\")) {  
+             String result_json;  
+             String error_code;  
+             String error_message;  
+             if (socket_client->storeInit(result_json, error_code, error_message)) {  
+                 printf(\"%s\\n\", result_json.operator char *());  
+             } else {  
+                 printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());  
+             }  
+             continue;  
+         }  
+         if (command.startsWith(\"remote-put \")) {  
+             int split = -1;  
+             for (int i=11; i<command.length(); i++) {  
+                 if (command.operator char *()[i] == ' ') {  
+                     split = i;  
+                     break;  
+                 }  
+             }  
+             if (split == -1) {  
+                 printf(\"Usage: remote-put <key> <value>\\n\");  
+                 continue;  
+             }  
+             String key = command.substr(11, split - 11);  
+             String value = command.substr(split + 1);  
+             String result_json;  
+             String error_code;  
+             String error_message;  
+             if (socket_client->storePut(key, value, result_json, error_code, error_message)) {  
+                 printf(\"%s\\n\", result_json.operator char *());  
+             } else {  
+                 printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());  
+             }  
+             continue;  
+         }  
+         if (command.startsWith(\"remote-get \")) {  
+             String key = command.substr(11);  
+             String result_json;  
+             String error_code;  
+             String error_message;  
+             if (socket_client->storeGet(key, result_json, error_code, error_message)) {  
+                 printf(\"%s\\n\", result_json.operator char *());  
+             } else {  
+                 printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());  
+             }  
+             continue;  
+         }  
+<<<<<<<<<<indexed_data_store_cli_logic+json_rpc

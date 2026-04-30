@@ -239,6 +239,8 @@ String CodeTemplate::getCode(const String& name, StringList attribute_values) co
         code = code.replace(String("%?%").arg(attr[i], "?"), attribute_values[i]);
     }
 
+    code = processIncludes(code, attr, attribute_values);
+
     return code;
 }
 
@@ -278,6 +280,125 @@ bool CodeTemplate::hasAttribute(const String& name, const String& attr) const {
     }
 
     return block->hasAttribute(attr);
+}
+
+void CodeTemplate::setTemplateLoader(CodeTemplateLoader* loader) {
+    this->loader = loader;
+}
+
+bool CodeTemplate::evalIncludeCondition(
+    String condition,
+    const StringList& attribute_names,
+    const StringList& attribute_values
+) const {
+    condition = condition.trim();
+
+    for(int i = 0; i < (int)attribute_names.length(); i++) {
+        String marker = String("%?%").arg(attribute_names[i], "?");
+
+        if(i < (int)attribute_values.length()) {
+            condition = condition.replace(marker, attribute_values[i]);
+        }
+    }
+
+    RegularExpression expr(
+        String("^[[:space:]]*([^=!<>[:space:]]+)[[:space:]]*(==|!=|<=|>=|<|>)[[:space:]]*([^=!<>[:space:]]+)[[:space:]]*$")
+    );
+
+    StringList matches = expr.extract(condition);
+
+    if(matches.length() < 4)
+        return false;
+
+    String left = matches[1].trim();
+    String op = matches[2].trim();
+    String right = matches[3].trim();
+
+    double lnum = atof((const char*)left);
+    double rnum = atof((const char*)right);
+
+    if(op == String("=="))
+        return left == right || lnum == rnum;
+
+    if(op == String("!="))
+        return !(left == right || lnum == rnum);
+
+    if(op == String("<"))
+        return lnum < rnum;
+
+    if(op == String(">"))
+        return lnum > rnum;
+
+    if(op == String("<="))
+        return lnum <= rnum;
+
+    if(op == String(">="))
+        return lnum >= rnum;
+
+    return false;
+}
+
+String CodeTemplate::runInclude(
+    const String& _template,
+    const String& block,
+    const StringList& include_params
+) const {
+    return this->loader->loadTemplate(_template, block, include_params);
+}
+
+String CodeTemplate::processIncludes(
+    const String& code,
+    const StringList& attribute_names,
+    const StringList& attribute_values
+) const {
+    String result;
+    String remaining = code;
+
+    RegularExpression include_expr(
+        String("@include[[:space:]]+\\[([^]]*)\\][[:space:]]+([A-Za-z0-9_.]+)>>>>([^\\n\\r]*)")
+    );
+
+    while(true) {
+        StringList matches = include_expr.extract(remaining);
+
+        if(matches.length() < 4) {
+            result += remaining;
+            break;
+        }
+
+        String full_match = matches[0];
+        String condition = matches[1];
+        String include_target = matches[2];
+        String param_data = matches[3];
+
+        int pos = remaining.indexOf(full_match);
+
+        if(pos < 0) {
+            result += remaining;
+            break;
+        }
+
+        result += remaining.substr(0, pos);
+
+        if(evalIncludeCondition(condition, attribute_names, attribute_values)) {
+            StringList include_params(param_data, String(">"));
+
+            int dot = include_target.indexOf(String("."));
+
+            if(dot < 0) {
+                throw "Invalid include target";
+            }
+
+            String _template = include_target.substr(0, dot).trim();
+            String block = include_target.substr(dot + 1).trim();
+
+            result += runInclude(_template, block, include_params);
+        }
+
+        remaining = remaining.substr(pos + full_match.length());
+    }
+
+    return result;
 }
 
 }

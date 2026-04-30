@@ -3,6 +3,7 @@
 
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/String.h>
+#include <libelaracore/parsing/CodeTemplate.h>
 
 #include "ProjectOptions.h"
 
@@ -18,7 +19,7 @@ namespace elara {
         String value;
     } TEMPLATE_REPLACEMENT;
 
-    class ProjectBuilder {
+    class ProjectBuilder : public CodeTemplateLoader {
     public:
         ProjectBuilder();
 
@@ -28,6 +29,9 @@ namespace elara {
 
         bool runInteractive();
         bool generate(ProjectOptions options);
+
+    public:
+        String loadTemplate(const String& template_name, const String& block_name, const StringList& attrs);
 
     private:
         String default_output_directory;

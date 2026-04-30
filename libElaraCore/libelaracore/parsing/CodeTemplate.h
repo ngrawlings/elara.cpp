@@ -8,51 +8,79 @@
 
 namespace elara {
 
-class CodeTemplateBlock {
-private:
-    String name;
-    String code;
-    StringList attributes;
+    class CodeTemplateLoader {
+    public:
+        virtual String loadTemplate(const String& template_name, const String& block_name, const StringList& attrs) = 0;
+    };
 
-public:
-    CodeTemplateBlock();
-    CodeTemplateBlock(const String& block_name, const String& block_code, const StringList& block_attributes);
+    class CodeTemplateBlock {
+    private:
+        String name;
+        String code;
+        StringList attributes;
 
-    String getName() const;
-    String getCode() const;
-    StringList getAttributes() const;
-    String getAttribute(int index) const;
-    bool hasAttribute(const String& attr) const;
-};
+    public:
+        CodeTemplateBlock();
+        CodeTemplateBlock(const String& block_name, const String& block_code, const StringList& block_attributes);
 
-class CodeTemplate {
-private:
-    Array< Ref<CodeTemplateBlock> > blocks;
+        String getName() const;
+        String getCode() const;
+        StringList getAttributes() const;
+        String getAttribute(int index) const;
+        bool hasAttribute(const String& attr) const;
+    };
 
-    int findLineEnd(String data, int offset) const;
-    int findLineStartMarker(String data, const String& marker, int offset) const;
-    bool isBrokenTemplateCode(String code) const;
-    StringList parseAttributes(String attr_data) const;
-    void parseOpenLine(String line, String* name, StringList* attrs) const;
+    class CodeTemplate {
+    private:
+        Array< Ref<CodeTemplateBlock> > blocks;
 
-public:
-    CodeTemplate();
+        int findLineEnd(String data, int offset) const;
+        int findLineStartMarker(String data, const String& marker, int offset) const;
+        bool isBrokenTemplateCode(String code) const;
+        StringList parseAttributes(String attr_data) const;
+        void parseOpenLine(String line, String* name, StringList* attrs) const;
 
-    bool loadFile(const String& path);
-    bool loadData(const String& data);
+    public:
+        CodeTemplate();
 
-    int blockCount() const;
-    Ref<CodeTemplateBlock> getBlock(int index) const;
-    Ref<CodeTemplateBlock> getBlock(const String& name) const;
+        bool loadFile(const String& path);
+        bool loadData(const String& data);
 
-    String getCode(const String& name, StringList attribute_values) const;
-    String getCode(const String& name) const;
-    StringList getAttributes(const String& name) const;
-    String getAttribute(const String& name, int index) const;
+        int blockCount() const;
+        Ref<CodeTemplateBlock> getBlock(int index) const;
+        Ref<CodeTemplateBlock> getBlock(const String& name) const;
 
-    bool hasBlock(const String& name) const;
-    bool hasAttribute(const String& name, const String& attr) const;
-};
+        String getCode(const String& name, StringList attribute_values) const;
+        String getCode(const String& name) const;
+        StringList getAttributes(const String& name) const;
+        String getAttribute(const String& name, int index) const;
+
+        bool hasBlock(const String& name) const;
+        bool hasAttribute(const String& name, const String& attr) const;
+
+        void setTemplateLoader(CodeTemplateLoader* loader);
+
+    private:
+        CodeTemplateLoader* loader;
+
+        bool evalIncludeCondition(
+            String condition,
+            const StringList& attribute_names,
+            const StringList& attribute_values
+        ) const;
+
+        String runInclude(
+            const String& _template,
+            const String& block,
+            const StringList& include_params
+        ) const;
+
+        String processIncludes(
+            const String& code,
+            const StringList& attribute_names,
+            const StringList& attribute_values
+        ) const;
+    };
 
 }
 
