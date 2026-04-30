@@ -29,7 +29,7 @@
 
 >>>>>>>>>>indexed_data_store_helpers>>>>INDEXED_DATA_STORE_PATH>INDEX_DATA_STORE_BANK_MAP_REDUNDANCY
 static void ensureDirectoryPath(String path) {
-    String current;\n";
+    String current; 
     for (int i=0; i<path.length(); i++) {
         char ch = path.operator char *()[i];
         current += String(ch);
@@ -64,3 +64,143 @@ static Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing) {
     return Ref<IndexedDataStore>(new IndexedDataStore(path));
 }
 <<<<<<<<<<indexed_data_store_helpers
+
+
+>>>>>>>>>>socket_client_rpc
+        if (command == String(\"rpc profile\")) { 
+            printf(\"RPC profile: %s\\n\", rpc_profile.operator char *()); 
+            continue; 
+        } 
+        if (command.startsWith(\"rpc profile \")) { 
+            String requested_profile = command.substr(12).trim(); 
+            if (requested_profile == String(\"rpc-default\") || requested_profile == String(\"simple\")) { 
+                rpc_profile = requested_profile; 
+                printf(\"RPC profile set to %s\\n\", rpc_profile.operator char *()); 
+            } else { 
+                printf(\"Unsupported RPC profile: %s\\n\", requested_profile.operator char *()); 
+            } 
+            continue; 
+        } 
+        if (command == String(\"rpc connect\")) { 
+            socket_client->close(); 
+            rpc_connected = socket_client->connectTo(rpc_address, rpc_port); 
+            if (rpc_connected) { 
+                printf(\"Connected JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port); 
+            } else { 
+                printf(\"Failed to connect JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port); 
+            } 
+            continue; 
+        } 
+        if (command.startsWith(\"rpc connect \")) { 
+            String endpoint = command.substr(12).trim(); 
+            int split = -1; 
+            for (int i=0; i<endpoint.length(); i++) { 
+                if (endpoint.operator char *()[i] == ' ') { 
+                    split = i; 
+                    break; 
+                } 
+            } 
+            if (split == -1) { 
+                printf(\"Usage: rpc connect <address> <port>\\n\"); 
+                continue; 
+            } 
+            String address = endpoint.substr(0, split).trim(); 
+            String port_text = endpoint.substr(split + 1).trim(); 
+            int port = atoi(port_text.operator char *()); 
+            if (!address.length() || port <= 0 || port > 65535) { 
+                printf(\"Usage: rpc connect <address> <port>\\n\"); 
+                continue; 
+            } 
+            socket_client->close(); 
+            rpc_address = address; 
+            rpc_port = port; 
+            rpc_connected = socket_client->connectTo(rpc_address, rpc_port); 
+            if (rpc_connected) { 
+                printf(\"Connected JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port); 
+            } else { 
+                printf(\"Failed to connect JSON RPC client to %s:%d\\n\", rpc_address.operator char *(), rpc_port); 
+            } 
+            continue; 
+        } 
+        if (command == String(\"rpc disconnect\")) { 
+            socket_client->close(); 
+            rpc_connected = false; 
+            printf(\"JSON RPC client disconnected.\\n\"); 
+            continue; 
+        } 
+        if (command.startsWith(\"rpc call \")) { 
+            String payload = command.substr(9).trim(); 
+            int split = -1; 
+            for (int i=0; i<payload.length(); i++) { 
+                if (payload.operator char *()[i] == ' ') { 
+                    split = i; 
+                    break; 
+                } 
+            } 
+            String method = payload; 
+            String params_json(\"{}\"); 
+            if (split != -1) { 
+                method = payload.substr(0, split).trim(); 
+                params_json = payload.substr(split + 1).trim(); 
+                if (!params_json.length()) { 
+                    params_json = String(\"{}\"); 
+                } 
+            } 
+            if (!method.length()) { 
+                printf(\"Usage: rpc call <method> [params-json]\\n\"); 
+                continue; 
+            } 
+            String result_json; 
+            String error_code; 
+            String error_message; 
+            if (socket_client->call(method, params_json, result_json, error_code, error_message)) { 
+                printf(\"%s\\n\", result_json.operator char *()); 
+            } else { 
+                rpc_connected = false; 
+                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *()); 
+            } 
+            continue; 
+        } 
+        if (command.startsWith(\"rpc invoke \")) { 
+            CommandLineInvocation invocation; 
+            String invocation_text = command.substr(11).trim(); 
+            String parse_error; 
+            String params_json(\"[\"); 
+            String method; 
+            if (!CommandLineParser::parse(invocation_text, invocation, parse_error, rpc_profile)) { 
+                printf(\"RPC parse error: %s\\n\", parse_error.operator char *()); 
+                continue; 
+            } 
+            method = invocation.getQualifiedMethod(); 
+            for (unsigned int i=0; i<invocation.parameters.length(); i++) { 
+                if (i) 
+                    params_json += String(\",\"); 
+                params_json += String(\"\\\"\"); 
+                params_json += elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(invocation.parameters[i]); 
+                params_json += String(\"\\\"\"); 
+            } 
+            params_json += String(\"]\"); 
+            String result_json; 
+            String error_code; 
+            String error_message; 
+            if (socket_client->call(method, params_json, result_json, error_code, error_message)) { 
+                printf(\"%s\\n\", result_json.operator char *()); 
+            } else { 
+                rpc_connected = false; 
+                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *()); 
+            } 
+            continue; 
+        } 
+        if (command == String(\"ping\")) { 
+            String result_json; 
+            String error_code; 
+            String error_message; 
+            if (socket_client->ping(result_json, error_code, error_message)) { 
+                printf(\"%s\\n\", result_json.operator char *()); 
+            } else { 
+                rpc_connected = false; 
+                printf(\"RPC error [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *()); 
+            } 
+            continue; 
+        }
+<<<<<<<<<<socket_client_rpc
