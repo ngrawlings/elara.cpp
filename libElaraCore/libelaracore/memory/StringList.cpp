@@ -79,5 +79,9 @@ namespace elara {
     void StringList::append(String str) {
         list.push(str);
     }
+
+    void StringList::clear() {
+        list.clear();
+    }
     
 };

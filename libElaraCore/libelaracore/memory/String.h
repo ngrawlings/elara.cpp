@@ -67,17 +67,21 @@ namespace elara {
         }
         
         String &operator =(String str) {
-        	_length = 0;
-        	size_t len = str._length;
-            if (len) {
-                allocateBlock(len);
-                _length = len;
-                if (len)
-                    memcpy(strbuf, str.strbuf, len+1);
-                else
+            _length = 0;
+
+            size_t len = str._length;
+
+            if (!len) {
+                if (strbuf)
                     strbuf[0] = 0;
+                return *this;
             }
-        	return *this;
+
+            allocateBlock(len);
+            _length = len;
+            memcpy(strbuf, str.strbuf, len + 1);
+
+            return *this;
         }
         
         String &operator +=(String str) {
@@ -107,7 +111,7 @@ namespace elara {
         int indexOf(String search, int start=0);
         int occuranceCount(String search);
         
-        String substr(int offset, int length=0) const;
+        String substr(int offset, int length=-1) const;
         String &insert(int index, String ins);
         String &replace(String search, String replace, int offset=0, int maxcnt=0);
         

@@ -35,6 +35,7 @@ autom4te.cache
 build
 
 /artifacts
+ElaraUnitTests/artifacts
 
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile

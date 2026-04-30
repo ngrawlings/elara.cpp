@@ -4,6 +4,7 @@
 #include <stdlib.h>
 
 #include "runtime/RuntimeTests.h"
+#include "runtime/UnitTests.h"
 
 using namespace elara;
 
@@ -41,6 +42,7 @@ int main(int argc, const char *argv[]) {
     int count = 0;
     addRuntimeMetadata(tests, selector);
     count += addRuntimeTests(tests, selector);
+    count += addUnitTests(tests, selector);
 
     int selected_count = mode == String("stress")
         ? tests.countTests(UNITTEST_KIND_STRESS)

@@ -11,6 +11,10 @@
 
 #include <libelaraio/File.h>
 
+#include <libelaracore/memory/String.h>
+#include <libelaracore/memory/StringList.h>
+#include <libelaracore/parsing/CodeTemplate.h>
+
 namespace elara {
 
     namespace {
@@ -950,6 +954,9 @@ namespace elara {
     }
 
     String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {
+        CodeTemplate tpl;
+        tpl.loadData(loadAsset(String("templates/src/main.cpp.blocks.tpl")));
+
         String contents;
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
@@ -960,50 +967,31 @@ namespace elara {
         contents += "#include <string.h>\n";
         contents += "#include <libelaracore/memory/String.h>\n";
         if (options.include_indexed_data_store) {
-            contents += "#include <libelaracore/memory/ByteArray.h>\n";
-            contents += "#include <libelaraio/IndexedDataStore.h>\n";
-            contents += "#include <sys/stat.h>\n";
-            contents += "#include <sys/types.h>\n";
+            contents += tpl.getCode("include_indexed_data_store");
         }
         if (options.include_thread_pool) {
-            contents += "#include <libelarathreads/Thread.h>\n";
-            contents += "#include <libelarathreads/Task.h>\n";
-        }
-        if (options.include_threaded_worker || options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
-            contents += "#include <libelaracore/memory/Ref.h>\n";
+            contents += tpl.getCode("include_thread_pool");
         }
         if (options.include_threaded_worker) {
-            contents += "#include \"";
-            contents += options.worker_name;
-            contents += ".h\"\n";
+            StringList attr(String("%").arg(options.worker_name), ";");
+            contents += tpl.getCode("include_threaded_worker", attr);
         }
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            contents += "#include <libelaraevent/EventBase.h>\n";
-            contents += "#include <libelarasockets/Socket.h>\n";
-            contents += "#include <unistd.h>\n";
-            contents += "#include \"";
-            contents += client_name;
-            contents += ".h\"\n";
+            StringList attr(String("%").arg(client_name), ";");
+            contents += tpl.getCode("include_socket", attr);
         }
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            contents += "#include \"";
-            contents += server_name;
-            contents += ".h\"\n";
-            contents += "#include <unistd.h>\n";
+            StringList attr(String("%").arg(server_name), ";");
+            contents += tpl.getCode("include_socket", attr);
         }
         if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += "#include <unistd.h>\n";
-            contents += "#include \"";
-            contents += rpc_server_name;
-            contents += ".h\"\n";
+            StringList attr(String("%").arg(rpc_server_name), ";");
+            contents += tpl.getCode("include_socket", attr);
         }
         if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += "#include <libelaracore/parsing/CommandLineParser.h>\n";
-            contents += "#include <libelarasockets/rpc/json/JsonRPCCodec.h>\n";
-            contents += "#include <unistd.h>\n";
-            contents += "#include \"";
-            contents += rpc_client_name;
-            contents += ".h\"\n";
+            contents += tpl.getCode("include_rpc_client");
+            StringList attr(String("%").arg(rpc_server_name), ";");
+            contents += tpl.getCode("include_socket", attr);
         }
         contents += "\nusing namespace elara;\n\n";
         contents += "static void printHelp() {\n";

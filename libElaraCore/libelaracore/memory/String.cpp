@@ -182,26 +182,31 @@ namespace elara {
         if (offset < 0)
             offset = 0;
 
-        if ((size_t)offset >= _length || !strbuf)
+        if (length == 0) {
+            return String();
+        } else if (length == -1) {
+            length = _length - offset;
+        }
+
+        if (!strbuf || (size_t)offset >= _length)
             return String();
 
-        length = length ? length : (int)_length-offset;
-        if (length < 0)
-            length = 0;
+        size_t start = (size_t)offset;
+        size_t maxLen = _length - start;
 
-        if ((size_t)(offset + length) > _length)
-            length = (int)(_length - offset);
+        size_t n = (size_t)length;
+        if (n > maxLen)
+            n = maxLen;
 
-        if (!length)
+        if (n == 0)
             return String();
 
-        char *buf = new char[length+1];
-
-        memcpy(buf, &strbuf[offset], length);
-        buf[length] = 0;
+        char* buf = new char[n + 1];
+        memcpy(buf, strbuf + start, n);
+        buf[n] = '\0';
 
         String ret(buf);
-        delete [] buf;
+        delete[] buf;
 
         return ret;
     }
@@ -223,34 +228,43 @@ namespace elara {
     }
     
     String &String::replace(String search, String replace, int offset, int maxcnt) {
-        ssize_t cnt=0, index, size_dif, slen, rlen;
-        
-        slen = search.length();
-        rlen = replace.length();
-        if (!slen)
+        int slen = (int)search.length();
+
+        if (!slen || offset < 0)
             return *this;
 
-        size_dif = rlen - slen;
-        
-        while ((index = indexOf(search, offset)) != -1) {
-            if (maxcnt > 0 && cnt == maxcnt)
+        if (offset >= (int)_length)
+            return *this;
+
+        String result;
+
+        if (offset > 0)
+            result += substr(0, offset);
+
+        int scan = offset;
+        int copy_from = offset;
+        int found = 0;
+
+        while (scan < (int)_length) {
+            int pos = indexOf(search, scan);
+
+            if (pos == -1 || (maxcnt > 0 && found >= maxcnt))
                 break;
-            
-            if (size_dif > 0 && _length+size_dif >= size)
-                allocateBlock(_length+size_dif);
-            
-            memcpy(&strbuf[index], replace.operator char *(), rlen);
-            memmove(&strbuf[index + rlen],
-                &strbuf[index + slen],
-                (_length - (index + slen)) + 1);
-            
-            _length += size_dif;
-            strbuf[_length] = 0;
-            
-            cnt++;
-            offset = index + rlen;
+
+            if (pos > copy_from)
+                result += substr(copy_from, pos - copy_from);
+
+            result += replace;
+
+            scan = pos + slen;
+            copy_from = scan;
+            found++;
         }
-        
+
+        if (copy_from < (int)_length)
+            result += substr(copy_from, (int)_length - copy_from);
+
+        *this = result;
         return *this;
     }
     
@@ -513,7 +527,7 @@ namespace elara {
 
     char String::byteAt(int index) const {
         if (index < 0 || (size_t)index >= _length || !strbuf)
-            return 0;
+           throw "String: index out of range";
 
         return strbuf[index];
     }

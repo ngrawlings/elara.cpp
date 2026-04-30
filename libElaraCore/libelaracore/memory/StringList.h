@@ -32,6 +32,7 @@ namespace elara {
         
         void removeEmptyStrings();
         void append(String str);
+        void clear();
         
     protected:
         Array<String> list;

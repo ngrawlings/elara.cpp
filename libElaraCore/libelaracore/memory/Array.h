@@ -35,14 +35,13 @@ namespace elara {
     template <class T>
     class Array {
     public:
-        Array<T>(size_t _size=0) : _size(_size), len(0), array(0) {
-            if (_size) {
+        Array<T>(size_t size=0) : _size(size), len(0), array(0) {
+            if (size) {
                 if (_size%16) {
-                    _size = (_size - _size%16) + 16;
-                    this->_size = _size;
+                    this->_size = (size - size%16) + 16;
                 }
                 
-                array = new T[_size];
+                array = new T[this->_size];
             }
         }
         

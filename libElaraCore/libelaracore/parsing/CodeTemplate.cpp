@@ -1,6 +1,7 @@
 #include "CodeTemplate.h"
 
 #include <libelaracore/memory/Memory.h>
+#include <libelaracore/parsing/RegularExpression.h>
 #include <libelaraio/File.h>
 
 namespace elara {
@@ -10,7 +11,7 @@ CodeTemplateBlock::CodeTemplateBlock() {}
 CodeTemplateBlock::CodeTemplateBlock(
     const String& block_name,
     const String& block_code,
-    const Array<String>& block_attributes
+    const StringList& block_attributes
 ) : name(block_name),
     code(block_code),
     attributes(block_attributes) {}
@@ -23,7 +24,7 @@ String CodeTemplateBlock::getCode() const {
     return code;
 }
 
-Array<String> CodeTemplateBlock::getAttributes() const {
+StringList CodeTemplateBlock::getAttributes() const {
     return attributes;
 }
 
@@ -47,43 +48,39 @@ bool CodeTemplateBlock::hasAttribute(const String& attr) const {
 
 CodeTemplate::CodeTemplate() {}
 
-bool CodeTemplate::startsWithAt(const String& data, int offset, const String& marker) const {
-    if(offset < 0 || offset + marker.length() > data.length()) {
-        return false;
+int CodeTemplate::findLineEnd(String data, int offset) const {
+    int line_end = data.indexOf(String("\n"), offset);
+
+    if(line_end < 0) {
+        return (int)data.length();
     }
 
-    for(int i = 0; i < marker.length(); i++) {
-        if(data[offset + i] != marker[i]) {
-            return false;
-        }
-    }
-
-    return true;
+    return line_end;
 }
 
-String CodeTemplate::readLine(const String& data, int* offset) const {
-    int start = *offset;
+int CodeTemplate::findLineStartMarker(String data, const String& marker, int offset) const {
+    int candidate = offset;
 
-    while(*offset < data.length()) {
-        char c = data.byteAt(*offset);
-        (*offset)++;
-
-        if(c == '\n') {
-            int len = (*offset) - start - 1;
-
-            if(len > 0 && data[start + len - 1] == '\r') {
-                len--;
-            }
-
-            return data.substr(start, len);
+    while((candidate = data.indexOf(marker, candidate)) >= 0) {
+        if(candidate == 0 || data.substr(candidate - 1, 1) == String("\n")) {
+            return candidate;
         }
+
+        candidate++;
     }
 
-    return data.substr(start, (*offset) - start);
+    return -1;
 }
 
-Array<String> CodeTemplate::parseAttributes(String attr_data) const {
-    Array<String> attrs;
+bool CodeTemplate::isBrokenTemplateCode(String code) const {
+    RegularExpression open_marker(String(".*>>>>.*"));
+    RegularExpression close_marker(String(".*<<<<.*"));
+
+    return open_marker.match(code) || close_marker.match(code);
+}
+
+StringList CodeTemplate::parseAttributes(String attr_data) const {
+    StringList attrs;
     int offset = 0;
 
     while(offset <= attr_data.length()) {
@@ -92,21 +89,27 @@ Array<String> CodeTemplate::parseAttributes(String attr_data) const {
 
         if(next < 0) {
             attr = attr_data.substr(offset).trim();
-            offset = attr_data.length() + 1;
+            offset = (int)attr_data.length() + 1;
         } else {
             attr = attr_data.substr(offset, next - offset).trim();
             offset = next + 1;
         }
 
         if(attr.length() > 0) {
-            attrs.push(attr);
+            attrs.append(attr);
         }
     }
 
     return attrs;
 }
 
-void CodeTemplate::parseOpenLine(const String& line, String* name, Array<String>* attrs) const {
+void CodeTemplate::parseOpenLine(String line, String* name, StringList* attrs) const {
+    RegularExpression open_line(String("^>>>>>>>>>>.*"));
+
+    if(!open_line.match(line)) {
+        throw "Template Error: invalid opening marker";
+    }
+
     String tail = line.substr(10).trim();
     int attr_start = tail.indexOf(String(">>>>"));
 
@@ -131,44 +134,65 @@ bool CodeTemplate::loadFile(const String& path) {
 bool CodeTemplate::loadData(const String& data) {
     blocks.clear();
 
+    String source = data;
     int offset = 0;
-    bool in_block = false;
 
-    String current_name;
-    String current_code;
-    Array<String> current_attrs;
+    while(offset < source.length()) {
+        int open_start = findLineStartMarker(source, String(">>>>>>>>>>"), offset);
 
-    while(offset < data.length()) {
-        String line = readLine(data, &offset);
-
-        if(!in_block && line.startsWith(String(">>>>>>>>>>"))) {
-            parseOpenLine(line, &current_name, &current_attrs);
-            current_code = String("");
-            in_block = true;
-            continue;
+        if(open_start < 0) {
+            break;
         }
 
-        if(in_block && line.startsWith(String("<<<<<<<<<<"))) {
-            String close_name = line.substr(10).trim();
+        int open_end = findLineEnd(source, open_start);
+        String open_line = source.substr(open_start, open_end - open_start).trim();
 
-            if(close_name == current_name) {
-                Ref<CodeTemplateBlock> block(
-                    new CodeTemplateBlock(current_name, current_code, current_attrs)
-                );
+        String current_name;
+        StringList current_attrs;
+        parseOpenLine(open_line, &current_name, &current_attrs);
 
-                blocks.push(block);
-
-                current_name = String("");
-                current_code = String("");
-                current_attrs.clear();
-                in_block = false;
-                continue;
-            }
+        int code_start = open_end;
+        if(code_start < source.length() && source.substr(code_start, 1) == String("\n")) {
+            code_start++;
         }
 
-        if(in_block) {
-            current_code += line;
-            current_code += String("\n");
+        int close_start = findLineStartMarker(source, String("<<<<<<<<<<"), code_start);
+
+        if(close_start < 0) {
+            printf("Template Error: missing closing marker for %s\n", (const char*)current_name);
+            throw "Template Error: missing closing marker";
+        }
+
+        int close_end = findLineEnd(source, close_start);
+        String close_line = source.substr(close_start, close_end - close_start).trim();
+        String close_name = close_line.substr(10).trim();
+
+        if(!(close_name == current_name)) {
+            printf(
+                "Template Error: closing marker mismatch. opened '%s' but closed '%s'\n",
+                (const char*)current_name,
+                (const char*)close_name
+            );
+            throw "Template Error: closing marker mismatch";
+        }
+
+        String current_code = source.substr(code_start, close_start - code_start);
+
+        if(isBrokenTemplateCode(current_code)) {
+            printf("Template Error: broken nested marker inside %s\n", (const char*)current_name);
+            printf("%s\n", (const char*)current_code);
+            throw "Template Error: broken nested marker";
+        }
+
+        Ref<CodeTemplateBlock> block(
+            new CodeTemplateBlock(current_name, current_code, current_attrs)
+        );
+
+        blocks.push(block);
+
+        offset = close_end;
+        if(offset < source.length() && source.substr(offset, 1) == String("\n")) {
+            offset++;
         }
     }
 
@@ -197,21 +221,36 @@ Ref<CodeTemplateBlock> CodeTemplate::getBlock(const String& name) const {
     return Ref<CodeTemplateBlock>(0);
 }
 
-String CodeTemplate::getCode(const String& name) const {
+String CodeTemplate::getCode(const String& name, StringList attribute_values) const {
     Ref<CodeTemplateBlock> block = getBlock(name);
 
     if(!block) {
         return String("");
     }
 
-    return block->getCode();
+    String code = block->getCode();
+    StringList attr = block->getAttributes();
+
+    if (attr.length() > attribute_values.length()) {
+        throw "Insufficient attributes provided";
+    }
+
+    for (int i=0; i<attr.length(); i++) {
+        code = code.replace(String("%?%").arg(attr[i], "?"), attribute_values[i]);
+    }
+
+    return code;
 }
 
-Array<String> CodeTemplate::getAttributes(const String& name) const {
+String CodeTemplate::getCode(const String& name) const {
+    return this->getCode(name, StringList());
+}
+
+StringList CodeTemplate::getAttributes(const String& name) const {
     Ref<CodeTemplateBlock> block = getBlock(name);
 
     if(!block) {
-        return Array<String>();
+        return StringList();
     }
 
     return block->getAttributes();

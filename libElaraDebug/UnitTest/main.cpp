@@ -20,7 +20,7 @@ bool testUnitTestingFailed() {
 }
 
 bool testUnitTestingException() {
-    UnitTests::fail("Faield by calling fail");
+    UnitTests::fail("Failed by calling fail");
     return true;
 }
 
