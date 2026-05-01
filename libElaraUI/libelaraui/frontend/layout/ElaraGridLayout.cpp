@@ -1,6 +1,6 @@
 #include "ElaraGridLayout.h"
 
-#include "ElaraWidgetRegistry.h"
+#include "../ElaraWidgetRegistry.h"
 
 namespace elara {
 

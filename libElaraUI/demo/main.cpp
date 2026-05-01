@@ -2,10 +2,10 @@
 
 #include <libelaraui/config.h>
 #include <libelaraui/ElaraGui.h>
-#include <libelaraui/frontend/ElaraTheme.h>
-#include <libelaraui/frontend/ElaraTabWidget.h>
-#include <libelaraui/frontend/ElaraRootWidget.h>
-#include <libelaraui/frontend/ElaraPopupWidget.h>
+#include <libelaraui/frontend/theme/ElaraTheme.h>
+#include <libelaraui/frontend/widgets/ElaraTabWidget.h>
+#include <libelaraui/frontend/widgets/ElaraRootWidget.h>
+#include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 
 #ifdef WITH_GTK_BACKEND
 #include <libelaraui/backends/gtk/GtkGuiBackend.h>

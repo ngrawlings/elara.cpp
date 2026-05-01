@@ -6,7 +6,7 @@
 #include <libelaracore/memory/HashMap.h>
 #include <libelaracore/memory/Ref.h>
 
-#include "ElaraWidget.h"
+#include "widgets/ElaraWidget.h"
 
 namespace elara {
 

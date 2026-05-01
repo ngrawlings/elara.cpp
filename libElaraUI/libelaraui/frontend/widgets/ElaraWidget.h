@@ -6,9 +6,9 @@
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/Ref.h>
 
-#include "../ElaraGui.h"
-#include "ElaraWidgetHandle.h"
-#include "ElaraPalette.h"
+#include "../../ElaraGui.h"
+#include "../ElaraWidgetHandle.h"
+#include "../theme/ElaraPalette.h"
 
 namespace elara {
 

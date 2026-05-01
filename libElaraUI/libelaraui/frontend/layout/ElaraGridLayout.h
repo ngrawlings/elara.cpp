@@ -1,7 +1,7 @@
 #ifndef ELARA_GRID_LAYOUT_H
 #define ELARA_GRID_LAYOUT_H
 
-#include "ElaraWidget.h"
+#include "../widgets/ElaraWidget.h"
 
 namespace elara {
 

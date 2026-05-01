@@ -4,7 +4,7 @@
 #include <libelaracore/memory/Memory.h>
 #include <libelaracore/memory/HashMap.h>
 
-#include "ElaraWidgetRegistry.h"
+#include "../ElaraWidgetRegistry.h"
 #include "ElaraWidget.h"
 #include "ElaraPopupWidget.h"
 
