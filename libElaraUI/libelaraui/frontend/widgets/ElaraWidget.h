@@ -56,8 +56,19 @@ protected:
     double width;
     double height;
 
+    double margin_left;
+    double margin_top;
+    double margin_right;
+    double margin_bottom;
+
+    double padding_left;
+    double padding_top;
+    double padding_right;
+    double padding_bottom;
+
     int z_order;
 
+    ElaraWidget* parent;
     ElaraPalette* palette;
     Array< Ref<ElaraWidget> > children;
 
@@ -66,6 +77,29 @@ protected:
 public:
     ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle);
     virtual ~ElaraWidget();
+
+    virtual void setParent(ElaraWidget* widget_parent);
+    virtual ElaraWidget* getParent() const;
+    virtual double getAbsoluteX() const;
+    virtual double getAbsoluteY() const;
+
+    virtual void setMargin(double left, double top, double right, double bottom);
+    virtual void setPadding(double left, double top, double right, double bottom);
+
+    virtual double getMarginLeft() const;
+    virtual double getMarginTop() const;
+    virtual double getMarginRight() const;
+    virtual double getMarginBottom() const;
+
+    virtual double getPaddingLeft() const;
+    virtual double getPaddingTop() const;
+    virtual double getPaddingRight() const;
+    virtual double getPaddingBottom() const;
+
+    virtual double getContentX() const;
+    virtual double getContentY() const;
+    virtual double getContentWidth() const;
+    virtual double getContentHeight() const;
 
     virtual void addChild(Ref<ElaraWidget> child);
     virtual int childCount() const;
@@ -98,6 +132,10 @@ public:
     ) const;
 
     virtual void setBounds(double px, double py, double w, double h);
+    virtual double getX() const;
+    virtual double getY() const;
+    virtual double getWidth() const;
+    virtual double getHeight() const;
     bool contains(double px, double py) const;
     bool containsLocal(double px, double py) const;
 

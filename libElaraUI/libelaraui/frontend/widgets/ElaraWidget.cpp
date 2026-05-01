@@ -2,27 +2,183 @@
 
 namespace elara {
 
-ElaraWidget::ElaraWidget() : 
+class ElaraWidgetOffsetDrawContext : public ElaraDrawContext {
+private:
+    ElaraDrawContext* ctx;
+    double offset_x;
+    double offset_y;
+    double clip_width;
+    double clip_height;
+
+public:
+    ElaraWidgetOffsetDrawContext(
+        ElaraDrawContext* draw_context,
+        double x,
+        double y,
+        double w,
+        double h
+    ) : ctx(draw_context),
+        offset_x(x),
+        offset_y(y),
+        clip_width(w),
+        clip_height(h) {
+        if(clip_width < 0) {
+            clip_width = 0;
+        }
+
+        if(clip_height < 0) {
+            clip_height = 0;
+        }
+    }
+
+    double getOffsetX() const {
+        return offset_x;
+    }
+
+    double getOffsetY() const {
+        return offset_y;
+    }
+
+    void clear(double r, double g, double b) {
+        ctx->setColor(r, g, b);
+        ctx->fillRect(offset_x, offset_y, clip_width, clip_height);
+    }
+
+    void setColor(double r, double g, double b) {
+        ctx->setColor(r, g, b);
+    }
+
+    void fillCircle(double x, double y, double radius) {
+        ctx->fillCircle(offset_x + x, offset_y + y, radius);
+    }
+
+    void fillRect(double x, double y, double w, double h) {
+        ctx->fillRect(offset_x + x, offset_y + y, w, h);
+    }
+
+    void line(double x1, double y1, double x2, double y2, double line_width) {
+        ctx->line(
+            offset_x + x1,
+            offset_y + y1,
+            offset_x + x2,
+            offset_y + y2,
+            line_width
+        );
+    }
+
+    void drawText(double x, double y, const String& text, double size) {
+        ctx->drawText(offset_x + x, offset_y + y, text, size);
+    }
+};
+
+ElaraWidget::ElaraWidget() :
     x(0),
     y(0),
     width(0),
     height(0),
-    palette(0) { }
+    margin_left(0),
+    margin_top(0),
+    margin_right(0),
+    margin_bottom(0),
+    padding_left(0),
+    padding_top(0),
+    padding_right(0),
+    padding_bottom(0),
+    z_order(0),
+    parent(0),
+    palette(0) {}
 
 ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle)
-    : widget_handle(widget_handle), 
+    : widget_handle(widget_handle),
       x(0),
       y(0),
       width(0),
       height(0),
+      margin_left(0),
+      margin_top(0),
+      margin_right(0),
+      margin_bottom(0),
+      padding_left(0),
+      padding_top(0),
+      padding_right(0),
+      padding_bottom(0),
+      z_order(0),
+      parent(0),
       palette(0) {
-        widget_register->registerWidget(widget_handle, this);
-      }
+    widget_register->registerWidget(widget_handle, this);
+}
 
 ElaraWidget::~ElaraWidget() {}
 
+void ElaraWidget::setParent(ElaraWidget* widget_parent) {
+    parent = widget_parent;
+}
+
+ElaraWidget* ElaraWidget::getParent() const {
+    return parent;
+}
+
+double ElaraWidget::getAbsoluteX() const {
+    if(parent) {
+        return parent->getAbsoluteX() + x + margin_left;
+    }
+
+    return x + margin_left;
+}
+
+double ElaraWidget::getAbsoluteY() const {
+    if(parent) {
+        return parent->getAbsoluteY() + y + margin_top;
+    }
+
+    return y + margin_top;
+}
+
+void ElaraWidget::setMargin(double left, double top, double right, double bottom) {
+    margin_left = left;
+    margin_top = top;
+    margin_right = right;
+    margin_bottom = bottom;
+}
+
+void ElaraWidget::setPadding(double left, double top, double right, double bottom) {
+    padding_left = left;
+    padding_top = top;
+    padding_right = right;
+    padding_bottom = bottom;
+}
+
+double ElaraWidget::getMarginLeft() const { return margin_left; }
+double ElaraWidget::getMarginTop() const { return margin_top; }
+double ElaraWidget::getMarginRight() const { return margin_right; }
+double ElaraWidget::getMarginBottom() const { return margin_bottom; }
+
+double ElaraWidget::getPaddingLeft() const { return padding_left; }
+double ElaraWidget::getPaddingTop() const { return padding_top; }
+double ElaraWidget::getPaddingRight() const { return padding_right; }
+double ElaraWidget::getPaddingBottom() const { return padding_bottom; }
+
+double ElaraWidget::getContentX() const { return padding_left; }
+double ElaraWidget::getContentY() const { return padding_top; }
+
+double ElaraWidget::getContentWidth() const {
+    double result = width - padding_left - padding_right;
+    return result < 0 ? 0 : result;
+}
+
+double ElaraWidget::getContentHeight() const {
+    double result = height - padding_top - padding_bottom;
+    return result < 0 ? 0 : result;
+}
+
 void ElaraWidget::setPalette(ElaraPalette* widget_palette) {
     palette = widget_palette;
+
+    for(int i = 0; i < (int)children.length(); i++) {
+        if(children[i]) {
+            children[i]->setPalette(widget_palette);
+        }
+    }
 }
 
 ElaraPalette* ElaraWidget::getPalette() const {
@@ -68,21 +224,56 @@ void ElaraWidget::setBounds(double px, double py, double w, double h) {
     height = h;
 }
 
+double ElaraWidget::getX() const {
+    return x;
+}
+
+double ElaraWidget::getY() const {
+    return y;
+}
+
+double ElaraWidget::getWidth() const {
+    return width;
+}
+
+double ElaraWidget::getHeight() const {
+    return height;
+}
+
 void ElaraWidget::onDraw(
     ElaraDrawContext* ctx,
     int draw_width,
     int draw_height
 ) {
-    x = 0;
-    y = 0;
     width = draw_width;
     height = draw_height;
 
-    draw(ctx);
+    double draw_x = x + margin_left;
+    double draw_y = y + margin_top;
+
+    /* Incoming translated contexts compose relative bounds. Raw backend contexts use absolute bounds. */
+    ElaraWidgetOffsetDrawContext* parent_ctx =
+        dynamic_cast<ElaraWidgetOffsetDrawContext*>(ctx);
+
+    if(!parent_ctx) {
+        draw_x = getAbsoluteX();
+        draw_y = getAbsoluteY();
+    }
+
+    ElaraWidgetOffsetDrawContext local_ctx(
+        ctx,
+        draw_x,
+        draw_y,
+        width - margin_left - margin_right,
+        height - margin_top - margin_bottom
+    );
+
+    draw(&local_ctx);
 }
 
 void ElaraWidget::addChild(Ref<ElaraWidget> child) {
     if(child) {
+        child->setParent(this);
         child->setPalette(palette);
         children.push(child);
     }
@@ -109,7 +300,10 @@ int ElaraWidget::getZOrder() const {
 }
 
 bool ElaraWidget::contains(double px, double py) const {
-    return px >= x && py >= y && px <= x + width && py <= y + height;
+    return px >= x + margin_left &&
+           py >= y + margin_top &&
+           px <= x + width - margin_right &&
+           py <= y + height - margin_bottom;
 }
 
 bool ElaraWidget::containsLocal(double px, double py) const {
@@ -143,8 +337,8 @@ bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
 
         if(winner >= 0) {
             ElaraUiEvent child_event = event;
-            child_event.x = event.x - children[winner]->x;
-            child_event.y = event.y - children[winner]->y;
+            child_event.x = event.x - children[winner]->getX() - children[winner]->getMarginLeft();
+            child_event.y = event.y - children[winner]->getY() - children[winner]->getMarginTop();
 
             return children[winner]->eventPropagate(child_event);
         }
@@ -178,7 +372,5 @@ bool ElaraWidget::handleEvent(const ElaraUiEvent& event) {
 
     return false;
 }
-
-
 
 }

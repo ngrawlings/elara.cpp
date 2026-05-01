@@ -193,6 +193,8 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
             continue;
         }
 
+        widget->setParent(this);
+
         double cx = trackOffset(columns, cell.column);
         double cy = trackOffset(rows, cell.row);
 

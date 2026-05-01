@@ -22,7 +22,9 @@ ElaraTabWidget::ElaraTabWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHand
     : ElaraWidget(root_widget, widget_handle),
       active_index(-1),
       hover_index(-1),
-      tab_height(34) {}
+      tab_height(34) {
+        setPadding(0, tab_height, 0, 0);
+      }
 
 void ElaraTabWidget::setPalette(ElaraPalette* widget_palette) {
     ElaraWidget::setPalette(widget_palette);
@@ -37,6 +39,13 @@ void ElaraTabWidget::setPalette(ElaraPalette* widget_palette) {
 int ElaraTabWidget::addTab(const String& title, ElaraWidget *widget) {
     if(widget) {
         widget->setPalette(palette);
+
+        /*
+            Critical:
+            addTab owns this widget visually, so it must also become a child
+            for parent-chain absolute bounds and event/draw offset logic.
+        */
+        addChild(Ref<ElaraWidget>(widget));
     }
 
     Ref<ElaraTabPage> page(new ElaraTabPage(title, widget));
@@ -163,7 +172,7 @@ void ElaraTabWidget::draw(ElaraDrawContext* ctx) {
     if(page && page->getWidget()) {
         page->getWidget()->setBounds(
             0,
-            0,
+            tab_height,
             width,
             height - tab_height
         );
