@@ -15,6 +15,7 @@ using namespace elara;
 
 class DemoPopup : public ElaraPopupWidget {
 public:
+    DemoPopup(ElaraWidgetRegister* root) : ElaraPopupWidget(root, "0001") {}
     void onItemSelected(const String& id) {
         printf("popup selected: %s\n", (const char*)id);
     }
@@ -22,6 +23,7 @@ public:
 
 class EmptyPanel0 : public ElaraWidget {
 public:
+    EmptyPanel0(ElaraWidgetRegister* root) : ElaraWidget(root, "0002") {}
     void draw(ElaraDrawContext* ctx) {
         ctx->setColor(0.10, 0.10, 0.12);
         ctx->fillRect(0, 34, 2000, 2000);
@@ -33,6 +35,7 @@ public:
 
 class EmptyPanel1 : public ElaraWidget {
 public:
+    EmptyPanel1(ElaraWidgetRegister* root) : ElaraWidget(root, "0003") {}
     void draw(ElaraDrawContext* ctx) {
         ctx->setColor(0.10, 0.10, 0.12);
         ctx->fillRect(0, 34, 2000, 2000);
@@ -44,6 +47,7 @@ public:
 
 class EmptyPanel2 : public ElaraWidget {
 public:
+    EmptyPanel2(ElaraWidgetRegister* root) : ElaraWidget(root, "0004") {}
     void draw(ElaraDrawContext* ctx) {
         ctx->setColor(0.10, 0.10, 0.12);
         ctx->fillRect(0, 34, 2000, 2000);
@@ -116,28 +120,29 @@ int main(int argc, char** argv) {
     printf("libElaraUI demo requires GTK backend. Reconfigure without --disable-gtk.\n");
     return 1;
 #else
+    Ref<ElaraDrawSurface> root_surface(new ElaraRootWidget());
+    ElaraRootWidget* root = (ElaraRootWidget*)root_surface.getPtr();
+
+    printf("%p\n", root);
+
     ElaraTheme theme;
     theme.setMode("light");
 
-    Ref<ElaraPopupWidget> popup(new DemoPopup());
+    ElaraPopupWidget* popup = new DemoPopup(root);
     popup->addItem("file.new", "New");
     popup->addItem("file.open", "Open");
     popup->addItem("file.save", "Save");
     popup->addItem("file.quit", "Quit");
 
-    Ref<ElaraWidget> tabs_widget(new ElaraTabWidget());
-    ElaraTabWidget* tabs = (ElaraTabWidget*)tabs_widget.getPtr();
+    ElaraTabWidget* tabs = new ElaraTabWidget(root, "0005");
+    tabs->addTab("Health", new EmptyPanel0(root));
+    tabs->addTab("EPA", new EmptyPanel1(root));
+    tabs->addTab("Graphs", new EmptyPanel2(root));
 
-    tabs->addTab("Health", Ref<ElaraWidget>(new EmptyPanel0()));
-    tabs->addTab("EPA", Ref<ElaraWidget>(new EmptyPanel1()));
-    tabs->addTab("Graphs", Ref<ElaraWidget>(new EmptyPanel2()));
-
-    Ref<ElaraDrawSurface> root_surface(new ElaraRootWidget());
-    ElaraRootWidget* root = (ElaraRootWidget*)root_surface.getPtr();
-
-    root->setContent(tabs_widget);
-    root->setPopup(popup);
+    
     root->setPalette(theme.getPalette());
+    root->setContent("0005");
+    root->setPopup("0001");
 
     Ref<ElaraGuiBackend> backend(new GtkGuiBackend("org.elara.ui.demo"));
 

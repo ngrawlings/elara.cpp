@@ -1,11 +1,13 @@
 #ifndef ELARA_WIDGET_H
 #define ELARA_WIDGET_H
 
+#include <libelaracore/memory/Memory.h>
 #include <libelaracore/memory/String.h>
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/Ref.h>
 
 #include "../ElaraGui.h"
+#include "ElaraWidgetHandle.h"
 #include "ElaraPalette.h"
 
 namespace elara {
@@ -18,8 +20,17 @@ enum ElaraUiEventType {
     ELARA_UI_KEY_UP
 };
 
+class ElaraRootWidget;
+
+class ElaraWidgetRegister {
+public:
+    virtual void registerWidget(ElaraWidgetHandle widget_handle, void* widget) = 0;
+};
+
 class ElaraUiEvent {
 public:
+    ElaraRootWidget* root_widget;
+
     ElaraUiEventType type;
 
     double x;
@@ -38,6 +49,8 @@ public:
 
 class ElaraWidget : public ElaraDrawSurface {
 protected:
+    ElaraWidgetHandle widget_handle;
+
     double x;
     double y;
     double width;
@@ -48,8 +61,10 @@ protected:
     ElaraPalette* palette;
     Array< Ref<ElaraWidget> > children;
 
-public:
     ElaraWidget();
+
+public:
+    ElaraWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle);
     virtual ~ElaraWidget();
 
     virtual void addChild(Ref<ElaraWidget> child);
@@ -81,7 +96,7 @@ virtual ElaraPaletteTriplet colors(
         const String& master,
         const String& sub
     ) const;
-    
+
     virtual void setBounds(double px, double py, double w, double h);
     bool contains(double px, double py) const;
     bool containsLocal(double px, double py) const;

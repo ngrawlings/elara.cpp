@@ -26,8 +26,9 @@ void ElaraPopupItem::setEnabled(bool value) {
     enabled = value;
 }
 
-ElaraPopupWidget::ElaraPopupWidget()
-    : visible(false),
+ElaraPopupWidget::ElaraPopupWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle)
+    : ElaraWidget(root_widget, widget_handle), 
+      visible(false),
       hover_index(-1),
       item_height(28),
       padding(8) {

@@ -16,7 +16,7 @@ private:
 
 public:
     ElaraTabPage();
-    ElaraTabPage(const String& tab_title, Ref<ElaraWidget> tab_widget);
+    ElaraTabPage(const String& tab_title, ElaraWidget* tab_widget);
 
     String getTitle() const;
     Ref<ElaraWidget> getWidget() const;
@@ -40,11 +40,11 @@ private:
     void applyColor(ElaraDrawContext* ctx, const ElaraColor& color) const;
 
 public:
-    ElaraTabWidget();
+    ElaraTabWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle);
 
     void setPalette(ElaraPalette* widget_palette);
 
-    int addTab(const String& title, Ref<ElaraWidget> widget);
+    int addTab(const String& title, ElaraWidget* widget);
 
     void setActiveTab(int index);
     int getActiveTab() const;

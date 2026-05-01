@@ -16,7 +16,7 @@ public:
     virtual void fillRect(double x, double y, double w, double h) = 0;
     virtual void line(double x1, double y1, double x2, double y2, double width) = 0;
     virtual void drawText(double x, double y, const String& text, double size) = 0;
-    
+
 };
 
 class ElaraDrawSurface {
@@ -24,6 +24,13 @@ public:
     virtual ~ElaraDrawSurface() {}
 
     virtual void onDraw(ElaraDrawContext* ctx, int width, int height) = 0;
+
+    virtual void dispatchMouseMove(double x, double y) {}
+    virtual void dispatchMouseDown(int button, double x, double y) {}
+    virtual void dispatchMouseUp(int button, double x, double y) {}
+
+    virtual void dispatchKeyDown(unsigned int keyval) {}
+    virtual void dispatchKeyUp(unsigned int keyval) {}
 
     virtual void onMouseMove(double x, double y) {}
     virtual void onMouseDown(int button, double x, double y) {}

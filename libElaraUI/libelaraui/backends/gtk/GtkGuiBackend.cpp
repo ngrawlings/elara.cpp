@@ -156,7 +156,7 @@ void GtkGuiBackend::onMouseMotion(
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
 
     if(self->surface) {
-        self->surface->onMouseMove(x, y);
+        self->surface->dispatchMouseMove(x, y);
         self->invalidate();
     }
 }
@@ -172,7 +172,7 @@ void GtkGuiBackend::onMousePressed(
 
     if(self->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        self->surface->onMouseDown(button, x, y);
+        self->surface->dispatchMouseDown(button, x, y);
     }
 
     if(self->drawing_area) {
@@ -193,7 +193,7 @@ void GtkGuiBackend::onMouseReleased(
 
     if(self->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        self->surface->onMouseUp(button, x, y);
+        self->surface->dispatchMouseUp(button, x, y);
     }
 
     self->invalidate();
@@ -209,7 +209,7 @@ gboolean GtkGuiBackend::onKeyPressed(
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
 
     if(self->surface) {
-        self->surface->onKeyDown(keyval);
+        self->surface->dispatchKeyDown(keyval);
     }
 
     self->invalidate();
@@ -227,7 +227,7 @@ gboolean GtkGuiBackend::onKeyReleased(
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
 
     if(self->surface) {
-        self->surface->onKeyUp(keyval);
+        self->surface->dispatchKeyUp(keyval);
     }
 
     self->invalidate();

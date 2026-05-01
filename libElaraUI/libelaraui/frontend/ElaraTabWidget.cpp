@@ -6,7 +6,7 @@ ElaraTabPage::ElaraTabPage() {}
 
 ElaraTabPage::ElaraTabPage(
     const String& tab_title,
-    Ref<ElaraWidget> tab_widget
+    ElaraWidget* tab_widget
 ) : title(tab_title),
     widget(tab_widget) {}
 
@@ -18,8 +18,9 @@ Ref<ElaraWidget> ElaraTabPage::getWidget() const {
     return widget;
 }
 
-ElaraTabWidget::ElaraTabWidget()
-    : active_index(-1),
+ElaraTabWidget::ElaraTabWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle)
+    : ElaraWidget(root_widget, widget_handle),
+      active_index(-1),
       hover_index(-1),
       tab_height(34) {}
 
@@ -33,7 +34,7 @@ void ElaraTabWidget::setPalette(ElaraPalette* widget_palette) {
     }
 }
 
-int ElaraTabWidget::addTab(const String& title, Ref<ElaraWidget> widget) {
+int ElaraTabWidget::addTab(const String& title, ElaraWidget *widget) {
     if(widget) {
         widget->setPalette(palette);
     }

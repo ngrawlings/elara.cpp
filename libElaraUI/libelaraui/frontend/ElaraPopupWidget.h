@@ -35,7 +35,7 @@ private:
     int itemAt(double px, double py) const;
 
 public:
-    ElaraPopupWidget();
+    ElaraPopupWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle);
 
     void showAt(double px, double py);
     void hide();
