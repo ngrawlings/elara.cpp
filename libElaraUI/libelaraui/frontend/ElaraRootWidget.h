@@ -4,6 +4,7 @@
 #include <libelaracore/memory/Memory.h>
 #include <libelaracore/memory/HashMap.h>
 
+#include "ElaraWidgetRegistry.h"
 #include "ElaraWidget.h"
 #include "ElaraPopupWidget.h"
 
@@ -14,8 +15,6 @@ private:
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
     ElaraWidgetHandle popup;
-
-    HashMap<ElaraWidget> widgets;
 
 public:
     ElaraRootWidget();

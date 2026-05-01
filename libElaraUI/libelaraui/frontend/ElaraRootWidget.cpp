@@ -31,12 +31,11 @@ Ref<ElaraWidget> ElaraRootWidget::getPopup() const {
 }
 
 void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widget) {
-    this->widgets.set(widget_handle.getHandle(), Ref<ElaraWidget>((ElaraWidget*)widget));
+    ElaraWidgetRegistry::getInstance()->setWidget(widget_handle, (ElaraWidget*)widget);
 }
 
 Ref<ElaraWidget> ElaraRootWidget::getWidget(ElaraWidgetHandle widget_handle) const {
-    Memory mem = widget_handle.getHandle();
-    return this->widgets.get(mem);
+    return ElaraWidgetRegistry::getInstance()->getWidget(widget_handle);
 }
 
 void ElaraRootWidget::setFocus(ElaraWidgetHandle widget_handle) {

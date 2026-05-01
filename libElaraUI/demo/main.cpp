@@ -31,6 +31,10 @@ public:
         ctx->setColor(0.8, 0.8, 0.9);
         ctx->drawText(24, 70, "Panel content 0", 16);
     }
+
+    virtual void onMouseUp(int button, double px, double py) {
+        printf("click\n");
+    }
 };
 
 class EmptyPanel1 : public ElaraWidget {

@@ -9,14 +9,14 @@ ElaraWidget::ElaraWidget() :
     height(0),
     palette(0) { }
 
-ElaraWidget::ElaraWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle)
+ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle)
     : widget_handle(widget_handle), 
       x(0),
       y(0),
       width(0),
       height(0),
       palette(0) {
-        root_widget->registerWidget(widget_handle, this);
+        widget_register->registerWidget(widget_handle, this);
       }
 
 ElaraWidget::~ElaraWidget() {}

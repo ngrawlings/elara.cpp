@@ -1,0 +1,31 @@
+#ifndef ELARA_WIDGET_REGISTRY_H
+#define ELARA_WIDGET_REGISTRY_H
+
+#include <libelaracore/memory/Memory.h>
+#include <libelaracore/memory/String.h>
+#include <libelaracore/memory/HashMap.h>
+#include <libelaracore/memory/Ref.h>
+
+#include "ElaraWidget.h"
+
+namespace elara {
+
+class ElaraWidgetRegistry {
+public:
+    virtual ~ElaraWidgetRegistry();
+
+    static ElaraWidgetRegistry* getInstance();
+
+    void setWidget(ElaraWidgetHandle widget_handle, ElaraWidget *widget);
+    Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
+
+protected:
+    ElaraWidgetRegistry();
+
+    static ElaraWidgetRegistry* instance;
+    HashMap<ElaraWidget> widgets;
+};
+
+}
+
+#endif

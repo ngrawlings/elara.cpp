@@ -1,12 +1,18 @@
 {
-  "format": "pure-path-project-last-sync",
+  "format": "pure-path-project-commit",
   "version": 1,
-  "project_name": "elara.cpp",
+  "commit_id": "20260501T162622Z-e879ad",
+  "parent": "20260430T202916Z-45f5e2",
   "branch": "main",
+  "project_name": "elara.cpp",
+  "local_dir": "/home/nyhl/workspace/elara.cpp",
+  "server": "https://repository.deltamux.com",
   "remote_root": "/projects/elarasoft/elara.cpp",
-  "remote_files_root": "/projects/elarasoft/elara.cpp/branches/main/files",
-  "updated_utc": "2026-05-01T16:26:38Z",
-  "source": "push",
+  "author": "nyhl",
+  "host": "sbc01",
+  "created_utc": "2026-05-01T16:26:22Z",
+  "message": "Widget life cycle fully managed",
+  "bug_ids": [],
   "snapshot": {
     "--help/ELARA_AGENT_API.md": {
       "sha256": "c28945ef95a715ceb0c0c4e13988c649f5c2057224ef10642656f070c526f8db",
@@ -1444,5 +1450,11 @@
       "sha256": "9be0d9554e09e988a4318793e25a14da8f3cb13cef29060ffbfba19527422bfb",
       "bytes": 5142
     }
+  },
+  "stats": {
+    "files": 359,
+    "added": 24,
+    "modified": 2,
+    "deleted": 0
   }
 }

@@ -64,7 +64,7 @@ protected:
     ElaraWidget();
 
 public:
-    ElaraWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle);
+    ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle);
     virtual ~ElaraWidget();
 
     virtual void addChild(Ref<ElaraWidget> child);
@@ -77,7 +77,7 @@ public:
     virtual void setPalette(ElaraPalette* widget_palette);
     virtual ElaraPalette* getPalette() const;
 
-virtual ElaraPaletteTriplet colors(
+    virtual ElaraPaletteTriplet colors(
         const String& master,
         const String& sub
     ) const;
