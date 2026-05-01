@@ -6,6 +6,7 @@
 #include <libelaracore/memory/Ref.h>
 
 #include "../ElaraGui.h"
+#include "ElaraPalette.h"
 
 namespace elara {
 
@@ -16,9 +17,34 @@ protected:
     double width;
     double height;
 
+    ElaraPalette* palette;
+
 public:
     ElaraWidget();
     virtual ~ElaraWidget();
+
+    virtual void setPalette(ElaraPalette* widget_palette);
+    virtual ElaraPalette* getPalette() const;
+
+    virtual ElaraPaletteTriplet colors(
+        const String& master,
+        const String& sub
+    ) const;
+
+    virtual ElaraColor base(
+        const String& master,
+        const String& sub
+    ) const;
+
+    virtual ElaraColor accent(
+        const String& master,
+        const String& sub
+    ) const;
+
+    virtual ElaraColor text(
+        const String& master,
+        const String& sub
+    ) const;
 
     // Draw Surface
     virtual void setBounds(double px, double py, double w, double h);
@@ -32,7 +58,6 @@ public:
     virtual void onKeyUp(unsigned int keyval) {}
 
     bool contains(double px, double py) const;
-
 };
 
 }

@@ -5,7 +5,6 @@
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/Ref.h>
 
-#include "../ElaraGui.h"
 #include "ElaraWidget.h"
 
 namespace elara {
@@ -23,15 +22,12 @@ public:
     Ref<ElaraWidget> getWidget() const;
 };
 
-class ElaraTabWidget : public ElaraDrawSurface {
+class ElaraTabWidget : public ElaraWidget {
 private:
     Array< Ref<ElaraTabPage> > pages;
 
     int active_index;
     int hover_index;
-
-    int width;
-    int height;
 
     double tab_height;
 
@@ -41,8 +37,12 @@ private:
 
     Ref<ElaraTabPage> activePage() const;
 
+    void applyColor(ElaraDrawContext* ctx, const ElaraColor& color) const;
+
 public:
     ElaraTabWidget();
+
+    void setPalette(ElaraPalette* widget_palette);
 
     int addTab(const String& title, Ref<ElaraWidget> widget);
 
@@ -50,7 +50,7 @@ public:
     int getActiveTab() const;
     int tabCount() const;
 
-    void onDraw(ElaraDrawContext* ctx, int draw_width, int draw_height);
+    void draw(ElaraDrawContext* ctx);
 
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

@@ -2,6 +2,7 @@
 
 #include <libelaraui/config.h>
 #include <libelaraui/ElaraGui.h>
+#include <libelaraui/frontend/ElaraTheme.h>
 #include <libelaraui/frontend/ElaraTabWidget.h>
 
 #ifdef WITH_GTK_BACKEND
@@ -10,14 +11,36 @@
 
 using namespace elara;
 
-class EmptyPanel : public ElaraWidget {
+class EmptyPanel0 : public ElaraWidget {
 public:
     void draw(ElaraDrawContext* ctx) {
         ctx->setColor(0.10, 0.10, 0.12);
         ctx->fillRect(0, 34, 2000, 2000);
 
         ctx->setColor(0.8, 0.8, 0.9);
-        ctx->drawText(24, 70, "Panel content", 16);
+        ctx->drawText(24, 70, "Panel content 0", 16);
+    }
+};
+
+class EmptyPanel1 : public ElaraWidget {
+public:
+    void draw(ElaraDrawContext* ctx) {
+        ctx->setColor(0.10, 0.10, 0.12);
+        ctx->fillRect(0, 34, 2000, 2000);
+
+        ctx->setColor(0.8, 0.8, 0.9);
+        ctx->drawText(24, 70, "Panel content 1", 16);
+    }
+};
+
+class EmptyPanel2 : public ElaraWidget {
+public:
+    void draw(ElaraDrawContext* ctx) {
+        ctx->setColor(0.10, 0.10, 0.12);
+        ctx->fillRect(0, 34, 2000, 2000);
+
+        ctx->setColor(0.8, 0.8, 0.9);
+        ctx->drawText(24, 70, "Panel content 2", 16);
     }
 };
 
@@ -84,13 +107,22 @@ int main(int argc, char** argv) {
     printf("libElaraUI demo requires GTK backend. Reconfigure without --disable-gtk.\n");
     return 1;
 #else
+    ElaraTheme theme;
+
+    //theme.setMode("dark");
+    theme.setMode("light");
+
+    ElaraPalette* palette = theme.getPalette();
+
     //Ref<ElaraDrawSurface> draw(new DemoSurface());
     Ref<ElaraTabWidget> tabs(new ElaraTabWidget());
     Ref<ElaraDrawSurface> draw_tabs(tabs.getPtr());
 
-    tabs->addTab("Health", Ref<ElaraWidget>(new EmptyPanel()));
-    tabs->addTab("EPA", Ref<ElaraWidget>(new EmptyPanel()));
-    tabs->addTab("Graphs", Ref<ElaraWidget>(new EmptyPanel()));
+    tabs->setPalette(palette);
+
+    tabs->addTab("Health", Ref<ElaraWidget>(new EmptyPanel0()));
+    tabs->addTab("EPA", Ref<ElaraWidget>(new EmptyPanel1()));
+    tabs->addTab("Graphs", Ref<ElaraWidget>(new EmptyPanel2()));
 
     Ref<ElaraGuiBackend> backend(new GtkGuiBackend("org.elara.ui.demo"));
 
