@@ -1,7 +1,7 @@
 #ifndef ELARA_GTK_GUI_BACKEND_H
 #define ELARA_GTK_GUI_BACKEND_H
 
-#include <libelaraui/ElaraGui.h>"
+#include <libelaraui/ElaraGui.h>
 
 #include <gtk/gtk.h>
 
@@ -21,7 +21,7 @@ public:
     void fillRect(double x, double y, double w, double h);
     void line(double x1, double y1, double x2, double y2, double width);
     void drawText(double x, double y, const String& text, double size);
-    
+
 };
 
 class GtkGuiBackend : public ElaraGuiBackend {

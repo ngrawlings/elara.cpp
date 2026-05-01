@@ -130,6 +130,22 @@ void ElaraTheme::buildDark() {
             ElaraColor(0.90, 0.90, 0.95)
         )
     );
+
+    palette->set("popup", "default",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.12, 0.15),
+            ElaraColor(0.35, 0.35, 0.42),
+            ElaraColor(0.90, 0.90, 0.94)
+        )
+    );
+
+    palette->set("popup", "hover",
+        ElaraPaletteTriplet(
+            ElaraColor(0.25, 0.30, 0.48),
+            ElaraColor(0.45, 0.50, 0.75),
+            ElaraColor(1.00, 1.00, 1.00)
+        )
+    );
 }
 
 void ElaraTheme::buildLight() {
@@ -182,6 +198,22 @@ void ElaraTheme::buildLight() {
             ElaraColor(0.97, 0.97, 0.99),
             ElaraColor(0.20, 0.50, 0.90),
             ElaraColor(0.10, 0.10, 0.12)
+        )
+    );
+
+    palette->set("popup", "default",
+        ElaraPaletteTriplet(
+            ElaraColor(0.98, 0.98, 1.00),
+            ElaraColor(0.65, 0.65, 0.72),
+            ElaraColor(0.10, 0.10, 0.12)
+        )
+    );
+
+    palette->set("popup", "hover",
+        ElaraPaletteTriplet(
+            ElaraColor(0.78, 0.84, 1.00),
+            ElaraColor(0.45, 0.55, 0.85),
+            ElaraColor(0.05, 0.05, 0.08)
         )
     );
 }

@@ -92,6 +92,7 @@ void GtkGuiBackend::buildWindow() {
     gtk_widget_add_controller(drawing_area, motion);
 
     GtkGesture* click = gtk_gesture_click_new();
+    gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
     g_signal_connect(click, "pressed", G_CALLBACK(GtkGuiBackend::onMousePressed), this);
     g_signal_connect(click, "released", G_CALLBACK(GtkGuiBackend::onMouseReleased), this);
     gtk_widget_add_controller(drawing_area, GTK_EVENT_CONTROLLER(click));
