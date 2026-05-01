@@ -63,31 +63,23 @@ void ElaraRootWidget::onMouseMove(double px, double py) {
 }
 
 void ElaraRootWidget::onMouseDown(int button, double px, double py) {
-    if(popup && popup->isVisible()) {
-        popup->onMouseDown(button, px, py);
-        return;
-    }
+    ElaraUiEvent event;
+    event.type = ELARA_UI_MOUSE_DOWN;
+    event.x = px;
+    event.y = py;
+    event.button = button;
 
-    printf("button: %d\n", button);
-    if(button == 3 && popup) {
-        popup->showAt(px, py);
-        return;
-    }
-
-    if(content) {
-        content->onMouseDown(button, px, py);
-    }
+    eventPropagate(event);
 }
 
 void ElaraRootWidget::onMouseUp(int button, double px, double py) {
-    if(popup && popup->isVisible()) {
-        popup->onMouseUp(button, px, py);
-        return;
-    }
+    ElaraUiEvent event;
+    event.type = ELARA_UI_MOUSE_UP;
+    event.x = px;
+    event.y = py;
+    event.button = button;
 
-    if(content) {
-        content->onMouseUp(button, px, py);
-    }
+    eventPropagate(event);
 }
 
 void ElaraRootWidget::onKeyDown(unsigned int keyval) {

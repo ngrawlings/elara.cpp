@@ -10,6 +10,32 @@
 
 namespace elara {
 
+enum ElaraUiEventType {
+    ELARA_UI_MOUSE_MOVE,
+    ELARA_UI_MOUSE_DOWN,
+    ELARA_UI_MOUSE_UP,
+    ELARA_UI_KEY_DOWN,
+    ELARA_UI_KEY_UP
+};
+
+class ElaraUiEvent {
+public:
+    ElaraUiEventType type;
+
+    double x;
+    double y;
+
+    int button;
+    unsigned int keyval;
+
+    ElaraUiEvent()
+        : type(ELARA_UI_MOUSE_MOVE),
+          x(0),
+          y(0),
+          button(0),
+          keyval(0) {}
+};
+
 class ElaraWidget : public ElaraDrawSurface {
 protected:
     double x;
@@ -17,16 +43,26 @@ protected:
     double width;
     double height;
 
+    int z_order;
+
     ElaraPalette* palette;
+    Array< Ref<ElaraWidget> > children;
 
 public:
     ElaraWidget();
     virtual ~ElaraWidget();
 
+    virtual void addChild(Ref<ElaraWidget> child);
+    virtual int childCount() const;
+    virtual Ref<ElaraWidget> getChild(int index) const;
+
+    virtual void setZOrder(int z);
+    virtual int getZOrder() const;
+
     virtual void setPalette(ElaraPalette* widget_palette);
     virtual ElaraPalette* getPalette() const;
 
-    virtual ElaraPaletteTriplet colors(
+virtual ElaraPaletteTriplet colors(
         const String& master,
         const String& sub
     ) const;
@@ -45,9 +81,14 @@ public:
         const String& master,
         const String& sub
     ) const;
-
-    // Draw Surface
+    
     virtual void setBounds(double px, double py, double w, double h);
+    bool contains(double px, double py) const;
+    bool containsLocal(double px, double py) const;
+
+    virtual bool eventPropagate(ElaraUiEvent event);
+    virtual bool handleEvent(const ElaraUiEvent& event);
+
     virtual void onDraw(ElaraDrawContext* ctx, int draw_width, int draw_height);
     virtual void draw(ElaraDrawContext* ctx) = 0;
 
@@ -56,8 +97,6 @@ public:
     virtual void onMouseUp(int button, double px, double py) {}
     virtual void onKeyDown(unsigned int keyval) {}
     virtual void onKeyUp(unsigned int keyval) {}
-
-    bool contains(double px, double py) const;
 };
 
 }

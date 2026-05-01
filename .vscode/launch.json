@@ -24,6 +24,18 @@
       "MIMode": "gdb",
       "miDebuggerPath": "/usr/bin/gdb",
       "externalConsole": false
+    },
+    {
+      "name": "Debug elara-ui-demo",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/libElaraUI/build/bin/libelaraui-demo",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "stopAtEntry": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "externalConsole": false
     }
   ]
 }
