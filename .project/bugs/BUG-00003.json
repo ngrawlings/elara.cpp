@@ -9,13 +9,28 @@
   "author": "nyhl",
   "host": "sbc01",
   "created_utc": "2026-04-30T17:01:55Z",
-  "updated_utc": "2026-04-30T20:26:58Z",
+  "updated_utc": "2026-04-30T20:46:00Z",
   "linked_commits": [],
   "comments": [
     {
       "author": "nyhl",
       "created_utc": "2026-04-30T20:26:58Z",
       "text": "Code complete but untested"
+    },
+    {
+      "author": "nyhl",
+      "created_utc": "2026-04-30T20:30:21Z",
+      "text": "Must ask codex to update the documentation for the CodeTemplate system"
+    },
+    {
+      "author": "nyhl",
+      "created_utc": "2026-04-30T20:45:22Z",
+      "text": "@include [1==1] module.blockname>>>>params1>params2"
+    },
+    {
+      "author": "nyhl",
+      "created_utc": "2026-04-30T20:46:00Z",
+      "text": "Above it the format for conditional includes"
     }
   ]
 }
