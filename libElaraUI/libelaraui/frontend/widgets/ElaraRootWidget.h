@@ -7,6 +7,7 @@
 #include "../ElaraWidgetRegistry.h"
 #include "ElaraWidget.h"
 #include "ElaraPopupWidget.h"
+#include "../ElaraOutboundEventFilter.h"
 
 namespace elara {
 
@@ -15,6 +16,8 @@ private:
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
     ElaraWidgetHandle popup;
+
+    Ref<WidgetListener> event_filter;
 
 public:
     ElaraRootWidget();

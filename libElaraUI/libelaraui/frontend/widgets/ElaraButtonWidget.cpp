@@ -104,7 +104,14 @@ void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {
 }
 
 void ElaraButtonWidget::onMouseMove(double px, double py) {
+    bool was_hovered = hovered;
     hovered = containsLocal(px, py);
+
+    emitMouseMove(px, py);
+
+    if(was_hovered != hovered) {
+        emitHoverChanged(hovered);
+    }
 
     if(!hovered) {
         pressed = false;
@@ -112,6 +119,8 @@ void ElaraButtonWidget::onMouseMove(double px, double py) {
 }
 
 void ElaraButtonWidget::onMouseDown(int button, double px, double py) {
+    emitMouseDown(button, px, py);
+
     if(!enabled || button != 1) {
         return;
     }
@@ -122,6 +131,8 @@ void ElaraButtonWidget::onMouseDown(int button, double px, double py) {
 }
 
 void ElaraButtonWidget::onMouseUp(int button, double px, double py) {
+    emitMouseUp(button, px, py);
+
     if(!enabled || button != 1) {
         pressed = false;
         return;
@@ -131,6 +142,7 @@ void ElaraButtonWidget::onMouseUp(int button, double px, double py) {
     pressed = false;
 
     if(was_pressed && containsLocal(px, py)) {
+        emitClicked(button, px, py);
         onClicked();
     }
 }

@@ -2,7 +2,9 @@
 
 namespace elara {
 
-ElaraRootWidget::ElaraRootWidget() {}
+ElaraRootWidget::ElaraRootWidget() {
+    event_filter = Ref<WidgetListener>(new ElaraOutboundEventFilter());
+}
 
 void ElaraRootWidget::setContent(ElaraWidgetHandle root_content) {
     content = root_content;
@@ -32,6 +34,7 @@ Ref<ElaraWidget> ElaraRootWidget::getPopup() const {
 
 void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widget) {
     ElaraWidgetRegistry::getInstance()->setWidget(widget_handle, (ElaraWidget*)widget);
+    ((ElaraWidget*)widget)->addListener(this->event_filter);
 }
 
 Ref<ElaraWidget> ElaraRootWidget::getWidget(ElaraWidgetHandle widget_handle) const {

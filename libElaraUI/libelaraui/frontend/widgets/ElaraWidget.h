@@ -9,6 +9,7 @@
 #include "../../ElaraGui.h"
 #include "../ElaraWidgetHandle.h"
 #include "../theme/ElaraPalette.h"
+#include "../listeners/WidgetListener.h"
 
 namespace elara {
 
@@ -17,7 +18,8 @@ enum ElaraUiEventType {
     ELARA_UI_MOUSE_DOWN,
     ELARA_UI_MOUSE_UP,
     ELARA_UI_KEY_DOWN,
-    ELARA_UI_KEY_UP
+    ELARA_UI_KEY_UP,
+    ELARA_UI_KEYS_TYPED
 };
 
 class ElaraRootWidget;
@@ -38,9 +40,11 @@ public:
 
     int button;
     unsigned int keyval;
+    String text;
 
     ElaraUiEvent()
-        : type(ELARA_UI_MOUSE_MOVE),
+        : root_widget(0),
+          type(ELARA_UI_MOUSE_MOVE),
           x(0),
           y(0),
           button(0),
@@ -52,6 +56,8 @@ protected:
     ElaraWidgetHandle widget_handle;
 
     bool visible;
+    bool hovered;
+    bool mouse_down;
 
     double x;
     double y;
@@ -73,12 +79,28 @@ protected:
     ElaraWidget* parent;
     ElaraPalette* palette;
     Array< Ref<ElaraWidget> > children;
+    Array< Ref<WidgetListener> > listeners;
 
     ElaraWidget();
+
+    virtual void emitMouseMove(double px, double py);
+    virtual void emitMouseDown(int button, double px, double py);
+    virtual void emitMouseUp(int button, double px, double py);
+    virtual void emitClicked(int button, double px, double py);
+    virtual void emitHoverChanged(bool is_hovered);
+    virtual void emitKeyDown(unsigned int keyval);
+    virtual void emitKeyUp(unsigned int keyval);
+    virtual void emitKeysTyped(const String& text);
 
 public:
     ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle);
     virtual ~ElaraWidget();
+
+    virtual ElaraWidgetHandle getHandle() const;
+
+    virtual void addListener(Ref<WidgetListener> listener);
+    virtual void removeListener(Ref<WidgetListener> listener);
+    virtual void clearListeners();
 
     virtual void setParent(ElaraWidget* widget_parent);
     virtual ElaraWidget* getParent() const;
@@ -155,6 +177,7 @@ public:
     virtual void onMouseUp(int button, double px, double py) {}
     virtual void onKeyDown(unsigned int keyval) {}
     virtual void onKeyUp(unsigned int keyval) {}
+    virtual void onKeysTyped(const String& text) {}
 };
 
 }

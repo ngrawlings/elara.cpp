@@ -73,6 +73,8 @@ public:
 
 ElaraWidget::ElaraWidget() :
     visible(true),
+    hovered(false),
+    mouse_down(false),
     x(0),
     y(0),
     width(0),
@@ -91,6 +93,9 @@ ElaraWidget::ElaraWidget() :
 
 ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle)
     : widget_handle(widget_handle),
+      visible(true),
+      hovered(false),
+      mouse_down(false),
       x(0),
       y(0),
       width(0),
@@ -110,6 +115,97 @@ ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle
 }
 
 ElaraWidget::~ElaraWidget() {}
+
+ElaraWidgetHandle ElaraWidget::getHandle() const {
+    return widget_handle;
+}
+
+void ElaraWidget::addListener(Ref<WidgetListener> listener) {
+    if(listener) {
+        listeners.push(listener);
+    }
+}
+
+void ElaraWidget::removeListener(Ref<WidgetListener> listener) {
+    if(!listener) {
+        return;
+    }
+
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i].getPtr() == listener.getPtr()) {
+            listeners.remove(i);
+            return;
+        }
+    }
+}
+
+void ElaraWidget::clearListeners() {
+    listeners.clear();
+}
+
+void ElaraWidget::emitMouseMove(double px, double py) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetMouseMove(widget_handle, px, py);
+        }
+    }
+}
+
+void ElaraWidget::emitMouseDown(int button, double px, double py) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetMouseDown(widget_handle, button, px, py);
+        }
+    }
+}
+
+void ElaraWidget::emitMouseUp(int button, double px, double py) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetMouseUp(widget_handle, button, px, py);
+        }
+    }
+}
+
+void ElaraWidget::emitClicked(int button, double px, double py) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetClicked(widget_handle, button, px, py);
+        }
+    }
+}
+
+void ElaraWidget::emitHoverChanged(bool is_hovered) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetHoverChanged(widget_handle, is_hovered);
+        }
+    }
+}
+
+void ElaraWidget::emitKeyDown(unsigned int keyval) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetKeyDown(widget_handle, keyval);
+        }
+    }
+}
+
+void ElaraWidget::emitKeyUp(unsigned int keyval) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetKeyUp(widget_handle, keyval);
+        }
+    }
+}
+
+void ElaraWidget::emitKeysTyped(const String& text) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetKeysTyped(widget_handle, text);
+        }
+    }
+}
 
 void ElaraWidget::setParent(ElaraWidget* widget_parent) {
     parent = widget_parent;

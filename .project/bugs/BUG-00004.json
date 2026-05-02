@@ -5,11 +5,11 @@
   "title": "Elara UI Tab focus return stops events",
   "description": "Events such as mouse tracking and clocks stop working after a tab loses focus and returns",
   "severity": "medium",
-  "status": "open",
+  "status": "closed",
   "author": "nyhl",
   "host": "sbc01",
   "created_utc": "2026-05-02T05:49:29Z",
-  "updated_utc": "2026-05-02T05:49:29Z",
+  "updated_utc": "2026-05-02T06:25:55Z",
   "linked_commits": [],
   "comments": []
 }

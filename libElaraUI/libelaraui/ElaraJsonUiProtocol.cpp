@@ -317,6 +317,7 @@ public:
             widget = new ElaraJsonSurfacePanelWidget(root, id);
         } else if(type == String("elara.widgets.density_map")) {
             widget = new ElaraDensityMapWidget(root, id);
+            // TODO: apply styling attribgutes within the json spec
         }
 
         applyProperties(widget, spec);
