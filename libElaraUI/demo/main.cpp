@@ -7,6 +7,7 @@
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
+#include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 
 #ifdef WITH_GTK_BACKEND
@@ -222,6 +223,21 @@ public:
     }
 };
 
+
+class DemoDensityMapPanel : public ElaraDensityMapWidget {
+public:
+    DemoDensityMapPanel(ElaraWidgetRegister* root)
+        : ElaraDensityMapWidget(root, "0009") {
+        setPowerProfile(8ULL, 2ULL, 16);
+        setLayerZeroAtBottom(true);
+        setShowLayerLines(true);
+        setGradientSteps(256);
+        generateModuloSequence(65536ULL, 2ULL);
+        setOverlayText("Density map: bottom=8 buckets, 16 layers, each row above is 2x capacity");
+        setShowLayerLines(false);
+    }
+};
+
 int main(int argc, char** argv) {
 #ifndef WITH_GTK_BACKEND
     printf("libElaraUI demo requires GTK backend. Reconfigure without --disable-gtk.\n");
@@ -242,6 +258,7 @@ int main(int argc, char** argv) {
     ElaraTabWidget* tabs = new ElaraTabWidget(root, "0005");
     tabs->addTab("Surface", new DemoSurfacePanel(root));
     tabs->addTab("Widgets", new DemoGridPanel(root));
+    tabs->addTab("Density map", new DemoDensityMapPanel(root));
 
     root->setPalette(theme.getPalette());
     root->setContent("0005");
