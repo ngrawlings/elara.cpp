@@ -72,6 +72,7 @@ public:
 };
 
 ElaraWidget::ElaraWidget() :
+    visible(true),
     x(0),
     y(0),
     width(0),
@@ -132,6 +133,14 @@ double ElaraWidget::getAbsoluteY() const {
     }
 
     return y + margin_top;
+}
+
+void ElaraWidget::setVisible(bool is_visible) {
+    visible = is_visible;
+}
+
+bool ElaraWidget::isVisible() const {
+    return visible;
 }
 
 void ElaraWidget::setMargin(double left, double top, double right, double bottom) {
@@ -311,6 +320,10 @@ bool ElaraWidget::containsLocal(double px, double py) const {
 }
 
 bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
+    if(!visible) {
+        return false;
+    }
+
     bool is_mouse =
         event.type == ELARA_UI_MOUSE_MOVE ||
         event.type == ELARA_UI_MOUSE_DOWN ||
@@ -321,7 +334,7 @@ bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
         int winner_z = -2147483647;
 
         for(int i = 0; i < (int)children.length(); i++) {
-            if(!children[i]) {
+            if(!children[i] || !children[i]->isVisible()) {
                 continue;
             }
 

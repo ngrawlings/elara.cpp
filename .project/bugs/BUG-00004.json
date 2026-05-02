@@ -1,0 +1,15 @@
+{
+  "format": "pure-path-project-bug",
+  "version": 1,
+  "bug_id": "BUG-00004",
+  "title": "Elara UI Tab focus return stops events",
+  "description": "Events such as mouse tracking and clocks stop working after a tab loses focus and returns",
+  "severity": "medium",
+  "status": "open",
+  "author": "nyhl",
+  "host": "sbc01",
+  "created_utc": "2026-05-02T05:49:29Z",
+  "updated_utc": "2026-05-02T05:49:29Z",
+  "linked_commits": [],
+  "comments": []
+}

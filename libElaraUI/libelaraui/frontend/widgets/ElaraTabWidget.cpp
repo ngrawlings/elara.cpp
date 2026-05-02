@@ -51,8 +51,12 @@ int ElaraTabWidget::addTab(const String& title, ElaraWidget *widget) {
     Ref<ElaraTabPage> page(new ElaraTabPage(title, widget));
     pages.push(page);
 
+    int new_index = (int)pages.length() - 1;
+
     if(active_index < 0) {
-        active_index = 0;
+        setActiveTab(0);
+    } else if(widget) {
+        widget->setVisible(false);
     }
 
     return (int)pages.length() - 1;
@@ -61,6 +65,12 @@ int ElaraTabWidget::addTab(const String& title, ElaraWidget *widget) {
 void ElaraTabWidget::setActiveTab(int index) {
     if(index < 0 || index >= (int)pages.length()) {
         return;
+    }
+
+    for(int i = 0; i < (int)pages.length(); i++) {
+        if(pages[i] && pages[i]->getWidget()) {
+            pages[i]->getWidget()->setVisible(i == index);
+        }
     }
 
     active_index = index;

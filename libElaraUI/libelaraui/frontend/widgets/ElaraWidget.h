@@ -51,6 +51,8 @@ class ElaraWidget : public ElaraDrawSurface {
 protected:
     ElaraWidgetHandle widget_handle;
 
+    bool visible;
+
     double x;
     double y;
     double width;
@@ -85,6 +87,9 @@ public:
 
     virtual void setMargin(double left, double top, double right, double bottom);
     virtual void setPadding(double left, double top, double right, double bottom);
+
+    virtual void setVisible(bool is_visible);
+    virtual bool isVisible() const;
 
     virtual double getMarginLeft() const;
     virtual double getMarginTop() const;
