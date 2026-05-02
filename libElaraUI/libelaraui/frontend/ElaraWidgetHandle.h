@@ -11,7 +11,7 @@ namespace elara {
 class ElaraWidgetHandle {
 public:
     ElaraWidgetHandle();
-    ElaraWidgetHandle(const char* bytes);
+    ElaraWidgetHandle(const String& id);
     ElaraWidgetHandle(const ElaraWidgetHandle& inst);
     virtual ~ElaraWidgetHandle();
 

@@ -1,0 +1,116 @@
+{
+  "elara_ui_protocol": 1,
+  "window": {
+    "title": "libElaraUI Demo",
+    "width": 800,
+    "height": 600,
+    "backend_id": "org.elara.ui.demo"
+  },
+  "theme": {
+    "mode": "light"
+  },
+  "root": {
+    "content": "demo.tabs",
+    "popup": "demo.popup"
+  },
+  "widgets": [
+    {
+      "id": "demo.popup",
+      "type": "elara.widgets.popup",
+      "items": [
+        { "id": "file.new", "label": "New" },
+        { "id": "file.open", "label": "Open" },
+        { "id": "file.save", "label": "Save" },
+        { "id": "file.quit", "label": "Quit" }
+      ]
+    },
+    {
+      "id": "demo.tabs",
+      "type": "elara.widgets.tabs",
+      "tabs": [
+        {
+          "title": "Surface",
+          "widget": {
+            "id": "demo.surface",
+            "type": "demo.widgets.surface_panel"
+          }
+        },
+        {
+          "title": "Widgets",
+          "widget": {
+            "id": "demo.widgets.grid",
+            "type": "elara.layouts.grid",
+            "columns": [
+              { "mode": "exact", "size": 24 },
+              { "mode": "fill" },
+              { "mode": "exact", "size": 160 },
+              { "mode": "exact", "size": 24 }
+            ],
+            "rows": [
+              { "mode": "exact", "size": 24 },
+              { "mode": "exact", "size": 46 },
+              { "mode": "exact", "size": 38 },
+              { "mode": "fill" },
+              { "mode": "exact", "size": 24 }
+            ],
+            "children": [
+              {
+                "id": "demo.widgets.title",
+                "type": "demo.widgets.label",
+                "cell": { "column": 1, "row": 1 },
+                "properties": {
+                  "text": "Grid layout demo: label + button",
+                  "font_size": 16
+                }
+              },
+              {
+                "id": "demo.widgets.button",
+                "type": "demo.widgets.button",
+                "cell": { "column": 2, "row": 1 },
+                "properties": {
+                  "text": "Press Me",
+                  "action": "grid.demo.press"
+                }
+              },
+              {
+                "id": "demo.widgets.input_label",
+                "type": "demo.widgets.label",
+                "cell": { "column": 1, "row": 2 },
+                "properties": {
+                  "text": "Name:",
+                  "font_size": 14
+                }
+              },
+              {
+                "id": "demo.widgets.input",
+                "type": "demo.widgets.text_input",
+                "cell": { "column": 2, "row": 2 },
+                "properties": {
+                  "placeholder": "type here later",
+                  "font_size": 14
+                }
+              }
+            ]
+          }
+        },
+        {
+          "title": "Density map",
+          "widget": {
+            "id": "demo.density",
+            "type": "elara.widgets.density_map",
+            "properties": {
+              "base_capacity": 8,
+              "capacity_multiplier": 2,
+              "layer_count": 16
+            },
+            "demo_data": {
+              "type": "modulo_sequence",
+              "sample_count": 65536,
+              "sample_multiplier": 2
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

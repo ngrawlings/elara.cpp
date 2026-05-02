@@ -8,8 +8,8 @@ ElaraWidgetHandle::ElaraWidgetHandle() {
 
 }
 
-ElaraWidgetHandle::ElaraWidgetHandle(const char* hex) {
-    handle = Memory(ByteArray::fromHex(hex));
+ElaraWidgetHandle::ElaraWidgetHandle(const String& id) {
+    handle = Memory((const char*)id, id.byteLength());
 }
 
 ElaraWidgetHandle::ElaraWidgetHandle(const ElaraWidgetHandle& inst) : handle(inst.handle) {

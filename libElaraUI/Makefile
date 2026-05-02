@@ -24,7 +24,7 @@ DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
 DEMO_SOURCE=./demo/main.cpp
 DEMO_TARGET=$(BUILDPATH)/bin/libelaraui-demo
 DEMO_CFLAGS=  -I../ -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
-DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaracore $(GTK_LIBS)
+DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
 
 all: $(SOURCES) $(STATIC_LIBRARY)
 
