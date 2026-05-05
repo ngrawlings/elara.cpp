@@ -16,7 +16,7 @@ class ElaraRootWidget : public ElaraWidget, public ElaraWidgetRegister {
 private:
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
-    ElaraWidgetHandle popup;
+    Array<ElaraWidgetHandle> popups;
 
     Ref<WidgetListener> event_filter;
 
@@ -28,6 +28,11 @@ public:
 
     void setPopup(ElaraWidgetHandle root_popup);
     Ref<ElaraWidget> getPopup() const;
+    void clearPopups();
+    void pushPopup(ElaraWidgetHandle root_popup);
+    void removePopup(ElaraWidgetHandle root_popup);
+    int popupCount() const;
+    Ref<ElaraWidget> getPopup(int index) const;
 
     void registerWidget(ElaraWidgetHandle widget_handle, void* widget);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
@@ -52,6 +57,8 @@ public:
 
     void dispatchKeyDown(unsigned int keyval);
     void dispatchKeyUp(unsigned int keyval);
+
+    bool eventPropagate(ElaraUiEvent event);
 
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

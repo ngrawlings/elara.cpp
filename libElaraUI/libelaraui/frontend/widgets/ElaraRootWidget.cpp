@@ -4,6 +4,18 @@
 
 namespace elara {
 
+namespace {
+
+bool handlesEqual(const ElaraWidgetHandle& left, const ElaraWidgetHandle& right) {
+    return left.getHandle() == right.getHandle();
+}
+
+ElaraPopupWidget* asPopup(Ref<ElaraWidget> widget) {
+    return widget ? dynamic_cast<ElaraPopupWidget*>(widget.getPtr()) : 0;
+}
+
+}
+
 ElaraRootWidget::ElaraRootWidget() {
     event_filter = Ref<WidgetListener>(new ElaraOutboundEventFilter());
 }
@@ -22,16 +34,52 @@ Ref<ElaraWidget> ElaraRootWidget::getContent() const {
 }
 
 void ElaraRootWidget::setPopup(ElaraWidgetHandle root_popup) {
-    popup = root_popup;
+    clearPopups();
+    pushPopup(root_popup);
+}
 
-    Ref<ElaraWidget> p = getWidget(popup);
-    if(p.getPtr()) {
-        p->setPalette(palette);
-    }
+void ElaraRootWidget::clearPopups() {
+    popups.clear();
 }
 
 Ref<ElaraWidget> ElaraRootWidget::getPopup() const {
-    return getWidget(popup);
+    return getPopup(0);
+}
+
+void ElaraRootWidget::pushPopup(ElaraWidgetHandle root_popup) {
+    if(root_popup.getHandle().length() <= 0) {
+        return;
+    }
+
+    removePopup(root_popup);
+    popups.push(root_popup);
+
+    Ref<ElaraWidget> popup = getWidget(root_popup);
+    if(popup.getPtr()) {
+        popup->setPalette(palette);
+        popup->setZOrder(1000 + (int)popups.length());
+    }
+}
+
+void ElaraRootWidget::removePopup(ElaraWidgetHandle root_popup) {
+    for(int i = 0; i < (int)popups.length(); i++) {
+        if(handlesEqual(popups[i], root_popup)) {
+            popups.remove(i);
+            return;
+        }
+    }
+}
+
+int ElaraRootWidget::popupCount() const {
+    return (int)popups.length();
+}
+
+Ref<ElaraWidget> ElaraRootWidget::getPopup(int index) const {
+    if(index < 0 || index >= (int)popups.length()) {
+        return Ref<ElaraWidget>(0);
+    }
+
+    return getWidget(popups[index]);
 }
 
 void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widget) {
@@ -131,9 +179,11 @@ void ElaraRootWidget::setPalette(ElaraPalette* widget_palette) {
         c->setPalette(widget_palette);
     }
 
-    Ref<ElaraWidget> p = getWidget(popup);
-    if(p) {
-        p->setPalette(widget_palette);
+    for(int i = 0; i < (int)popups.length(); i++) {
+        Ref<ElaraWidget> popup = getWidget(popups[i]);
+        if(popup) {
+            popup->setPalette(widget_palette);
+        }
     }
 }
 
@@ -144,10 +194,64 @@ void ElaraRootWidget::draw(ElaraDrawContext* ctx) {
         c->onDraw(ctx, (int)width, (int)height);
     }
 
-    Ref<ElaraWidget> p = getWidget(popup);
-    if(p && ((ElaraPopupWidget*)p.getPtr())->isVisible()) {
-        p->draw(ctx);
+    for(int i = 0; i < (int)popups.length(); i++) {
+        Ref<ElaraWidget> popup = getWidget(popups[i]);
+        ElaraPopupWidget* popup_widget = asPopup(popup);
+
+        if(popup_widget && popup_widget->isVisible()) {
+            popup->draw(ctx);
+        }
     }
+}
+
+bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
+    bool is_mouse =
+        event.type == ELARA_UI_MOUSE_MOVE ||
+        event.type == ELARA_UI_MOUSE_DOWN ||
+        event.type == ELARA_UI_MOUSE_UP;
+
+    if(!is_mouse) {
+        return ElaraWidget::eventPropagate(event);
+    }
+
+    ElaraPopupWidget* topmost_visible = 0;
+
+    for(int i = (int)popups.length() - 1; i >= 0; i--) {
+        Ref<ElaraWidget> popup = getWidget(popups[i]);
+        ElaraPopupWidget* popup_widget = asPopup(popup);
+
+        if(!popup_widget || !popup_widget->isVisible()) {
+            continue;
+        }
+
+        topmost_visible = popup_widget;
+
+        if(popup_widget->contains(event.x, event.y)) {
+            return popup_widget->eventPropagate(event);
+        }
+    }
+
+    if(topmost_visible) {
+        if(event.type == ELARA_UI_MOUSE_DOWN) {
+            for(int i = 0; i < (int)popups.length(); i++) {
+                ElaraPopupWidget* popup_widget = asPopup(getWidget(popups[i]));
+                if(popup_widget && popup_widget->isVisible()) {
+                    popup_widget->hide();
+                }
+            }
+        }
+
+        if(event.type == ELARA_UI_MOUSE_DOWN || event.type == ELARA_UI_MOUSE_UP) {
+            return true;
+        }
+    }
+
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        return c->eventPropagate(event);
+    }
+
+    return handleEvent(event);
 }
 
 void ElaraRootWidget::dispatchMouseMove(double px, double py) {

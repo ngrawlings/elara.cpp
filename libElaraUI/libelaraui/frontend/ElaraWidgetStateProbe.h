@@ -161,6 +161,7 @@ struct ElaraWidgetSnapshot {
 struct ElaraRootSnapshot {
     ElaraWidgetSnapshot content;
     ElaraWidgetSnapshot popup;
+    Array<ElaraWidgetSnapshot> popups;
     String focus;
 };
 

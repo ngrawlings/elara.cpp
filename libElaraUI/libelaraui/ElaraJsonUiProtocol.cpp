@@ -760,13 +760,30 @@ void ElaraJsonUiProtocol::applyRoot(const Json& document) {
 
     String content = document.getStringValue("root.content");
     String popup = document.getStringValue("root.popup");
+    Array< Ref<JsonValue> > popup_handles = document.getArray("root.popups");
 
     if(content.length() > 0) {
         root->setContent(content);
     }
 
+    root->clearPopups();
+
     if(popup.length() > 0) {
-        root->setPopup(popup);
+        root->pushPopup(popup);
+    }
+
+    for(int i = 0; i < (int)popup_handles.length(); i++) {
+        String popup_handle = popup_handles[i]->toString().trim();
+
+        if(popup_handle.length() >= 2 &&
+           popup_handle.startsWith("\"") &&
+           popup_handle.endsWith("\"")) {
+            popup_handle = popup_handle.substr(1, popup_handle.length() - 2);
+        }
+
+        if(popup_handle.length() > 0) {
+            root->pushPopup(popup_handle);
+        }
     }
 }
 

@@ -384,6 +384,9 @@ ElaraRootSnapshot ElaraWidgetStateProbe::rootSnapshot(ElaraRootWidget* root) {
 
     snapshot.content = widgetSnapshot(root->getContent());
     snapshot.popup = widgetSnapshot(root->getPopup());
+    for(int i = 0; i < root->popupCount(); i++) {
+        snapshot.popups.push(widgetSnapshot(root->getPopup(i)));
+    }
     snapshot.focus = widgetHandleToString(root->getFocus());
     return snapshot;
 }
@@ -561,13 +564,25 @@ String ElaraWidgetStateProbe::widgetSnapshotJson(const ElaraWidgetSnapshot& snap
 }
 
 String ElaraWidgetStateProbe::rootSnapshotJson(const ElaraRootSnapshot& snapshot) {
-    return String("{\"content\":") +
+    String json = String("{\"content\":") +
         widgetSnapshotJson(snapshot.content) +
         String(",\"popup\":") +
         widgetSnapshotJson(snapshot.popup) +
-        String(",\"focus\":\"") +
+        String(",\"popups\":[");
+
+    for(int i = 0; i < snapshot.popups.length(); i++) {
+        if(i > 0) {
+            json += ",";
+        }
+
+        json += widgetSnapshotJson(snapshot.popups[i]);
+    }
+
+    json += String("],\"focus\":\"") +
         JsonString::encode(snapshot.focus) +
         String("\"}");
+
+    return json;
 }
 
 }
