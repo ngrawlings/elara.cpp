@@ -182,6 +182,29 @@ Notes:
 - This is a full load of the UI description, not an incremental patch.
 - The layout format itself is documented in `libElaraUI/docs/ELARA_UI_JSON_PROTOCOL_DRAFT.md`.
 
+#### Flat Client Builder API
+
+For C++ client-side code, prefer `libElaraUiRpc/libelarauirpc/ElaraUiDocumentBuilder.h` instead of hand-assembling layout JSON strings.
+
+It provides a flat stateful API that caches the document and serializes valid `elara_ui_protocol` JSON:
+- `createWindow(title, width, height, backend_id)`
+- `setThemeMode(mode)`
+- `setRootContent(widget_id)`
+- `createTabs(id)`
+- `createGrid(id)`
+- `createButton(id, text, action)`
+- `createTextInput(id, placeholder, text)`
+- `addTab(tabs_id, title, child_id)`
+- `placeGridChild(grid_id, child_id, column, row, column_span, row_span)`
+- `setPropertyString/Number/Bool(...)`
+- `setSectionJson(...)` for raw widget sections such as `demo_data`
+- `toJson()`
+
+Design rule for Python and other non-C++ bindings:
+- mirror this builder shape locally as a simple stateful object model
+- keep JSON-RPC as a transport detail, not the primary programming interface
+- emit the same final document shape as `ElaraUiDocumentBuilder::toJson()`
+
 #### Runtime Mutation Methods
 
 Method:

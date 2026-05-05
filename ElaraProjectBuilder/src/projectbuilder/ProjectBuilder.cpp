@@ -890,6 +890,11 @@ namespace elara {
     }
 
     String ProjectBuilder::loadAgentReference() {
+        String root_document = readTextFile("./ELARA_AGENT_API.md");
+        if (root_document.length()) {
+            return root_document;
+        }
+
         String asset = loadAsset("ELARA_AGENT_API.md");
         if (asset.length()) {
             return asset;

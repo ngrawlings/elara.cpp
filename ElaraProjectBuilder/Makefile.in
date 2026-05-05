@@ -32,6 +32,7 @@ install:
 		mkdir -p "$$(dirname "$$dst")"; \
 		cp "$$asset" "$$dst" || exit $$?; \
 	done
+	cp ../ELARA_AGENT_API.md $(STAGE_SHARE_DIR)/ELARA_AGENT_API.md
 
 clean:
 	rm -rf $(BUILDPATH)
