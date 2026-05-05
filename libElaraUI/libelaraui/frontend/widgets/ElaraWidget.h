@@ -130,6 +130,7 @@ public:
     virtual double getContentHeight() const;
 
     virtual void addChild(Ref<ElaraWidget> child);
+    virtual void clearChildren();
     virtual int childCount() const;
     virtual Ref<ElaraWidget> getChild(int index) const;
 

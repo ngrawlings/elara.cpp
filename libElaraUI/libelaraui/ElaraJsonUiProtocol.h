@@ -41,6 +41,7 @@ private:
     void appendFactory(Ref<ElaraJsonWidgetFactory> factory);
 
     ElaraWidget* createWidget(const Json& spec);
+    bool replaceChildren(Ref<ElaraWidget> target_widget, const Json& spec);
     void applyRoot(const Json& document);
     void applyTheme(const Json& document);
     void createTopLevelWidgets(const Json& document);
@@ -50,6 +51,8 @@ public:
     virtual ~ElaraJsonUiProtocol();
 
     void registerFactory(Ref<ElaraJsonWidgetFactory> factory);
+    bool clearChildren(ElaraWidgetHandle target_handle);
+    bool replaceChildren(ElaraWidgetHandle target_handle, const String& json_text);
     bool load(const String& json_text);
     bool loadFile(const String& path);
 };

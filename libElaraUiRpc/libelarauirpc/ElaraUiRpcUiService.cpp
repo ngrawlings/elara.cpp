@@ -73,9 +73,13 @@ String jsonBoolean(bool value) {
 
 }
 
-ElaraUiRpcUiService::ElaraUiRpcUiService(ElaraRootWidget* root_widget)
+ElaraUiRpcUiService::ElaraUiRpcUiService(
+    ElaraRootWidget* root_widget,
+    ElaraJsonUiProtocol* ui_protocol
+)
     : sockets::rpc::json::JsonRPCService("ui"),
-      root(root_widget) {
+      root(root_widget),
+      protocol(ui_protocol) {
 }
 
 ElaraUiRpcUiService::~ElaraUiRpcUiService() {
@@ -260,6 +264,73 @@ bool ElaraUiRpcUiService::disableEvent(
     }
 
     root->disableOutboundEvent(action);
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::clearChildren(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    if(!protocol) {
+        error_code = "unsupported_operation";
+        error_message = "Dynamic child-tree updates require a JSON UI protocol instance";
+        return false;
+    }
+
+    String target = params.getStringValue("target");
+
+    if(target.length() <= 0) {
+        error_code = "missing_target";
+        error_message = "The ui method requires a target widget id";
+        return false;
+    }
+
+    if(!protocol->clearChildren(ElaraWidgetHandle(target))) {
+        error_code = "widget_not_found";
+        error_message = "No widget matched the requested target id";
+        return false;
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::replaceChildren(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    if(!protocol) {
+        error_code = "unsupported_operation";
+        error_message = "Dynamic child-tree updates require a JSON UI protocol instance";
+        return false;
+    }
+
+    String target = params.getStringValue("target");
+    String document = params.getStringValue("document");
+
+    if(target.length() <= 0) {
+        error_code = "missing_target";
+        error_message = "The ui method requires a target widget id";
+        return false;
+    }
+
+    if(document.length() <= 0) {
+        error_code = "missing_document";
+        error_message = "The ui method requires a JSON subtree document string";
+        return false;
+    }
+
+    if(!protocol->replaceChildren(ElaraWidgetHandle(target), document)) {
+        error_code = "replace_failed";
+        error_message = "The target widget children could not be replaced";
+        return false;
+    }
+
     result_json = "{\"updated\":true}";
     return true;
 }
@@ -460,6 +531,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("disableEvent")) {
         return disableEvent(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("clearChildren")) {
+        return clearChildren(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("replaceChildren")) {
+        return replaceChildren(params, result_json, error_code, error_message);
     }
 
     if(method == String("dispatchMouseMove")) {

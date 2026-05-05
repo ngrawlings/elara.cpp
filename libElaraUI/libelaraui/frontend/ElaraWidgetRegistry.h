@@ -17,6 +17,7 @@ public:
     static ElaraWidgetRegistry* getInstance();
 
     void setWidget(ElaraWidgetHandle widget_handle, ElaraWidget *widget);
+    void removeWidget(ElaraWidgetHandle widget_handle);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
 
 protected:

@@ -1,4 +1,5 @@
 #include "ElaraWidget.h"
+#include "../ElaraWidgetRegistry.h"
 
 namespace elara {
 
@@ -394,6 +395,22 @@ void ElaraWidget::addChild(Ref<ElaraWidget> child) {
         child->setPalette(palette);
         children.push(child);
     }
+}
+
+void ElaraWidget::clearChildren() {
+    for(int i = 0; i < (int)children.length(); i++) {
+        Ref<ElaraWidget> child = children[i];
+
+        if(!child) {
+            continue;
+        }
+
+        child->clearChildren();
+        child->setParent(0);
+        ElaraWidgetRegistry::getInstance()->removeWidget(child->getHandle());
+    }
+
+    children.clear();
 }
 
 int ElaraWidget::childCount() const {

@@ -86,10 +86,15 @@ void ElaraGridLayout::addWidget(
     );
 }
 
+void ElaraGridLayout::clearChildren() {
+    cells.clear();
+    ElaraWidget::clearChildren();
+}
+
 void ElaraGridLayout::clearLayout() {
     columns.clear();
     rows.clear();
-    cells.clear();
+    clearChildren();
 }
 
 void ElaraGridLayout::computeTracks(

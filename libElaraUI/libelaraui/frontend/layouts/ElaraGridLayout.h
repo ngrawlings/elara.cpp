@@ -69,6 +69,7 @@ public:
         int row_span = 1
     );
 
+    void clearChildren();
     void clearLayout();
 
     void draw(ElaraDrawContext* ctx);

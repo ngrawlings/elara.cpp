@@ -241,7 +241,7 @@ public:
         EventArtifactLogger* event_logger
     )
         : sockets::rpc::json::JsonRPCService("ui"),
-          executor(root),
+          executor(root, ui_protocol),
           protocol(ui_protocol),
           queue_lock("main-thread-ui-service"),
           logger(event_logger),

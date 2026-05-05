@@ -2,6 +2,7 @@
 #define ELARA_UI_RPC_UI_SERVICE_H
 
 #include <libelaraui/frontend/ElaraWidgetStateProbe.h>
+#include <libelaraui/ElaraJsonUiProtocol.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
@@ -18,7 +19,10 @@ namespace rpc {
 
 class ElaraUiRpcUiService : public sockets::rpc::json::JsonRPCService {
 public:
-    explicit ElaraUiRpcUiService(ElaraRootWidget* root_widget);
+    explicit ElaraUiRpcUiService(
+        ElaraRootWidget* root_widget,
+        ElaraJsonUiProtocol* ui_protocol = 0
+    );
     virtual ~ElaraUiRpcUiService();
 
     virtual bool call(
@@ -31,6 +35,7 @@ public:
 
 private:
     ElaraRootWidget* root;
+    ElaraJsonUiProtocol* protocol;
 
     Ref<ElaraWidget> requireWidget(
         const Json& params,
@@ -75,6 +80,18 @@ private:
         String& error_message
     );
     bool disableEvent(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool clearChildren(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool replaceChildren(
         const Json& params,
         String& result_json,
         String& error_code,

@@ -706,6 +706,52 @@ void ElaraJsonUiProtocol::registerFactory(Ref<ElaraJsonWidgetFactory> factory) {
     appendFactory(factory);
 }
 
+bool ElaraJsonUiProtocol::clearChildren(ElaraWidgetHandle target_handle) {
+    if(!root) {
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root->getWidget(target_handle);
+
+    if(!widget) {
+        return false;
+    }
+
+    widget->clearChildren();
+    return true;
+}
+
+bool ElaraJsonUiProtocol::replaceChildren(
+    ElaraWidgetHandle target_handle,
+    const String& json_text
+) {
+    if(!root) {
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root->getWidget(target_handle);
+
+    if(!widget) {
+        return false;
+    }
+
+    String spec_text(json_text);
+    spec_text = spec_text.trim();
+
+    if(spec_text.length() <= 0) {
+        return false;
+    }
+
+    Json spec(
+        spec_text.startsWith("[")
+            ? String("{\"children\":") + spec_text + String("}")
+            : spec_text
+    );
+
+    widget->clearChildren();
+    return replaceChildren(widget, spec);
+}
+
 Ref<ElaraJsonWidgetFactory> ElaraJsonUiProtocol::findFactory(const String& type) const {
     for(int i = 0; i < (int)factories.length(); i++) {
         Ref<ElaraJsonWidgetFactory> factory = factories[i];
@@ -735,6 +781,77 @@ ElaraWidget* ElaraJsonUiProtocol::createWidget(const Json& spec) {
     }
 
     return factory->createWidget(root, id, spec);
+}
+
+bool ElaraJsonUiProtocol::replaceChildren(
+    Ref<ElaraWidget> target_widget,
+    const Json& spec
+) {
+    if(!target_widget) {
+        return false;
+    }
+
+    ElaraGridLayout* grid = dynamic_cast<ElaraGridLayout*>(target_widget.getPtr());
+    if(grid) {
+        Array< Ref<JsonValue> > children = spec.getArray("children");
+
+        for(int i = 0; i < (int)children.length(); i++) {
+            Json child_spec(children[i]);
+            ElaraWidget* child = createWidget(child_spec);
+
+            if(!child) {
+                continue;
+            }
+
+            String id = child_spec.getStringValue("id");
+            int column = jsonInt(child_spec, "cell.column", 0);
+            int row = jsonInt(child_spec, "cell.row", 0);
+            int column_span = jsonInt(child_spec, "cell.column_span", 1);
+            int row_span = jsonInt(child_spec, "cell.row_span", 1);
+
+            grid->addWidget(id, column, row, column_span, row_span);
+            grid->addChild(Ref<ElaraWidget>(child));
+        }
+
+        return true;
+    }
+
+    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(target_widget.getPtr());
+    if(tabs) {
+        Array< Ref<JsonValue> > tab_specs = spec.getArray("tabs");
+
+        for(int i = 0; i < (int)tab_specs.length(); i++) {
+            Json tab_spec(tab_specs[i]);
+            String title = jsonString(tab_spec, "title", String("Tab"));
+            Ref<JsonValue> widget_value = tab_spec.getJsonValue("widget");
+
+            if(!widget_value || widget_value->getType() == JsonValue::INVALID) {
+                continue;
+            }
+
+            Json widget_spec(widget_value);
+            ElaraWidget* child = createWidget(widget_spec);
+
+            if(child) {
+                tabs->addTab(title, child);
+            }
+        }
+
+        return true;
+    }
+
+    Array< Ref<JsonValue> > children = spec.getArray("children");
+
+    for(int i = 0; i < (int)children.length(); i++) {
+        Json child_spec(children[i]);
+        ElaraWidget* child = createWidget(child_spec);
+
+        if(child) {
+            target_widget->addChild(Ref<ElaraWidget>(child));
+        }
+    }
+
+    return true;
 }
 
 void ElaraJsonUiProtocol::applyTheme(const Json& document) {

@@ -62,6 +62,13 @@ int ElaraTabWidget::addTab(const String& title, ElaraWidget *widget) {
     return (int)pages.length() - 1;
 }
 
+void ElaraTabWidget::clearChildren() {
+    pages.clear();
+    active_index = -1;
+    hover_index = -1;
+    ElaraWidget::clearChildren();
+}
+
 void ElaraTabWidget::setActiveTab(int index) {
     if(index < 0 || index >= (int)pages.length()) {
         return;

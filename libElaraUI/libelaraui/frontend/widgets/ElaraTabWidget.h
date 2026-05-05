@@ -45,6 +45,7 @@ public:
     void setPalette(ElaraPalette* widget_palette);
 
     int addTab(const String& title, ElaraWidget* widget);
+    void clearChildren();
 
     void setActiveTab(int index);
     int getActiveTab() const;
