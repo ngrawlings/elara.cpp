@@ -5,6 +5,7 @@
 #include <libelaracore/memory/HashMap.h>
 
 #include "../ElaraWidgetRegistry.h"
+#include "../ElaraWidgetStateProbe.h"
 #include "ElaraWidget.h"
 #include "ElaraPopupWidget.h"
 #include "../ElaraOutboundEventFilter.h"
@@ -30,6 +31,12 @@ public:
 
     void registerWidget(ElaraWidgetHandle widget_handle, void* widget);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
+    bool probeWidgetState(ElaraWidgetHandle widget_handle, ElaraWidgetState& state) const;
+    bool probeWidgetSnapshot(ElaraWidgetHandle widget_handle, ElaraWidgetSnapshot& snapshot) const;
+    void probeRootSnapshot(ElaraRootSnapshot& snapshot) const;
+    String getWidgetStateJson(ElaraWidgetHandle widget_handle) const;
+    String getWidgetSnapshotJson(ElaraWidgetHandle widget_handle) const;
+    String getRootSnapshotJson() const;
     void setFocus(ElaraWidgetHandle widget_handle);
     ElaraWidgetHandle getFocus() const;
     void enableOutboundEvent(const String& action);

@@ -91,6 +91,7 @@ protected:
     virtual void emitKeyDown(unsigned int keyval);
     virtual void emitKeyUp(unsigned int keyval);
     virtual void emitKeysTyped(const String& text);
+    virtual void emitValueChanged(double value);
 
 public:
     ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle widget_handle);

@@ -114,4 +114,11 @@ void ElaraOutboundEventFilter::onWidgetKeysTyped(
     queue(handle, "keysTyped", String("{\"text\":\"") + text + String("\"}"));
 }
 
+void ElaraOutboundEventFilter::onWidgetValueChanged(
+    ElaraWidgetHandle handle,
+    double value
+) {
+    queue(handle, "valueChanged", String("{\"value\":") + String(value) + String("}"));
+}
+
 }

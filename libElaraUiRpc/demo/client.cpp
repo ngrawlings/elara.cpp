@@ -129,7 +129,8 @@ void enableDefaultEvents(ElaraUiRpcPeer* peer) {
         "hoverChanged",
         "keyDown",
         "keyUp",
-        "keysTyped"
+        "keysTyped",
+        "valueChanged"
     };
 
     for(size_t i = 0; i < sizeof(event_names) / sizeof(event_names[0]); i++) {

@@ -41,6 +41,22 @@ void GtkDrawContext::drawText(double x, double y, const String& text, double siz
     cairo_show_text(cr, (const char*)text);
 }
 
+double GtkDrawContext::measureTextWidth(const String& text, double size) {
+    cairo_text_extents_t extents;
+
+    cairo_select_font_face(
+        cr,
+        "Sans",
+        CAIRO_FONT_SLANT_NORMAL,
+        CAIRO_FONT_WEIGHT_NORMAL
+    );
+
+    cairo_set_font_size(cr, size);
+    cairo_text_extents(cr, (const char*)text, &extents);
+
+    return extents.x_advance;
+}
+
 GtkGuiBackend::GtkGuiBackend(const String& app_id)
     : app(0),
       window(0),

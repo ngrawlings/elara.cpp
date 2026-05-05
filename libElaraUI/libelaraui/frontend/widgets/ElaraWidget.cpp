@@ -69,6 +69,10 @@ public:
     void drawText(double x, double y, const String& text, double size) {
         ctx->drawText(offset_x + x, offset_y + y, text, size);
     }
+
+    double measureTextWidth(const String& text, double size) {
+        return ctx->measureTextWidth(text, size);
+    }
 };
 
 ElaraWidget::ElaraWidget() :
@@ -203,6 +207,14 @@ void ElaraWidget::emitKeysTyped(const String& text) {
     for(int i = 0; i < (int)listeners.length(); i++) {
         if(listeners[i]) {
             listeners[i]->onWidgetKeysTyped(widget_handle, text);
+        }
+    }
+}
+
+void ElaraWidget::emitValueChanged(double value) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetValueChanged(widget_handle, value);
         }
     }
 }

@@ -56,6 +56,11 @@ public:
         const String& text
     ) {}
 
+    virtual void onWidgetValueChanged(
+        ElaraWidgetHandle handle,
+        double value
+    ) {}
+
 };
 
 }

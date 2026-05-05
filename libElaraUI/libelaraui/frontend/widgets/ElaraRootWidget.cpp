@@ -1,5 +1,6 @@
 #include "ElaraRootWidget.h"
 #include "ElaraTextInputWidget.h"
+#include "../ElaraWidgetStateProbe.h"
 
 namespace elara {
 
@@ -40,6 +41,62 @@ void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widg
 
 Ref<ElaraWidget> ElaraRootWidget::getWidget(ElaraWidgetHandle widget_handle) const {
     return ElaraWidgetRegistry::getInstance()->getWidget(widget_handle);
+}
+
+bool ElaraRootWidget::probeWidgetState(
+    ElaraWidgetHandle widget_handle,
+    ElaraWidgetState& state
+) const {
+    Ref<ElaraWidget> widget = getWidget(widget_handle);
+
+    if(!widget) {
+        state = ElaraWidgetState();
+        return false;
+    }
+
+    state = ElaraWidgetStateProbe::widgetState(widget);
+    return true;
+}
+
+bool ElaraRootWidget::probeWidgetSnapshot(
+    ElaraWidgetHandle widget_handle,
+    ElaraWidgetSnapshot& snapshot
+) const {
+    Ref<ElaraWidget> widget = getWidget(widget_handle);
+
+    if(!widget) {
+        snapshot = ElaraWidgetSnapshot();
+        return false;
+    }
+
+    snapshot = ElaraWidgetStateProbe::widgetSnapshot(widget);
+    return true;
+}
+
+void ElaraRootWidget::probeRootSnapshot(ElaraRootSnapshot& snapshot) const {
+    snapshot = ElaraWidgetStateProbe::rootSnapshot((ElaraRootWidget*)this);
+}
+
+String ElaraRootWidget::getWidgetStateJson(ElaraWidgetHandle widget_handle) const {
+    ElaraWidgetState state;
+    if(!probeWidgetState(widget_handle, state)) {
+        return "{}";
+    }
+    return ElaraWidgetStateProbe::widgetStateJson(state);
+}
+
+String ElaraRootWidget::getWidgetSnapshotJson(ElaraWidgetHandle widget_handle) const {
+    ElaraWidgetSnapshot snapshot;
+    if(!probeWidgetSnapshot(widget_handle, snapshot)) {
+        return "null";
+    }
+    return ElaraWidgetStateProbe::widgetSnapshotJson(snapshot);
+}
+
+String ElaraRootWidget::getRootSnapshotJson() const {
+    ElaraRootSnapshot snapshot;
+    probeRootSnapshot(snapshot);
+    return ElaraWidgetStateProbe::rootSnapshotJson(snapshot);
 }
 
 void ElaraRootWidget::setFocus(ElaraWidgetHandle widget_handle) {

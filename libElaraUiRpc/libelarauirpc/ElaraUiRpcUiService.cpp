@@ -81,163 +81,6 @@ ElaraUiRpcUiService::ElaraUiRpcUiService(ElaraRootWidget* root_widget)
 ElaraUiRpcUiService::~ElaraUiRpcUiService() {
 }
 
-String ElaraUiRpcUiService::widgetHandleToString(ElaraWidgetHandle handle) const {
-    Memory memory = handle.getHandle();
-    return String((const char*)memory.getPtr(), memory.length());
-}
-
-String ElaraUiRpcUiService::widgetTypeName(ElaraWidget* widget) const {
-    if(dynamic_cast<ElaraRootWidget*>(widget)) {
-        return "ElaraRootWidget";
-    }
-
-    if(dynamic_cast<ElaraTabWidget*>(widget)) {
-        return "ElaraTabWidget";
-    }
-
-    if(dynamic_cast<ElaraPopupWidget*>(widget)) {
-        return "ElaraPopupWidget";
-    }
-
-    if(dynamic_cast<ElaraGridLayout*>(widget)) {
-        return "ElaraGridLayout";
-    }
-
-    if(dynamic_cast<ElaraButtonWidget*>(widget)) {
-        return "ElaraButtonWidget";
-    }
-
-    if(dynamic_cast<ElaraLabelWidget*>(widget)) {
-        return "ElaraLabelWidget";
-    }
-
-    if(dynamic_cast<ElaraTextInputWidget*>(widget)) {
-        return "ElaraTextInputWidget";
-    }
-
-    return "ElaraWidget";
-}
-
-String ElaraUiRpcUiService::widgetStateJson(Ref<ElaraWidget> widget) const {
-    if(!widget) {
-        return "{}";
-    }
-
-    ElaraButtonWidget* button = dynamic_cast<ElaraButtonWidget*>(widget.getPtr());
-    if(button) {
-        return String("{\"text\":\"") +
-            JsonString::encode(button->getText()) +
-            String("\",\"action\":\"") +
-            JsonString::encode(button->getAction()) +
-            String("\",\"enabled\":") +
-            jsonBoolean(button->isEnabled()) +
-            String("}");
-    }
-
-    ElaraLabelWidget* label = dynamic_cast<ElaraLabelWidget*>(widget.getPtr());
-    if(label) {
-        return String("{\"text\":\"") +
-            JsonString::encode(label->getText()) +
-            String("\",\"fontSize\":") +
-            String(label->getFontSize()) +
-            String(",\"drawBackground\":") +
-            jsonBoolean(label->getDrawBackground()) +
-            String("}");
-    }
-
-    ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget.getPtr());
-    if(input) {
-        return String("{\"text\":\"") +
-            JsonString::encode(input->getText()) +
-            String("\",\"placeholder\":\"") +
-            JsonString::encode(input->getPlaceholder()) +
-            String("\",\"enabled\":") +
-            jsonBoolean(input->isEnabled()) +
-            String("}");
-    }
-
-    ElaraPopupWidget* popup = dynamic_cast<ElaraPopupWidget*>(widget.getPtr());
-    if(popup) {
-        return String("{\"visible\":") +
-            jsonBoolean(popup->isVisible()) +
-            String("}");
-    }
-
-    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(widget.getPtr());
-    if(tabs) {
-        return String("{\"activeTab\":") +
-            String(tabs->getActiveTab()) +
-            String(",\"tabCount\":") +
-            String(tabs->tabCount()) +
-            String("}");
-    }
-
-    ElaraGridLayout* grid = dynamic_cast<ElaraGridLayout*>(widget.getPtr());
-    if(grid) {
-        return "{\"layout\":\"grid\"}";
-    }
-
-    return "{}";
-}
-
-String ElaraUiRpcUiService::widgetSnapshotJson(Ref<ElaraWidget> widget) const {
-    if(!widget) {
-        return "null";
-    }
-
-    String json =
-        String("{\"id\":\"") +
-        JsonString::encode(widgetHandleToString(widget->getHandle())) +
-        String("\",\"type\":\"") +
-        JsonString::encode(widgetTypeName(widget.getPtr())) +
-        String("\",\"visible\":") +
-        jsonBoolean(widget->isVisible()) +
-        String(",\"bounds\":{\"x\":") +
-        String(widget->getX()) +
-        String(",\"y\":") +
-        String(widget->getY()) +
-        String(",\"width\":") +
-        String(widget->getWidth()) +
-        String(",\"height\":") +
-        String(widget->getHeight()) +
-        String("},\"absoluteBounds\":{\"x\":") +
-        String(widget->getAbsoluteX()) +
-        String(",\"y\":") +
-        String(widget->getAbsoluteY()) +
-        String(",\"width\":") +
-        String(widget->getWidth()) +
-        String(",\"height\":") +
-        String(widget->getHeight()) +
-        String("},\"state\":") +
-        widgetStateJson(widget) +
-        String(",\"children\":[");
-
-    for(int i = 0; i < widget->childCount(); i++) {
-        if(i > 0) {
-            json += ",";
-        }
-
-        json += widgetSnapshotJson(widget->getChild(i));
-    }
-
-    json += "]}";
-    return json;
-}
-
-String ElaraUiRpcUiService::rootSnapshotJson() const {
-    Ref<ElaraWidget> content = root->getContent();
-    Ref<ElaraWidget> popup = root->getPopup();
-    String focus = widgetHandleToString(root->getFocus());
-
-    return String("{\"content\":") +
-        widgetSnapshotJson(content) +
-        String(",\"popup\":") +
-        widgetSnapshotJson(popup) +
-        String(",\"focus\":\"") +
-        JsonString::encode(focus) +
-        String("\"}");
-}
-
 Ref<ElaraWidget> ElaraUiRpcUiService::requireWidget(
     const Json& params,
     String& error_code,
@@ -562,7 +405,7 @@ bool ElaraUiRpcUiService::snapshot(
     (void)error_code;
     (void)error_message;
 
-    result_json = rootSnapshotJson();
+    result_json = root->getRootSnapshotJson();
     return true;
 }
 
@@ -578,7 +421,7 @@ bool ElaraUiRpcUiService::snapshotWidget(
         return false;
     }
 
-    result_json = widgetSnapshotJson(widget);
+    result_json = root->getWidgetSnapshotJson(widget->getHandle());
     return true;
 }
 

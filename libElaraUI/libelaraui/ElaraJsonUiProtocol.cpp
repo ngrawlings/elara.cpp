@@ -8,8 +8,12 @@
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
+#include <libelaraui/frontend/widgets/ElaraCheckboxWidget.h>
+#include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
+#include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
+#include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
 
 namespace elara {
 
@@ -21,6 +25,36 @@ static int jsonInt(const Json& json, const String& path, int fallback) {
     }
 
     return json.getIntValue(path);
+}
+
+static double jsonDouble(const Json& json, const String& path, double fallback) {
+    Ref<JsonValue> value = json.getJsonValue(path);
+
+    if(!value || value->getType() == JsonValue::INVALID) {
+        return fallback;
+    }
+
+    String text = value->toString().trim();
+
+    if(text.length() <= 0) {
+        return fallback;
+    }
+
+    return atof((const char*)text);
+}
+
+static double jsonValueDouble(Ref<JsonValue> value, double fallback) {
+    if(!value || value->getType() == JsonValue::INVALID) {
+        return fallback;
+    }
+
+    String text = value->toString().trim();
+
+    if(text.length() <= 0) {
+        return fallback;
+    }
+
+    return atof((const char*)text);
 }
 
 static String jsonString(const Json& json, const String& path, const String& fallback) {
@@ -270,6 +304,61 @@ private:
         }
     }
 
+    void applyLineChartDemoData(ElaraMultiAxisLineChartWidget* chart, const Json& spec) {
+        if(!chart) {
+            return;
+        }
+
+        Array< Ref<JsonValue> > axis_specs = spec.getArray("demo_data.axes");
+        chart->clearAxes();
+
+        for(int i = 0; i < (int)axis_specs.length(); i++) {
+            Json axis_spec(axis_specs[i]);
+            ElaraChartAxis axis;
+
+            axis.id = jsonString(axis_spec, "id", String(""));
+            axis.label = jsonString(axis_spec, "label", axis.id);
+            axis.side = jsonString(axis_spec, "side", String("left"));
+            axis.minimum = jsonDouble(axis_spec, "min", 0.0);
+            axis.maximum = jsonDouble(axis_spec, "max", 100.0);
+
+            Array< Ref<JsonValue> > color = axis_spec.getArray("color");
+            if(color.length() >= 3) {
+                axis.r = jsonValueDouble(color[0], axis.r);
+                axis.g = jsonValueDouble(color[1], axis.g);
+                axis.b = jsonValueDouble(color[2], axis.b);
+            }
+
+            chart->addAxis(axis);
+        }
+
+        Array< Ref<JsonValue> > series_specs = spec.getArray("demo_data.series");
+        chart->clearSeries();
+
+        for(int i = 0; i < (int)series_specs.length(); i++) {
+            Json series_spec(series_specs[i]);
+            ElaraChartSeries series;
+
+            series.id = jsonString(series_spec, "id", String(""));
+            series.label = jsonString(series_spec, "label", series.id);
+            series.axis_id = jsonString(series_spec, "axis", String(""));
+
+            Array< Ref<JsonValue> > color = series_spec.getArray("color");
+            if(color.length() >= 3) {
+                series.r = jsonValueDouble(color[0], series.r);
+                series.g = jsonValueDouble(color[1], series.g);
+                series.b = jsonValueDouble(color[2], series.b);
+            }
+
+            Array< Ref<JsonValue> > values = series_spec.getArray("values");
+            for(int value_index = 0; value_index < (int)values.length(); value_index++) {
+                series.values.push(jsonValueDouble(values[value_index], 0.0));
+            }
+
+            chart->addSeries(series);
+        }
+    }
+
 public:
     bool supports(const String& type) const {
         return
@@ -277,10 +366,14 @@ public:
             type == String("elara.widgets.popup") ||
             type == String("elara.layouts.grid") ||
             type == String("elara.widgets.button") ||
+            type == String("elara.widgets.checkbox") ||
             type == String("elara.widgets.label") ||
+            type == String("elara.widgets.rich_text_edit") ||
+            type == String("elara.widgets.slider") ||
             type == String("elara.widgets.text_input") ||
             type == String("elara.widgets.surface_panel") ||
             type == String("elara.widgets.density_map") ||
+            type == String("elara.widgets.multi_axis_line_chart") ||
             type == String("demo.widgets.button") ||
             type == String("demo.widgets.label") ||
             type == String("demo.widgets.text_input") ||
@@ -310,6 +403,12 @@ public:
             widget = grid;
         } else if(type == String("elara.widgets.button") || type == String("demo.widgets.button")) {
             widget = new ElaraButtonWidget(root, id);
+        } else if(type == String("elara.widgets.checkbox")) {
+            widget = new ElaraCheckboxWidget(root, id);
+        } else if(type == String("elara.widgets.slider")) {
+            widget = new ElaraSliderWidget(root, id);
+        } else if(type == String("elara.widgets.rich_text_edit")) {
+            widget = new ElaraRichTextEditWidget(root, id);
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
             widget = new ElaraJsonLabelWidget(root, id);
         } else if(type == String("elara.widgets.text_input") || type == String("demo.widgets.text_input")) {
@@ -319,6 +418,8 @@ public:
         } else if(type == String("elara.widgets.density_map")) {
             widget = new ElaraDensityMapWidget(root, id);
             // TODO: apply styling attribgutes within the json spec
+        } else if(type == String("elara.widgets.multi_axis_line_chart")) {
+            widget = new ElaraMultiAxisLineChartWidget(root, id);
         }
 
         applyProperties(widget, spec);
@@ -342,6 +443,24 @@ public:
             if(action.length() > 0) {
                 button->setAction(action);
             }
+        }
+
+        ElaraCheckboxWidget* checkbox = dynamic_cast<ElaraCheckboxWidget*>(widget);
+        if(checkbox) {
+            String text = spec.getStringValue("properties.text");
+            int font_size = jsonInt(spec, "properties.font_size", 14);
+
+            if(text.length() > 0) {
+                checkbox->setText(text);
+            }
+
+            checkbox->setChecked(
+                jsonString(spec, "properties.checked", String("false")) == String("true")
+            );
+            checkbox->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            checkbox->setFontSize((double)font_size);
         }
 
         ElaraJsonLabelWidget* label = dynamic_cast<ElaraJsonLabelWidget*>(widget);
@@ -373,6 +492,34 @@ public:
             input->setFontSize((double)font_size);
         }
 
+        ElaraSliderWidget* slider = dynamic_cast<ElaraSliderWidget*>(widget);
+        if(slider) {
+            slider->setOrientation(jsonString(spec, "properties.orientation", String("horizontal")));
+            slider->setRange(
+                jsonDouble(spec, "properties.min", 0.0),
+                jsonDouble(spec, "properties.max", 100.0)
+            );
+            slider->setStep(jsonDouble(spec, "properties.step", 1.0));
+            slider->setValue(jsonDouble(spec, "properties.value", 0.0));
+        }
+
+        ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget);
+        if(rich) {
+            String text = spec.getStringValue("properties.text");
+            String placeholder = spec.getStringValue("properties.placeholder");
+            int font_size = jsonInt(spec, "properties.font_size", 14);
+
+            if(text.length() > 0) {
+                rich->setText(text);
+            }
+
+            if(placeholder.length() > 0) {
+                rich->setPlaceholder(placeholder);
+            }
+
+            rich->setFontSize((double)font_size);
+        }
+
         ElaraDensityMapWidget* density = dynamic_cast<ElaraDensityMapWidget*>(widget);
         if(density) {
             unsigned long long base_capacity = (unsigned long long)jsonInt(spec, "properties.base_capacity", 8);
@@ -387,6 +534,18 @@ public:
                 unsigned long long sample_multiplier = (unsigned long long)jsonInt(spec, "demo_data.sample_multiplier", 2);
                 density->generateModuloSequence(sample_count, sample_multiplier);
             }
+        }
+
+        ElaraMultiAxisLineChartWidget* chart = dynamic_cast<ElaraMultiAxisLineChartWidget*>(widget);
+        if(chart) {
+            String chart_title = spec.getStringValue("properties.title");
+
+            if(chart_title.length() > 0) {
+                chart->setTitle(chart_title);
+            }
+
+            chart->setShowPoints(jsonString(spec, "properties.show_points", String("true")) == String("true"));
+            applyLineChartDemoData(chart, spec);
         }
     }
 };

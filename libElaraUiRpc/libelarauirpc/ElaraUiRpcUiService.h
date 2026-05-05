@@ -1,6 +1,7 @@
 #ifndef ELARA_UI_RPC_UI_SERVICE_H
 #define ELARA_UI_RPC_UI_SERVICE_H
 
+#include <libelaraui/frontend/ElaraWidgetStateProbe.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
@@ -30,12 +31,6 @@ public:
 
 private:
     ElaraRootWidget* root;
-
-    String widgetHandleToString(ElaraWidgetHandle handle) const;
-    String widgetTypeName(ElaraWidget* widget) const;
-    String widgetStateJson(Ref<ElaraWidget> widget) const;
-    String widgetSnapshotJson(Ref<ElaraWidget> widget) const;
-    String rootSnapshotJson() const;
 
     Ref<ElaraWidget> requireWidget(
         const Json& params,

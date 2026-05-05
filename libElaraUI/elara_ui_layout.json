@@ -50,6 +50,7 @@
               { "mode": "exact", "size": 24 },
               { "mode": "exact", "size": 46 },
               { "mode": "exact", "size": 38 },
+              { "mode": "exact", "size": 38 },
               { "mode": "fill" },
               { "mode": "exact", "size": 24 }
             ],
@@ -89,6 +90,40 @@
                   "placeholder": "type here later",
                   "font_size": 14
                 }
+              },
+              {
+                "id": "demo.widgets.check",
+                "type": "elara.widgets.checkbox",
+                "cell": { "column": 1, "row": 3 },
+                "properties": {
+                  "text": "Enable numeric increment",
+                  "checked": true,
+                  "font_size": 14
+                }
+              },
+              {
+                "id": "demo.widgets.hslider",
+                "type": "elara.widgets.slider",
+                "cell": { "column": 1, "row": 4 },
+                "properties": {
+                  "orientation": "horizontal",
+                  "min": 0,
+                  "max": 100,
+                  "value": 42,
+                  "step": 1
+                }
+              },
+              {
+                "id": "demo.widgets.vslider",
+                "type": "elara.widgets.slider",
+                "cell": { "column": 2, "row": 4 },
+                "properties": {
+                  "orientation": "vertical",
+                  "min": 0,
+                  "max": 1,
+                  "value": 0.65,
+                  "step": 0.05
+                }
               }
             ]
           }
@@ -107,6 +142,71 @@
               "type": "modulo_sequence",
               "sample_count": 65536,
               "sample_multiplier": 2
+            }
+          }
+        },
+        {
+          "title": "Chart",
+          "widget": {
+            "id": "demo.chart",
+            "type": "elara.widgets.multi_axis_line_chart",
+            "properties": {
+              "title": "Orders and latency by sample",
+              "show_points": true
+            },
+            "demo_data": {
+              "axes": [
+                {
+                  "id": "orders",
+                  "label": "orders/min",
+                  "side": "left",
+                  "min": 0,
+                  "max": 240,
+                  "color": [0.15, 0.55, 0.95]
+                },
+                {
+                  "id": "latency",
+                  "label": "latency ms",
+                  "side": "right",
+                  "min": 0,
+                  "max": 700,
+                  "color": [0.95, 0.45, 0.20]
+                }
+              ],
+              "series": [
+                {
+                  "id": "created",
+                  "label": "created orders",
+                  "axis": "orders",
+                  "color": [0.13, 0.67, 0.94],
+                  "values": [88, 102, 116, 124, 138, 149, 162, 176, 184, 196, 214, 228]
+                },
+                {
+                  "id": "fulfilled",
+                  "label": "fulfilled orders",
+                  "axis": "orders",
+                  "color": [0.12, 0.82, 0.48],
+                  "values": [72, 86, 95, 109, 121, 132, 146, 153, 168, 177, 191, 205]
+                },
+                {
+                  "id": "p95",
+                  "label": "p95 latency",
+                  "axis": "latency",
+                  "color": [0.93, 0.40, 0.18],
+                  "values": [410, 384, 360, 332, 318, 290, 304, 346, 372, 420, 465, 492]
+                }
+              ]
+            }
+          }
+        },
+        {
+          "title": "Editor",
+          "widget": {
+            "id": "demo.editor",
+            "type": "elara.widgets.rich_text_edit",
+            "properties": {
+              "font_size": 14,
+              "text": "# Elara Notes\n## Build status\n- RPC server is live\n- Sliders are now primitive widgets\n- Chart tab renders dual-axis sample data\n\n## Next step\nUse this editor as the basis for higher-level document widgets.\n\nHorizontal scrolling is handled by the child slider when lines grow beyond the viewport."
             }
           }
         }

@@ -422,6 +422,22 @@ public:
             logger->log("backend.logic", "button matched");
         }
 
+        ElaraWidgetState input_state;
+        bool has_input_state = root->probeWidgetState(ElaraWidgetHandle(input_handle), input_state);
+
+        if(logger) {
+            logger->log(
+                "backend.logic",
+                String("input.state.lookup=") + String(has_input_state ? "ok" : "missing")
+            );
+            if(has_input_state) {
+                logger->log(
+                    "backend.logic",
+                    String("input.state.before.text=") + input_state.text
+                );
+            }
+        }
+
         Ref<ElaraWidget> widget = root->getWidget(ElaraWidgetHandle(input_handle));
 
         if(logger) {
@@ -449,7 +465,9 @@ public:
             return;
         }
 
-        String text = input->getText().trim();
+        String text = has_input_state && input_state.has_text
+            ? input_state.text.trim()
+            : input->getText().trim();
         String before_text = text;
 
         if(logger) {
@@ -482,6 +500,13 @@ public:
                 String(" after=") +
                 String((int)value)
             );
+            ElaraWidgetState after_state;
+            if(root->probeWidgetState(ElaraWidgetHandle(input_handle), after_state) && after_state.has_text) {
+                logger->log(
+                    "backend.logic",
+                    String("input.state.after.text=") + after_state.text
+                );
+            }
         }
 
         if(backend) {
@@ -692,6 +717,7 @@ private:
             root->enableOutboundEvent("keyDown");
             root->enableOutboundEvent("keyUp");
             root->enableOutboundEvent("keysTyped");
+            root->enableOutboundEvent("valueChanged");
             return;
         }
 
