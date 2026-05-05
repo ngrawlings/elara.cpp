@@ -12,6 +12,8 @@
 #include "widgets/ElaraSpinnerWidget.h"
 #include "widgets/ElaraTabWidget.h"
 #include "widgets/ElaraTextInputWidget.h"
+#include "widgets/ElaraListViewWidget.h"
+#include "widgets/ElaraTreeViewWidget.h"
 #include "widgets/instruments/ElaraMultiAxisLineChartWidget.h"
 #include <libelaraformat/json/Json.h>
 
@@ -113,6 +115,14 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
 
     if(dynamic_cast<ElaraSpinnerWidget*>(widget)) {
         return "ElaraSpinnerWidget";
+    }
+
+    if(dynamic_cast<ElaraListViewWidget*>(widget)) {
+        return "ElaraListViewWidget";
+    }
+
+    if(dynamic_cast<ElaraTreeViewWidget*>(widget)) {
+        return "ElaraTreeViewWidget";
     }
 
     if(dynamic_cast<ElaraRichTextEditWidget*>(widget)) {
@@ -241,6 +251,40 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
         return state;
     }
 
+    ElaraListViewWidget* list = dynamic_cast<ElaraListViewWidget*>(widget.getPtr());
+    if(list) {
+        state.kind = ELARA_WIDGET_STATE_LIST_VIEW;
+        state.text = list->getSelectedText();
+        state.selected_id = list->getSelectedId();
+        state.enabled = list->isEnabled();
+        state.font_size = list->getFontSize();
+        state.item_count = list->getItemCount();
+        state.has_text = true;
+        state.has_selected_id = true;
+        state.has_enabled = true;
+        state.has_font_size = true;
+        state.has_item_count = true;
+        return state;
+    }
+
+    ElaraTreeViewWidget* tree = dynamic_cast<ElaraTreeViewWidget*>(widget.getPtr());
+    if(tree) {
+        state.kind = ELARA_WIDGET_STATE_TREE_VIEW;
+        state.text = tree->getSelectedText();
+        state.selected_id = tree->getSelectedId();
+        state.enabled = tree->isEnabled();
+        state.font_size = tree->getFontSize();
+        state.item_count = tree->getNodeCount();
+        state.expanded_count = tree->getExpandedCount();
+        state.has_text = true;
+        state.has_selected_id = true;
+        state.has_enabled = true;
+        state.has_font_size = true;
+        state.has_item_count = true;
+        state.has_expanded_count = true;
+        return state;
+    }
+
     ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget.getPtr());
     if(rich) {
         state.kind = ELARA_WIDGET_STATE_RICH_TEXT_EDIT;
@@ -363,6 +407,11 @@ String ElaraWidgetStateProbe::widgetStateJson(const ElaraWidgetState& state) {
         has_field = true;
     }
 
+    if(state.has_selected_id) {
+        json += jsonStringField("selectedId", state.selected_id, has_field);
+        has_field = true;
+    }
+
     if(state.has_placeholder) {
         json += jsonStringField("placeholder", state.placeholder, has_field);
         has_field = true;
@@ -410,6 +459,16 @@ String ElaraWidgetStateProbe::widgetStateJson(const ElaraWidgetState& state) {
 
     if(state.has_series_count) {
         json += jsonIntField("seriesCount", state.series_count, has_field);
+        has_field = true;
+    }
+
+    if(state.has_item_count) {
+        json += jsonIntField("itemCount", state.item_count, has_field);
+        has_field = true;
+    }
+
+    if(state.has_expanded_count) {
+        json += jsonIntField("expandedCount", state.expanded_count, has_field);
         has_field = true;
     }
 

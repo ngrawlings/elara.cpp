@@ -1,1 +1,1 @@
-artifacts/20260505-174223-ui-rpc-debug
+artifacts/20260505-175012-ui-rpc-debug

@@ -13,7 +13,9 @@
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSpinnerWidget.h>
+#include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
+#include <libelaraui/frontend/widgets/ElaraTreeViewWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
 
@@ -67,6 +69,26 @@ static String jsonString(const Json& json, const String& path, const String& fal
     }
 
     return value;
+}
+
+static bool jsonBool(const Json& json, const String& path, bool fallback) {
+    Ref<JsonValue> value = json.getJsonValue(path);
+
+    if(!value || value->getType() == JsonValue::INVALID) {
+        return fallback;
+    }
+
+    String text = value->toString().trim();
+
+    if(text == String("true") || text == String("\"true\"")) {
+        return true;
+    }
+
+    if(text == String("false") || text == String("\"false\"")) {
+        return false;
+    }
+
+    return fallback;
 }
 
 class ElaraJsonLabelWidget : public ElaraWidget {
@@ -205,6 +227,51 @@ public:
 
 class ElaraBuiltinWidgetFactory : public ElaraJsonWidgetFactory {
 private:
+    void applyListItems(ElaraListViewWidget* list, const Json& spec) {
+        list->clearItems();
+
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            list->addItem(
+                ElaraListViewItem(
+                    item_json.getStringValue("id"),
+                    item_json.getStringValue("label")
+                )
+            );
+        }
+    }
+
+    ElaraTreeViewNode parseTreeNode(const Json& spec) {
+        ElaraTreeViewNode node(
+            spec.getStringValue("id"),
+            spec.getStringValue("label")
+        );
+
+        node.setExpanded(jsonBool(spec, "expanded", false));
+
+        Array< Ref<JsonValue> > children = spec.getArray("children");
+
+        for(int i = 0; i < (int)children.length(); i++) {
+            Json child_json(children[i]->toString());
+            node.addChild(parseTreeNode(child_json));
+        }
+
+        return node;
+    }
+
+    void applyTreeNodes(ElaraTreeViewWidget* tree, const Json& spec) {
+        tree->clearNodes();
+
+        Array< Ref<JsonValue> > nodes = spec.getArray("nodes");
+
+        for(int i = 0; i < (int)nodes.length(); i++) {
+            Json node_json(nodes[i]->toString());
+            tree->addRootNode(parseTreeNode(node_json));
+        }
+    }
+
     ElaraWidget* createChildWidget(ElaraWidgetRegister* root, const Json& spec) {
         String id = spec.getStringValue("id");
         String type = spec.getStringValue("type");
@@ -375,6 +442,8 @@ public:
             type == String("elara.widgets.slider") ||
             type == String("elara.widgets.spinner") ||
             type == String("elara.widgets.text_input") ||
+            type == String("elara.widgets.list_view") ||
+            type == String("elara.widgets.tree_view") ||
             type == String("elara.widgets.surface_panel") ||
             type == String("elara.widgets.density_map") ||
             type == String("elara.widgets.multi_axis_line_chart") ||
@@ -415,6 +484,14 @@ public:
             widget = new ElaraSliderWidget(root, id);
         } else if(type == String("elara.widgets.spinner")) {
             widget = new ElaraSpinnerWidget(root, id);
+        } else if(type == String("elara.widgets.list_view")) {
+            ElaraListViewWidget* list = new ElaraListViewWidget(root, id);
+            applyListItems(list, spec);
+            widget = list;
+        } else if(type == String("elara.widgets.tree_view")) {
+            ElaraTreeViewWidget* tree = new ElaraTreeViewWidget(root, id);
+            applyTreeNodes(tree, spec);
+            widget = tree;
         } else if(type == String("elara.widgets.rich_text_edit")) {
             widget = new ElaraRichTextEditWidget(root, id);
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
@@ -542,6 +619,22 @@ public:
                 jsonString(spec, "properties.enabled", String("true")) != String("false")
             );
             spinner->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
+        }
+
+        ElaraListViewWidget* list = dynamic_cast<ElaraListViewWidget*>(widget);
+        if(list) {
+            list->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            list->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
+        }
+
+        ElaraTreeViewWidget* tree = dynamic_cast<ElaraTreeViewWidget*>(widget);
+        if(tree) {
+            tree->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            tree->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
         }
 
         ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget);

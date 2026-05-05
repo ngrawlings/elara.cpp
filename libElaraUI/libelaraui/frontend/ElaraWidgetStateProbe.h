@@ -23,6 +23,8 @@ enum ElaraWidgetStateKind {
     ELARA_WIDGET_STATE_TEXT_INPUT,
     ELARA_WIDGET_STATE_SLIDER,
     ELARA_WIDGET_STATE_SPINNER,
+    ELARA_WIDGET_STATE_LIST_VIEW,
+    ELARA_WIDGET_STATE_TREE_VIEW,
     ELARA_WIDGET_STATE_RICH_TEXT_EDIT,
     ELARA_WIDGET_STATE_MULTI_AXIS_LINE_CHART
 };
@@ -47,6 +49,7 @@ struct ElaraWidgetState {
     String text;
     String action;
     String group;
+    String selected_id;
     String placeholder;
     String layout;
     String orientation;
@@ -66,10 +69,13 @@ struct ElaraWidgetState {
     int tab_count;
     int axis_count;
     int series_count;
+    int item_count;
+    int expanded_count;
 
     bool has_text;
     bool has_action;
     bool has_group;
+    bool has_selected_id;
     bool has_placeholder;
     bool has_enabled;
     bool has_checked;
@@ -80,6 +86,8 @@ struct ElaraWidgetState {
     bool has_tab_count;
     bool has_axis_count;
     bool has_series_count;
+    bool has_item_count;
+    bool has_expanded_count;
     bool has_layout;
     bool has_orientation;
     bool has_minimum;
@@ -104,9 +112,12 @@ struct ElaraWidgetState {
           tab_count(0),
           axis_count(0),
           series_count(0),
+          item_count(0),
+          expanded_count(0),
           has_text(false),
           has_action(false),
           has_group(false),
+          has_selected_id(false),
           has_placeholder(false),
           has_enabled(false),
           has_checked(false),
@@ -117,6 +128,8 @@ struct ElaraWidgetState {
           has_tab_count(false),
           has_axis_count(false),
           has_series_count(false),
+          has_item_count(false),
+          has_expanded_count(false),
           has_layout(false),
           has_orientation(false),
           has_minimum(false),

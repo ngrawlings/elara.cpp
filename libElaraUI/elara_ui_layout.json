@@ -244,6 +244,69 @@
               "text": "# Elara Notes\n## Build status\n- RPC server is live\n- Sliders are now primitive widgets\n- Chart tab renders dual-axis sample data\n\n## Next step\nUse this editor as the basis for higher-level document widgets.\n\nHorizontal scrolling is handled by the child slider when lines grow beyond the viewport."
             }
           }
+        },
+        {
+          "title": "Tree",
+          "widget": {
+            "id": "demo.tree",
+            "type": "elara.widgets.tree_view",
+            "properties": {
+              "font_size": 14
+            },
+            "nodes": [
+              {
+                "id": "workspace",
+                "label": "workspace",
+                "expanded": true,
+                "children": [
+                  {
+                    "id": "workspace.src",
+                    "label": "src",
+                    "expanded": true,
+                    "children": [
+                      { "id": "workspace.src.main", "label": "main.cpp" },
+                      { "id": "workspace.src.ui", "label": "ui_head.cpp" }
+                    ]
+                  },
+                  {
+                    "id": "workspace.assets",
+                    "label": "assets",
+                    "expanded": false,
+                    "children": [
+                      { "id": "workspace.assets.theme", "label": "theme.json" },
+                      { "id": "workspace.assets.layout", "label": "layout.json" }
+                    ]
+                  },
+                  { "id": "workspace.readme", "label": "README.md" }
+                ]
+              },
+              {
+                "id": "build",
+                "label": "build",
+                "expanded": false,
+                "children": [
+                  { "id": "build.bin", "label": "bin" },
+                  { "id": "build.lib", "label": "lib" }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "title": "List",
+          "widget": {
+            "id": "demo.list",
+            "type": "elara.widgets.list_view",
+            "properties": {
+              "font_size": 14
+            },
+            "items": [
+              { "id": "task.backlog", "label": "Backlog" },
+              { "id": "task.in_progress", "label": "In Progress" },
+              { "id": "task.review", "label": "Review" },
+              { "id": "task.done", "label": "Done" }
+            ]
+          }
         }
       ]
     }
