@@ -5,9 +5,11 @@
 #include "widgets/ElaraCheckboxWidget.h"
 #include "widgets/ElaraLabelWidget.h"
 #include "widgets/ElaraPopupWidget.h"
+#include "widgets/ElaraRadioButtonWidget.h"
 #include "widgets/ElaraRootWidget.h"
 #include "widgets/ElaraRichTextEditWidget.h"
 #include "widgets/ElaraSliderWidget.h"
+#include "widgets/ElaraSpinnerWidget.h"
 #include "widgets/ElaraTabWidget.h"
 #include "widgets/ElaraTextInputWidget.h"
 #include "widgets/instruments/ElaraMultiAxisLineChartWidget.h"
@@ -93,6 +95,10 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
         return "ElaraCheckboxWidget";
     }
 
+    if(dynamic_cast<ElaraRadioButtonWidget*>(widget)) {
+        return "ElaraRadioButtonWidget";
+    }
+
     if(dynamic_cast<ElaraLabelWidget*>(widget)) {
         return "ElaraLabelWidget";
     }
@@ -103,6 +109,10 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
 
     if(dynamic_cast<ElaraSliderWidget*>(widget)) {
         return "ElaraSliderWidget";
+    }
+
+    if(dynamic_cast<ElaraSpinnerWidget*>(widget)) {
+        return "ElaraSpinnerWidget";
     }
 
     if(dynamic_cast<ElaraRichTextEditWidget*>(widget)) {
@@ -155,6 +165,22 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
         return state;
     }
 
+    ElaraRadioButtonWidget* radio = dynamic_cast<ElaraRadioButtonWidget*>(widget.getPtr());
+    if(radio) {
+        state.kind = ELARA_WIDGET_STATE_RADIO_BUTTON;
+        state.text = radio->getText();
+        state.group = radio->getGroup();
+        state.checked = radio->isChecked();
+        state.enabled = radio->isEnabled();
+        state.font_size = radio->getFontSize();
+        state.has_text = true;
+        state.has_group = true;
+        state.has_checked = true;
+        state.has_enabled = true;
+        state.has_font_size = true;
+        return state;
+    }
+
     ElaraLabelWidget* label = dynamic_cast<ElaraLabelWidget*>(widget.getPtr());
     if(label) {
         state.kind = ELARA_WIDGET_STATE_LABEL;
@@ -194,6 +220,24 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
         state.has_value = true;
         state.has_step = true;
         state.has_enabled = true;
+        return state;
+    }
+
+    ElaraSpinnerWidget* spinner = dynamic_cast<ElaraSpinnerWidget*>(widget.getPtr());
+    if(spinner) {
+        state.kind = ELARA_WIDGET_STATE_SPINNER;
+        state.minimum = spinner->getMinimum();
+        state.maximum = spinner->getMaximum();
+        state.value = spinner->getValue();
+        state.step = spinner->getStep();
+        state.enabled = spinner->isEnabled();
+        state.font_size = spinner->getFontSize();
+        state.has_minimum = true;
+        state.has_maximum = true;
+        state.has_value = true;
+        state.has_step = true;
+        state.has_enabled = true;
+        state.has_font_size = true;
         return state;
     }
 
@@ -311,6 +355,11 @@ String ElaraWidgetStateProbe::widgetStateJson(const ElaraWidgetState& state) {
 
     if(state.has_action) {
         json += jsonStringField("action", state.action, has_field);
+        has_field = true;
+    }
+
+    if(state.has_group) {
+        json += jsonStringField("group", state.group, has_field);
         has_field = true;
     }
 

@@ -18,9 +18,11 @@ enum ElaraWidgetStateKind {
     ELARA_WIDGET_STATE_GRID,
     ELARA_WIDGET_STATE_BUTTON,
     ELARA_WIDGET_STATE_CHECKBOX,
+    ELARA_WIDGET_STATE_RADIO_BUTTON,
     ELARA_WIDGET_STATE_LABEL,
     ELARA_WIDGET_STATE_TEXT_INPUT,
     ELARA_WIDGET_STATE_SLIDER,
+    ELARA_WIDGET_STATE_SPINNER,
     ELARA_WIDGET_STATE_RICH_TEXT_EDIT,
     ELARA_WIDGET_STATE_MULTI_AXIS_LINE_CHART
 };
@@ -44,6 +46,7 @@ struct ElaraWidgetState {
 
     String text;
     String action;
+    String group;
     String placeholder;
     String layout;
     String orientation;
@@ -66,6 +69,7 @@ struct ElaraWidgetState {
 
     bool has_text;
     bool has_action;
+    bool has_group;
     bool has_placeholder;
     bool has_enabled;
     bool has_checked;
@@ -102,6 +106,7 @@ struct ElaraWidgetState {
           series_count(0),
           has_text(false),
           has_action(false),
+          has_group(false),
           has_placeholder(false),
           has_enabled(false),
           has_checked(false),

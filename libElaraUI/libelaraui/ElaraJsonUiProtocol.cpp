@@ -9,8 +9,10 @@
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCheckboxWidget.h>
+#include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
+#include <libelaraui/frontend/widgets/ElaraSpinnerWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
@@ -367,9 +369,11 @@ public:
             type == String("elara.layouts.grid") ||
             type == String("elara.widgets.button") ||
             type == String("elara.widgets.checkbox") ||
+            type == String("elara.widgets.radio_button") ||
             type == String("elara.widgets.label") ||
             type == String("elara.widgets.rich_text_edit") ||
             type == String("elara.widgets.slider") ||
+            type == String("elara.widgets.spinner") ||
             type == String("elara.widgets.text_input") ||
             type == String("elara.widgets.surface_panel") ||
             type == String("elara.widgets.density_map") ||
@@ -405,8 +409,12 @@ public:
             widget = new ElaraButtonWidget(root, id);
         } else if(type == String("elara.widgets.checkbox")) {
             widget = new ElaraCheckboxWidget(root, id);
+        } else if(type == String("elara.widgets.radio_button")) {
+            widget = new ElaraRadioButtonWidget(root, id);
         } else if(type == String("elara.widgets.slider")) {
             widget = new ElaraSliderWidget(root, id);
+        } else if(type == String("elara.widgets.spinner")) {
+            widget = new ElaraSpinnerWidget(root, id);
         } else if(type == String("elara.widgets.rich_text_edit")) {
             widget = new ElaraRichTextEditWidget(root, id);
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
@@ -463,6 +471,25 @@ public:
             checkbox->setFontSize((double)font_size);
         }
 
+        ElaraRadioButtonWidget* radio = dynamic_cast<ElaraRadioButtonWidget*>(widget);
+        if(radio) {
+            String text = spec.getStringValue("properties.text");
+            int font_size = jsonInt(spec, "properties.font_size", 14);
+
+            if(text.length() > 0) {
+                radio->setText(text);
+            }
+
+            radio->setGroup(jsonString(spec, "properties.group", String("default")));
+            radio->setChecked(
+                jsonString(spec, "properties.checked", String("false")) == String("true")
+            );
+            radio->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            radio->setFontSize((double)font_size);
+        }
+
         ElaraJsonLabelWidget* label = dynamic_cast<ElaraJsonLabelWidget*>(widget);
         if(label) {
             String text = spec.getStringValue("properties.text");
@@ -501,6 +528,20 @@ public:
             );
             slider->setStep(jsonDouble(spec, "properties.step", 1.0));
             slider->setValue(jsonDouble(spec, "properties.value", 0.0));
+        }
+
+        ElaraSpinnerWidget* spinner = dynamic_cast<ElaraSpinnerWidget*>(widget);
+        if(spinner) {
+            spinner->setRange(
+                jsonDouble(spec, "properties.min", 0.0),
+                jsonDouble(spec, "properties.max", 100.0)
+            );
+            spinner->setStep(jsonDouble(spec, "properties.step", 1.0));
+            spinner->setValue(jsonDouble(spec, "properties.value", 0.0));
+            spinner->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            spinner->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
         }
 
         ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget);
