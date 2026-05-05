@@ -1,5 +1,6 @@
 #include "ElaraWidget.h"
 #include "../ElaraWidgetRegistry.h"
+#include "ElaraRootWidget.h"
 
 namespace elara {
 
@@ -406,6 +407,21 @@ void ElaraWidget::clearChildren() {
         }
 
         child->clearChildren();
+        child->clearListeners();
+
+        ElaraWidget* ancestor = this;
+        while(ancestor && ancestor->getParent()) {
+            ancestor = ancestor->getParent();
+        }
+
+        ElaraRootWidget* root = ancestor
+            ? dynamic_cast<ElaraRootWidget*>(ancestor)
+            : 0;
+
+        if(root) {
+            root->onWidgetRemoved(child->getHandle());
+        }
+
         child->setParent(0);
         ElaraWidgetRegistry::getInstance()->removeWidget(child->getHandle());
     }

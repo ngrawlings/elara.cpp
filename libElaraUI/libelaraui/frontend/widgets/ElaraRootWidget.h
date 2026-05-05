@@ -35,6 +35,7 @@ public:
     Ref<ElaraWidget> getPopup(int index) const;
 
     void registerWidget(ElaraWidgetHandle widget_handle, void* widget);
+    void onWidgetRemoved(ElaraWidgetHandle widget_handle);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
     bool probeWidgetState(ElaraWidgetHandle widget_handle, ElaraWidgetState& state) const;
     bool probeWidgetSnapshot(ElaraWidgetHandle widget_handle, ElaraWidgetSnapshot& snapshot) const;

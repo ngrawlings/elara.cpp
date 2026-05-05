@@ -87,6 +87,27 @@ void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widg
     ((ElaraWidget*)widget)->addListener(this->event_filter);
 }
 
+void ElaraRootWidget::onWidgetRemoved(ElaraWidgetHandle widget_handle) {
+    if(handlesEqual(content, widget_handle)) {
+        content = ElaraWidgetHandle();
+    }
+
+    if(handlesEqual(focus, widget_handle)) {
+        Ref<ElaraWidget> focused_widget = getWidget(focus);
+        ElaraTextInputWidget* focused_input = focused_widget
+            ? dynamic_cast<ElaraTextInputWidget*>(focused_widget.getPtr())
+            : 0;
+
+        if(focused_input) {
+            focused_input->setFocused(false);
+        }
+
+        focus = ElaraWidgetHandle();
+    }
+
+    removePopup(widget_handle);
+}
+
 Ref<ElaraWidget> ElaraRootWidget::getWidget(ElaraWidgetHandle widget_handle) const {
     return ElaraWidgetRegistry::getInstance()->getWidget(widget_handle);
 }
