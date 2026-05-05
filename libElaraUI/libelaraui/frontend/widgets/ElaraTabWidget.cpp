@@ -201,7 +201,11 @@ void ElaraTabWidget::onMouseMove(double px, double py) {
     Ref<ElaraTabPage> page = activePage();
 
     if(page && page->getWidget() && py > tab_height) {
-        page->getWidget()->onMouseMove(px, py - tab_height);
+        ElaraUiEvent event;
+        event.type = ELARA_UI_MOUSE_MOVE;
+        event.x = px;
+        event.y = py - tab_height;
+        page->getWidget()->eventPropagate(event);
     }
 }
 
@@ -211,14 +215,19 @@ void ElaraTabWidget::onMouseDown(int button, double px, double py) {
     printf("tab click test: x=%f y=%f tab=%d\n", px, py, tab);
 
     if(tab >= 0) {
-        active_index = tab;
+        setActiveTab(tab);
         return;
     }
 
     Ref<ElaraTabPage> page = activePage();
 
     if(page && page->getWidget() && py > tab_height) {
-        page->getWidget()->onMouseDown(button, px, py - tab_height);
+        ElaraUiEvent event;
+        event.type = ELARA_UI_MOUSE_DOWN;
+        event.x = px;
+        event.y = py - tab_height;
+        event.button = button;
+        page->getWidget()->eventPropagate(event);
     }
 }
 
@@ -226,7 +235,12 @@ void ElaraTabWidget::onMouseUp(int button, double px, double py) {
     Ref<ElaraTabPage> page = activePage();
 
     if(page && page->getWidget() && py > tab_height) {
-        page->getWidget()->onMouseUp(button, px, py - tab_height);
+        ElaraUiEvent event;
+        event.type = ELARA_UI_MOUSE_UP;
+        event.x = px;
+        event.y = py - tab_height;
+        event.button = button;
+        page->getWidget()->eventPropagate(event);
     }
 }
 

@@ -1,0 +1,2 @@
+session=artifacts/20260505-120424-ui-rpc-debug
+events=32

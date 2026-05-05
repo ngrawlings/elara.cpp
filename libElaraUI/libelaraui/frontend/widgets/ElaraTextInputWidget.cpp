@@ -1,4 +1,5 @@
 #include "ElaraTextInputWidget.h"
+#include "ElaraRootWidget.h"
 
 namespace elara {
 
@@ -13,6 +14,26 @@ static const unsigned int ELARA_KEY_END = 0xff57;
 static const unsigned int ELARA_KEY_DELETE = 0xffff;
 static const unsigned int ELARA_KEY_KP_ENTER = 0xff8d;
 
+namespace {
+
+ElaraRootWidget* rootWidgetFor(ElaraWidget* widget) {
+    ElaraWidget* current = widget;
+
+    while(current) {
+        ElaraRootWidget* root = dynamic_cast<ElaraRootWidget*>(current);
+
+        if(root) {
+            return root;
+        }
+
+        current = current->getParent();
+    }
+
+    return 0;
+}
+
+}
+
 ElaraTextInputWidget::ElaraTextInputWidget(
     ElaraWidgetRegister* root_widget,
     ElaraWidgetHandle widget_handle
@@ -21,6 +42,7 @@ ElaraTextInputWidget::ElaraTextInputWidget(
     placeholder("Text input"),
     palette_master("input"),
     enabled(true),
+    focused(false),
     key_down(false),
     last_keyval(0),
     font_size(14),
@@ -52,6 +74,7 @@ void ElaraTextInputWidget::setEnabled(bool input_enabled) {
     enabled = input_enabled;
 
     if(!enabled) {
+        focused = false;
         key_down = false;
         last_keyval = 0;
     }
@@ -59,6 +82,19 @@ void ElaraTextInputWidget::setEnabled(bool input_enabled) {
 
 bool ElaraTextInputWidget::isEnabled() const {
     return enabled;
+}
+
+void ElaraTextInputWidget::setFocused(bool value) {
+    focused = enabled && value;
+
+    if(!focused) {
+        key_down = false;
+        last_keyval = 0;
+    }
+}
+
+bool ElaraTextInputWidget::isFocused() const {
+    return focused;
 }
 
 void ElaraTextInputWidget::setFontSize(double size) {
@@ -69,12 +105,80 @@ void ElaraTextInputWidget::setTextPadding(double px) {
     padding_x = px;
 }
 
+double ElaraTextInputWidget::textViewportWidth() const {
+    double viewport = width - (padding_x * 2) - caret_padding;
+    return viewport > 0 ? viewport : 0;
+}
+
 double ElaraTextInputWidget::estimateTextWidth(const String& text) const {
     return text.length() * font_size * 0.58;
 }
 
 double ElaraTextInputWidget::textY() const {
     return (height / 2) + (font_size / 2) - 2;
+}
+
+int ElaraTextInputWidget::visibleTextStart() const {
+    double viewport = textViewportWidth();
+
+    if(viewport <= 0 || value.length() <= 0) {
+        return 0;
+    }
+
+    int start = caret_index;
+    if(start < 0) {
+        start = 0;
+    }
+    if(start > (int)value.length()) {
+        start = (int)value.length();
+    }
+
+    while(start > 0) {
+        String visible = value.substr(start - 1, caret_index - start + 1);
+        if(estimateTextWidth(visible) > viewport) {
+            break;
+        }
+        start--;
+    }
+
+    return start;
+}
+
+String ElaraTextInputWidget::visibleText() const {
+    int start = visibleTextStart();
+    if(start < 0) {
+        start = 0;
+    }
+
+    String visible = value.substr(start);
+    double viewport = textViewportWidth();
+
+    while(visible.length() > 0 && estimateTextWidth(visible) > viewport) {
+        visible = visible.substr(0, visible.length() - 1);
+    }
+
+    return visible;
+}
+
+int ElaraTextInputWidget::caretIndexAtX(double px) const {
+    int start = visibleTextStart();
+
+    if(px <= padding_x) {
+        return start;
+    }
+
+    String visible = visibleText();
+
+    for(int i = 0; i <= (int)visible.length(); i++) {
+        String before = visible.substr(0, i);
+        double caret_x = padding_x + estimateTextWidth(before) + caret_padding;
+
+        if(px <= caret_x) {
+            return start + i;
+        }
+    }
+
+    return start + (int)visible.length();
 }
 
 bool ElaraTextInputWidget::isPrintableKey(unsigned int keyval) const {
@@ -162,13 +266,18 @@ void ElaraTextInputWidget::draw(ElaraDrawContext* ctx) {
     ctx->setColor(c.text.r, c.text.g, c.text.b);
 
     if(value.length() > 0) {
-        ctx->drawText(padding_x, textY(), value, font_size);
+        ctx->drawText(padding_x, textY(), visibleText(), font_size);
     } else {
-        ctx->drawText(padding_x, textY(), placeholder, font_size);
+        String visible_placeholder = placeholder;
+        while(visible_placeholder.length() > 0 && estimateTextWidth(visible_placeholder) > textViewportWidth()) {
+            visible_placeholder = visible_placeholder.substr(0, visible_placeholder.length() - 1);
+        }
+        ctx->drawText(padding_x, textY(), visible_placeholder, font_size);
     }
 
-    if(enabled) {
-        String before = value.substr(0, caret_index);
+    if(enabled && focused) {
+        int start = visibleTextStart();
+        String before = value.substr(start, caret_index - start);
         double caret_x = padding_x + estimateTextWidth(before) + caret_padding;
 
         ctx->setColor(c.text.r, c.text.g, c.text.b);
@@ -176,10 +285,43 @@ void ElaraTextInputWidget::draw(ElaraDrawContext* ctx) {
     }
 }
 
-void ElaraTextInputWidget::onKeyDown(unsigned int keyval) {
-    if(!enabled) {
+void ElaraTextInputWidget::onMouseDown(int button, double px, double py) {
+    emitMouseDown(button, px, py);
+
+    if(button != 1) {
         return;
     }
+
+    if(!enabled) {
+        setFocused(false);
+        return;
+    }
+
+    if(containsLocal(px, py)) {
+        caret_index = caretIndexAtX(px);
+        clampCaret();
+        setFocused(true);
+
+        ElaraRootWidget* root = rootWidgetFor(this);
+        if(root) {
+            root->setFocus(getHandle());
+        }
+        return;
+    }
+
+    setFocused(false);
+}
+
+void ElaraTextInputWidget::onMouseUp(int button, double px, double py) {
+    emitMouseUp(button, px, py);
+}
+
+void ElaraTextInputWidget::onKeyDown(unsigned int keyval) {
+    if(!enabled || !focused) {
+        return;
+    }
+
+    emitKeyDown(keyval);
 
     key_down = true;
     last_keyval = keyval;
@@ -218,10 +360,21 @@ void ElaraTextInputWidget::onKeyDown(unsigned int keyval) {
             return;
     }
 
-    insertChar(printableChar(keyval));
+    char ch = printableChar(keyval);
+    insertChar(ch);
+
+    if(ch) {
+        emitKeysTyped(String(ch));
+    }
 }
 
 void ElaraTextInputWidget::onKeyUp(unsigned int keyval) {
+    if(!enabled || !focused) {
+        return;
+    }
+
+    emitKeyUp(keyval);
+
     if(last_keyval == keyval) {
         key_down = false;
         last_keyval = 0;

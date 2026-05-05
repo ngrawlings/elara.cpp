@@ -31,6 +31,9 @@ public:
     void registerWidget(ElaraWidgetHandle widget_handle, void* widget);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
     void setFocus(ElaraWidgetHandle widget_handle);
+    ElaraWidgetHandle getFocus() const;
+    void enableOutboundEvent(const String& action);
+    void disableOutboundEvent(const String& action);
 
     void setPalette(ElaraPalette* widget_palette);
 

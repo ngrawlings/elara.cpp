@@ -8,6 +8,7 @@
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
+#include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 
 namespace elara {
@@ -312,7 +313,7 @@ public:
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
             widget = new ElaraJsonLabelWidget(root, id);
         } else if(type == String("elara.widgets.text_input") || type == String("demo.widgets.text_input")) {
-            widget = new ElaraJsonTextInputWidget(root, id);
+            widget = new ElaraTextInputWidget(root, id);
         } else if(type == String("elara.widgets.surface_panel") || type == String("demo.widgets.surface_panel")) {
             widget = new ElaraJsonSurfacePanelWidget(root, id);
         } else if(type == String("elara.widgets.density_map")) {
@@ -355,7 +356,7 @@ public:
             label->setFontSize((double)font_size);
         }
 
-        ElaraJsonTextInputWidget* input = dynamic_cast<ElaraJsonTextInputWidget*>(widget);
+        ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget);
         if(input) {
             String text = spec.getStringValue("properties.text");
             String placeholder = spec.getStringValue("properties.placeholder");
@@ -503,7 +504,8 @@ bool ElaraJsonUiProtocol::load(const String& json_text) {
 
 bool ElaraJsonUiProtocol::loadFile(const String& path) {
     File file((const char*)path);
-    String json_text = (String)file.getMemory();
+    Memory data = file.getMemory();
+    String json_text((const char*)data.getPtr(), data.length());
     return load(json_text);
 }
 

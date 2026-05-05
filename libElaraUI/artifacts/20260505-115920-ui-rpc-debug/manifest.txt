@@ -1,0 +1,3 @@
+kind=ui-rpc-debug
+created=2026-05-05 11:59:20
+event_log=artifacts/20260505-115920-ui-rpc-debug/event.log

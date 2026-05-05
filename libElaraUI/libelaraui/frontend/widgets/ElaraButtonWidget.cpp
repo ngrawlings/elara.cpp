@@ -79,11 +79,13 @@ void ElaraButtonWidget::onClicked() {
 
 void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {
     String sub("default");
+    double content_offset = 0;
 
     if(!enabled) {
         sub = String("disabled");
     } else if(pressed) {
         sub = String("pressed");
+        content_offset = 1;
     } else if(hovered) {
         sub = String("hover");
     }
@@ -94,13 +96,25 @@ void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {
     ctx->fillRect(0, 0, width, height);
 
     ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
-    ctx->line(0, 0, width, 0, 1);
-    ctx->line(0, height - 1, width, height - 1, 1);
-    ctx->line(0, 0, 0, height, 1);
-    ctx->line(width - 1, 0, width - 1, height, 1);
+    if(pressed) {
+        ctx->line(0, 0, width, 0, 2);
+        ctx->line(0, 0, 0, height, 2);
+        ctx->line(0, height - 1, width, height - 1, 1);
+        ctx->line(width - 1, 0, width - 1, height, 1);
+        ctx->fillRect(2, 2, width - 4, 2);
+    } else {
+        ctx->line(0, 0, width, 0, 1);
+        ctx->line(0, height - 1, width, height - 1, 1);
+        ctx->line(0, 0, 0, height, 1);
+        ctx->line(width - 1, 0, width - 1, height, 1);
+
+        if(hovered && enabled) {
+            ctx->fillRect(2, height - 4, width - 4, 2);
+        }
+    }
 
     ctx->setColor(c.text.r, c.text.g, c.text.b);
-    ctx->drawText(textX(), textY(), text, font_size);
+    ctx->drawText(textX() + content_offset, textY() + content_offset, text, font_size);
 }
 
 void ElaraButtonWidget::onMouseMove(double px, double py) {

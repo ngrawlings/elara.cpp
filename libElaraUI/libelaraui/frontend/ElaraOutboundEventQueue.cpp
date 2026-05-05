@@ -32,8 +32,10 @@ void ElaraOutboundEventQueue::push(
     const String& payload
 ) {
     Mutex::Lock lock(mutex);
+    Memory handle_memory = widget_handle.getHandle();
+    String handle_text((const char*)handle_memory.getPtr(), handle_memory.length());
 
-    printf("Event Queued {%s} %s (%s)\n", (const char*)String(widget_handle.getHandle()), (const char*)action, (const char*)payload);
+    printf("Event Queued {%s} %s (%s)\n", (const char*)handle_text, (const char*)action, (const char*)payload);
 
     events.push(
         Ref<ElaraOutboundEvent>(

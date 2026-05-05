@@ -1,4 +1,5 @@
 #include "ElaraRootWidget.h"
+#include "ElaraTextInputWidget.h"
 
 namespace elara {
 
@@ -45,6 +46,26 @@ void ElaraRootWidget::setFocus(ElaraWidgetHandle widget_handle) {
     this->focus = widget_handle;
 }
 
+ElaraWidgetHandle ElaraRootWidget::getFocus() const {
+    return focus;
+}
+
+void ElaraRootWidget::enableOutboundEvent(const String& action) {
+    ElaraOutboundEventFilter* filter = (ElaraOutboundEventFilter*)event_filter.getPtr();
+
+    if(filter) {
+        filter->enable(action);
+    }
+}
+
+void ElaraRootWidget::disableOutboundEvent(const String& action) {
+    ElaraOutboundEventFilter* filter = (ElaraOutboundEventFilter*)event_filter.getPtr();
+
+    if(filter) {
+        filter->disable(action);
+    }
+}
+
 void ElaraRootWidget::setPalette(ElaraPalette* widget_palette) {
     ElaraWidget::setPalette(widget_palette);
 
@@ -78,12 +99,30 @@ void ElaraRootWidget::dispatchMouseMove(double px, double py) {
     event.type = ELARA_UI_MOUSE_MOVE;
     event.x = px;
     event.y = py;
-    event.button = NULL;
+    event.button = 0;
 
     eventPropagate(event);
 }
 
 void ElaraRootWidget::dispatchMouseDown(int button, double px, double py) {
+    Ref<ElaraWidget> focused_widget = getWidget(focus);
+    ElaraTextInputWidget* focused_input = focused_widget
+        ? dynamic_cast<ElaraTextInputWidget*>(focused_widget.getPtr())
+        : 0;
+
+    if(focused_input) {
+        bool inside_focused =
+            px >= focused_input->getAbsoluteX() &&
+            py >= focused_input->getAbsoluteY() &&
+            px <= focused_input->getAbsoluteX() + focused_input->getWidth() &&
+            py <= focused_input->getAbsoluteY() + focused_input->getHeight();
+
+        if(!inside_focused) {
+            focused_input->setFocused(false);
+            focus = ElaraWidgetHandle();
+        }
+    }
+
     ElaraUiEvent event;
     event.root_widget = this;
     event.type = ELARA_UI_MOUSE_DOWN;
@@ -106,11 +145,31 @@ void ElaraRootWidget::dispatchMouseUp(int button, double px, double py) {
 }
 
 void ElaraRootWidget::dispatchKeyDown(unsigned int keyval) {
+    Ref<ElaraWidget> focused_widget = getWidget(focus);
 
+    if(focused_widget && focused_widget->isVisible()) {
+        focused_widget->onKeyDown(keyval);
+        return;
+    }
+
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        c->onKeyDown(keyval);
+    }
 }
 
 void ElaraRootWidget::dispatchKeyUp(unsigned int keyval) {
+    Ref<ElaraWidget> focused_widget = getWidget(focus);
 
+    if(focused_widget && focused_widget->isVisible()) {
+        focused_widget->onKeyUp(keyval);
+        return;
+    }
+
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        c->onKeyUp(keyval);
+    }
 }
 
 void ElaraRootWidget::onMouseMove(double px, double py) {
