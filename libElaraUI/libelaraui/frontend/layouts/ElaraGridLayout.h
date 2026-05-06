@@ -14,12 +14,14 @@ class ElaraGridTrack {
 public:
     ElaraGridSizeMode mode;
     double size;
+    double weight;
+    bool resizable_after;
     double computed_size;
     double computed_offset;
 
     ElaraGridTrack();
     ElaraGridTrack(double exact_size);
-    static ElaraGridTrack fill();
+    static ElaraGridTrack fill(double weight = 1.0);
 };
 
 class ElaraGridCell {
@@ -43,13 +45,32 @@ public:
 
 class ElaraGridLayout : public ElaraWidget {
 private:
+    enum ResizeAxis {
+        ELARA_GRID_RESIZE_NONE,
+        ELARA_GRID_RESIZE_COLUMN,
+        ELARA_GRID_RESIZE_ROW
+    };
+
     Array<ElaraGridTrack> columns;
     Array<ElaraGridTrack> rows;
     Array<ElaraGridCell> cells;
+    double resize_handle_size;
+    ResizeAxis resize_axis;
+    int resize_index;
+    double resize_origin;
+    double resize_primary_initial;
+    double resize_secondary_initial;
 
     void computeTracks(Array<ElaraGridTrack>* tracks, double total_size);
     double trackOffset(const Array<ElaraGridTrack>& tracks, int index) const;
     double trackSpanSize(const Array<ElaraGridTrack>& tracks, int index, int span) const;
+    int columnDividerAt(double px) const;
+    int rowDividerAt(double py) const;
+    void beginColumnResize(int index, double px);
+    void beginRowResize(int index, double py);
+    void updateColumnResize(double px);
+    void updateRowResize(double py);
+    void endResize();
 
 public:
     ElaraGridLayout(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle);
@@ -57,9 +78,13 @@ public:
 
     int addColumn(double width);
     int addFillColumn();
+    int addWeightedFillColumn(double weight);
+    void setColumnBorderResizable(int index, bool enabled);
 
     int addRow(double height);
     int addFillRow();
+    int addWeightedFillRow(double weight);
+    void setRowBorderResizable(int index, bool enabled);
 
     void addWidget(
         ElaraWidgetHandle widget_handle,
@@ -73,6 +98,10 @@ public:
     void clearLayout();
 
     void draw(ElaraDrawContext* ctx);
+    bool eventPropagate(ElaraUiEvent event);
+    void onMouseMove(double px, double py);
+    void onMouseDown(int button, double px, double py);
+    void onMouseUp(int button, double px, double py);
 };
 
 }

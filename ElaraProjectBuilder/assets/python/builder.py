@@ -244,22 +244,46 @@ class UiDocumentBuilder:
 
     def add_grid_column_exact(self, grid_id, size):
         grid = self._get_widget(grid_id)
-        grid["grid_columns"].append({"fill": False, "size": size})
+        grid["grid_columns"].append({"fill": False, "size": size, "weight": 1.0, "resizable": False})
         return self
 
     def add_grid_column_fill(self, grid_id):
         grid = self._get_widget(grid_id)
-        grid["grid_columns"].append({"fill": True, "size": 0})
+        grid["grid_columns"].append({"fill": True, "size": 0, "weight": 1.0, "resizable": False})
+        return self
+
+    def add_grid_column_weighted_fill(self, grid_id, weight):
+        grid = self._get_widget(grid_id)
+        grid["grid_columns"].append({"fill": True, "size": 0, "weight": float(weight) if weight and weight > 0 else 1.0, "resizable": False})
+        return self
+
+    def set_grid_column_border_resizable(self, grid_id, index, enabled=True):
+        grid = self._get_widget(grid_id)
+        if index < 0 or index >= len(grid["grid_columns"]):
+            raise IndexError("grid column index out of range")
+        grid["grid_columns"][int(index)]["resizable"] = bool(enabled)
         return self
 
     def add_grid_row_exact(self, grid_id, size):
         grid = self._get_widget(grid_id)
-        grid["grid_rows"].append({"fill": False, "size": size})
+        grid["grid_rows"].append({"fill": False, "size": size, "weight": 1.0, "resizable": False})
         return self
 
     def add_grid_row_fill(self, grid_id):
         grid = self._get_widget(grid_id)
-        grid["grid_rows"].append({"fill": True, "size": 0})
+        grid["grid_rows"].append({"fill": True, "size": 0, "weight": 1.0, "resizable": False})
+        return self
+
+    def add_grid_row_weighted_fill(self, grid_id, weight):
+        grid = self._get_widget(grid_id)
+        grid["grid_rows"].append({"fill": True, "size": 0, "weight": float(weight) if weight and weight > 0 else 1.0, "resizable": False})
+        return self
+
+    def set_grid_row_border_resizable(self, grid_id, index, enabled=True):
+        grid = self._get_widget(grid_id)
+        if index < 0 or index >= len(grid["grid_rows"]):
+            raise IndexError("grid row index out of range")
+        grid["grid_rows"][int(index)]["resizable"] = bool(enabled)
         return self
 
     def place_grid_child(self, grid_id, child_id, column, row, column_span=1, row_span=1):
@@ -378,13 +402,31 @@ class UiDocumentBuilder:
 
         if widget["grid_columns"]:
             result["columns"] = [
-                {"mode": "fill"} if column["fill"] else {"mode": "exact", "size": column["size"]}
+                (
+                    dict(
+                        {"mode": "fill", "weight": column.get("weight", 1.0)}
+                        if column.get("weight", 1.0) != 1.0 else {"mode": "fill"},
+                        **({"resizable": True} if column.get("resizable") else {})
+                    )
+                ) if column["fill"] else dict(
+                    {"mode": "exact", "size": column["size"]},
+                    **({"resizable": True} if column.get("resizable") else {})
+                )
                 for column in widget["grid_columns"]
             ]
 
         if widget["grid_rows"]:
             result["rows"] = [
-                {"mode": "fill"} if row["fill"] else {"mode": "exact", "size": row["size"]}
+                (
+                    dict(
+                        {"mode": "fill", "weight": row.get("weight", 1.0)}
+                        if row.get("weight", 1.0) != 1.0 else {"mode": "fill"},
+                        **({"resizable": True} if row.get("resizable") else {})
+                    )
+                ) if row["fill"] else dict(
+                    {"mode": "exact", "size": row["size"]},
+                    **({"resizable": True} if row.get("resizable") else {})
+                )
                 for row in widget["grid_rows"]
             ]
 

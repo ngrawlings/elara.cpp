@@ -40,6 +40,8 @@ private:
     struct GridTrack {
         bool fill;
         double size;
+        double weight;
+        bool resizable_after;
     };
 
     struct WidgetSpec {
@@ -140,8 +142,12 @@ public:
     );
     bool addGridColumnExact(const String& grid_id, double size);
     bool addGridColumnFill(const String& grid_id);
+    bool addGridColumnWeightedFill(const String& grid_id, double weight);
+    bool setGridColumnBorderResizable(const String& grid_id, int index, bool enabled);
     bool addGridRowExact(const String& grid_id, double size);
     bool addGridRowFill(const String& grid_id);
+    bool addGridRowWeightedFill(const String& grid_id, double weight);
+    bool setGridRowBorderResizable(const String& grid_id, int index, bool enabled);
     bool placeGridChild(
         const String& grid_id,
         const String& child_id,

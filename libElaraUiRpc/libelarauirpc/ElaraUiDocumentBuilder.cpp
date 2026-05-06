@@ -206,10 +206,21 @@ String ElaraUiDocumentBuilder::serializeWidget(const WidgetSpec& spec) const {
             }
 
             if(spec.grid_columns[i].fill) {
-                json += "{\"mode\":\"fill\"}";
+                json += "{\"mode\":\"fill\"";
+                if(spec.grid_columns[i].weight > 0 && spec.grid_columns[i].weight != 1.0) {
+                    json += ",\"weight\":";
+                    json += jsonNumberLiteral(spec.grid_columns[i].weight);
+                }
+                if(spec.grid_columns[i].resizable_after) {
+                    json += ",\"resizable\":true";
+                }
+                json += "}";
             } else {
                 json += "{\"mode\":\"exact\",\"size\":";
                 json += jsonNumberLiteral(spec.grid_columns[i].size);
+                if(spec.grid_columns[i].resizable_after) {
+                    json += ",\"resizable\":true";
+                }
                 json += "}";
             }
         }
@@ -226,10 +237,21 @@ String ElaraUiDocumentBuilder::serializeWidget(const WidgetSpec& spec) const {
             }
 
             if(spec.grid_rows[i].fill) {
-                json += "{\"mode\":\"fill\"}";
+                json += "{\"mode\":\"fill\"";
+                if(spec.grid_rows[i].weight > 0 && spec.grid_rows[i].weight != 1.0) {
+                    json += ",\"weight\":";
+                    json += jsonNumberLiteral(spec.grid_rows[i].weight);
+                }
+                if(spec.grid_rows[i].resizable_after) {
+                    json += ",\"resizable\":true";
+                }
+                json += "}";
             } else {
                 json += "{\"mode\":\"exact\",\"size\":";
                 json += jsonNumberLiteral(spec.grid_rows[i].size);
+                if(spec.grid_rows[i].resizable_after) {
+                    json += ",\"resizable\":true";
+                }
                 json += "}";
             }
         }
@@ -832,6 +854,8 @@ bool ElaraUiDocumentBuilder::addGridColumnExact(const String& grid_id, double si
     GridTrack track;
     track.fill = false;
     track.size = size;
+    track.weight = 1.0;
+    track.resizable_after = false;
     grid->grid_columns.push(track);
     return true;
 }
@@ -846,7 +870,36 @@ bool ElaraUiDocumentBuilder::addGridColumnFill(const String& grid_id) {
     GridTrack track;
     track.fill = true;
     track.size = 0;
+    track.weight = 1.0;
+    track.resizable_after = false;
     grid->grid_columns.push(track);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::addGridColumnWeightedFill(const String& grid_id, double weight) {
+    WidgetSpec* grid = getWidgetSpec(grid_id);
+
+    if(!grid) {
+        return false;
+    }
+
+    GridTrack track;
+    track.fill = true;
+    track.size = 0;
+    track.weight = weight > 0 ? weight : 1.0;
+    track.resizable_after = false;
+    grid->grid_columns.push(track);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::setGridColumnBorderResizable(const String& grid_id, int index, bool enabled) {
+    WidgetSpec* grid = getWidgetSpec(grid_id);
+
+    if(!grid || index < 0 || index >= (int)grid->grid_columns.length()) {
+        return false;
+    }
+
+    grid->grid_columns[index].resizable_after = enabled;
     return true;
 }
 
@@ -860,6 +913,8 @@ bool ElaraUiDocumentBuilder::addGridRowExact(const String& grid_id, double size)
     GridTrack track;
     track.fill = false;
     track.size = size;
+    track.weight = 1.0;
+    track.resizable_after = false;
     grid->grid_rows.push(track);
     return true;
 }
@@ -874,7 +929,36 @@ bool ElaraUiDocumentBuilder::addGridRowFill(const String& grid_id) {
     GridTrack track;
     track.fill = true;
     track.size = 0;
+    track.weight = 1.0;
+    track.resizable_after = false;
     grid->grid_rows.push(track);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::addGridRowWeightedFill(const String& grid_id, double weight) {
+    WidgetSpec* grid = getWidgetSpec(grid_id);
+
+    if(!grid) {
+        return false;
+    }
+
+    GridTrack track;
+    track.fill = true;
+    track.size = 0;
+    track.weight = weight > 0 ? weight : 1.0;
+    track.resizable_after = false;
+    grid->grid_rows.push(track);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::setGridRowBorderResizable(const String& grid_id, int index, bool enabled) {
+    WidgetSpec* grid = getWidgetSpec(grid_id);
+
+    if(!grid || index < 0 || index >= (int)grid->grid_rows.length()) {
+        return false;
+    }
+
+    grid->grid_rows[index].resizable_after = enabled;
     return true;
 }
 

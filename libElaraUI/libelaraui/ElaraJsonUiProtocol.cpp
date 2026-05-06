@@ -422,9 +422,18 @@ private:
             String mode = column.getStringValue("mode");
 
             if(mode == String("fill")) {
-                grid->addFillColumn();
+                double weight = (double)jsonInt(column, "weight", 1);
+                if(weight > 0 && weight != 1.0) {
+                    grid->addWeightedFillColumn(weight);
+                } else {
+                    grid->addFillColumn();
+                }
             } else {
                 grid->addColumn((double)jsonInt(column, "size", 0));
+            }
+
+            if(jsonBool(column, "resizable", false)) {
+                grid->setColumnBorderResizable(i, true);
             }
         }
 
@@ -435,9 +444,18 @@ private:
             String mode = row.getStringValue("mode");
 
             if(mode == String("fill")) {
-                grid->addFillRow();
+                double weight = (double)jsonInt(row, "weight", 1);
+                if(weight > 0 && weight != 1.0) {
+                    grid->addWeightedFillRow(weight);
+                } else {
+                    grid->addFillRow();
+                }
             } else {
                 grid->addRow((double)jsonInt(row, "size", 0));
+            }
+
+            if(jsonBool(row, "resizable", false)) {
+                grid->setRowBorderResizable(i, true);
             }
         }
     }

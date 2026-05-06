@@ -7,19 +7,24 @@ namespace elara {
 ElaraGridTrack::ElaraGridTrack()
     : mode(ELARA_GRID_SIZE_EXACT),
       size(0),
+      weight(1.0),
+      resizable_after(false),
       computed_size(0),
       computed_offset(0) {}
 
 ElaraGridTrack::ElaraGridTrack(double exact_size)
     : mode(ELARA_GRID_SIZE_EXACT),
       size(exact_size),
+      weight(1.0),
+      resizable_after(false),
       computed_size(0),
       computed_offset(0) {}
 
-ElaraGridTrack ElaraGridTrack::fill() {
+ElaraGridTrack ElaraGridTrack::fill(double track_weight) {
     ElaraGridTrack track;
     track.mode = ELARA_GRID_SIZE_FILL;
     track.size = 0;
+    track.weight = track_weight > 0 ? track_weight : 1.0;
     return track;
 }
 
@@ -44,7 +49,13 @@ ElaraGridCell::ElaraGridCell(
 ElaraGridLayout::ElaraGridLayout(
     ElaraWidgetRegister* root_widget,
     ElaraWidgetHandle widget_handle
-) : ElaraWidget(root_widget, widget_handle) {}
+) : ElaraWidget(root_widget, widget_handle),
+    resize_handle_size(12),
+    resize_axis(ELARA_GRID_RESIZE_NONE),
+    resize_index(-1),
+    resize_origin(0),
+    resize_primary_initial(0),
+    resize_secondary_initial(0) {}
 
 ElaraGridLayout::~ElaraGridLayout() {}
 
@@ -58,6 +69,17 @@ int ElaraGridLayout::addFillColumn() {
     return (int)columns.length() - 1;
 }
 
+int ElaraGridLayout::addWeightedFillColumn(double weight) {
+    columns.push(ElaraGridTrack::fill(weight));
+    return (int)columns.length() - 1;
+}
+
+void ElaraGridLayout::setColumnBorderResizable(int index, bool enabled) {
+    if(index >= 0 && index < (int)columns.length()) {
+        columns[index].resizable_after = enabled;
+    }
+}
+
 int ElaraGridLayout::addRow(double height) {
     rows.push(ElaraGridTrack(height));
     return (int)rows.length() - 1;
@@ -66,6 +88,17 @@ int ElaraGridLayout::addRow(double height) {
 int ElaraGridLayout::addFillRow() {
     rows.push(ElaraGridTrack::fill());
     return (int)rows.length() - 1;
+}
+
+int ElaraGridLayout::addWeightedFillRow(double weight) {
+    rows.push(ElaraGridTrack::fill(weight));
+    return (int)rows.length() - 1;
+}
+
+void ElaraGridLayout::setRowBorderResizable(int index, bool enabled) {
+    if(index >= 0 && index < (int)rows.length()) {
+        rows[index].resizable_after = enabled;
+    }
 }
 
 void ElaraGridLayout::addWidget(
@@ -94,7 +127,144 @@ void ElaraGridLayout::clearChildren() {
 void ElaraGridLayout::clearLayout() {
     columns.clear();
     rows.clear();
+    endResize();
     clearChildren();
+}
+
+int ElaraGridLayout::columnDividerAt(double px) const {
+    for(int i = 0; i + 1 < (int)columns.length(); i++) {
+        if(!columns[i].resizable_after) {
+            continue;
+        }
+
+        double divider = columns[i].computed_offset + columns[i].computed_size;
+        if(px >= divider - resize_handle_size && px <= divider + resize_handle_size) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+int ElaraGridLayout::rowDividerAt(double py) const {
+    for(int i = 0; i + 1 < (int)rows.length(); i++) {
+        if(!rows[i].resizable_after) {
+            continue;
+        }
+
+        double divider = rows[i].computed_offset + rows[i].computed_size;
+        if(py >= divider - resize_handle_size && py <= divider + resize_handle_size) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+void ElaraGridLayout::beginColumnResize(int index, double px) {
+    if(index < 0 || index + 1 >= (int)columns.length()) {
+        return;
+    }
+
+    resize_axis = ELARA_GRID_RESIZE_COLUMN;
+    resize_index = index;
+    resize_origin = px;
+    resize_primary_initial = columns[index].computed_size;
+    resize_secondary_initial = columns[index + 1].computed_size;
+}
+
+void ElaraGridLayout::beginRowResize(int index, double py) {
+    if(index < 0 || index + 1 >= (int)rows.length()) {
+        return;
+    }
+
+    resize_axis = ELARA_GRID_RESIZE_ROW;
+    resize_index = index;
+    resize_origin = py;
+    resize_primary_initial = rows[index].computed_size;
+    resize_secondary_initial = rows[index + 1].computed_size;
+}
+
+void ElaraGridLayout::updateColumnResize(double px) {
+    if(resize_axis != ELARA_GRID_RESIZE_COLUMN ||
+       resize_index < 0 ||
+       resize_index + 1 >= (int)columns.length()) {
+        return;
+    }
+
+    double delta = px - resize_origin;
+    double minimum = 24;
+    double pair_total = resize_primary_initial + resize_secondary_initial;
+    double left = resize_primary_initial + delta;
+
+    if(left < minimum) {
+        left = minimum;
+    }
+    if(left > pair_total - minimum) {
+        left = pair_total - minimum;
+    }
+
+    double right = pair_total - left;
+    ElaraGridTrack& primary = columns[resize_index];
+    ElaraGridTrack& secondary = columns[resize_index + 1];
+
+    if(primary.mode == ELARA_GRID_SIZE_EXACT && secondary.mode == ELARA_GRID_SIZE_FILL) {
+        primary.size = left;
+    } else if(primary.mode == ELARA_GRID_SIZE_FILL && secondary.mode == ELARA_GRID_SIZE_EXACT) {
+        secondary.size = right;
+    } else {
+        primary.mode = ELARA_GRID_SIZE_EXACT;
+        primary.size = left;
+        secondary.mode = ELARA_GRID_SIZE_EXACT;
+        secondary.size = right;
+    }
+
+    computeTracks(&columns, width);
+}
+
+void ElaraGridLayout::updateRowResize(double py) {
+    if(resize_axis != ELARA_GRID_RESIZE_ROW ||
+       resize_index < 0 ||
+       resize_index + 1 >= (int)rows.length()) {
+        return;
+    }
+
+    double delta = py - resize_origin;
+    double minimum = 24;
+    double pair_total = resize_primary_initial + resize_secondary_initial;
+    double top = resize_primary_initial + delta;
+
+    if(top < minimum) {
+        top = minimum;
+    }
+    if(top > pair_total - minimum) {
+        top = pair_total - minimum;
+    }
+
+    double bottom = pair_total - top;
+    ElaraGridTrack& primary = rows[resize_index];
+    ElaraGridTrack& secondary = rows[resize_index + 1];
+
+    if(primary.mode == ELARA_GRID_SIZE_EXACT && secondary.mode == ELARA_GRID_SIZE_FILL) {
+        primary.size = top;
+    } else if(primary.mode == ELARA_GRID_SIZE_FILL && secondary.mode == ELARA_GRID_SIZE_EXACT) {
+        secondary.size = bottom;
+    } else {
+        primary.mode = ELARA_GRID_SIZE_EXACT;
+        primary.size = top;
+        secondary.mode = ELARA_GRID_SIZE_EXACT;
+        secondary.size = bottom;
+    }
+
+    computeTracks(&rows, height);
+}
+
+void ElaraGridLayout::endResize() {
+    resize_axis = ELARA_GRID_RESIZE_NONE;
+    resize_index = -1;
+    resize_origin = 0;
+    resize_primary_initial = 0;
+    resize_secondary_initial = 0;
 }
 
 void ElaraGridLayout::computeTracks(
@@ -102,11 +272,11 @@ void ElaraGridLayout::computeTracks(
     double total_size
 ) {
     double exact_total = 0;
-    int fill_count = 0;
+    double fill_weight_total = 0;
 
     for(int i = 0; i < (int)tracks->length(); i++) {
         if((*tracks)[i].mode == ELARA_GRID_SIZE_FILL) {
-            fill_count++;
+            fill_weight_total += (*tracks)[i].weight > 0 ? (*tracks)[i].weight : 1.0;
         } else {
             exact_total += (*tracks)[i].size;
         }
@@ -118,19 +288,16 @@ void ElaraGridLayout::computeTracks(
         remaining = 0;
     }
 
-    double fill_size = 0;
-
-    if(fill_count > 0) {
-        fill_size = remaining / fill_count;
-    }
-
     double offset = 0;
 
     for(int i = 0; i < (int)tracks->length(); i++) {
         (*tracks)[i].computed_offset = offset;
 
         if((*tracks)[i].mode == ELARA_GRID_SIZE_FILL) {
-            (*tracks)[i].computed_size = fill_size;
+            double weight = (*tracks)[i].weight > 0 ? (*tracks)[i].weight : 1.0;
+            (*tracks)[i].computed_size = fill_weight_total > 0
+                ? (remaining * weight) / fill_weight_total
+                : 0;
         } else {
             (*tracks)[i].computed_size = (*tracks)[i].size;
         }
@@ -209,6 +376,97 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
         widget->setBounds(cx, cy, cw, ch);
         widget->onDraw(ctx, (int)cw, (int)ch);
     }
+
+    ElaraPaletteTriplet accent_colors = colors("panel", "active");
+
+    ctx->setColor(accent_colors.accent.r, accent_colors.accent.g, accent_colors.accent.b);
+
+    for(int i = 0; i + 1 < (int)columns.length(); i++) {
+        if(!columns[i].resizable_after) {
+            continue;
+        }
+
+        double divider = columns[i].computed_offset + columns[i].computed_size;
+        ctx->line(divider, 0, divider, height, 1);
+    }
+
+    for(int i = 0; i + 1 < (int)rows.length(); i++) {
+        if(!rows[i].resizable_after) {
+            continue;
+        }
+
+        double divider = rows[i].computed_offset + rows[i].computed_size;
+        ctx->line(0, divider, width, divider, 1);
+    }
+}
+
+bool ElaraGridLayout::eventPropagate(ElaraUiEvent event) {
+    if(!visible) {
+        return false;
+    }
+
+    computeTracks(&columns, width);
+    computeTracks(&rows, height);
+
+    bool is_mouse =
+        event.type == ELARA_UI_MOUSE_MOVE ||
+        event.type == ELARA_UI_MOUSE_DOWN ||
+        event.type == ELARA_UI_MOUSE_UP;
+
+    if(is_mouse) {
+        if(resize_axis != ELARA_GRID_RESIZE_NONE) {
+            return handleEvent(event);
+        }
+
+        if(event.type == ELARA_UI_MOUSE_DOWN) {
+            if(columnDividerAt(event.x) >= 0 || rowDividerAt(event.y) >= 0) {
+                return handleEvent(event);
+            }
+        }
+    }
+
+    return ElaraWidget::eventPropagate(event);
+}
+
+void ElaraGridLayout::onMouseMove(double px, double py) {
+    emitMouseMove(px, py);
+
+    if(resize_axis == ELARA_GRID_RESIZE_COLUMN) {
+        updateColumnResize(px);
+    } else if(resize_axis == ELARA_GRID_RESIZE_ROW) {
+        updateRowResize(py);
+    }
+}
+
+void ElaraGridLayout::onMouseDown(int button, double px, double py) {
+    emitMouseDown(button, px, py);
+
+    if(button != 1) {
+        return;
+    }
+
+    int column_divider = columnDividerAt(px);
+    if(column_divider >= 0) {
+        beginColumnResize(column_divider, px);
+        return;
+    }
+
+    int row_divider = rowDividerAt(py);
+    if(row_divider >= 0) {
+        beginRowResize(row_divider, py);
+    }
+}
+
+void ElaraGridLayout::onMouseUp(int button, double px, double py) {
+    emitMouseUp(button, px, py);
+    (void)px;
+    (void)py;
+
+    if(button != 1) {
+        return;
+    }
+
+    endResize();
 }
 
 }
