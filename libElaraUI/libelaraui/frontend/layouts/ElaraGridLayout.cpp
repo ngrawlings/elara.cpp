@@ -1,7 +1,5 @@
 #include "ElaraGridLayout.h"
 
-#include "../ElaraWidgetRegistry.h"
-
 namespace elara {
 
 ElaraGridTrack::ElaraGridTrack()
@@ -359,7 +357,7 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
             continue;
         }
 
-        Ref<ElaraWidget> widget = ElaraWidgetRegistry::getInstance()->getWidget(cell.widget_handle);
+        Ref<ElaraWidget> widget = getChild(i);
 
         if(!widget) {
             continue;

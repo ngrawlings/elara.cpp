@@ -32,6 +32,15 @@ namespace elara {
     template <class T>
     class Ref {
     public:
+        static Ref<T> borrow(T* ptr) {
+            Ref<T> ref;
+            ref.ptr = ptr;
+            ref.cnt = 0;
+            ref.array = false;
+            ref.borrowed = true;
+            return ref;
+        }
+
         explicit Ref<T>(T* ptr) {
             this->ptr = ptr;
             if (ptr) {
@@ -40,6 +49,7 @@ namespace elara {
             } else
                 cnt = 0;
             this->array = false;
+            this->borrowed = false;
         }
         
         explicit Ref<T>(T* ptr, bool array){
@@ -50,11 +60,13 @@ namespace elara {
             } else
                 cnt = 0;
             this->array = array;
+            this->borrowed = false;
         }
         
         Ref<T>(const Ref<T>& ref) {
             ptr = ref.ptr;
-            if (ref.ptr) {
+            borrowed = ref.borrowed;
+            if (ref.ptr && !borrowed) {
                 cnt = ref.cnt;
                 *cnt = (*cnt)+1;
             } else
@@ -66,16 +78,19 @@ namespace elara {
             ptr = ref.ptr;
             cnt = ref.cnt;
             array = ref.array;
+            borrowed = ref.borrowed;
 
             ref.ptr = 0;
             ref.cnt = 0;
             ref.array = false;
+            ref.borrowed = false;
         }
         
         Ref<T>() {
             ptr = 0;
             cnt = 0;
             array = false;
+            borrowed = false;
         }
         
         virtual ~Ref () {
@@ -127,8 +142,9 @@ namespace elara {
             ptr = ref.ptr;
             cnt = ref.cnt;
             array = ref.array;
+            borrowed = ref.borrowed;
             
-            if (cnt)
+            if (cnt && !borrowed)
                 *cnt = (*cnt)+1;
             
             return *this;
@@ -143,10 +159,12 @@ namespace elara {
             ptr = ref.ptr;
             cnt = ref.cnt;
             array = ref.array;
+            borrowed = ref.borrowed;
 
             ref.ptr = 0;
             ref.cnt = 0;
             ref.array = false;
+            ref.borrowed = false;
 
             return *this;
         }
@@ -160,9 +178,16 @@ namespace elara {
         T *ptr;
         int *cnt;
         bool array;
+        bool borrowed;
         
     private:
         void decrement() {
+            if (borrowed) {
+                ptr = 0;
+                cnt = 0;
+                borrowed = false;
+                return;
+            }
             if (cnt) {
                 (*cnt)--;
                 if (*cnt == 0 && ptr != 0) {

@@ -19,6 +19,7 @@ public:
     void setWidget(ElaraWidgetHandle widget_handle, ElaraWidget *widget);
     void removeWidget(ElaraWidgetHandle widget_handle);
     Ref<ElaraWidget> getWidget(ElaraWidgetHandle widget_handle) const;
+    void clearNamespace(const String& namespace_prefix);
 
 protected:
     ElaraWidgetRegistry();

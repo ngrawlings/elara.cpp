@@ -100,6 +100,26 @@ class ElaraUiRpcClient:
             document = str(builder_or_json)
         return self.call("ui.loadDocument", {"document": document}, timeout=timeout)
 
+    def open_window(self, window_id: str, title: str, width: int, height: int, builder_or_json, timeout: float = 5.0):
+        if hasattr(builder_or_json, "to_json"):
+            document = builder_or_json.to_json(indent=2)
+        else:
+            document = str(builder_or_json)
+        return self.call(
+            "ui.openWindow",
+            {
+                "window_id": window_id,
+                "title": title,
+                "width": int(width),
+                "height": int(height),
+                "document": document,
+            },
+            timeout=timeout,
+        )
+
+    def close_window(self, window_id: str, timeout: float = 5.0):
+        return self.call("ui.closeWindow", {"window_id": window_id}, timeout=timeout)
+
     def snapshot(self, timeout: float = 5.0):
         return self.call("ui.snapshot", {}, timeout=timeout)
 

@@ -14,6 +14,7 @@ namespace elara {
 
 class ElaraRootWidget : public ElaraWidget, public ElaraWidgetRegister {
 private:
+    String root_id;
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
     Array<ElaraWidgetHandle> popups;
@@ -21,7 +22,13 @@ private:
     Ref<WidgetListener> event_filter;
 
 public:
-    ElaraRootWidget();
+    explicit ElaraRootWidget(const String& root_widget_id = String("root"));
+    virtual ~ElaraRootWidget();
+
+    String getRootId() const;
+    ElaraWidgetHandle qualifyHandle(ElaraWidgetHandle widget_handle) const;
+    void unregisterWidget(ElaraWidgetHandle widget_handle);
+    void sweepRegistry();
 
     void setContent(ElaraWidgetHandle root_content);
     Ref<ElaraWidget> getContent() const;

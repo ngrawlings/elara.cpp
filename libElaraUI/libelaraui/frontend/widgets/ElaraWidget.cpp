@@ -428,10 +428,10 @@ void ElaraWidget::clearChildren() {
 
         if(root) {
             root->onWidgetRemoved(child->getHandle());
+            root->unregisterWidget(child->getHandle());
         }
 
         child->setParent(0);
-        ElaraWidgetRegistry::getInstance()->removeWidget(child->getHandle());
     }
 
     children.clear();

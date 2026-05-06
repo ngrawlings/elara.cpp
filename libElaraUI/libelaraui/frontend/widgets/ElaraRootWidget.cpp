@@ -16,8 +16,43 @@ ElaraPopupWidget* asPopup(Ref<ElaraWidget> widget) {
 
 }
 
-ElaraRootWidget::ElaraRootWidget() {
+ElaraRootWidget::ElaraRootWidget(const String& root_widget_id)
+    : root_id(root_widget_id) {
     event_filter = Ref<WidgetListener>(new ElaraOutboundEventFilter());
+}
+
+ElaraRootWidget::~ElaraRootWidget() {
+    sweepRegistry();
+}
+
+String ElaraRootWidget::getRootId() const {
+    return root_id;
+}
+
+ElaraWidgetHandle ElaraRootWidget::qualifyHandle(ElaraWidgetHandle widget_handle) const {
+    Memory handle_memory = widget_handle.getHandle();
+    String handle((const char*)handle_memory.getPtr(), handle_memory.length());
+
+    if(handle.length() <= 0) {
+        return widget_handle;
+    }
+
+    if(handle.indexOf(String("::")) >= 0) {
+        return widget_handle;
+    }
+
+    return ElaraWidgetHandle(root_id + String("::") + handle);
+}
+
+void ElaraRootWidget::unregisterWidget(ElaraWidgetHandle widget_handle) {
+    ElaraWidgetRegistry::getInstance()->removeWidget(qualifyHandle(widget_handle));
+}
+
+void ElaraRootWidget::sweepRegistry() {
+    dismissAllPopups();
+    focus = ElaraWidgetHandle();
+    content = ElaraWidgetHandle();
+    ElaraWidgetRegistry::getInstance()->clearNamespace(root_id);
 }
 
 void ElaraRootWidget::setContent(ElaraWidgetHandle root_content) {
@@ -119,7 +154,7 @@ Ref<ElaraWidget> ElaraRootWidget::getPopup(int index) const {
 }
 
 void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widget) {
-    ElaraWidgetRegistry::getInstance()->setWidget(widget_handle, (ElaraWidget*)widget);
+    ElaraWidgetRegistry::getInstance()->setWidget(qualifyHandle(widget_handle), (ElaraWidget*)widget);
     ((ElaraWidget*)widget)->addListener(this->event_filter);
 }
 
@@ -145,7 +180,7 @@ void ElaraRootWidget::onWidgetRemoved(ElaraWidgetHandle widget_handle) {
 }
 
 Ref<ElaraWidget> ElaraRootWidget::getWidget(ElaraWidgetHandle widget_handle) const {
-    return ElaraWidgetRegistry::getInstance()->getWidget(widget_handle);
+    return ElaraWidgetRegistry::getInstance()->getWidget(qualifyHandle(widget_handle));
 }
 
 bool ElaraRootWidget::probeWidgetState(

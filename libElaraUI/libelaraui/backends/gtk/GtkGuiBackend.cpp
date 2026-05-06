@@ -1,6 +1,33 @@
 #include "GtkGuiBackend.h"
+#include "../../frontend/widgets/ElaraRootWidget.h"
 
 namespace elara {
+
+class GtkGuiBackend::WindowState {
+public:
+    GtkGuiBackend* backend;
+    ::GtkWindow* window;
+    GtkWidget* drawing_area;
+    Ref<ElaraDrawSurface> surface;
+    String title;
+    int width;
+    int height;
+
+    WindowState(
+        GtkGuiBackend* window_backend,
+        const String& window_title,
+        int window_width,
+        int window_height,
+        Ref<ElaraDrawSurface> draw_surface
+    ) : backend(window_backend),
+        window(0),
+        drawing_area(0),
+        surface(draw_surface),
+        title(window_title),
+        width(window_width),
+        height(window_height) {
+    }
+};
 
 namespace {
 
@@ -107,13 +134,17 @@ double GtkDrawContext::measureTextWidth(const String& text, double size) {
 
 GtkGuiBackend::GtkGuiBackend(const String& app_id)
     : app(0),
-      window(0),
-      drawing_area(0) {
+      activated(false) {
     app = gtk_application_new((const char*)app_id, G_APPLICATION_DEFAULT_FLAGS);
     g_signal_connect(app, "activate", G_CALLBACK(GtkGuiBackend::onActivate), this);
 }
 
 GtkGuiBackend::~GtkGuiBackend() {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        delete windows[i];
+    }
+    windows.clear();
+
     if(app) {
         g_object_unref(app);
         app = 0;
@@ -126,62 +157,79 @@ void GtkGuiBackend::createWindow(
     int height,
     Ref<ElaraDrawSurface> draw_surface
 ) {
-    pending_title = title;
-    pending_width = width;
-    pending_height = height;
-    surface = draw_surface;
+    WindowState* state = new WindowState(this, title, width, height, draw_surface);
+    windows.push(state);
+
+    if(activated) {
+        buildWindow(state);
+        if(state->window) {
+            gtk_window_present(state->window);
+        }
+        if(state->drawing_area) {
+            gtk_widget_grab_focus(state->drawing_area);
+        }
+    }
 }
 
-void GtkGuiBackend::buildWindow() {
-    if(window) {
+void GtkGuiBackend::buildWindow(WindowState* state) {
+    if(!state || state->window) {
         return;
     }
 
-    window = GTK_WINDOW(gtk_application_window_new(app));
-    gtk_window_set_title(window, (const char*)pending_title);
-    gtk_window_set_default_size(window, pending_width, pending_height);
+    state->window = GTK_WINDOW(gtk_application_window_new(app));
+    gtk_window_set_title(state->window, (const char*)state->title);
+    gtk_window_set_default_size(state->window, state->width, state->height);
 
-    drawing_area = gtk_drawing_area_new();
-    gtk_widget_set_focusable(drawing_area, true);
+    state->drawing_area = gtk_drawing_area_new();
+    gtk_widget_set_focusable(state->drawing_area, true);
 
     gtk_drawing_area_set_draw_func(
-        GTK_DRAWING_AREA(drawing_area),
+        GTK_DRAWING_AREA(state->drawing_area),
         GtkGuiBackend::onDraw,
-        this,
+        state,
         0
     );
 
     GtkEventController* motion = gtk_event_controller_motion_new();
-    g_signal_connect(motion, "motion", G_CALLBACK(GtkGuiBackend::onMouseMotion), this);
-    gtk_widget_add_controller(drawing_area, motion);
+    g_signal_connect(motion, "motion", G_CALLBACK(GtkGuiBackend::onMouseMotion), state);
+    gtk_widget_add_controller(state->drawing_area, motion);
 
     GtkGesture* click = gtk_gesture_click_new();
     gtk_gesture_single_set_button(GTK_GESTURE_SINGLE(click), 0);
-    g_signal_connect(click, "pressed", G_CALLBACK(GtkGuiBackend::onMousePressed), this);
-    g_signal_connect(click, "released", G_CALLBACK(GtkGuiBackend::onMouseReleased), this);
-    gtk_widget_add_controller(drawing_area, GTK_EVENT_CONTROLLER(click));
+    g_signal_connect(click, "pressed", G_CALLBACK(GtkGuiBackend::onMousePressed), state);
+    g_signal_connect(click, "released", G_CALLBACK(GtkGuiBackend::onMouseReleased), state);
+    gtk_widget_add_controller(state->drawing_area, GTK_EVENT_CONTROLLER(click));
 
     GtkEventController* key = gtk_event_controller_key_new();
-    g_signal_connect(key, "key-pressed", G_CALLBACK(GtkGuiBackend::onKeyPressed), this);
-    g_signal_connect(key, "key-released", G_CALLBACK(GtkGuiBackend::onKeyReleased), this);
-    gtk_widget_add_controller(drawing_area, key);
+    g_signal_connect(key, "key-pressed", G_CALLBACK(GtkGuiBackend::onKeyPressed), state);
+    g_signal_connect(key, "key-released", G_CALLBACK(GtkGuiBackend::onKeyReleased), state);
+    gtk_widget_add_controller(state->drawing_area, key);
 
-    gtk_window_set_child(window, drawing_area);
+    g_signal_connect(state->window, "destroy", G_CALLBACK(GtkGuiBackend::onWindowDestroy), state);
+    gtk_window_set_child(state->window, state->drawing_area);
 }
 
 void GtkGuiBackend::show() {
-    if(window) {
-        gtk_window_present(window);
-    }
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(!state || !state->window) {
+            continue;
+        }
 
-    if(drawing_area) {
-        gtk_widget_grab_focus(drawing_area);
+        gtk_window_present(state->window);
+
+        if(state->drawing_area) {
+            gtk_widget_grab_focus(state->drawing_area);
+        }
     }
 }
 
 void GtkGuiBackend::invalidate() {
-    if(drawing_area) {
-        gtk_widget_queue_draw(drawing_area);
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->drawing_area) {
+            gtk_widget_queue_draw(state->drawing_area);
+        }
     }
 }
 
@@ -191,8 +239,12 @@ int GtkGuiBackend::run(int argc, char** argv) {
 
 void GtkGuiBackend::onActivate(GtkApplication* app, gpointer user_data) {
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    self->activated = true;
 
-    self->buildWindow();
+    for(int i = 0; i < (int)self->windows.length(); i++) {
+        self->buildWindow(self->windows[i]);
+    }
+
     self->show();
 }
 
@@ -203,11 +255,20 @@ void GtkGuiBackend::onDraw(
     int height,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* state = (WindowState*)user_data;
 
-    if(self->surface) {
+    if(state && state->surface) {
         GtkDrawContext ctx(cr);
-        self->surface->onDraw(&ctx, width, height);
+        state->surface->onDraw(&ctx, width, height);
+    }
+}
+
+void GtkGuiBackend::onWindowDestroy(GtkWindow* window, gpointer user_data) {
+    (void)window;
+    WindowState* state = (WindowState*)user_data;
+
+    if(state && state->backend) {
+        state->backend->removeWindowState(state);
     }
 }
 
@@ -217,12 +278,14 @@ void GtkGuiBackend::onMouseMotion(
     double y,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* state = (WindowState*)user_data;
 
-    if(self->surface) {
-        self->surface->dispatchMouseMove(x, y);
-        gtk_widget_set_cursor_from_name(self->drawing_area, cursorName(self->surface->currentCursor(x, y)));
-        self->invalidate();
+    if(state && state->surface) {
+        state->surface->dispatchMouseMove(x, y);
+        gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
+        if(state->backend) {
+            state->backend->invalidate();
+        }
     }
 }
 
@@ -233,18 +296,20 @@ void GtkGuiBackend::onMousePressed(
     double y,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* state = (WindowState*)user_data;
 
-    if(self->surface) {
+    if(state && state->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        self->surface->dispatchMouseDown(button, x, y);
+        state->surface->dispatchMouseDown(button, x, y);
     }
 
-    if(self->drawing_area) {
-        gtk_widget_grab_focus(self->drawing_area);
+    if(state && state->drawing_area) {
+        gtk_widget_grab_focus(state->drawing_area);
     }
 
-    self->invalidate();
+    if(state && state->backend) {
+        state->backend->invalidate();
+    }
 }
 
 void GtkGuiBackend::onMouseReleased(
@@ -254,14 +319,16 @@ void GtkGuiBackend::onMouseReleased(
     double y,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* state = (WindowState*)user_data;
 
-    if(self->surface) {
+    if(state && state->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        self->surface->dispatchMouseUp(button, x, y);
+        state->surface->dispatchMouseUp(button, x, y);
     }
 
-    self->invalidate();
+    if(state && state->backend) {
+        state->backend->invalidate();
+    }
 }
 
 gboolean GtkGuiBackend::onKeyPressed(
@@ -271,13 +338,15 @@ gboolean GtkGuiBackend::onKeyPressed(
     GdkModifierType state,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* window_state = (WindowState*)user_data;
 
-    if(self->surface) {
-        self->surface->dispatchKeyDown(keyval, translateModifiers(state));
+    if(window_state && window_state->surface) {
+        window_state->surface->dispatchKeyDown(keyval, translateModifiers(state));
     }
 
-    self->invalidate();
+    if(window_state && window_state->backend) {
+        window_state->backend->invalidate();
+    }
 
     return true;
 }
@@ -289,15 +358,64 @@ gboolean GtkGuiBackend::onKeyReleased(
     GdkModifierType state,
     gpointer user_data
 ) {
-    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    WindowState* window_state = (WindowState*)user_data;
 
-    if(self->surface) {
-        self->surface->dispatchKeyUp(keyval, translateModifiers(state));
+    if(window_state && window_state->surface) {
+        window_state->surface->dispatchKeyUp(keyval, translateModifiers(state));
     }
 
-    self->invalidate();
+    if(window_state && window_state->backend) {
+        window_state->backend->invalidate();
+    }
 
     return true;
+}
+
+void GtkGuiBackend::removeWindowState(WindowState* state) {
+    if(!state) {
+        return;
+    }
+
+    state->window = 0;
+    state->drawing_area = 0;
+
+    for(int i = 0; i < (int)windows.length(); i++) {
+        if(windows[i] == state) {
+            windows.remove(i);
+            break;
+        }
+    }
+
+    Ref<ElaraDrawSurface> surface = state->surface;
+    if(surface) {
+        ElaraRootWidget* root = dynamic_cast<ElaraRootWidget*>(surface.getPtr());
+        if(root) {
+            root->sweepRegistry();
+        }
+    }
+
+    delete state;
+
+    if(activated && windows.length() <= 0 && app) {
+        g_application_quit(G_APPLICATION(app));
+    }
+}
+
+void GtkGuiBackend::destroyWindow(Ref<ElaraDrawSurface> surface) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+
+        if(!state || !surface || state->surface.getPtr() != surface.getPtr()) {
+            continue;
+        }
+
+        if(state->window) {
+            gtk_window_destroy(state->window);
+        } else {
+            removeWindowState(state);
+        }
+        return;
+    }
 }
 
 }

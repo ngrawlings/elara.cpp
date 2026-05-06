@@ -225,10 +225,155 @@ public:
     }
 };
 
+class SecondaryWindowManager {
+private:
+    class WindowRecord {
+    public:
+        String window_id;
+        Ref<ElaraDrawSurface> surface;
+        ElaraRootWidget* root;
+        ElaraJsonUiProtocol* protocol;
+
+        WindowRecord()
+            : root(0),
+              protocol(0) {
+        }
+
+        ~WindowRecord() {
+            if(protocol) {
+                delete protocol;
+                protocol = 0;
+            }
+            root = 0;
+            surface = Ref<ElaraDrawSurface>(0);
+        }
+    };
+
+    Ref<ElaraGuiBackend> backend;
+    ElaraTheme* theme;
+    EventArtifactLogger* logger;
+    Array<WindowRecord*> windows;
+
+    WindowRecord* findWindow(const String& window_id) const {
+        for(int i = 0; i < (int)windows.length(); i++) {
+            WindowRecord* record = windows[i];
+            if(record && record->window_id == window_id) {
+                return record;
+            }
+        }
+        return 0;
+    }
+
+    void enableDefaultOutboundEvents(ElaraRootWidget* root) {
+        if(!root) {
+            return;
+        }
+
+        root->enableOutboundEvent("mouseMove");
+        root->enableOutboundEvent("mouseDown");
+        root->enableOutboundEvent("mouseUp");
+        root->enableOutboundEvent("clicked");
+        root->enableOutboundEvent("hoverChanged");
+        root->enableOutboundEvent("keyDown");
+        root->enableOutboundEvent("keyUp");
+        root->enableOutboundEvent("keysTyped");
+        root->enableOutboundEvent("valueChanged");
+        root->enableOutboundEvent("action");
+    }
+
+public:
+    SecondaryWindowManager(
+        Ref<ElaraGuiBackend> gui_backend,
+        ElaraTheme* ui_theme,
+        EventArtifactLogger* event_logger
+    )
+        : backend(gui_backend),
+          theme(ui_theme),
+          logger(event_logger) {
+    }
+
+    ~SecondaryWindowManager() {
+        while(windows.length() > 0) {
+            WindowRecord* record = windows[0];
+            windows.remove(0);
+            delete record;
+        }
+    }
+
+    bool openWindow(
+        const String& window_id,
+        const String& title,
+        int width,
+        int height,
+        const String& document,
+        String& error_message
+    ) {
+        if(window_id.length() <= 0) {
+            error_message = "window_id is required";
+            return false;
+        }
+
+        closeWindow(window_id);
+
+        WindowRecord* record = new WindowRecord();
+        record->window_id = window_id;
+        record->surface = Ref<ElaraDrawSurface>(new ElaraRootWidget(window_id));
+        record->root = dynamic_cast<ElaraRootWidget*>(record->surface.getPtr());
+        record->protocol = new ElaraJsonUiProtocol(record->root, theme);
+
+        if(!record->root || !record->protocol || !record->protocol->load(document)) {
+            error_message = "The window document could not be loaded";
+            delete record;
+            return false;
+        }
+
+        enableDefaultOutboundEvents(record->root);
+        backend->createWindow(title, width, height, record->surface);
+        backend->show();
+        backend->invalidate();
+        windows.push(record);
+
+        if(logger) {
+            logger->log("ui.window", String("opened id=") + window_id + String(" title=") + title);
+        }
+
+        return true;
+    }
+
+    bool closeWindow(const String& window_id) {
+        for(int i = 0; i < (int)windows.length(); i++) {
+            WindowRecord* record = windows[i];
+            if(!record || record->window_id != window_id) {
+                continue;
+            }
+
+            GtkGuiBackend* gtk_backend = dynamic_cast<GtkGuiBackend*>(backend.getPtr());
+            if(gtk_backend) {
+                gtk_backend->destroyWindow(record->surface);
+            } else if(record->root) {
+                record->root->sweepRegistry();
+            }
+
+            windows.remove(i);
+            delete record;
+            backend->invalidate();
+
+            if(logger) {
+                logger->log("ui.window", String("closed id=") + window_id);
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+};
+
 class MainThreadUiService : public sockets::rpc::json::JsonRPCService {
 private:
     ElaraUiRpcUiService executor;
     ElaraJsonUiProtocol* protocol;
+    SecondaryWindowManager* window_manager;
     Mutex queue_lock;
     Array< Ref<DeferredUiRequest> > queue;
     EventArtifactLogger* logger;
@@ -238,11 +383,13 @@ public:
     MainThreadUiService(
         ElaraRootWidget* root,
         ElaraJsonUiProtocol* ui_protocol,
-        EventArtifactLogger* event_logger
+        EventArtifactLogger* event_logger,
+        SecondaryWindowManager* secondary_window_manager
     )
         : sockets::rpc::json::JsonRPCService("ui"),
           executor(root, ui_protocol),
           protocol(ui_protocol),
+          window_manager(secondary_window_manager),
           queue_lock("main-thread-ui-service"),
           logger(event_logger),
           layout_loaded(false) {
@@ -275,6 +422,89 @@ public:
 
         layout_loaded = true;
         result_json = "{\"loaded\":true}";
+        return true;
+    }
+
+    bool openWindow(
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        if(!window_manager) {
+            error_code = "unsupported_operation";
+            error_message = "window manager is not available";
+            return false;
+        }
+
+        Json params(params_json);
+        String window_id = params.getStringValue("window_id");
+        String title = params.getStringValue("title");
+        String document = params.getStringValue("document");
+        int width = params.getIntValue("width");
+        int height = params.getIntValue("height");
+
+        if(window_id.length() <= 0) {
+            error_code = "missing_window_id";
+            error_message = "ui.openWindow requires a window_id";
+            return false;
+        }
+
+        if(title.length() <= 0) {
+            title = "Elara Window";
+        }
+
+        if(width <= 0) {
+            width = 640;
+        }
+
+        if(height <= 0) {
+            height = 480;
+        }
+
+        if(document.length() <= 0) {
+            error_code = "missing_document";
+            error_message = "ui.openWindow requires a JSON document string";
+            return false;
+        }
+
+        if(!window_manager->openWindow(window_id, title, width, height, document, error_message)) {
+            error_code = "open_window_failed";
+            return false;
+        }
+
+        result_json = "{\"opened\":true}";
+        return true;
+    }
+
+    bool closeWindow(
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        if(!window_manager) {
+            error_code = "unsupported_operation";
+            error_message = "window manager is not available";
+            return false;
+        }
+
+        Json params(params_json);
+        String window_id = params.getStringValue("window_id");
+
+        if(window_id.length() <= 0) {
+            error_code = "missing_window_id";
+            error_message = "ui.closeWindow requires a window_id";
+            return false;
+        }
+
+        if(!window_manager->closeWindow(window_id)) {
+            error_code = "window_not_found";
+            error_message = "No open window matched the requested id";
+            return false;
+        }
+
+        result_json = "{\"closed\":true}";
         return true;
     }
 
@@ -339,6 +569,20 @@ public:
 
             if(request->method == String("loadDocument")) {
                 ok = loadDocument(
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
+            } else if(request->method == String("openWindow")) {
+                ok = openWindow(
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
+            } else if(request->method == String("closeWindow")) {
+                ok = closeWindow(
                     request->params_json,
                     result_json,
                     error_code,
@@ -526,8 +770,10 @@ private:
     ElaraTheme* theme;
     ElaraJsonUiProtocol* protocol;
     EventArtifactLogger logger;
+    SecondaryWindowManager window_manager;
+    Ref<MainThreadUiService> ui_service_ref;
+    Ref<sockets::rpc::json::JsonRPCService> rpc_ui_service_ref;
     MainThreadUiService* ui_service;
-    Ref<sockets::rpc::json::JsonRPCService> ui_service_ref;
     Ref<ElaraUiRpcPeer> peer;
     Ref<ElaraUiRpcUiBridge> ui_bridge;
     Ref<WidgetListener> demo_logic_listener;
@@ -551,8 +797,10 @@ public:
           theme(ui_theme),
           protocol(ui_protocol),
           logger(),
-          ui_service(new MainThreadUiService(root, protocol, &logger)),
-          ui_service_ref((sockets::rpc::json::JsonRPCService*)ui_service),
+          window_manager(gui_backend, ui_theme, &logger),
+          ui_service_ref(new MainThreadUiService(root, protocol, &logger, &window_manager)),
+          rpc_ui_service_ref(Ref<sockets::rpc::json::JsonRPCService>::borrow((sockets::rpc::json::JsonRPCService*)ui_service_ref.getPtr())),
+          ui_service((MainThreadUiService*)ui_service_ref.getPtr()),
           layout_attached(false),
           listen_fd(0),
           running(false),
@@ -704,7 +952,7 @@ private:
         }
 
         peer = Ref<ElaraUiRpcPeer>(new ElaraUiRpcPeer());
-        peer->addService(ui_service_ref);
+        peer->addService(rpc_ui_service_ref);
 
         if(peer->attach(fd)) {
             ui_bridge = Ref<ElaraUiRpcUiBridge>(new ElaraUiRpcUiBridge(root, peer));
@@ -718,6 +966,7 @@ private:
             root->enableOutboundEvent("keyUp");
             root->enableOutboundEvent("keysTyped");
             root->enableOutboundEvent("valueChanged");
+            root->enableOutboundEvent("action");
             return;
         }
 
@@ -820,7 +1069,7 @@ int main(int argc, char** argv) {
 
     WindowConfig window_config;
 
-    Ref<ElaraDrawSurface> root_surface(new ElaraRootWidget());
+    Ref<ElaraDrawSurface> root_surface(new ElaraRootWidget("main"));
     ElaraRootWidget* root = (ElaraRootWidget*)root_surface.getPtr();
 
     ElaraTheme theme;

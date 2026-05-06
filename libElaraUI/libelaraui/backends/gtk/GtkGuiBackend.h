@@ -2,6 +2,7 @@
 #define ELARA_GTK_GUI_BACKEND_H
 
 #include <libelaraui/ElaraGui.h>
+#include <libelaracore/memory/Array.h>
 
 #include <gtk/gtk.h>
 
@@ -27,20 +28,18 @@ public:
 
 class GtkGuiBackend : public ElaraGuiBackend {
 private:
+    class WindowState;
+
     GtkApplication* app;
-    ::GtkWindow* window;
-    GtkWidget* drawing_area;
+    Array<WindowState*> windows;
+    bool activated;
 
-    Ref<ElaraDrawSurface> surface;
-
-    String pending_title;
-    int pending_width;
-    int pending_height;
-
-    void buildWindow();
+    void buildWindow(WindowState* state);
+    void removeWindowState(WindowState* state);
 
     static void onActivate(GtkApplication* app, gpointer user_data);
     static void onDraw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data);
+    static void onWindowDestroy(GtkWindow* window, gpointer user_data);
 
     static void onMouseMotion(
         GtkEventControllerMotion* controller,
@@ -95,6 +94,7 @@ public:
     void show();
     void invalidate();
     int run(int argc, char** argv);
+    void destroyWindow(Ref<ElaraDrawSurface> surface);
 };
 
 }
