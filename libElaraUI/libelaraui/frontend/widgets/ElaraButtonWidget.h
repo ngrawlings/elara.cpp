@@ -47,6 +47,7 @@ public:
     virtual void onClicked();
 
     void draw(ElaraDrawContext* ctx);
+    ElaraMouseCursor cursor() const;
 
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

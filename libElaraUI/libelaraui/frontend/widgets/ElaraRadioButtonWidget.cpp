@@ -66,6 +66,10 @@ double ElaraRadioButtonWidget::getFontSize() const {
     return font_size;
 }
 
+ElaraMouseCursor ElaraRadioButtonWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 double ElaraRadioButtonWidget::textY() const {
     return (height / 2) + (font_size / 2) - 2;
 }

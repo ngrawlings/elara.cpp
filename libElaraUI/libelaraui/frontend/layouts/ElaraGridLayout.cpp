@@ -400,6 +400,18 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
     }
 }
 
+ElaraMouseCursor ElaraGridLayout::cursorAt(double px, double py) const {
+    if(columnDividerAt(px) >= 0) {
+        return ELARA_CURSOR_RESIZE_EW;
+    }
+
+    if(rowDividerAt(py) >= 0) {
+        return ELARA_CURSOR_RESIZE_NS;
+    }
+
+    return ElaraWidget::cursorAt(px, py);
+}
+
 bool ElaraGridLayout::eventPropagate(ElaraUiEvent event) {
     if(!visible) {
         return false;

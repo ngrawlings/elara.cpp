@@ -91,6 +91,10 @@ int ElaraTabWidget::tabCount() const {
     return (int)pages.length();
 }
 
+ElaraMouseCursor ElaraTabWidget::cursor() const {
+    return ELARA_CURSOR_POINTER;
+}
+
 double ElaraTabWidget::tabWidth(int index) const {
     if(index < 0 || index >= (int)pages.length()) {
         return 0;

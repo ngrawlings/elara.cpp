@@ -53,6 +53,7 @@ public:
     void setPalette(ElaraPalette* widget_palette);
 
     void draw(ElaraDrawContext* ctx);
+    ElaraMouseCursor currentCursor(double x, double y);
 
     void dispatchMouseMove(double px, double py);
     void dispatchMouseDown(int button, double px, double py);

@@ -215,6 +215,10 @@ int ElaraTreeViewWidget::getExpandedCount() const {
     return expandedNodeCount(roots);
 }
 
+ElaraMouseCursor ElaraTreeViewWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraTreeViewWidget::draw(ElaraDrawContext* ctx) {
     String sub = enabled ? String("default") : String("disabled");
     ElaraPaletteTriplet c = colors(palette_master, sub);

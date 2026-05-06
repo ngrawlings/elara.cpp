@@ -548,4 +548,25 @@ bool ElaraWidget::dispatchAccelerator(unsigned int keyval, unsigned int modifier
     return false;
 }
 
+ElaraMouseCursor ElaraWidget::cursor() const {
+    return ELARA_CURSOR_DEFAULT;
+}
+
+ElaraMouseCursor ElaraWidget::cursorAt(double px, double py) const {
+    for(int i = (int)children.length() - 1; i >= 0; i--) {
+        if(!children[i] || !children[i]->isVisible()) {
+            continue;
+        }
+
+        if(children[i]->contains(px, py)) {
+            return children[i]->cursorAt(
+                px - children[i]->getX() - children[i]->getMarginLeft(),
+                py - children[i]->getY() - children[i]->getMarginTop()
+            );
+        }
+    }
+
+    return containsLocal(px, py) ? cursor() : ELARA_CURSOR_DEFAULT;
+}
+
 }

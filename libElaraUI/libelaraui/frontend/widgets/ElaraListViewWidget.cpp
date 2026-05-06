@@ -102,6 +102,10 @@ int ElaraListViewWidget::getItemCount() const {
     return (int)items.length();
 }
 
+ElaraMouseCursor ElaraListViewWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraListViewWidget::draw(ElaraDrawContext* ctx) {
     String sub = enabled ? String("default") : String("disabled");
     ElaraPaletteTriplet c = colors(palette_master, sub);

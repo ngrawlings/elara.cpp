@@ -13,6 +13,14 @@ enum ElaraKeyModifier {
     ELARA_KEY_MOD_META = 1 << 3
 };
 
+enum ElaraMouseCursor {
+    ELARA_CURSOR_DEFAULT,
+    ELARA_CURSOR_POINTER,
+    ELARA_CURSOR_TEXT,
+    ELARA_CURSOR_RESIZE_EW,
+    ELARA_CURSOR_RESIZE_NS
+};
+
 class ElaraDrawContext {
 public:
     virtual ~ElaraDrawContext() {}
@@ -61,6 +69,12 @@ public:
     virtual void onKeyUp(unsigned int keyval, unsigned int modifiers) {
         (void)modifiers;
         onKeyUp(keyval);
+    }
+
+    virtual ElaraMouseCursor currentCursor(double x, double y) {
+        (void)x;
+        (void)y;
+        return ELARA_CURSOR_DEFAULT;
     }
 };
 

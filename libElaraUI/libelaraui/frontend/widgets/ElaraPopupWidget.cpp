@@ -178,6 +178,10 @@ void ElaraPopupWidget::addItem(
     height = padding * 2 + items.length() * item_height;
 }
 
+ElaraMouseCursor ElaraPopupWidget::cursor() const {
+    return ELARA_CURSOR_POINTER;
+}
+
 int ElaraPopupWidget::itemCount() const {
     return (int)items.length();
 }

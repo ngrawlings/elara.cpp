@@ -174,6 +174,14 @@ bool ElaraSliderWidget::isEnabled() const {
     return enabled;
 }
 
+ElaraMouseCursor ElaraSliderWidget::cursor() const {
+    if(!enabled) {
+        return ELARA_CURSOR_DEFAULT;
+    }
+
+    return isVertical() ? ELARA_CURSOR_RESIZE_NS : ELARA_CURSOR_RESIZE_EW;
+}
+
 void ElaraSliderWidget::draw(ElaraDrawContext* ctx) {
     String sub("default");
 

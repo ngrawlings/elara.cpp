@@ -41,6 +41,7 @@ public:
     void setFontSize(double size);
     double getFontSize() const;
 
+    ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
 
     void onMouseMove(double px, double py);

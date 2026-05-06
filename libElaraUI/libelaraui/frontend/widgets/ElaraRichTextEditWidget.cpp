@@ -567,6 +567,10 @@ int ElaraRichTextEditWidget::getScrollY() const {
     return scroll_y;
 }
 
+ElaraMouseCursor ElaraRichTextEditWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_TEXT : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
     vertical_slider->setBounds(width - scrollbar_size, 0, scrollbar_size, height - scrollbar_size);
     horizontal_slider->setBounds(0, height - scrollbar_size, width - scrollbar_size, scrollbar_size);

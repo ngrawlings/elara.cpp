@@ -54,6 +54,7 @@ public:
     void setEnabled(bool value);
     bool isEnabled() const;
 
+    ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

@@ -117,6 +117,10 @@ void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {
     ctx->drawText(textX() + content_offset, textY() + content_offset, text, font_size);
 }
 
+ElaraMouseCursor ElaraButtonWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraButtonWidget::onMouseMove(double px, double py) {
     bool was_hovered = hovered;
     hovered = containsLocal(px, py);

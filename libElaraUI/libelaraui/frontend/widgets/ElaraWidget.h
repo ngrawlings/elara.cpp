@@ -172,6 +172,8 @@ public:
     virtual bool eventPropagate(ElaraUiEvent event);
     virtual bool handleEvent(const ElaraUiEvent& event);
     virtual bool dispatchAccelerator(unsigned int keyval, unsigned int modifiers);
+    virtual ElaraMouseCursor cursor() const;
+    virtual ElaraMouseCursor cursorAt(double px, double py) const;
 
     virtual void onDraw(ElaraDrawContext* ctx, int draw_width, int draw_height);
     virtual void draw(ElaraDrawContext* ctx) = 0;

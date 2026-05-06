@@ -74,6 +74,7 @@ public:
     void setTextPadding(double px);
 
     virtual void draw(ElaraDrawContext* ctx);
+    virtual ElaraMouseCursor cursor() const;
 
     virtual void onMouseDown(int button, double px, double py);
     virtual void onMouseUp(int button, double px, double py);

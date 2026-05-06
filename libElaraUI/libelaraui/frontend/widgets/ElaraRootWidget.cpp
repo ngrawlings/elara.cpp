@@ -261,6 +261,31 @@ void ElaraRootWidget::draw(ElaraDrawContext* ctx) {
     }
 }
 
+ElaraMouseCursor ElaraRootWidget::currentCursor(double x, double y) {
+    for(int i = (int)popups.length() - 1; i >= 0; i--) {
+        Ref<ElaraWidget> popup = getWidget(popups[i]);
+        ElaraPopupWidget* popup_widget = asPopup(popup);
+
+        if(!popup_widget || !popup_widget->isVisible()) {
+            continue;
+        }
+
+        if(popup_widget->contains(x, y)) {
+            return popup_widget->cursorAt(
+                x - popup_widget->getX() - popup_widget->getMarginLeft(),
+                y - popup_widget->getY() - popup_widget->getMarginTop()
+            );
+        }
+    }
+
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        return c->cursorAt(x, y);
+    }
+
+    return ELARA_CURSOR_DEFAULT;
+}
+
 bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
     bool is_mouse =
         event.type == ELARA_UI_MOUSE_MOVE ||

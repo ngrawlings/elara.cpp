@@ -39,6 +39,22 @@ PangoLayout* createLayout(cairo_t* cr, const String& text, double size) {
     return layout;
 }
 
+const char* cursorName(ElaraMouseCursor cursor) {
+    switch(cursor) {
+        case ELARA_CURSOR_POINTER:
+            return "pointer";
+        case ELARA_CURSOR_TEXT:
+            return "text";
+        case ELARA_CURSOR_RESIZE_EW:
+            return "ew-resize";
+        case ELARA_CURSOR_RESIZE_NS:
+            return "ns-resize";
+        case ELARA_CURSOR_DEFAULT:
+        default:
+            return "default";
+    }
+}
+
 }
 
 void GtkDrawContext::clear(double r, double g, double b) {
@@ -205,6 +221,7 @@ void GtkGuiBackend::onMouseMotion(
 
     if(self->surface) {
         self->surface->dispatchMouseMove(x, y);
+        gtk_widget_set_cursor_from_name(self->drawing_area, cursorName(self->surface->currentCursor(x, y)));
         self->invalidate();
     }
 }

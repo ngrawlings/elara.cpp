@@ -98,6 +98,7 @@ public:
     void clearLayout();
 
     void draw(ElaraDrawContext* ctx);
+    ElaraMouseCursor cursorAt(double px, double py) const;
     bool eventPropagate(ElaraUiEvent event);
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

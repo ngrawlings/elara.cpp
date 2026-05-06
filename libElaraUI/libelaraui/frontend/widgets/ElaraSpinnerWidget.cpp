@@ -139,6 +139,10 @@ double ElaraSpinnerWidget::getFontSize() const {
     return font_size;
 }
 
+ElaraMouseCursor ElaraSpinnerWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraSpinnerWidget::draw(ElaraDrawContext* ctx) {
     String sub("default");
 

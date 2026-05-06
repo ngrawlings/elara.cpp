@@ -101,6 +101,7 @@ public:
     int getScrollX() const;
     int getScrollY() const;
 
+    ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
     void onMouseDown(int button, double px, double py);
     void onKeyDown(unsigned int keyval);

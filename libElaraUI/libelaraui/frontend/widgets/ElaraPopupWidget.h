@@ -78,6 +78,7 @@ public:
 
     virtual void onItemSelected(const String& id) {}
 
+    ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
 
     void onMouseMove(double px, double py);

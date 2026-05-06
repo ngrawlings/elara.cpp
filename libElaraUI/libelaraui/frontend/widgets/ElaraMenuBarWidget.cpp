@@ -635,6 +635,10 @@ void ElaraMenuBarWidget::setPalette(ElaraPalette* widget_palette) {
     }
 }
 
+ElaraMouseCursor ElaraMenuBarWidget::cursor() const {
+    return ELARA_CURSOR_POINTER;
+}
+
 void ElaraMenuBarWidget::draw(ElaraDrawContext* ctx) {
     syncActiveMenu();
     rebuildLayout(ctx);

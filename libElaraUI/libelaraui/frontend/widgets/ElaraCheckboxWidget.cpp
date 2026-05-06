@@ -55,6 +55,10 @@ double ElaraCheckboxWidget::getFontSize() const {
     return font_size;
 }
 
+ElaraMouseCursor ElaraCheckboxWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
+}
+
 double ElaraCheckboxWidget::textY() const {
     return (height / 2) + (font_size / 2) - 2;
 }

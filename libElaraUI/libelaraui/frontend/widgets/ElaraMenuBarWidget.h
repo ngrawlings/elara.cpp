@@ -102,6 +102,7 @@ public:
     void onMenuAction(const String& menu_id, const String& item_id);
     void setPalette(ElaraPalette* widget_palette);
 
+    ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
 
     void onMouseMove(double px, double py);

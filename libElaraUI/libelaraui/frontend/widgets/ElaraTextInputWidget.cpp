@@ -70,6 +70,10 @@ String ElaraTextInputWidget::getPlaceholder() const {
     return placeholder;
 }
 
+ElaraMouseCursor ElaraTextInputWidget::cursor() const {
+    return enabled ? ELARA_CURSOR_TEXT : ELARA_CURSOR_DEFAULT;
+}
+
 void ElaraTextInputWidget::setEnabled(bool input_enabled) {
     enabled = input_enabled;
 
