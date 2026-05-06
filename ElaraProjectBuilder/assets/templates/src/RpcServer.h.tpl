@@ -1,14 +1,15 @@
-#ifndef %RpcServerName%_h
-#define %RpcServerName%_h
+>>>>>>>>>>main>>>>RPC_SERVER_NAME>RPC_SERVICE_NAME
+#ifndef %RPC_SERVER_NAME%_h
+#define %RPC_SERVER_NAME%_h
 
 #include <libelarasockets/rpc/json/JsonRPCServer.h>
 #include <libelaracore/memory/Ref.h>
-#include "%RpcServiceName%.h"
+#include "%RPC_SERVICE_NAME%.h"
 
-class %RpcServerName% : public elara::sockets::rpc::json::JsonRPCServer {
+class %RPC_SERVER_NAME% : public elara::sockets::rpc::json::JsonRPCServer {
 public:
-    %RpcServerName%();
-    virtual ~%RpcServerName%();
+    %RPC_SERVER_NAME%();
+    virtual ~%RPC_SERVER_NAME%();
     void start(int port, elara::String address);
 
 private:
@@ -16,3 +17,4 @@ private:
 };
 
 #endif
+<<<<<<<<<<main

@@ -1,4 +1,5 @@
-#include "%SocketServerName%.h"
+>>>>>>>>>>main>>>>SOCKET_SERVER_NAME>PROJECT_NAME
+#include "%SOCKET_SERVER_NAME%.h"
 
 #include <arpa/inet.h>
 #include <stdio.h>
@@ -6,13 +7,13 @@
 #include <unistd.h>
 #include <sys/socket.h>
 
-%SocketServerName%::%SocketServerName%() {
+%SOCKET_SERVER_NAME%::%SOCKET_SERVER_NAME%() {
 }
 
-%SocketServerName%::~%SocketServerName%() {
+%SOCKET_SERVER_NAME%::~%SOCKET_SERVER_NAME%() {
 }
 
-void %SocketServerName%::start(int port, elara::String address) {
+void %SOCKET_SERVER_NAME%::start(int port, elara::String address) {
     unsigned int ipv4_interface = INADDR_ANY;
     if (address.length() && address != elara::String("0.0.0.0") && address != elara::String("*")) {
         ipv4_interface = inet_addr(address.operator char *());
@@ -21,11 +22,12 @@ void %SocketServerName%::start(int port, elara::String address) {
     runEventLoop(true);
 }
 
-void %SocketServerName%::onNewConnection(elara::EventBase *event_base, int fd, unsigned char *addr, int addr_sz) {
+void %SOCKET_SERVER_NAME%::onNewConnection(elara::EventBase *event_base, int fd, unsigned char *addr, int addr_sz) {
     (void)event_base;
     (void)addr;
     (void)addr_sz;
-    send(fd, "%ProjectName% accepted your connection.\n", strlen("%ProjectName% accepted your connection.\n"), 0);
+    send(fd, "%PROJECT_NAME% accepted your connection.\n", strlen("%PROJECT_NAME% accepted your connection.\n"), 0);
     ::close(fd);
     printf("Accepted and closed a socket client.\n");
 }
+<<<<<<<<<<main

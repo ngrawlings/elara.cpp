@@ -73,8 +73,8 @@ int CodeTemplate::findLineStartMarker(String data, const String& marker, int off
 }
 
 bool CodeTemplate::isBrokenTemplateCode(String code) const {
-    RegularExpression open_marker(String(".*>>>>.*"));
-    RegularExpression close_marker(String(".*<<<<.*"));
+    RegularExpression open_marker(String("(^|\\n)[[:space:]]*>>>>>>>>>>.*"));
+    RegularExpression close_marker(String("(^|\\n)[[:space:]]*<<<<<<<<<<.*"));
 
     return open_marker.match(code) || close_marker.match(code);
 }
@@ -343,6 +343,10 @@ String CodeTemplate::runInclude(
     const String& block,
     const StringList& include_params
 ) const {
+    if(!this->loader) {
+        throw "Template include attempted without a template loader";
+    }
+
     return this->loader->loadTemplate(_template, block, include_params);
 }
 
@@ -352,38 +356,72 @@ String CodeTemplate::processIncludes(
     const StringList& attribute_values
 ) const {
     String result;
-    String remaining = code;
+    int offset = 0;
 
-    RegularExpression include_expr(
-        String("@include[[:space:]]+\\[([^]]*)\\][[:space:]]+([A-Za-z0-9_.]+)>>>>([^\\n\\r]*)")
-    );
+    while(offset < (int)code.length()) {
+        int include_start = findLineStartMarker(code, String("@include"), offset);
 
-    while(true) {
-        StringList matches = include_expr.extract(remaining);
-
-        if(matches.length() < 4) {
-            result += remaining;
+        if(include_start < 0) {
+            result += code.substr(offset);
             break;
         }
 
-        String full_match = matches[0];
-        String condition = matches[1];
-        String include_target = matches[2];
-        String param_data = matches[3];
+        result += code.substr(offset, include_start - offset);
 
-        int pos = remaining.indexOf(full_match);
+        int line_end = findLineEnd(code, include_start);
+        String line = code.substr(include_start, line_end - include_start).trim();
+        String tail = line.substr(8).trim();
 
-        if(pos < 0) {
-            result += remaining;
-            break;
+        if(!line.startsWith(String("@include")) || !tail.startsWith(String("["))) {
+            throw "Invalid include directive";
         }
 
-        result += remaining.substr(0, pos);
+        int condition_end = tail.indexOf(String("]"));
+
+        if(condition_end < 0) {
+            throw "Invalid include condition";
+        }
+
+        String condition = tail.substr(1, condition_end - 1).trim();
+        String include_tail = tail.substr(condition_end + 1).trim();
+        int marker = include_tail.indexOf(String(">>>>"));
+
+        if(marker < 0) {
+            throw "Invalid include target";
+        }
+
+        String include_target = include_tail.substr(0, marker).trim();
+        String param_data = include_tail.substr(marker + 4).trim();
 
         if(evalIncludeCondition(condition, attribute_names, attribute_values)) {
             StringList include_params(param_data, String(">"));
+            include_params.removeEmptyStrings();
+            StringList resolved_params;
 
-            int dot = include_target.indexOf(String("."));
+            for(int i = 0; i < (int)include_params.length(); i++) {
+                String param = include_params[i].trim();
+
+                if(!param.length()) {
+                    continue;
+                }
+
+                for(int j = 0; j < (int)attribute_names.length(); j++) {
+                    String marker_text = String("%?%").arg(attribute_names[j], "?");
+
+                    if(j < (int)attribute_values.length()) {
+                        param = param.replace(marker_text, attribute_values[j]);
+                    }
+                }
+
+                resolved_params.append(param);
+            }
+
+            int dot = -1;
+            for(int i = 0; i < (int)include_target.length(); i++) {
+                if(include_target.operator char *()[i] == '.') {
+                    dot = i;
+                }
+            }
 
             if(dot < 0) {
                 throw "Invalid include target";
@@ -391,11 +429,13 @@ String CodeTemplate::processIncludes(
 
             String _template = include_target.substr(0, dot).trim();
             String block = include_target.substr(dot + 1).trim();
-
-            result += runInclude(_template, block, include_params);
+            result += runInclude(_template, block, resolved_params);
         }
 
-        remaining = remaining.substr(pos + full_match.length());
+        offset = line_end;
+        if(offset < (int)code.length() && code.substr(offset, 1) == String("\n")) {
+            offset++;
+        }
     }
 
     return result;

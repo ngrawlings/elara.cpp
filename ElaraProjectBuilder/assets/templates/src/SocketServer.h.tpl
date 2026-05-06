@@ -1,14 +1,15 @@
-#ifndef %SocketServerName%_h
-#define %SocketServerName%_h
+>>>>>>>>>>main>>>>SOCKET_SERVER_NAME
+#ifndef %SOCKET_SERVER_NAME%_h
+#define %SOCKET_SERVER_NAME%_h
 
 #include <libelarasockets/Listener.h>
 
 #include <libelaracore/memory/String.h>
 
-class %SocketServerName% : public elara::Listener {
+class %SOCKET_SERVER_NAME% : public elara::Listener {
 public:
-    %SocketServerName%();
-    virtual ~%SocketServerName%();
+    %SOCKET_SERVER_NAME%();
+    virtual ~%SOCKET_SERVER_NAME%();
     void start(int port, elara::String address);
 
 protected:
@@ -16,3 +17,4 @@ protected:
 };
 
 #endif
+<<<<<<<<<<main

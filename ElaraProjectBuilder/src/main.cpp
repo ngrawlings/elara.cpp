@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <exception>
 
 using namespace elara;
 
@@ -47,6 +48,42 @@ static bool parseBoolValue(const char *value, bool *result) {
     }
     if (!strcmp(value, "0") || !strcmp(value, "false") || !strcmp(value, "no") || !strcmp(value, "off")) {
         *result = false;
+        return true;
+    }
+    return false;
+}
+
+static bool parseApplicationKindValue(const char *value, ProjectOptions::ApplicationKind *result) {
+    if (!strcmp(value, "console")) {
+        *result = ProjectOptions::APPLICATION_CONSOLE;
+        return true;
+    }
+    if (!strcmp(value, "ui")) {
+        *result = ProjectOptions::APPLICATION_UI;
+        return true;
+    }
+    return false;
+}
+
+static bool parseUiClientLanguageValue(const char *value, ProjectOptions::UiClientLanguage *result) {
+    if (!strcmp(value, "cpp") || !strcmp(value, "c++")) {
+        *result = ProjectOptions::UI_CLIENT_CPP;
+        return true;
+    }
+    if (!strcmp(value, "python")) {
+        *result = ProjectOptions::UI_CLIENT_PYTHON;
+        return true;
+    }
+    return false;
+}
+
+static bool parseUiTemplateValue(const char *value, ProjectOptions::UiTemplate *result) {
+    if (!strcmp(value, "tabbed-control-panel")) {
+        *result = ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL;
+        return true;
+    }
+    if (!strcmp(value, "rich-editor")) {
+        *result = ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
         return true;
     }
     return false;
@@ -117,6 +154,9 @@ static void printUsage(const char *program_name) {
     printf("  --name <value>              Project class/name prefix\n");
     printf("  --target <value>            Executable name\n");
     printf("  --output <path>             Output directory\n");
+    printf("  --app-kind <console|ui>\n");
+    printf("  --ui-client-language <cpp|python>\n");
+    printf("  --ui-template <tabbed-control-panel|rich-editor>\n");
     printf("  --repl <yes|no>             Enable or disable the REPL\n");
     printf("  --debug-harness <yes|no>    Enable or disable the debug artifact scaffold\n");
     printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
@@ -137,25 +177,28 @@ static void printUsage(const char *program_name) {
 }
 
 int main(int argc, const char *argv[]) {
-    ProjectBuilder builder;
-    ProjectOptions options;
-    bool interactive = true;
-    bool saw_generation_option = false;
-    bool saw_socket_address = false;
-    bool saw_socket_port = false;
-    bool saw_name = false;
-    bool saw_target = false;
-    bool saw_output = false;
-    bool saw_worker_name = false;
-    bool saw_worker_flag = false;
-    bool saw_store_flag = false;
-    bool saw_socket_transport = false;
+    try {
+        ProjectBuilder builder;
+        ProjectOptions options;
+        bool interactive = true;
+        bool saw_generation_option = false;
+        bool saw_socket_address = false;
+        bool saw_socket_port = false;
+        bool saw_name = false;
+        bool saw_target = false;
+        bool saw_output = false;
+        bool saw_worker_name = false;
+        bool saw_worker_flag = false;
+        bool saw_store_flag = false;
+        bool saw_socket_transport = false;
+        bool saw_ui_client_language = false;
+        bool saw_ui_template = false;
 
-    builder.setExecutablePath(resolveExecutablePath(argv[0]));
-    options = builder.defaultOptions();
+        builder.setExecutablePath(resolveExecutablePath(argv[0]));
+        options = builder.defaultOptions();
 
-    for (int i = 1; i < argc; i++) {
-        const char *arg = argv[i];
+        for (int i = 1; i < argc; i++) {
+            const char *arg = argv[i];
 
         if (!strcmp(arg, "--help") || !strcmp(arg, "-h")) {
             printUsage(argv[0]);
@@ -205,6 +248,41 @@ int main(int argc, const char *argv[]) {
             options.output_directory = String(value);
             builder.setDefaultOutputDirectory(options.output_directory);
             saw_output = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--app-kind")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--app-kind");
+            if (!value || !parseApplicationKindValue(value, &options.application_kind)) {
+                fprintf(stderr, "Invalid value for --app-kind: %s\n", value ? value : "");
+                return 1;
+            }
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--ui-client-language")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--ui-client-language");
+            if (!value || !parseUiClientLanguageValue(value, &options.ui_client_language)) {
+                fprintf(stderr, "Invalid value for --ui-client-language: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_ui_client_language = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--ui-template")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--ui-template");
+            if (!value || !parseUiTemplateValue(value, &options.ui_template)) {
+                fprintf(stderr, "Invalid value for --ui-template: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_ui_template = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -370,34 +448,56 @@ int main(int argc, const char *argv[]) {
         return 1;
     }
 
-    if (interactive && !saw_generation_option) {
-        return builder.runInteractive() ? 0 : 1;
-    }
+        if (interactive && !saw_generation_option) {
+            return builder.runInteractive() ? 0 : 1;
+        }
 
-    if (saw_name) {
-        if (!saw_target) {
-            options.target_name = options.project_name;
+        if (saw_name) {
+            if (!saw_target) {
+                options.target_name = options.project_name;
+            }
+            if (!saw_output) {
+                options.output_directory = options.project_name;
+            }
+            if (!saw_worker_name && (!saw_worker_flag || options.include_threaded_worker)) {
+                options.worker_name = options.project_name + "WorkerTask";
+            }
         }
-        if (!saw_output) {
-            options.output_directory = options.project_name;
-        }
-        if (!saw_worker_name && (!saw_worker_flag || options.include_threaded_worker)) {
-            options.worker_name = options.project_name + "WorkerTask";
-        }
-    }
 
-    if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {
-        fprintf(stderr, "--address and --port require --socket-mode server or --socket-mode client\n");
+        if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && (saw_socket_address || saw_socket_port)) {
+            if (options.application_kind != ProjectOptions::APPLICATION_UI) {
+                fprintf(stderr, "--address and --port require --socket-mode server or --socket-mode client\n");
+                return 1;
+            }
+        }
+        if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && saw_socket_transport) {
+            fprintf(stderr, "--socket-transport requires --socket-mode server or --socket-mode client\n");
+            return 1;
+        }
+        if (options.application_kind != ProjectOptions::APPLICATION_UI && (saw_ui_client_language || saw_ui_template)) {
+            fprintf(stderr, "--ui-client-language and --ui-template require --app-kind ui\n");
+            return 1;
+        }
+
+        if (!saw_store_flag && options.include_indexed_data_store && !options.indexed_data_store_path.length()) {
+            options.indexed_data_store_path = "data/store.dat";
+        }
+
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            if (!saw_socket_address) {
+                options.socket_address = "127.0.0.1";
+            }
+            if (!saw_socket_port) {
+                options.socket_port = 18777;
+            }
+        }
+
+        return builder.generate(options) ? 0 : 1;
+    } catch (const char *error) {
+        fprintf(stderr, "Project builder error: %s\n", error);
+        return 1;
+    } catch (const std::exception &error) {
+        fprintf(stderr, "Project builder error: %s\n", error.what());
         return 1;
     }
-    if (options.socket_mode == ProjectOptions::SOCKET_DISABLED && saw_socket_transport) {
-        fprintf(stderr, "--socket-transport requires --socket-mode server or --socket-mode client\n");
-        return 1;
-    }
-
-    if (!saw_store_flag && options.include_indexed_data_store && !options.indexed_data_store_path.length()) {
-        options.indexed_data_store_path = "data/store.dat";
-    }
-
-    return builder.generate(options) ? 0 : 1;
 }

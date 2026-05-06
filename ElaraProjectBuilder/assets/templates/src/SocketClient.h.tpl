@@ -1,13 +1,14 @@
-#ifndef %SocketClientName%_h
-#define %SocketClientName%_h
+>>>>>>>>>>main>>>>SOCKET_CLIENT_NAME
+#ifndef %SOCKET_CLIENT_NAME%_h
+#define %SOCKET_CLIENT_NAME%_h
 
 #include <libelarasockets/Socket.h>
 #include <libelaracore/memory/String.h>
 
-class %SocketClientName% : public elara::Socket {
+class %SOCKET_CLIENT_NAME% : public elara::Socket {
 public:
-    %SocketClientName%(elara::String address, int port);
-    virtual ~%SocketClientName%();
+    %SOCKET_CLIENT_NAME%(elara::String address, int port);
+    virtual ~%SOCKET_CLIENT_NAME%();
     void sendLine(elara::String text);
 
 protected:
@@ -16,3 +17,4 @@ protected:
 };
 
 #endif
+<<<<<<<<<<main

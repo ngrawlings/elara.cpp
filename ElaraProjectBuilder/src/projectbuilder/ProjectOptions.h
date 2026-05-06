@@ -7,6 +7,21 @@ namespace elara {
 
     class ProjectOptions {
     public:
+        enum ApplicationKind {
+            APPLICATION_CONSOLE,
+            APPLICATION_UI
+        };
+
+        enum UiClientLanguage {
+            UI_CLIENT_CPP,
+            UI_CLIENT_PYTHON
+        };
+
+        enum UiTemplate {
+            UI_TEMPLATE_TABBED_CONTROL_PANEL,
+            UI_TEMPLATE_RICH_EDITOR
+        };
+
         enum SocketMode {
             SOCKET_DISABLED,
             SOCKET_SERVER,
@@ -19,6 +34,9 @@ namespace elara {
         };
 
         ProjectOptions() :
+            application_kind(APPLICATION_CONSOLE),
+            ui_client_language(UI_CLIENT_CPP),
+            ui_template(UI_TEMPLATE_TABBED_CONTROL_PANEL),
             include_repl(true),
             socket_mode(SOCKET_DISABLED),
             socket_transport(SOCKET_TRANSPORT_PLAIN),
@@ -37,6 +55,9 @@ namespace elara {
         String socket_address;
         String indexed_data_store_path;
 
+        ApplicationKind application_kind;
+        UiClientLanguage ui_client_language;
+        UiTemplate ui_template;
         bool include_repl;
         SocketMode socket_mode;
         SocketTransport socket_transport;

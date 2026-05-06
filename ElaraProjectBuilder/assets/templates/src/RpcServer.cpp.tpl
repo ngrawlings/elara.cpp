@@ -1,14 +1,16 @@
-#include "%RpcServerName%.h"
+>>>>>>>>>>main>>>>RPC_SERVER_NAME>RPC_SERVICE_NAME
+#include "%RPC_SERVER_NAME%.h"
 
-%RpcServerName%::%RpcServerName%() {
-    service = elara::Ref<elara::sockets::rpc::json::JsonRPCService>(new %RpcServiceName%());
+%RPC_SERVER_NAME%::%RPC_SERVER_NAME%() {
+    service = elara::Ref<elara::sockets::rpc::json::JsonRPCService>(new %RPC_SERVICE_NAME%());
     addService(service);
 }
 
-%RpcServerName%::~%RpcServerName%() {
+%RPC_SERVER_NAME%::~%RPC_SERVER_NAME%() {
 }
 
-void %RpcServerName%::start(int port, elara::String address) {
+void %RPC_SERVER_NAME%::start(int port, elara::String address) {
     listen(address, (unsigned short)port);
     runEventLoop(true);
 }
+<<<<<<<<<<main

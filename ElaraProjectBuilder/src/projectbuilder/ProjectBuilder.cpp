@@ -7,8 +7,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
-#include <string>
-
 #include <libelaraio/File.h>
 
 #include <libelaracore/memory/String.h>
@@ -18,26 +16,34 @@ namespace elara {
 
     namespace {
 
-        String replaceTemplateMarker(String source, String marker, String value) {
-            if (!marker.length())
-                return source;
+        String boolTemplateValue(bool value) {
+            return value ? String("1") : String("0");
+        }
 
-            std::string source_text((char*)source, (size_t)source.length());
-            std::string marker_text((char*)marker, (size_t)marker.length());
-            std::string value_text((char*)value, (size_t)value.length());
-            std::string result;
-            std::string::size_type offset = 0;
-            std::string::size_type index = source_text.find(marker_text, offset);
+        String uiClientLanguageName(ProjectOptions::UiClientLanguage value) {
+            if (value == ProjectOptions::UI_CLIENT_PYTHON) {
+                return "python";
+            }
+            return "c++";
+        }
 
-            while (index != std::string::npos) {
-                result.append(source_text, offset, index - offset);
-                result.append(value_text);
-                offset = index + marker_text.length();
-                index = source_text.find(marker_text, offset);
+        String uiTemplateName(ProjectOptions::UiTemplate value) {
+            if (value == ProjectOptions::UI_TEMPLATE_RICH_EDITOR) {
+                return "rich-editor";
+            }
+            return "tabbed-control-panel";
+        }
+
+        void appendTemplateAttr(String* attrs_text, const String& value) {
+            if (!attrs_text) {
+                return;
             }
 
-            result.append(source_text, offset, source_text.length() - offset);
-            return String(result.c_str(), result.length());
+            if (attrs_text->length()) {
+                *attrs_text += ";";
+            }
+
+            *attrs_text += value;
         }
 
     }
@@ -89,9 +95,15 @@ namespace elara {
         printf("Project generated at %s\n", options.output_directory.operator char *());
         printf("Next steps:\n");
         printf("  cd %s\n", options.output_directory.operator char *());
-        printf("  ./build.sh\n");
-        if (options.include_debug_harness) {
-            printf("  ./debug.sh\n");
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            printf("  ./run-ui-head.sh\n");
+            printf("  ./build.sh\n");
+            printf("  ./run-client.sh\n");
+        } else {
+            printf("  ./build.sh\n");
+            if (options.include_debug_harness) {
+                printf("  ./debug.sh\n");
+            }
         }
         printf("  sudo ./install.sh\n");
         return true;
@@ -99,6 +111,7 @@ namespace elara {
 
     String ProjectBuilder::loadTemplate(const String& template_name, const String& block_name, const StringList& attrs) {
         CodeTemplate tpl;
+        tpl.setTemplateLoader(this);
         tpl.loadData(loadAsset(String("templates/src/%.tpl").arg(template_name)));
         return tpl.getCode(block_name, attrs);
     }
@@ -119,42 +132,132 @@ namespace elara {
         output_directory_default = default_output_directory.length() ? default_output_directory : options.project_name;
         options.output_directory = promptString("Output directory", output_directory_default);
 
-        options.include_repl = promptYesNo("Include REPL client", true);
-        options.socket_mode = promptSocketMode();
-        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
-            options.socket_transport = promptSocketTransport();
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-            options.socket_address = promptString("Socket bind address", "0.0.0.0");
-            options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
-        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
-            options.socket_address = promptString("Socket remote address", "127.0.0.1");
-            options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
-        }
-        options.include_thread_pool = promptYesNo("Include thread pool", false);
-        options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
-        options.include_debug_harness = promptYesNo("Include debug harness and artifacts", true);
-        options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
+        options.application_kind = promptApplicationKind();
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            options.ui_client_language = promptUiClientLanguage();
+            options.ui_template = promptUiTemplate();
+            options.socket_address = promptString("UI RPC server address", "127.0.0.1");
+            options.socket_port = atoi(promptString("UI RPC server port", "18777").operator char *());
+            options.include_repl = false;
+            options.include_debug_harness = false;
+            options.include_thread_pool = false;
+            options.include_threaded_worker = false;
+            options.include_indexed_data_store = false;
+            options.socket_mode = ProjectOptions::SOCKET_DISABLED;
+            options.socket_transport = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+        } else {
+            options.include_repl = promptYesNo("Include REPL client", true);
+            options.socket_mode = promptSocketMode();
+            if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+                options.socket_transport = promptSocketTransport();
+            }
+            if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+                options.socket_address = promptString("Socket bind address", "0.0.0.0");
+                options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
+            } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+                options.socket_address = promptString("Socket remote address", "127.0.0.1");
+                options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
+            }
+            options.include_thread_pool = promptYesNo("Include thread pool", false);
+            options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
+            options.include_debug_harness = promptYesNo("Include debug harness and artifacts", true);
+            options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
 
-        if (options.include_threaded_worker) {
-            options.worker_name = promptString("Worker class name", projectClassPrefix(options.project_name) + "WorkerTask");
-        }
-        if (options.include_indexed_data_store) {
-            options.indexed_data_store_path = promptString("IndexedDataStore path", "data/store.dat");
-            options.indexed_data_store_bank_map_redundancy = atoi(promptString("IndexedDataStore bank map redundancy", "2").operator char *());
-        }
+            if (options.include_threaded_worker) {
+                options.worker_name = promptString("Worker class name", projectClassPrefix(options.project_name) + "WorkerTask");
+            }
+            if (options.include_indexed_data_store) {
+                options.indexed_data_store_path = promptString("IndexedDataStore path", "data/store.dat");
+                options.indexed_data_store_bank_map_redundancy = atoi(promptString("IndexedDataStore bank map redundancy", "2").operator char *());
+            }
 
-        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED && !options.include_thread_pool) {
-            printf("Socket support requires a thread pool. Enabling it.\n");
-            options.include_thread_pool = true;
-        }
+            if (options.socket_mode != ProjectOptions::SOCKET_DISABLED && !options.include_thread_pool) {
+                printf("Socket support requires a thread pool. Enabling it.\n");
+                options.include_thread_pool = true;
+            }
 
-        if (options.include_threaded_worker && !options.include_thread_pool) {
-            printf("Threaded workers require the thread pool. Enabling it.\n");
-            options.include_thread_pool = true;
+            if (options.include_threaded_worker && !options.include_thread_pool) {
+                printf("Threaded workers require the thread pool. Enabling it.\n");
+                options.include_thread_pool = true;
+            }
         }
 
         return options;
+    }
+
+    ProjectOptions::ApplicationKind ProjectBuilder::promptApplicationKind() {
+        char buffer[64];
+
+        while (true) {
+            printf("Application kind [c]onsole/[u]i: ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) {
+                return ProjectOptions::APPLICATION_CONSOLE;
+            }
+
+            size_t len = strlen(buffer);
+            while (len && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+                buffer[--len] = 0;
+            }
+
+            if (!len || buffer[0] == 'c' || buffer[0] == 'C') {
+                return ProjectOptions::APPLICATION_CONSOLE;
+            }
+            if (buffer[0] == 'u' || buffer[0] == 'U') {
+                return ProjectOptions::APPLICATION_UI;
+            }
+
+            printf("Please answer c or u.\n");
+        }
+    }
+
+    ProjectOptions::UiClientLanguage ProjectBuilder::promptUiClientLanguage() {
+        char buffer[64];
+
+        while (true) {
+            printf("UI client language [c]++/[p]ython: ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) {
+                return ProjectOptions::UI_CLIENT_CPP;
+            }
+
+            size_t len = strlen(buffer);
+            while (len && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+                buffer[--len] = 0;
+            }
+
+            if (!len || buffer[0] == 'c' || buffer[0] == 'C') {
+                return ProjectOptions::UI_CLIENT_CPP;
+            }
+            if (buffer[0] == 'p' || buffer[0] == 'P') {
+                return ProjectOptions::UI_CLIENT_PYTHON;
+            }
+
+            printf("Please answer c or p.\n");
+        }
+    }
+
+    ProjectOptions::UiTemplate ProjectBuilder::promptUiTemplate() {
+        char buffer[64];
+
+        while (true) {
+            printf("UI template [t]abbed-control-panel/[r]ich-editor: ");
+            if (!fgets(buffer, sizeof(buffer), stdin)) {
+                return ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL;
+            }
+
+            size_t len = strlen(buffer);
+            while (len && (buffer[len - 1] == '\n' || buffer[len - 1] == '\r')) {
+                buffer[--len] = 0;
+            }
+
+            if (!len || buffer[0] == 't' || buffer[0] == 'T') {
+                return ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL;
+            }
+            if (buffer[0] == 'r' || buffer[0] == 'R') {
+                return ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
+            }
+
+            printf("Please answer t or r.\n");
+        }
     }
 
     ProjectOptions::SocketMode ProjectBuilder::promptSocketMode() {
@@ -236,7 +339,21 @@ namespace elara {
         }
 
         if (options.socket_port <= 0 || options.socket_port > 65535) {
-            options.socket_port = 4040;
+            options.socket_port = options.application_kind == ProjectOptions::APPLICATION_UI ? 18777 : 4040;
+        }
+
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            options.include_repl = false;
+            options.include_debug_harness = false;
+            options.include_thread_pool = false;
+            options.include_threaded_worker = false;
+            options.include_indexed_data_store = false;
+            options.socket_mode = ProjectOptions::SOCKET_DISABLED;
+            options.socket_transport = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+            if (!options.socket_address.length()) {
+                options.socket_address = "127.0.0.1";
+            }
+            return;
         }
 
         if (options.socket_mode != ProjectOptions::SOCKET_DISABLED || options.include_threaded_worker) {
@@ -294,6 +411,26 @@ namespace elara {
     }
 
     bool ProjectBuilder::createProjectFiles(const ProjectOptions &options, Array<PROJECT_FILE> &files) {
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            addFile(files, "README.md", renderReadme(options));
+            addFile(files, "ELARA_AGENT_API.md", loadAgentReference());
+            addFile(files, "build.sh", renderBuildScript(options));
+            addFile(files, "install.sh", renderInstallScript(options));
+            addFile(files, "run-ui-head.sh", renderRunUiHeadScript(options));
+            addFile(files, "run-client.sh", renderRunUiClientScript(options));
+
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+                addFile(files, "src/main.cpp", renderUiCppMain(options));
+            } else {
+                addFile(files, "app.py", renderUiPythonApp(options));
+                addFile(files, "elara_ui/__init__.py", renderUiPythonPackageInit(options));
+                addFile(files, "elara_ui/builder.py", renderUiPythonPackageBuilder(options));
+                addFile(files, "elara_ui/rpc.py", renderUiPythonPackageRpc(options));
+            }
+
+            return true;
+        }
+
         addFile(files, "configure.ac", renderConfigureAc(options));
         addFile(files, "Makefile.in", renderMakefileIn(options));
         addFile(files, "build.sh", renderBuildScript(options));
@@ -532,7 +669,33 @@ namespace elara {
     }
 
     String ProjectBuilder::renderBuildScript(const ProjectOptions &options) {
-        (void)options;
+        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
+            options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+            String contents;
+            contents += "#!/usr/bin/env bash\n\n";
+            contents += "set -euo pipefail\n\n";
+            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+            contents += "cd \"$ROOT_DIR\"\n\n";
+            contents += "ELARA_ROOT=\"${ELARA_ROOT:-$ROOT_DIR/../build}\"\n";
+            contents += "mkdir -p ./build\n";
+            contents += "g++ -std=gnu++11 -O0 -g3 -I\"$ROOT_DIR\" -I\"$ELARA_ROOT/include\" ./src/main.cpp -L\"$ELARA_ROOT/lib\" -lelarauirpc -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore -pthread -o ./build/";
+            contents += options.target_name;
+            contents += "\n";
+            return contents;
+        }
+
+        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
+            options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+            String contents;
+            contents += "#!/usr/bin/env bash\n\n";
+            contents += "set -euo pipefail\n\n";
+            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+            contents += "cd \"$ROOT_DIR\"\n\n";
+            contents += "mkdir -p ./build\n";
+            contents += "python3 -m py_compile app.py elara_ui/__init__.py elara_ui/builder.py elara_ui/rpc.py\n";
+            contents += "printf '%s\\n' \"python build ok\" > ./build/build-stamp.txt\n";
+            return contents;
+        }
 
         String contents;
         contents += "#!/usr/bin/env bash\n\n";
@@ -597,7 +760,78 @@ namespace elara {
     }
 
     String ProjectBuilder::renderInstallScript(const ProjectOptions &options) {
-        (void)options;
+        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
+            options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+            String contents;
+            contents += "#!/usr/bin/env bash\n\n";
+            contents += "set -euo pipefail\n\n";
+            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+            contents += "cd \"$ROOT_DIR\"\n\n";
+            contents += "INSTALL_PREFIX=\"${INSTALL_PREFIX:-/usr/local}\"\n";
+            contents += "TARGET_NAME=\"";
+            contents += options.target_name;
+            contents += "\"\n";
+            contents += "BUILD_TARGET=\"$ROOT_DIR/build/${TARGET_NAME}\"\n";
+            contents += "MANIFEST_DIR=\"${INSTALL_PREFIX}/share/${TARGET_NAME}\"\n";
+            contents += "MANIFEST_PATH=\"${MANIFEST_DIR}/install-manifest.txt\"\n\n";
+            contents += "if [[ \"${1:-}\" == \"--remove\" ]]; then\n";
+            contents += "  if [[ -f \"${MANIFEST_PATH}\" ]]; then\n";
+            contents += "    while IFS= read -r installed_path; do rm -f \"${installed_path}\"; done < \"${MANIFEST_PATH}\"\n";
+            contents += "    rm -f \"${MANIFEST_PATH}\"\n";
+            contents += "  fi\n";
+            contents += "  rmdir \"${MANIFEST_DIR}\" 2>/dev/null || true\n";
+            contents += "  exit 0\n";
+            contents += "fi\n\n";
+            contents += "if [[ ! -x \"$BUILD_TARGET\" ]]; then\n";
+            contents += "  echo \"Missing built binary $BUILD_TARGET. Run ./build.sh first.\"\n";
+            contents += "  exit 1\n";
+            contents += "fi\n\n";
+            contents += "mkdir -p \"${INSTALL_PREFIX}/bin\" \"${MANIFEST_DIR}\"\n";
+            contents += "cp \"$BUILD_TARGET\" \"${INSTALL_PREFIX}/bin/${TARGET_NAME}\"\n";
+            contents += "printf '%s\\n' \"${INSTALL_PREFIX}/bin/${TARGET_NAME}\" > \"${MANIFEST_PATH}\"\n";
+            return contents;
+        }
+
+        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
+            options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+            String contents;
+            contents += "#!/usr/bin/env bash\n\n";
+            contents += "set -euo pipefail\n\n";
+            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+            contents += "cd \"$ROOT_DIR\"\n\n";
+            contents += "INSTALL_PREFIX=\"${INSTALL_PREFIX:-/usr/local}\"\n";
+            contents += "TARGET_NAME=\"";
+            contents += options.target_name;
+            contents += "\"\n";
+            contents += "APP_DIR=\"${INSTALL_PREFIX}/share/${TARGET_NAME}\"\n";
+            contents += "BIN_PATH=\"${INSTALL_PREFIX}/bin/${TARGET_NAME}\"\n";
+            contents += "MANIFEST_PATH=\"${APP_DIR}/install-manifest.txt\"\n\n";
+            contents += "if [[ \"${1:-}\" == \"--remove\" ]]; then\n";
+            contents += "  if [[ -f \"${MANIFEST_PATH}\" ]]; then\n";
+            contents += "    while IFS= read -r installed_path; do rm -f \"${installed_path}\"; done < \"${MANIFEST_PATH}\"\n";
+            contents += "    rm -f \"${MANIFEST_PATH}\"\n";
+            contents += "  fi\n";
+            contents += "  rm -rf \"${APP_DIR}\"\n";
+            contents += "  rm -f \"${BIN_PATH}\"\n";
+            contents += "  exit 0\n";
+            contents += "fi\n\n";
+            contents += "mkdir -p \"${APP_DIR}\" \"${INSTALL_PREFIX}/bin\" \"${APP_DIR}/elara_ui\"\n";
+            contents += "cp app.py \"${APP_DIR}/app.py\"\n";
+            contents += "cp elara_ui/__init__.py \"${APP_DIR}/elara_ui/__init__.py\"\n";
+            contents += "cp elara_ui/builder.py \"${APP_DIR}/elara_ui/builder.py\"\n";
+            contents += "cp elara_ui/rpc.py \"${APP_DIR}/elara_ui/rpc.py\"\n";
+            contents += "cat > \"${BIN_PATH}\" <<EOF\n";
+            contents += "#!/usr/bin/env bash\n";
+            contents += "exec python3 \"${APP_DIR}/app.py\" \"\\$@\"\n";
+            contents += "EOF\n";
+            contents += "chmod +x \"${BIN_PATH}\"\n";
+            contents += "printf '%s\\n' \"${BIN_PATH}\" > \"${MANIFEST_PATH}\"\n";
+            contents += "printf '%s\\n' \"${APP_DIR}/app.py\" >> \"${MANIFEST_PATH}\"\n";
+            contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/__init__.py\" >> \"${MANIFEST_PATH}\"\n";
+            contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/builder.py\" >> \"${MANIFEST_PATH}\"\n";
+            contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/rpc.py\" >> \"${MANIFEST_PATH}\"\n";
+            return contents;
+        }
 
         String contents;
         contents += "#!/usr/bin/env bash\n\n";
@@ -636,7 +870,92 @@ namespace elara {
         return contents;
     }
 
+    String ProjectBuilder::renderRunUiHeadScript(const ProjectOptions &options) {
+        (void)options;
+
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "DEFAULT_SERVER=\"${ROOT_DIR}/../libElaraUI/build/bin/libelaraui-rpc-server\"\n";
+        contents += "ELARA_UI_SERVER=\"${ELARA_UI_SERVER:-${DEFAULT_SERVER}}\"\n\n";
+        contents += "if [[ ! -x \"${ELARA_UI_SERVER}\" ]]; then\n";
+        contents += "  echo \"Missing libElaraUI RPC server at ${ELARA_UI_SERVER}. Set ELARA_UI_SERVER to the correct path.\"\n";
+        contents += "  exit 1\n";
+        contents += "fi\n\n";
+        contents += "exec \"${ELARA_UI_SERVER}\" \"$@\"\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderRunUiClientScript(const ProjectOptions &options) {
+        String contents;
+        contents += "#!/usr/bin/env bash\n\n";
+        contents += "set -euo pipefail\n\n";
+        contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "cd \"$ROOT_DIR\"\n\n";
+
+        if (options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+            contents += "exec python3 ./app.py \"$@\"\n";
+        } else {
+            contents += "if [[ ! -x \"./build/";
+            contents += options.target_name;
+            contents += "\" ]]; then\n";
+            contents += "  ./build.sh\n";
+            contents += "fi\n";
+            contents += "exec ./build/";
+            contents += options.target_name;
+            contents += " \"$@\"\n";
+        }
+
+        return contents;
+    }
+
     String ProjectBuilder::renderReadme(const ProjectOptions &options) {
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            String contents;
+
+            contents += "# ";
+            contents += options.project_name;
+            contents += "\n\n";
+            contents += "Generated by `elara-project-builder` as an Elara UI RPC client application.\n\n";
+            contents += "Selected features:\n";
+            contents += "- Application kind: ui\n";
+            contents += "- UI client language: ";
+            contents += uiClientLanguageName(options.ui_client_language);
+            contents += "\n";
+            contents += "- UI template: ";
+            contents += uiTemplateName(options.ui_template);
+            contents += "\n";
+            contents += "- UI RPC server address: ";
+            contents += options.socket_address;
+            contents += "\n";
+            contents += "- UI RPC server port: ";
+            contents += String(options.socket_port);
+            contents += "\n\n";
+            contents += "Quick start:\n";
+            contents += "1. start the UI head with `./run-ui-head.sh`\n";
+            contents += "2. build the client with `./build.sh`\n";
+            contents += "3. launch the client with `./run-client.sh`\n";
+            contents += "4. use `sudo ./install.sh` to install the client\n";
+            contents += "5. use `sudo ./install.sh --remove` to uninstall it\n\n";
+            contents += "Notes:\n";
+            contents += "- the generated client expects a running `libElaraUI` RPC head on ";
+            contents += options.socket_address;
+            contents += ":";
+            contents += String(options.socket_port);
+            contents += "\n";
+            contents += "- `run-ui-head.sh` defaults to `../libElaraUI/build/bin/libelaraui-rpc-server`\n";
+            contents += "- override that with `ELARA_UI_SERVER=/path/to/libelaraui-rpc-server ./run-ui-head.sh`\n";
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+                contents += "- the Python client vendors a local copy of the flat builder and RPC client helpers\n";
+            } else {
+                contents += "- the C++ client uses `ElaraUiDocumentBuilder` and `ElaraUiRpcPeer`\n";
+                contents += "- if the project lives outside this repo, set `ELARA_ROOT=/path/to/elara/build ./build.sh`\n";
+            }
+            contents += "Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.\n";
+            return contents;
+        }
+
         String contents;
 
         contents += "# ";
@@ -925,21 +1244,6 @@ namespace elara {
         return asset;
     }
 
-    String ProjectBuilder::renderAssetTemplate(String relative_path, const Array<TEMPLATE_REPLACEMENT> &replacements) {
-        String contents = loadAsset(relative_path);
-
-        if (!contents.length()) {
-            return String("/* Missing template asset: % */\n").arg(relative_path);
-        }
-
-        for (unsigned int i=0; i<replacements.length(); i++) {
-            contents = replaceTemplateMarker(contents, replacements[i].marker, replacements[i].value);
-        }
-
-        contents = replaceTemplateMarker(contents, String("@PERCENT@"), String("%"));
-        return contents;
-    }
-
     String ProjectBuilder::readTextFile(String path) {
         struct stat st;
 
@@ -963,632 +1267,427 @@ namespace elara {
         return contents;
     }
 
-    String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {
-        CodeTemplate tpl;
-        tpl.setTemplateLoader(this);
-        tpl.loadData(loadAsset(String("templates/src/main.cpp.blocks.tpl")));
-
+    String ProjectBuilder::renderUiCppMain(const ProjectOptions &options) {
         String contents;
+        String title = options.project_name;
+        String backend_id = String("org.elara.ui.") + options.target_name;
+
+        contents += "#include <stdio.h>\n";
+        contents += "#include <stdlib.h>\n";
+        contents += "#include <string.h>\n";
+        contents += "#include <libelaracore/memory/Ref.h>\n";
+        contents += "#include <libelaraformat/json/types/JsonString.h>\n";
+        contents += "#include <libelarauirpc/ElaraUiDocumentBuilder.h>\n";
+        contents += "#include <libelarauirpc/ElaraUiRpcPeer.h>\n\n";
+        contents += "using namespace elara;\n";
+        contents += "using namespace elara::ui::rpc;\n\n";
+        contents += "static void buildDocument(ElaraUiDocumentBuilder &ui) {\n";
+        contents += "    ui.clear();\n";
+        contents += "    ui.createWindow(String(\"";
+        contents += title;
+        contents += "\"), 1080, 760, String(\"";
+        contents += backend_id;
+        contents += "\"));\n";
+        contents += "    ui.setThemeMode(String(\"light\"));\n";
+
+        if (options.ui_template == ProjectOptions::UI_TEMPLATE_RICH_EDITOR) {
+            contents += "    ui.createTabs(String(\"app.tabs\"));\n";
+            contents += "    ui.setRootContent(String(\"app.tabs\"));\n";
+            contents += "    ui.createRichTextEdit(String(\"app.editor\"), String(\"# ";
+            contents += title;
+            contents += "\\n\\nThis template gives you a starting point for a document-oriented editor built on libElaraUI.\\n\\n- Connect backend actions over RPC\\n- Extend the toolbar and outline tabs\\n- Use snapshots to inspect state while iterating\\n\"));\n";
+            contents += "    ui.setPropertyNumber(String(\"app.editor\"), String(\"font_size\"), 14);\n";
+            contents += "    ui.addTab(String(\"app.tabs\"), String(\"Editor\"), String(\"app.editor\"));\n";
+            contents += "    ui.createListView(String(\"app.outline\"));\n";
+            contents += "    ui.setPropertyNumber(String(\"app.outline\"), String(\"font_size\"), 14);\n";
+            contents += "    ui.setSectionJson(String(\"app.outline\"), String(\"items\"), String(\"[{\\\"id\\\":\\\"draft\\\",\\\"label\\\":\\\"Draft notes\\\"},{\\\"id\\\":\\\"tasks\\\",\\\"label\\\":\\\"Editing tasks\\\"},{\\\"id\\\":\\\"publish\\\",\\\"label\\\":\\\"Publishing checklist\\\"}]\"));\n";
+            contents += "    ui.addTab(String(\"app.tabs\"), String(\"Outline\"), String(\"app.outline\"));\n";
+        } else {
+            contents += "    ui.createTabs(String(\"app.tabs\"));\n";
+            contents += "    ui.setRootContent(String(\"app.tabs\"));\n";
+            contents += "    ui.createGrid(String(\"app.panel\"));\n";
+            contents += "    ui.addTab(String(\"app.tabs\"), String(\"Control Panel\"), String(\"app.panel\"));\n";
+            contents += "    ui.addGridColumnExact(String(\"app.panel\"), 24);\n";
+            contents += "    ui.addGridColumnFill(String(\"app.panel\"));\n";
+            contents += "    ui.addGridColumnExact(String(\"app.panel\"), 220);\n";
+            contents += "    ui.addGridRowExact(String(\"app.panel\"), 24);\n";
+            contents += "    ui.addGridRowExact(String(\"app.panel\"), 44);\n";
+            contents += "    ui.addGridRowExact(String(\"app.panel\"), 44);\n";
+            contents += "    ui.addGridRowExact(String(\"app.panel\"), 44);\n";
+            contents += "    ui.addGridRowFill(String(\"app.panel\"));\n";
+            contents += "    ui.addGridRowExact(String(\"app.panel\"), 24);\n";
+            contents += "    ui.createLabel(String(\"app.title\"), String(\"";
+            contents += title;
+            contents += " control surface\"), 18);\n";
+            contents += "    ui.createTextInput(String(\"app.endpoint\"), String(\"service endpoint\"), String(\"https://api.example.local\"));\n";
+            contents += "    ui.createButton(String(\"app.refresh\"), String(\"Refresh\"), String(\"app.refresh\"));\n";
+            contents += "    ui.createCheckbox(String(\"app.live\"), String(\"Live updates\"), true);\n";
+            contents += "    ui.setPropertyNumber(String(\"app.live\"), String(\"font_size\"), 14);\n";
+            contents += "    ui.createSpinner(String(\"app.interval\"), 1, 60, 5, 1);\n";
+            contents += "    ui.setPropertyNumber(String(\"app.interval\"), String(\"font_size\"), 14);\n";
+            contents += "    ui.createSlider(String(\"app.risk\"), String(\"horizontal\"), 0, 100, 35, 1);\n";
+            contents += "    ui.createListView(String(\"app.activity\"));\n";
+            contents += "    ui.setPropertyNumber(String(\"app.activity\"), String(\"font_size\"), 14);\n";
+            contents += "    ui.setSectionJson(String(\"app.activity\"), String(\"items\"), String(\"[{\\\"id\\\":\\\"queued\\\",\\\"label\\\":\\\"Queued refresh\\\"},{\\\"id\\\":\\\"connected\\\",\\\"label\\\":\\\"Connected to RPC head\\\"},{\\\"id\\\":\\\"ready\\\",\\\"label\\\":\\\"Ready for backend logic\\\"}]\"));\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.title\"), 1, 1, 2, 1);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.endpoint\"), 1, 2);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.refresh\"), 2, 2);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.live\"), 1, 3);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.interval\"), 2, 3);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.risk\"), 1, 4, 2, 1);\n";
+            contents += "    ui.placeGridChild(String(\"app.panel\"), String(\"app.activity\"), 1, 5, 2, 1);\n";
+        }
+
+        contents += "}\n\n";
+        contents += "static bool loadDocument(ElaraUiRpcPeer *peer, const String &document_json) {\n";
+        contents += "    String params = String(\"{\\\"document\\\":\") + JsonString(document_json, true).toString() + String(\"}\");\n";
+        contents += "    String result_json;\n";
+        contents += "    String error_code;\n";
+        contents += "    String error_message;\n";
+        contents += "    if (!peer->call(String(\"ui.loadDocument\"), params, result_json, error_code, error_message, 5000)) {\n";
+        contents += "        printf(\"ui.loadDocument failed [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+        contents += "        return false;\n";
+        contents += "    }\n";
+        contents += "    printf(\"Document loaded: %s\\n\", result_json.operator char *());\n";
+        contents += "    return true;\n";
+        contents += "}\n\n";
+        contents += "int main(int argc, const char *argv[]) {\n";
+        contents += "    String host(\"";
+        contents += options.socket_address;
+        contents += "\");\n";
+        contents += "    int port = ";
+        contents += String(options.socket_port);
+        contents += ";\n";
+        contents += "    if (argc > 1) host = String(argv[1]);\n";
+        contents += "    if (argc > 2) port = atoi(argv[2]);\n";
+        contents += "    Ref<ElaraUiRpcPeer> peer(new ElaraUiRpcPeer());\n";
+        contents += "    if (!peer->connect(host, (unsigned short)port)) {\n";
+        contents += "        printf(\"Failed to connect to %s:%d\\n\", host.operator char *(), port);\n";
+        contents += "        return 1;\n";
+        contents += "    }\n";
+        contents += "    ElaraUiDocumentBuilder ui;\n";
+        contents += "    buildDocument(ui);\n";
+        contents += "    if (!loadDocument(peer.getPtr(), ui.toJson())) {\n";
+        contents += "        return 1;\n";
+        contents += "    }\n";
+        contents += "    printf(\"Commands: reload, snapshot, quit\\n\");\n";
+        contents += "    char line[256];\n";
+        contents += "    while (true) {\n";
+        contents += "        printf(\"";
+        contents += options.target_name;
+        contents += "> \");\n";
+        contents += "        if (!fgets(line, sizeof(line), stdin)) {\n";
+        contents += "            break;\n";
+        contents += "        }\n";
+        contents += "        String command(line);\n";
+        contents += "        command = command.trim();\n";
+        contents += "        if (command == String(\"quit\") || command == String(\"exit\")) {\n";
+        contents += "            break;\n";
+        contents += "        }\n";
+        contents += "        if (command == String(\"reload\")) {\n";
+        contents += "            buildDocument(ui);\n";
+        contents += "            loadDocument(peer.getPtr(), ui.toJson());\n";
+        contents += "            continue;\n";
+        contents += "        }\n";
+        contents += "        if (command == String(\"snapshot\")) {\n";
+        contents += "            String result_json;\n";
+        contents += "            String error_code;\n";
+        contents += "            String error_message;\n";
+        contents += "            if (peer->call(String(\"ui.snapshot\"), String(\"{}\"), result_json, error_code, error_message, 5000)) {\n";
+        contents += "                printf(\"%s\\n\", result_json.operator char *());\n";
+        contents += "            } else {\n";
+        contents += "                printf(\"ui.snapshot failed [%s]: %s\\n\", error_code.operator char *(), error_message.operator char *());\n";
+        contents += "            }\n";
+        contents += "            continue;\n";
+        contents += "        }\n";
+        contents += "        printf(\"Unhandled command: %s\\n\", command.operator char *());\n";
+        contents += "    }\n";
+        contents += "    peer->close();\n";
+        contents += "    return 0;\n";
+        contents += "}\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderUiPythonApp(const ProjectOptions &options) {
+        String contents;
+        contents += "import argparse\n";
+        contents += "import json\n";
+        contents += "from pathlib import Path\n\n";
+        contents += "from elara_ui.builder import UiDocumentBuilder\n";
+        contents += "from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError\n\n\n";
+        contents += "def build_document():\n";
+        contents += "    ui = UiDocumentBuilder()\n";
+        contents += "    ui.create_window(";
+        contents += String("\"") + options.project_name + "\", 1080, 760, \"" + String("org.elara.ui.") + options.target_name + "\")\n";
+        contents += "    ui.set_theme_mode(\"light\")\n";
+
+        if (options.ui_template == ProjectOptions::UI_TEMPLATE_RICH_EDITOR) {
+            contents += "    ui.create_tabs(\"app.tabs\")\n";
+            contents += "    ui.set_root_content(\"app.tabs\")\n";
+            contents += "    ui.create_rich_text_edit(\"app.editor\", \"# ";
+            contents += options.project_name;
+            contents += "\\n\\nThis template gives you a starting point for a document-oriented editor built on libElaraUI.\\n\\n- Connect backend actions over RPC\\n- Extend the toolbar and outline tabs\\n- Use snapshots to inspect state while iterating\\n\")\n";
+            contents += "    ui.set_property_number(\"app.editor\", \"font_size\", 14)\n";
+            contents += "    ui.add_tab(\"app.tabs\", \"Editor\", \"app.editor\")\n";
+            contents += "    ui.create_list_view(\"app.outline\")\n";
+            contents += "    ui.set_property_number(\"app.outline\", \"font_size\", 14)\n";
+            contents += "    ui.set_section_json(\"app.outline\", \"items\", [{\"id\": \"draft\", \"label\": \"Draft notes\"}, {\"id\": \"tasks\", \"label\": \"Editing tasks\"}, {\"id\": \"publish\", \"label\": \"Publishing checklist\"}])\n";
+            contents += "    ui.add_tab(\"app.tabs\", \"Outline\", \"app.outline\")\n";
+        } else {
+            contents += "    ui.create_tabs(\"app.tabs\")\n";
+            contents += "    ui.set_root_content(\"app.tabs\")\n";
+            contents += "    ui.create_grid(\"app.panel\")\n";
+            contents += "    ui.add_tab(\"app.tabs\", \"Control Panel\", \"app.panel\")\n";
+            contents += "    ui.add_grid_column_exact(\"app.panel\", 24)\n";
+            contents += "    ui.add_grid_column_fill(\"app.panel\")\n";
+            contents += "    ui.add_grid_column_exact(\"app.panel\", 220)\n";
+            contents += "    ui.add_grid_row_exact(\"app.panel\", 24)\n";
+            contents += "    ui.add_grid_row_exact(\"app.panel\", 44)\n";
+            contents += "    ui.add_grid_row_exact(\"app.panel\", 44)\n";
+            contents += "    ui.add_grid_row_exact(\"app.panel\", 44)\n";
+            contents += "    ui.add_grid_row_fill(\"app.panel\")\n";
+            contents += "    ui.add_grid_row_exact(\"app.panel\", 24)\n";
+            contents += "    ui.create_label(\"app.title\", \"";
+            contents += options.project_name;
+            contents += " control surface\", 18)\n";
+            contents += "    ui.create_text_input(\"app.endpoint\", \"service endpoint\", \"https://api.example.local\")\n";
+            contents += "    ui.create_button(\"app.refresh\", \"Refresh\", \"app.refresh\")\n";
+            contents += "    ui.create_checkbox(\"app.live\", \"Live updates\", True).set_property_number(\"app.live\", \"font_size\", 14)\n";
+            contents += "    ui.create_spinner(\"app.interval\", 1, 60, 5, 1).set_property_number(\"app.interval\", \"font_size\", 14)\n";
+            contents += "    ui.create_slider(\"app.risk\", \"horizontal\", 0, 100, 35, 1)\n";
+            contents += "    ui.create_list_view(\"app.activity\")\n";
+            contents += "    ui.set_property_number(\"app.activity\", \"font_size\", 14)\n";
+            contents += "    ui.set_section_json(\"app.activity\", \"items\", [{\"id\": \"queued\", \"label\": \"Queued refresh\"}, {\"id\": \"connected\", \"label\": \"Connected to RPC head\"}, {\"id\": \"ready\", \"label\": \"Ready for backend logic\"}])\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.title\", 1, 1, 2, 1)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.endpoint\", 1, 2)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.refresh\", 2, 2)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.live\", 1, 3)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.interval\", 2, 3)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.risk\", 1, 4, 2, 1)\n";
+            contents += "    ui.place_grid_child(\"app.panel\", \"app.activity\", 1, 5, 2, 1)\n";
+        }
+
+        contents += "    return ui\n\n\n";
+        contents += "def main():\n";
+        contents += "    parser = argparse.ArgumentParser(description=\"Load the generated Elara UI document into a running RPC head\")\n";
+        contents += "    parser.add_argument(\"--host\", default=\"";
+        contents += options.socket_address;
+        contents += "\", help=\"RPC server host\")\n";
+        contents += "    parser.add_argument(\"--port\", default=";
+        contents += String(options.socket_port);
+        contents += ", type=int, help=\"RPC server port\")\n";
+        contents += "    parser.add_argument(\"--snapshot\", action=\"store_true\", help=\"Fetch a root snapshot after loading\")\n";
+        contents += "    parser.add_argument(\"--output\", help=\"Write the generated document JSON to this path\")\n";
+        contents += "    args = parser.parse_args()\n\n";
+        contents += "    builder = build_document()\n";
+        contents += "    document_json = builder.to_json(indent=2)\n";
+        contents += "    if args.output:\n";
+        contents += "        output_path = Path(args.output)\n";
+        contents += "        output_path.parent.mkdir(parents=True, exist_ok=True)\n";
+        contents += "        output_path.write_text(document_json, encoding=\"utf-8\")\n";
+        contents += "    try:\n";
+        contents += "        with ElaraUiRpcClient(args.host, args.port) as client:\n";
+        contents += "            load_result = client.load_document(builder)\n";
+        contents += "            print(json.dumps(load_result, indent=2))\n";
+        contents += "            if args.snapshot:\n";
+        contents += "                snapshot = client.snapshot()\n";
+        contents += "                print(json.dumps(snapshot, indent=2))\n";
+        contents += "    except ElaraUiRpcError as exc:\n";
+        contents += "        raise SystemExit(str(exc))\n\n\n";
+        contents += "if __name__ == \"__main__\":\n";
+        contents += "    main()\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderUiPythonPackageInit(const ProjectOptions &options) {
+        (void)options;
+        String contents;
+        contents += "from .builder import UiDocumentBuilder\n";
+        contents += "from .rpc import ElaraUiRpcClient, ElaraUiRpcError\n\n";
+        contents += "__all__ = [\n";
+        contents += "    \"UiDocumentBuilder\",\n";
+        contents += "    \"ElaraUiRpcClient\",\n";
+        contents += "    \"ElaraUiRpcError\",\n";
+        contents += "]\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderUiPythonPackageBuilder(const ProjectOptions &options) {
+        (void)options;
+        String executable_dir = pathDirectory(executable_path);
+        String repo_root = pathDirectory(pathDirectory(executable_dir));
+        String contents = readTextFile(joinPath(repo_root, "other_languages/python/builder.py"));
+        if (contents.length()) {
+            return contents;
+        }
+        return readTextFile("./other_languages/python/builder.py");
+    }
+
+    String ProjectBuilder::renderUiPythonPackageRpc(const ProjectOptions &options) {
+        (void)options;
+        String executable_dir = pathDirectory(executable_path);
+        String repo_root = pathDirectory(pathDirectory(executable_dir));
+        String contents = readTextFile(joinPath(repo_root, "other_languages/python/rpc.py"));
+        if (contents.length()) {
+            return contents;
+        }
+        return readTextFile("./other_languages/python/rpc.py");
+    }
+
+    String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
         String rpc_server_name = projectClassPrefix(options.project_name) + "RpcServer";
         String rpc_client_name = projectClassPrefix(options.project_name) + "RpcClient";
+        String attrs_text;
 
-        contents += "#include <stdio.h>\n";
-        contents += "#include <string.h>\n";
-        contents += "#include <libelaracore/memory/String.h>\n";
-        if (options.include_indexed_data_store) {
-            contents += tpl.getCode("include_indexed_data_store");
-        }
-        if (options.include_thread_pool) {
-            contents += tpl.getCode("include_thread_pool");
-        }
-        if (options.include_threaded_worker) {
-            StringList attr(String("%").arg(options.worker_name), ";");
-            contents += tpl.getCode("include_threaded_worker", attr);
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            StringList attr(String("%").arg(client_name), ";");
-            contents += tpl.getCode("include_socket", attr);
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            StringList attr(String("%").arg(server_name), ";");
-            contents += tpl.getCode("include_socket", attr);
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            StringList attr(String("%").arg(rpc_server_name), ";");
-            contents += tpl.getCode("include_socket", attr);
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += tpl.getCode("include_rpc_client");
-            StringList attr(String("%").arg(rpc_server_name), ";");
-            contents += tpl.getCode("include_socket", attr);
-        }
-        contents += "\nusing namespace elara;\n\n";
-        contents += "static void printHelp() {\n";
-        contents += "    printf(\"Commands:\\n\");\n";
-        contents += "    printf(\"  help  - show this help\\n\");\n";
-        contents += "    printf(\"  quit  - exit the application\\n\");\n";
-        if (options.include_threaded_worker) {
-            contents += "    printf(\"  work <text> - queue the worker task\\n\");\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-            contents += "    printf(\"  status - display thread pool state\\n\");\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            contents += "    printf(\"  send <text> - send text to the remote socket\\n\");\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += "    printf(\"  rpc connect [address] [port] - connect the JSON RPC client\\n\");\n";
-            contents += "    printf(\"  rpc call <method> [params-json] - call a JSON RPC method\\n\");\n";
-            contents += "    printf(\"  rpc disconnect - close the JSON RPC client socket\\n\");\n";
-            contents += "    printf(\"  rpc profile - show the current command-line profile\\n\");\n";
-            contents += "    printf(\"  rpc profile <rpc-default|simple> - select the invocation profile\\n\");\n";
-            contents += "    printf(\"  rpc invoke <command-line> - parse and invoke a remote RPC method\\n\");\n";
-            contents += "    printf(\"  ping - call echo.ping on the remote RPC server\\n\");\n";
-            if (options.include_indexed_data_store) {
-                contents += "    printf(\"  remote-initstore - call store.init on the remote RPC server\\n\");\n";
-                contents += "    printf(\"  remote-put <key> <value> - call store.put on the remote RPC server\\n\");\n";
-                contents += "    printf(\"  remote-get <key> - call store.get on the remote RPC server\\n\");\n";
-            }
-        }
-        if (options.include_indexed_data_store) {
-            contents += "    printf(\"  initstore - create or reset the IndexedDataStore file\\n\");\n";
-            contents += "    printf(\"  put <key> <value> - persist a UTF-8 string value\\n\");\n";
-            contents += "    printf(\"  get <key> - load and print a UTF-8 string value\\n\");\n";
-        }
-        contents += "}\n\n";
-        if (options.include_indexed_data_store) {
-            StringList attr(String("%;%").arg(options.indexed_data_store_path).arg(options.indexed_data_store_bank_map_redundancy), ";");
-            contents += tpl.getCode("indexed_data_store_helpers", attr);
-        }
-        contents += "int main() {\n\n";
-        if (options.include_thread_pool) {
-            contents += "    Thread::pool = true;\n";
-            contents += "    Task::staticInit();\n";
-            contents += "    Thread::init(4);\n";
-            contents += "    printf(\"Thread pool initialised with 4 worker threads.\\n\");\n\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
-            contents += "    Socket::init(event_base.getPtr());\n";
-            contents += "    Ref<";
-            contents += server_name;
-            contents += "> socket_server = Ref<";
-            contents += server_name;
-            contents += ">(new ";
-            contents += server_name;
-            contents += "());\n";
-            contents += "    socket_server->start(";
-            contents += String(options.socket_port);
-            contents += ", String(\"";
-            contents += options.socket_address;
-            contents += "\"));\n";
-            contents += "    printf(\"Socket server started on ";
-            contents += options.socket_address;
-            contents += ":";
-            contents += String(options.socket_port);
-            contents += ".\\n\");\n\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
-            contents += "    Socket::init(event_base.getPtr());\n";
-            contents += "    Ref<";
-            contents += rpc_server_name;
-            contents += "> socket_server = Ref<";
-            contents += rpc_server_name;
-            contents += ">(new ";
-            contents += rpc_server_name;
-            contents += "());\n";
-            contents += "    socket_server->start(";
-            contents += String(options.socket_port);
-            contents += ", String(\"";
-            contents += options.socket_address;
-            contents += "\"));\n";
-            contents += "    printf(\"JSON RPC server started on ";
-            contents += options.socket_address;
-            contents += ":";
-            contents += String(options.socket_port);
-            contents += ".\\n\");\n\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-            contents += "    Ref<EventBase> event_base = Ref<EventBase>(new EventBase());\n";
-            contents += "    Socket::init(event_base.getPtr());\n";
-            contents += "    event_base->runEventLoop(true);\n";
-            contents += "    Ref<";
-            contents += client_name;
-            contents += "> socket_client = Ref<";
-            contents += client_name;
-            contents += ">(new ";
-            contents += client_name;
-            contents += "(String(\"";
-            contents += options.socket_address;
-            contents += "\"), ";
-            contents += String(options.socket_port);
-            contents += "));\n";
-            contents += "    printf(\"Socket client connecting to ";
-            contents += options.socket_address;
-            contents += ":";
-            contents += String(options.socket_port);
-            contents += ".\\n\");\n\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-            contents += "    Ref<";
-            contents += rpc_client_name;
-            contents += "> socket_client = Ref<";
-            contents += rpc_client_name;
-            contents += ">(new ";
-            contents += rpc_client_name;
-            contents += "());\n";
-            contents += "    String rpc_address(\"";
-            contents += options.socket_address;
-            contents += "\");\n";
-            contents += "    int rpc_port = ";
-            contents += String(options.socket_port);
-            contents += ";\n";
-            contents += "    String rpc_profile(\"rpc-default\");\n";
-            contents += "    bool rpc_connected = false;\n";
-            contents += "    if (!socket_client->connectTo(String(\"";
-            contents += options.socket_address;
-            contents += "\"), ";
-            contents += String(options.socket_port);
-            contents += ")) {\n";
-            contents += "        printf(\"Failed to connect JSON RPC client to ";
-            contents += options.socket_address;
-            contents += ":";
-            contents += String(options.socket_port);
-            contents += ".\\n\");\n";
-            contents += "    } else {\n";
-            contents += "        rpc_connected = true;\n";
-            contents += "        printf(\"JSON RPC client connected to ";
-            contents += options.socket_address;
-            contents += ":";
-            contents += String(options.socket_port);
-            contents += ".\\n\");\n";
-            contents += "    }\n\n";
-        }
-        if (options.include_repl) {
-            if (options.include_indexed_data_store) {
-                contents += "    printf(\"IndexedDataStore path: ";
-                contents += options.indexed_data_store_path;
-                contents += " (bank-map redundancy ";
-                contents += String(options.indexed_data_store_bank_map_redundancy);
-                contents += ")\\n\");\n";
-                contents += "    printf(\"Run 'initstore' before using persistence commands on a new project.\\n\");\n";
-            }
-            contents += "    printHelp();\n";
-            contents += "    char line[1024];\n";
-            contents += "    while (true) {\n";
-            contents += "        printf(\"";
-            contents += options.target_name;
-            contents += "> \");\n";
-            contents += "        if (!fgets(line, sizeof(line), stdin)) {\n";
-            contents += "            break;\n";
-            contents += "        }\n";
-            contents += "        String command = String(line);\n";
-            contents += "        command = command.trim();\n";
-            contents += "        if (!command.length()) {\n";
-            contents += "            continue;\n";
-            contents += "        }\n";
-            contents += "        if (command == String(\"help\")) {\n";
-            contents += "            printHelp();\n";
-            contents += "            continue;\n";
-            contents += "        }\n";
-            contents += "        if (command == String(\"quit\") || command == String(\"exit\")) {\n";
-            contents += "            break;\n";
-            contents += "        }\n";
-            if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-                contents += "        if (command == String(\"status\")) {\n";
-                contents += "            int total = 0;\n";
-                contents += "            int active = 0;\n";
-                contents += "            Thread::getThreadPoolState(&total, &active);\n";
-                contents += "            printf(\"Thread pool: total=%d active=%d waiting=%d\\n\", total, active, total - active);\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
-            }
-            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-                contents += "        if (command.startsWith(\"send \")) {\n";
-                contents += "            socket_client->sendLine(command.substr(5));\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
-            }
-            if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-                contents += tpl.getCode("socket_client_rpc");
-            }
-            if (options.include_threaded_worker) {
-                contents += "        if (command.startsWith(\"work \")) {\n";
-                contents += "            elara::threading::memory::Ref<Task> task = elara::threading::memory::Ref<Task>(new ";
-                contents += options.worker_name;
-                contents += "(command.substr(5)));\n";
-                contents += "            Thread::runTask(task);\n";
-                contents += "            printf(\"Queued worker task.\\n\");\n";
-                contents += "            continue;\n";
-                contents += "        }\n";
-            }
-            if (options.include_indexed_data_store) {
-                StringList attr(String("%").arg(options.indexed_data_store_path), ";");
-                contents += tpl.getCode("indexed_data_store_cli_logic", attr);
-                if (options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
-                    contents += tpl.getCode("indexed_data_store_cli_logic+json_rpc");
-                }
-            }
-            contents += "        printf(\"Unhandled command: %s\\n\", command.operator char *());\n";
-            contents += "    }\n";
-        } else if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-            contents += "    printf(\"Server running. Press Ctrl+C to stop.\\n\");\n";
-            contents += "    while (true) {\n";
-            contents += "        sleep(1);\n";
-            contents += "    }\n";
-        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
-            contents += "    printf(\"Client running. Press Ctrl+C to stop.\\n\");\n";
-            contents += "    while (true) {\n";
-            contents += "        sleep(1);\n";
-            contents += "    }\n";
-        } else {
-            contents += "    printf(\"";
-            contents += options.project_name;
-            contents += " generated successfully. Add your application logic here.\\n\");\n";
-        }
-        contents += "\n";
-        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
-            contents += "    socket_server->stop();\n";
-        }
-        if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
-            if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN) {
-                contents += "    event_base->breakEventLoop();\n";
-                contents += "    socket_client->close();\n";
-            } else {
-                contents += "    socket_client->close();\n";
-            }
-        }
-        if (options.include_thread_pool) {
-            contents += "    Thread::stopAllThreads();\n";
-            contents += "    Thread::staticCleanUp();\n";
-            contents += "    Task::staticCleanup();\n";
-        }
-        contents += "    return 0;\n";
-        contents += "}\n";
+        appendTemplateAttr(&attrs_text, options.project_name);
+        appendTemplateAttr(&attrs_text, options.target_name);
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.include_repl));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.include_thread_pool));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.include_threaded_worker));
+        appendTemplateAttr(&attrs_text, options.worker_name);
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_SERVER));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_CLIENT));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_PLAIN));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_SERVER && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC));
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.socket_mode == ProjectOptions::SOCKET_CLIENT && options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC));
+        appendTemplateAttr(
+            &attrs_text,
+            boolTemplateValue(
+                options.socket_mode == ProjectOptions::SOCKET_CLIENT &&
+                options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC &&
+                options.include_indexed_data_store
+            )
+        );
+        appendTemplateAttr(&attrs_text, options.socket_address);
+        appendTemplateAttr(&attrs_text, String(options.socket_port));
+        appendTemplateAttr(&attrs_text, server_name);
+        appendTemplateAttr(&attrs_text, client_name);
+        appendTemplateAttr(&attrs_text, rpc_server_name);
+        appendTemplateAttr(&attrs_text, rpc_client_name);
+        appendTemplateAttr(&attrs_text, boolTemplateValue(options.include_indexed_data_store));
+        appendTemplateAttr(&attrs_text, options.indexed_data_store_path);
+        appendTemplateAttr(&attrs_text, String(options.indexed_data_store_bank_map_redundancy));
 
-        return contents;
+        StringList attrs(attrs_text, ";");
+        return loadTemplate("main.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderWorkerHeader(const ProjectOptions &options) {
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%WorkerName%";
-        replacement.value = options.worker_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/Worker.h.tpl", replacements);
+        StringList attrs;
+        attrs.append(options.worker_name);
+        return loadTemplate("Worker.h", "main", attrs);
     }
 
     String ProjectBuilder::renderWorkerCpp(const ProjectOptions &options) {
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%WorkerName%";
-        replacement.value = options.worker_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/Worker.cpp.tpl", replacements);
+        StringList attrs;
+        attrs.append(options.worker_name);
+        return loadTemplate("Worker.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderSocketServerHeader(const ProjectOptions &options) {
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%SocketServerName%";
-        replacement.value = server_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/SocketServer.h.tpl", replacements);
+        StringList attrs;
+        attrs.append(server_name);
+        return loadTemplate("SocketServer.h", "main", attrs);
     }
 
     String ProjectBuilder::renderSocketServerCpp(const ProjectOptions &options) {
         String server_name = projectClassPrefix(options.project_name) + "SocketServer";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%SocketServerName%";
-        replacement.value = server_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%ProjectName%";
-        replacement.value = options.project_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/SocketServer.cpp.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(server_name)
+                .arg(options.project_name),
+            ";"
+        );
+        return loadTemplate("SocketServer.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderSocketClientHeader(const ProjectOptions &options) {
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%SocketClientName%";
-        replacement.value = client_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/SocketClient.h.tpl", replacements);
+        StringList attrs;
+        attrs.append(client_name);
+        return loadTemplate("SocketClient.h", "main", attrs);
     }
 
     String ProjectBuilder::renderSocketClientCpp(const ProjectOptions &options) {
         String client_name = projectClassPrefix(options.project_name) + "SocketClient";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%SocketClientName%";
-        replacement.value = client_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/SocketClient.cpp.tpl", replacements);
+        (void)options;
+        StringList attrs;
+        attrs.append(client_name);
+        return loadTemplate("SocketClient.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCServerHeader(const ProjectOptions &options) {
         String server_name = projectClassPrefix(options.project_name) + "RpcServer";
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%RpcServerName%";
-        replacement.value = server_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%RpcServiceName%";
-        replacement.value = service_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcServer.h.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(server_name)
+                .arg(service_name),
+            ";"
+        );
+        return loadTemplate("RpcServer.h", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCServerCpp(const ProjectOptions &options) {
         String server_name = projectClassPrefix(options.project_name) + "RpcServer";
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-
-        replacement.marker = "%RpcServerName%";
-        replacement.value = server_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%RpcServiceName%";
-        replacement.value = service_name;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcServer.cpp.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(server_name)
+                .arg(service_name),
+            ";"
+        );
+        return loadTemplate("RpcServer.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCServiceHeader(const ProjectOptions &options) {
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-        String indexed_data_store_includes;
-        String indexed_data_store_private;
-
-        if (options.include_indexed_data_store) {
-            indexed_data_store_includes += "#include <libelaraio/IndexedDataStore.h>\n";
-            indexed_data_store_includes += "#include <libelaracore/memory/Ref.h>\n";
-            indexed_data_store_includes += "using elara::IndexedDataStore;\n";
-            indexed_data_store_includes += "using elara::Memory;\n";
-            indexed_data_store_includes += "using elara::Ref;\n";
-            indexed_data_store_private = "\nprivate:\n    Ref<IndexedDataStore> openIndexedDataStore(bool create_if_missing);\n";
-        }
-
-        replacement.marker = "%RpcServiceName%";
-        replacement.value = service_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStoreIncludes%";
-        replacement.value = indexed_data_store_includes;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStorePrivate%";
-        replacement.value = indexed_data_store_private;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcService.h.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(service_name)
+                .arg(boolTemplateValue(options.include_indexed_data_store)),
+            ";"
+        );
+        return loadTemplate("RpcService.h", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCServiceCpp(const ProjectOptions &options) {
         String service_name = projectClassPrefix(options.project_name) + "RpcService";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-        String indexed_data_store_headers;
-        String indexed_data_store_helpers;
-        String open_indexed_data_store;
-        String store_method_handlers;
-
-        if (options.include_indexed_data_store) {
-            indexed_data_store_headers += "#include <sys/stat.h>\n";
-            indexed_data_store_headers += "#include <sys/types.h>\n";
-
-            indexed_data_store_helpers += "namespace {\n";
-            indexed_data_store_helpers += "    void ensureDirectoryPath(String path) {\n";
-            indexed_data_store_helpers += "        String current;\n";
-            indexed_data_store_helpers += "        for (int i=0; i<path.length(); i++) {\n";
-            indexed_data_store_helpers += "            char ch = path.operator char *()[i];\n";
-            indexed_data_store_helpers += "            current += String(ch);\n";
-            indexed_data_store_helpers += "            if (ch == '/') {\n";
-            indexed_data_store_helpers += "                mkdir(current.operator char *(), 0755);\n";
-            indexed_data_store_helpers += "            }\n";
-            indexed_data_store_helpers += "        }\n";
-            indexed_data_store_helpers += "    }\n\n";
-            indexed_data_store_helpers += "    String parentDirectory(String path) {\n";
-            indexed_data_store_helpers += "        int slash = -1;\n";
-            indexed_data_store_helpers += "        for (int i=0; i<path.length(); i++) {\n";
-            indexed_data_store_helpers += "            if (path.operator char *()[i] == '/') {\n";
-            indexed_data_store_helpers += "                slash = i;\n";
-            indexed_data_store_helpers += "            }\n";
-            indexed_data_store_helpers += "        }\n";
-            indexed_data_store_helpers += "        if (slash <= 0) {\n";
-            indexed_data_store_helpers += "            return String();\n";
-            indexed_data_store_helpers += "        }\n";
-            indexed_data_store_helpers += "        return path.substr(0, slash);\n";
-            indexed_data_store_helpers += "    }\n";
-            indexed_data_store_helpers += "}\n\n";
-
-            open_indexed_data_store += "Ref<IndexedDataStore> ";
-            open_indexed_data_store += service_name;
-            open_indexed_data_store += "::openIndexedDataStore(bool create_if_missing) {\n";
-            open_indexed_data_store += "    String path(\"";
-            open_indexed_data_store += options.indexed_data_store_path;
-            open_indexed_data_store += "\");\n";
-            open_indexed_data_store += "    if (create_if_missing) {\n";
-            open_indexed_data_store += "        String directory = parentDirectory(path);\n";
-            open_indexed_data_store += "        if (directory.length()) {\n";
-            open_indexed_data_store += "            ensureDirectoryPath(directory + String(\"/\"));\n";
-            open_indexed_data_store += "        }\n";
-            open_indexed_data_store += "        return Ref<IndexedDataStore>(new IndexedDataStore(path, ";
-            open_indexed_data_store += String(options.indexed_data_store_bank_map_redundancy);
-            open_indexed_data_store += "));\n";
-            open_indexed_data_store += "    }\n";
-            open_indexed_data_store += "    return Ref<IndexedDataStore>(new IndexedDataStore(path));\n";
-            open_indexed_data_store += "}\n\n";
-
-            store_method_handlers += "    if (method == String(\"storeInit\")) {\n";
-            store_method_handlers += "        try {\n";
-            store_method_handlers += "            openIndexedDataStore(true);\n";
-            store_method_handlers += "            result_json = String(\"{\\\"initialised\\\":true}\");\n";
-            store_method_handlers += "            return true;\n";
-            store_method_handlers += "        } catch (const char *error) {\n";
-            store_method_handlers += "            error_code = String(\"store_init_failed\");\n";
-            store_method_handlers += "            error_message = String(error);\n";
-            store_method_handlers += "            return false;\n";
-            store_method_handlers += "        }\n";
-            store_method_handlers += "    }\n";
-            store_method_handlers += "    if (method == String(\"storePut\")) {\n";
-            store_method_handlers += "        String key;\n";
-            store_method_handlers += "        String value;\n";
-            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
-            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"value\"), value);\n";
-            store_method_handlers += "        if (!key.length()) {\n";
-            store_method_handlers += "            error_code = String(\"missing_key\");\n";
-            store_method_handlers += "            error_message = String(\"key is required\");\n";
-            store_method_handlers += "            return false;\n";
-            store_method_handlers += "        }\n";
-            store_method_handlers += "        try {\n";
-            store_method_handlers += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-            store_method_handlers += "            store->set(Memory((char*)key, key.length()), Memory((char*)value, value.length()));\n";
-            store_method_handlers += "            result_json = String(\"{\\\"stored\\\":true}\");\n";
-            store_method_handlers += "            return true;\n";
-            store_method_handlers += "        } catch (const char *error) {\n";
-            store_method_handlers += "            error_code = String(\"store_put_failed\");\n";
-            store_method_handlers += "            error_message = String(error);\n";
-            store_method_handlers += "            return false;\n";
-            store_method_handlers += "        }\n";
-            store_method_handlers += "    }\n";
-            store_method_handlers += "    if (method == String(\"storeGet\")) {\n";
-            store_method_handlers += "        String key;\n";
-            store_method_handlers += "        elara::sockets::rpc::json::JsonRPCCodec::getStringField(params_json, String(\"key\"), key);\n";
-            store_method_handlers += "        if (!key.length()) {\n";
-            store_method_handlers += "            error_code = String(\"missing_key\");\n";
-            store_method_handlers += "            error_message = String(\"key is required\");\n";
-            store_method_handlers += "            return false;\n";
-            store_method_handlers += "        }\n";
-            store_method_handlers += "        try {\n";
-            store_method_handlers += "            Ref<IndexedDataStore> store = openIndexedDataStore(false);\n";
-            store_method_handlers += "            Ref<IndexedDataStore::LOADED_FILE_DESCRIPTOR> file = store->getFile(Memory((char*)key, key.length()));\n";
-            store_method_handlers += "            if (!file.getPtr()) {\n";
-            store_method_handlers += "                error_code = String(\"not_found\");\n";
-            store_method_handlers += "                error_message = String(\"No value for the requested key\");\n";
-            store_method_handlers += "                return false;\n";
-            store_method_handlers += "            }\n";
-            store_method_handlers += "            unsigned long long len = store->getFileSize(file);\n";
-            store_method_handlers += "            Memory value = store->readFromFile(file, 0, len);\n";
-            store_method_handlers += "            String escaped_value = elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(String((char*)value, value.length()));\n";
-            store_method_handlers += "            result_json = String(\"{\\\"value\\\":\\\"\") + escaped_value + String(\"\\\"}\");\n";
-            store_method_handlers += "            return true;\n";
-            store_method_handlers += "        } catch (const char *error) {\n";
-            store_method_handlers += "            error_code = String(\"store_get_failed\");\n";
-            store_method_handlers += "            error_message = String(error);\n";
-            store_method_handlers += "            return false;\n";
-            store_method_handlers += "        }\n";
-            store_method_handlers += "    }\n";
-        }
-
-        replacement.marker = "%RpcServiceName%";
-        replacement.value = service_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStoreHeaders%";
-        replacement.value = indexed_data_store_headers;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStoreHelpers%";
-        replacement.value = indexed_data_store_helpers;
-        replacements.push(replacement);
-
-        replacement.marker = "%OpenIndexedDataStoreMethod%";
-        replacement.value = open_indexed_data_store;
-        replacements.push(replacement);
-
-        replacement.marker = "%StoreMethodHandlers%";
-        replacement.value = store_method_handlers;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcService.cpp.tpl", replacements);
+        StringList attrs(
+            String("%;%;%;%")
+                .arg(service_name)
+                .arg(boolTemplateValue(options.include_indexed_data_store))
+                .arg(options.indexed_data_store_path)
+                .arg(options.indexed_data_store_bank_map_redundancy),
+            ";"
+        );
+        return loadTemplate("RpcService.cpp", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCClientHeader(const ProjectOptions &options) {
         String client_name = projectClassPrefix(options.project_name) + "RpcClient";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-        String indexed_data_store_methods;
-
-        if (options.include_indexed_data_store) {
-            indexed_data_store_methods += "    bool storeInit(String &result_json, String &error_code, String &error_message);\n";
-            indexed_data_store_methods += "    bool storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message);\n";
-            indexed_data_store_methods += "    bool storeGet(const String &key, String &result_json, String &error_code, String &error_message);\n";
-        }
-
-        replacement.marker = "%RpcClientName%";
-        replacement.value = client_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStoreMethods%";
-        replacement.value = indexed_data_store_methods;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcClient.h.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(client_name)
+                .arg(boolTemplateValue(options.include_indexed_data_store)),
+            ";"
+        );
+        return loadTemplate("RpcClient.h", "main", attrs);
     }
 
     String ProjectBuilder::renderJsonRPCClientCpp(const ProjectOptions &options) {
         String client_name = projectClassPrefix(options.project_name) + "RpcClient";
-        Array<TEMPLATE_REPLACEMENT> replacements;
-        TEMPLATE_REPLACEMENT replacement;
-        String indexed_data_store_methods;
-
-        if (options.include_indexed_data_store) {
-            indexed_data_store_methods += "bool ";
-            indexed_data_store_methods += client_name;
-            indexed_data_store_methods += "::storeInit(String &result_json, String &error_code, String &error_message) {\n";
-            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storeInit\"), String(\"{}\"), result_json, error_code, error_message);\n";
-            indexed_data_store_methods += "}\n\n";
-            indexed_data_store_methods += "bool ";
-            indexed_data_store_methods += client_name;
-            indexed_data_store_methods += "::storePut(const String &key, const String &value, String &result_json, String &error_code, String &error_message) {\n";
-            indexed_data_store_methods += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\",\\\"value\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(value) + String(\"\\\"}\");\n";
-            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storePut\"), params, result_json, error_code, error_message);\n";
-            indexed_data_store_methods += "}\n\n";
-            indexed_data_store_methods += "bool ";
-            indexed_data_store_methods += client_name;
-            indexed_data_store_methods += "::storeGet(const String &key, String &result_json, String &error_code, String &error_message) {\n";
-            indexed_data_store_methods += "    String params = String(\"{\\\"key\\\":\\\"\") + elara::sockets::rpc::json::JsonRPCCodec::escapeJsonString(key) + String(\"\\\"}\");\n";
-            indexed_data_store_methods += "    return rpc_client.call(String(\"app.storeGet\"), params, result_json, error_code, error_message);\n";
-            indexed_data_store_methods += "}\n\n";
-        }
-
-        replacement.marker = "%RpcClientName%";
-        replacement.value = client_name;
-        replacements.push(replacement);
-
-        replacement.marker = "%IndexedDataStoreClientMethods%";
-        replacement.value = indexed_data_store_methods;
-        replacements.push(replacement);
-
-        return renderAssetTemplate("templates/src/RpcClient.cpp.tpl", replacements);
+        StringList attrs(
+            String("%;%")
+                .arg(client_name)
+                .arg(boolTemplateValue(options.include_indexed_data_store)),
+            ";"
+        );
+        return loadTemplate("RpcClient.cpp", "main", attrs);
     }
 
     bool ProjectBuilder::writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files) {
@@ -1773,7 +1872,13 @@ namespace elara {
     String ProjectBuilder::buildElaraLibFlags(const ProjectOptions &options) {
         String flags;
 
-        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+                flags += "-lelarauirpc -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore";
+            } else {
+                flags += "-lelaracore";
+            }
+        } else if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
             if (options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC) {
                 flags += "-lelarasockets -lelaraformat -lelaraevent -lelaradebug -lelarathreads -lelaraio -lelaracore";
             } else {
@@ -1793,7 +1898,11 @@ namespace elara {
     String ProjectBuilder::buildSystemLibFlags(const ProjectOptions &options) {
         String flags;
 
-        if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
+        if (options.application_kind == ProjectOptions::APPLICATION_UI) {
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+                flags += "-pthread";
+            }
+        } else if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
             flags += "-levent -levent_pthreads -pthread";
         } else if (options.include_thread_pool) {
             flags += "-pthread";

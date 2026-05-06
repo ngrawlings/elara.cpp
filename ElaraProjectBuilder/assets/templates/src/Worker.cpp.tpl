@@ -1,15 +1,17 @@
-#include "%WorkerName%.h"
+>>>>>>>>>>main>>>>WORKER_NAME
+#include "%WORKER_NAME%.h"
 
 #include <stdio.h>
 
-%WorkerName%::%WorkerName%(elara::String payload) {
+%WORKER_NAME%::%WORKER_NAME%(elara::String payload) {
     this->payload = payload;
 }
 
-%WorkerName%::~%WorkerName%() {
+%WORKER_NAME%::~%WORKER_NAME%() {
 }
 
-void %WorkerName%::run() {
+void %WORKER_NAME%::run() {
     printf("Worker received: %s\n", payload.operator char *());
     finished();
 }
+<<<<<<<<<<main

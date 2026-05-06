@@ -1,13 +1,14 @@
-#ifndef %WorkerName%_h
-#define %WorkerName%_h
+>>>>>>>>>>main>>>>WORKER_NAME
+#ifndef %WORKER_NAME%_h
+#define %WORKER_NAME%_h
 
 #include <libelarathreads/Task.h>
 #include <libelaracore/memory/String.h>
 
-class %WorkerName% : public elara::Task {
+class %WORKER_NAME% : public elara::Task {
 public:
-    %WorkerName%(elara::String payload);
-    virtual ~%WorkerName%();
+    %WORKER_NAME%(elara::String payload);
+    virtual ~%WORKER_NAME%();
 
 protected:
     virtual void run();
@@ -17,3 +18,4 @@ private:
 };
 
 #endif
+<<<<<<<<<<main

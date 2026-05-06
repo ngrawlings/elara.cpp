@@ -14,11 +14,6 @@ namespace elara {
         String contents;
     } PROJECT_FILE;
 
-    typedef struct {
-        String marker;
-        String value;
-    } TEMPLATE_REPLACEMENT;
-
     class ProjectBuilder : public CodeTemplateLoader {
     public:
         ProjectBuilder();
@@ -42,6 +37,9 @@ namespace elara {
 
         bool promptYesNo(const char *prompt, bool default_value);
         String promptString(const char *prompt, String default_value);
+        ProjectOptions::ApplicationKind promptApplicationKind();
+        ProjectOptions::UiClientLanguage promptUiClientLanguage();
+        ProjectOptions::UiTemplate promptUiTemplate();
         ProjectOptions::SocketMode promptSocketMode();
         ProjectOptions::SocketTransport promptSocketTransport();
 
@@ -55,8 +53,15 @@ namespace elara {
         String renderStressScript(const ProjectOptions &options);
         String renderFuzzScript(const ProjectOptions &options);
         String renderInstallScript(const ProjectOptions &options);
+        String renderRunUiHeadScript(const ProjectOptions &options);
+        String renderRunUiClientScript(const ProjectOptions &options);
         String renderReadme(const ProjectOptions &options);
         String renderMainCpp(const ProjectOptions &options);
+        String renderUiCppMain(const ProjectOptions &options);
+        String renderUiPythonApp(const ProjectOptions &options);
+        String renderUiPythonPackageInit(const ProjectOptions &options);
+        String renderUiPythonPackageBuilder(const ProjectOptions &options);
+        String renderUiPythonPackageRpc(const ProjectOptions &options);
         String renderTestMainCpp(const ProjectOptions &options);
         String renderDebugTestsHeader(const ProjectOptions &options);
         String renderDebugTestsCpp(const ProjectOptions &options);
@@ -74,7 +79,6 @@ namespace elara {
         String renderJsonRPCClientCpp(const ProjectOptions &options);
         String loadAgentReference();
         String loadAsset(String relative_path);
-        String renderAssetTemplate(String relative_path, const Array<TEMPLATE_REPLACEMENT> &replacements);
         String readTextFile(String path);
 
         bool writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files);
