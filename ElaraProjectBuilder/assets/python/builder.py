@@ -177,7 +177,34 @@ class UiDocumentBuilder:
         menu_bar["sections"]["menus"] = menus
         return self
 
-    def add_menu_bar_item(self, menu_bar_id, menu_id, item_id, label, enabled=True):
+    def set_menu_bar_menus(self, menu_bar_id, menus):
+        menu_bar = self._get_widget(menu_bar_id)
+        menu_bar["sections"]["menus"] = deepcopy(menus)
+        return self
+
+    def add_menu_bar_separator(self, menu_bar_id, menu_id):
+        menu_bar = self._get_widget(menu_bar_id)
+        menus = list(menu_bar["sections"].get("menus", []))
+
+        for menu in menus:
+            if menu.get("id") != menu_id:
+                continue
+            menu.setdefault("items", [])
+            menu["items"].append({"separator": True})
+            break
+        else:
+            menus.append(
+                {
+                    "id": menu_id,
+                    "label": menu_id,
+                    "items": [{"separator": True}],
+                }
+            )
+
+        menu_bar["sections"]["menus"] = menus
+        return self
+
+    def add_menu_bar_item(self, menu_bar_id, menu_id, item_id, label, enabled=True, shortcut=None):
         menu_bar = self._get_widget(menu_bar_id)
         menus = list(menu_bar["sections"].get("menus", []))
 
@@ -189,16 +216,26 @@ class UiDocumentBuilder:
                 if item.get("id") == item_id:
                     item["label"] = label
                     item["enabled"] = bool(enabled)
+                    if shortcut:
+                        item["shortcut"] = shortcut
+                    elif "shortcut" in item:
+                        del item["shortcut"]
                     break
             else:
-                menu["items"].append({"id": item_id, "label": label, "enabled": bool(enabled)})
+                item = {"id": item_id, "label": label, "enabled": bool(enabled)}
+                if shortcut:
+                    item["shortcut"] = shortcut
+                menu["items"].append(item)
             break
         else:
+            item = {"id": item_id, "label": label, "enabled": bool(enabled)}
+            if shortcut:
+                item["shortcut"] = shortcut
             menus.append(
                 {
                     "id": menu_id,
                     "label": menu_id,
-                    "items": [{"id": item_id, "label": label, "enabled": bool(enabled)}],
+                    "items": [item],
                 }
             )
 

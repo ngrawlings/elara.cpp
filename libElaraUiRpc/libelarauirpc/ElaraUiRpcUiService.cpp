@@ -416,7 +416,10 @@ bool ElaraUiRpcUiService::dispatchKeyDown(
     const Json& params,
     String& result_json
 ) {
-    root->dispatchKeyDown((unsigned int)params.getIntValue("keyval"));
+    root->dispatchKeyDown(
+        (unsigned int)params.getIntValue("keyval"),
+        (unsigned int)params.getIntValue("modifiers")
+    );
     result_json = "{\"dispatched\":true}";
     return true;
 }
@@ -425,7 +428,10 @@ bool ElaraUiRpcUiService::dispatchKeyUp(
     const Json& params,
     String& result_json
 ) {
-    root->dispatchKeyUp((unsigned int)params.getIntValue("keyval"));
+    root->dispatchKeyUp(
+        (unsigned int)params.getIntValue("keyval"),
+        (unsigned int)params.getIntValue("modifiers")
+    );
     result_json = "{\"dispatched\":true}";
     return true;
 }

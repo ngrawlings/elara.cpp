@@ -31,6 +31,7 @@
 *.swo
 *.log
 *.pyc
+*.tmp
 __pycache__
 .DS_Store
 autom4te.cache
@@ -39,6 +40,7 @@ build
 
 /artifacts
 ElaraUnitTests/artifacts
+libElaraUI/artifacts
 
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile

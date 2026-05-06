@@ -129,12 +129,14 @@ public:
     bool addTab(const String& tabs_id, const String& title, const String& child_id);
     bool addPopupItem(const String& popup_id, const String& item_id, const String& label);
     bool addMenuBarMenu(const String& menu_bar_id, const String& menu_id, const String& label);
+    bool addMenuBarSeparator(const String& menu_bar_id, const String& menu_id);
     bool addMenuBarItem(
         const String& menu_bar_id,
         const String& menu_id,
         const String& item_id,
         const String& label,
-        bool enabled = true
+        bool enabled = true,
+        const String& shortcut = String()
     );
     bool addGridColumnExact(const String& grid_id, double size);
     bool addGridColumnFill(const String& grid_id);

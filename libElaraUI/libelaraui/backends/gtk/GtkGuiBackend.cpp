@@ -4,6 +4,28 @@ namespace elara {
 
 namespace {
 
+unsigned int translateModifiers(GdkModifierType state) {
+    unsigned int modifiers = 0;
+
+    if((state & GDK_SHIFT_MASK) != 0) {
+        modifiers |= ELARA_KEY_MOD_SHIFT;
+    }
+
+    if((state & GDK_CONTROL_MASK) != 0) {
+        modifiers |= ELARA_KEY_MOD_CTRL;
+    }
+
+    if((state & GDK_ALT_MASK) != 0) {
+        modifiers |= ELARA_KEY_MOD_ALT;
+    }
+
+    if((state & GDK_SUPER_MASK) != 0 || (state & GDK_META_MASK) != 0) {
+        modifiers |= ELARA_KEY_MOD_META;
+    }
+
+    return modifiers;
+}
+
 PangoLayout* createLayout(cairo_t* cr, const String& text, double size) {
     PangoLayout* layout = pango_cairo_create_layout(cr);
     PangoFontDescription* desc = pango_font_description_new();
@@ -235,7 +257,7 @@ gboolean GtkGuiBackend::onKeyPressed(
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
 
     if(self->surface) {
-        self->surface->dispatchKeyDown(keyval);
+        self->surface->dispatchKeyDown(keyval, translateModifiers(state));
     }
 
     self->invalidate();
@@ -253,7 +275,7 @@ gboolean GtkGuiBackend::onKeyReleased(
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
 
     if(self->surface) {
-        self->surface->dispatchKeyUp(keyval);
+        self->surface->dispatchKeyUp(keyval, translateModifiers(state));
     }
 
     self->invalidate();

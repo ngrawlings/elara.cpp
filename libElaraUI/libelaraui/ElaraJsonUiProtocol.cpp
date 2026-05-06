@@ -92,6 +92,11 @@ static bool jsonBool(const Json& json, const String& path, bool fallback) {
     return fallback;
 }
 
+static String handleString(const ElaraWidgetHandle& handle) {
+    Memory memory = handle.getHandle();
+    return String((const char*)memory.getPtr(), memory.length());
+}
+
 class ElaraJsonLabelWidget : public ElaraWidget {
 private:
     String value;
@@ -228,6 +233,55 @@ public:
 
 class ElaraBuiltinWidgetFactory : public ElaraJsonWidgetFactory {
 private:
+    void applyMenuBarItems(
+        ElaraMenuBarWidget* menu_bar,
+        const String& menu_id,
+        const String& popup_handle,
+        const Json& spec
+    ) {
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item(items[i]);
+            bool separator = jsonBool(item, "separator", false)
+                || item.getStringValue("type") == String("separator");
+            String item_id = item.getStringValue("id");
+            String item_label = item.getStringValue("label");
+            String shortcut = item.getStringValue("shortcut");
+            bool enabled = jsonString(item, "enabled", String("true")) != String("false");
+            Array< Ref<JsonValue> > submenu_items = item.getArray("items");
+            String submenu_handle;
+
+            if(separator) {
+                menu_bar->addPopupSeparator(popup_handle, menu_id);
+                continue;
+            }
+
+            if(item_id.length() <= 0 || item_label.length() <= 0) {
+                continue;
+            }
+
+            if(submenu_items.length() > 0) {
+                submenu_handle = popup_handle + String(".submenu.") + item_id;
+            }
+
+            menu_bar->addPopupItem(
+                popup_handle,
+                menu_id,
+                item_id,
+                item_label,
+                enabled,
+                shortcut,
+                false,
+                submenu_handle
+            );
+
+            if(submenu_handle.length() > 0) {
+                applyMenuBarItems(menu_bar, menu_id, submenu_handle, item);
+            }
+        }
+    }
+
     void applyListItems(ElaraListViewWidget* list, const Json& spec) {
         list->clearItems();
 
@@ -290,12 +344,20 @@ private:
 
         for(int i = 0; i < (int)items.length(); i++) {
             Json item(items[i]);
+            bool separator = jsonBool(item, "separator", false)
+                || item.getStringValue("type") == String("separator");
             String id = item.getStringValue("id");
             String label = item.getStringValue("label");
+            String shortcut = item.getStringValue("shortcut");
             bool enabled = jsonString(item, "enabled", String("true")) != String("false");
 
+            if(separator) {
+                popup->addItem(String("__separator__"), String(), false, true, String());
+                continue;
+            }
+
             if(id.length() > 0 && label.length() > 0) {
-                popup->addItem(id, label, enabled);
+                popup->addItem(id, label, enabled, false, shortcut);
             }
         }
     }
@@ -319,19 +381,11 @@ private:
             }
 
             menu_bar->addMenu(id, label);
+            String popup_handle = id.length() > 0
+                ? handleString(menu_bar->getHandle()) + String(".popup.") + id
+                : String();
 
-            Array< Ref<JsonValue> > items = menu_spec.getArray("items");
-
-            for(int j = 0; j < (int)items.length(); j++) {
-                Json item(items[j]);
-                String item_id = item.getStringValue("id");
-                String item_label = item.getStringValue("label");
-                bool enabled = jsonString(item, "enabled", String("true")) != String("false");
-
-                if(item_id.length() > 0 && item_label.length() > 0) {
-                    menu_bar->addMenuItem(id, item_id, item_label, enabled);
-                }
-            }
+            applyMenuBarItems(menu_bar, id, popup_handle, menu_spec);
         }
     }
 
@@ -508,9 +562,7 @@ public:
             applyPopupItems(popup, spec);
             widget = popup;
         } else if(type == String("elara.widgets.menu_bar")) {
-            ElaraMenuBarWidget* menu_bar = new ElaraMenuBarWidget(root, id);
-            applyMenuBarMenus(menu_bar, spec);
-            widget = menu_bar;
+            widget = new ElaraMenuBarWidget(root, id);
         } else if(type == String("elara.layouts.grid")) {
             ElaraGridLayout* grid = new ElaraGridLayout(root, id);
             applyGridTracks(grid, spec);

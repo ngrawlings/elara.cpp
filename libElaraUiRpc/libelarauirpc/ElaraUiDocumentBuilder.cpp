@@ -641,7 +641,8 @@ bool ElaraUiDocumentBuilder::addMenuBarItem(
     const String& menu_id,
     const String& item_id,
     const String& label,
-    bool enabled
+    bool enabled,
+    const String& shortcut
 ) {
     WidgetSpec* menu_bar = getWidgetSpec(menu_bar_id);
 
@@ -698,7 +699,11 @@ bool ElaraUiDocumentBuilder::addMenuBarItem(
                 inserted = true;
                 updated += String("{\"id\":") + jsonStringLiteral(item_id) +
                            String(",\"label\":") + jsonStringLiteral(label) +
-                           String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                           String(",\"enabled\":") + (enabled ? String("true") : String("false"));
+                if(shortcut.length() > 0) {
+                    updated += String(",\"shortcut\":") + jsonStringLiteral(shortcut);
+                }
+                updated +=
                            String("}");
             } else {
                 updated += items[j]->toString();
@@ -712,7 +717,11 @@ bool ElaraUiDocumentBuilder::addMenuBarItem(
 
             updated += String("{\"id\":") + jsonStringLiteral(item_id) +
                        String(",\"label\":") + jsonStringLiteral(label) +
-                       String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                       String(",\"enabled\":") + (enabled ? String("true") : String("false"));
+            if(shortcut.length() > 0) {
+                updated += String(",\"shortcut\":") + jsonStringLiteral(shortcut);
+            }
+            updated +=
                        String("}");
         }
 
@@ -728,9 +737,84 @@ bool ElaraUiDocumentBuilder::addMenuBarItem(
                    String(",\"items\":[") +
                    String("{\"id\":") + jsonStringLiteral(item_id) +
                    String(",\"label\":") + jsonStringLiteral(label) +
-                   String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                   String(",\"enabled\":") + (enabled ? String("true") : String("false"));
+        if(shortcut.length() > 0) {
+            updated += String(",\"shortcut\":") + jsonStringLiteral(shortcut);
+        }
+        updated +=
                    String("}") +
                    String("]}");
+    }
+
+    updated += "]";
+    setField(&menu_bar->sections, "menus", updated);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::addMenuBarSeparator(const String& menu_bar_id, const String& menu_id) {
+    WidgetSpec* menu_bar = getWidgetSpec(menu_bar_id);
+
+    if(!menu_bar || menu_id.length() <= 0) {
+        return false;
+    }
+
+    String menus_json = String("[]");
+    for(int i = 0; i < (int)menu_bar->sections.length(); i++) {
+        if(menu_bar->sections[i].name == String("menus")) {
+            menus_json = menu_bar->sections[i].json_value;
+            break;
+        }
+    }
+
+    Json menus_document(String("{\"menus\":") + menus_json + String("}"));
+    Array< Ref<JsonValue> > menus = menus_document.getArray("menus");
+    String updated("[");
+    bool first_menu = true;
+    bool found_menu = false;
+
+    for(int i = 0; i < (int)menus.length(); i++) {
+        Json menu_json(menus[i]);
+        String current_id = menu_json.getStringValue("id");
+        String current_label = menu_json.getStringValue("label");
+        Array< Ref<JsonValue> > items = menu_json.getArray("items");
+
+        if(!first_menu) {
+            updated += ",";
+        }
+        first_menu = false;
+
+        updated += String("{\"id\":") + jsonStringLiteral(current_id) +
+                   String(",\"label\":") + jsonStringLiteral(current_label) +
+                   String(",\"items\":[");
+
+        bool first_item = true;
+
+        for(int j = 0; j < (int)items.length(); j++) {
+            if(!first_item) {
+                updated += ",";
+            }
+            first_item = false;
+            updated += items[j]->toString();
+        }
+
+        if(current_id == menu_id) {
+            found_menu = true;
+            if(!first_item) {
+                updated += ",";
+            }
+            updated += String("{\"separator\":true}");
+        }
+
+        updated += "]}";
+    }
+
+    if(!found_menu) {
+        if(!first_menu) {
+            updated += ",";
+        }
+        updated += String("{\"id\":") + jsonStringLiteral(menu_id) +
+                   String(",\"label\":") + jsonStringLiteral(menu_id) +
+                   String(",\"items\":[{\"separator\":true}]}");
     }
 
     updated += "]";

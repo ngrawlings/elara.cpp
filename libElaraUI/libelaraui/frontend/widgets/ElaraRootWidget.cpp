@@ -42,6 +42,17 @@ void ElaraRootWidget::clearPopups() {
     popups.clear();
 }
 
+void ElaraRootWidget::dismissAllPopups() {
+    for(int i = 0; i < (int)popups.length(); i++) {
+        ElaraPopupWidget* popup_widget = asPopup(getWidget(popups[i]));
+        if(popup_widget) {
+            popup_widget->hide();
+        }
+    }
+
+    popups.clear();
+}
+
 Ref<ElaraWidget> ElaraRootWidget::getPopup() const {
     return getPopup(0);
 }
@@ -67,6 +78,31 @@ void ElaraRootWidget::removePopup(ElaraWidgetHandle root_popup) {
             popups.remove(i);
             return;
         }
+    }
+}
+
+void ElaraRootWidget::dismissPopupsAfter(ElaraWidgetHandle root_popup) {
+    int index = -1;
+
+    for(int i = 0; i < (int)popups.length(); i++) {
+        if(handlesEqual(popups[i], root_popup)) {
+            index = i;
+            break;
+        }
+    }
+
+    if(index < 0) {
+        dismissAllPopups();
+        return;
+    }
+
+    for(int i = (int)popups.length() - 1; i > index; i--) {
+        ElaraPopupWidget* popup_widget = asPopup(getWidget(popups[i]));
+        if(popup_widget) {
+            popup_widget->hide();
+        }
+
+        popups.remove(i);
     }
 }
 
@@ -254,12 +290,7 @@ bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
 
     if(topmost_visible) {
         if(event.type == ELARA_UI_MOUSE_DOWN) {
-            for(int i = 0; i < (int)popups.length(); i++) {
-                ElaraPopupWidget* popup_widget = asPopup(getWidget(popups[i]));
-                if(popup_widget && popup_widget->isVisible()) {
-                    popup_widget->hide();
-                }
-            }
+            dismissAllPopups();
         }
 
         if(event.type == ELARA_UI_MOUSE_DOWN || event.type == ELARA_UI_MOUSE_UP) {
@@ -327,30 +358,43 @@ void ElaraRootWidget::dispatchMouseUp(int button, double px, double py) {
 }
 
 void ElaraRootWidget::dispatchKeyDown(unsigned int keyval) {
-    Ref<ElaraWidget> focused_widget = getWidget(focus);
-
-    if(focused_widget && focused_widget->isVisible()) {
-        focused_widget->onKeyDown(keyval);
-        return;
-    }
-
-    Ref<ElaraWidget> c = getWidget(content);
-    if(c) {
-        c->onKeyDown(keyval);
-    }
+    dispatchKeyDown(keyval, 0);
 }
 
 void ElaraRootWidget::dispatchKeyUp(unsigned int keyval) {
+    dispatchKeyUp(keyval, 0);
+}
+
+void ElaraRootWidget::dispatchKeyDown(unsigned int keyval, unsigned int modifiers) {
+    Ref<ElaraWidget> c = getWidget(content);
+
+    if(c && c->dispatchAccelerator(keyval, modifiers)) {
+        return;
+    }
+
     Ref<ElaraWidget> focused_widget = getWidget(focus);
 
     if(focused_widget && focused_widget->isVisible()) {
-        focused_widget->onKeyUp(keyval);
+        focused_widget->onKeyDown(keyval, modifiers);
+        return;
+    }
+
+    if(c) {
+        c->onKeyDown(keyval, modifiers);
+    }
+}
+
+void ElaraRootWidget::dispatchKeyUp(unsigned int keyval, unsigned int modifiers) {
+    Ref<ElaraWidget> focused_widget = getWidget(focus);
+
+    if(focused_widget && focused_widget->isVisible()) {
+        focused_widget->onKeyUp(keyval, modifiers);
         return;
     }
 
     Ref<ElaraWidget> c = getWidget(content);
     if(c) {
-        c->onKeyUp(keyval);
+        c->onKeyUp(keyval, modifiers);
     }
 }
 
@@ -376,16 +420,24 @@ void ElaraRootWidget::onMouseUp(int button, double px, double py) {
 }
 
 void ElaraRootWidget::onKeyDown(unsigned int keyval) {
-    Ref<ElaraWidget> c = getWidget(content);
-    if(c) {
-        c->onKeyDown(keyval);
-    }
+    onKeyDown(keyval, 0);
 }
 
 void ElaraRootWidget::onKeyUp(unsigned int keyval) {
+    onKeyUp(keyval, 0);
+}
+
+void ElaraRootWidget::onKeyDown(unsigned int keyval, unsigned int modifiers) {
     Ref<ElaraWidget> c = getWidget(content);
     if(c) {
-        c->onKeyUp(keyval);
+        c->onKeyDown(keyval, modifiers);
+    }
+}
+
+void ElaraRootWidget::onKeyUp(unsigned int keyval, unsigned int modifiers) {
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        c->onKeyUp(keyval, modifiers);
     }
 }
 

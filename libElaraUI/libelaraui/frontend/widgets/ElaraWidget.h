@@ -171,6 +171,7 @@ public:
 
     virtual bool eventPropagate(ElaraUiEvent event);
     virtual bool handleEvent(const ElaraUiEvent& event);
+    virtual bool dispatchAccelerator(unsigned int keyval, unsigned int modifiers);
 
     virtual void onDraw(ElaraDrawContext* ctx, int draw_width, int draw_height);
     virtual void draw(ElaraDrawContext* ctx) = 0;
@@ -179,7 +180,15 @@ public:
     virtual void onMouseDown(int button, double px, double py) {}
     virtual void onMouseUp(int button, double px, double py) {}
     virtual void onKeyDown(unsigned int keyval) {}
+    virtual void onKeyDown(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        onKeyDown(keyval);
+    }
     virtual void onKeyUp(unsigned int keyval) {}
+    virtual void onKeyUp(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        onKeyUp(keyval);
+    }
     virtual void onKeysTyped(const String& text) {}
 };
 

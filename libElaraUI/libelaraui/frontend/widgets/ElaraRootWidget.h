@@ -31,6 +31,8 @@ public:
     void clearPopups();
     void pushPopup(ElaraWidgetHandle root_popup);
     void removePopup(ElaraWidgetHandle root_popup);
+    void dismissAllPopups();
+    void dismissPopupsAfter(ElaraWidgetHandle root_popup);
     int popupCount() const;
     Ref<ElaraWidget> getPopup(int index) const;
 
@@ -58,6 +60,8 @@ public:
 
     void dispatchKeyDown(unsigned int keyval);
     void dispatchKeyUp(unsigned int keyval);
+    void dispatchKeyDown(unsigned int keyval, unsigned int modifiers);
+    void dispatchKeyUp(unsigned int keyval, unsigned int modifiers);
 
     bool eventPropagate(ElaraUiEvent event);
 
@@ -67,6 +71,8 @@ public:
 
     void onKeyDown(unsigned int keyval);
     void onKeyUp(unsigned int keyval);
+    void onKeyDown(unsigned int keyval, unsigned int modifiers);
+    void onKeyUp(unsigned int keyval, unsigned int modifiers);
 };
 
 }

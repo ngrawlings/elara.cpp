@@ -6,6 +6,13 @@
 
 namespace elara {
 
+enum ElaraKeyModifier {
+    ELARA_KEY_MOD_SHIFT = 1 << 0,
+    ELARA_KEY_MOD_CTRL = 1 << 1,
+    ELARA_KEY_MOD_ALT = 1 << 2,
+    ELARA_KEY_MOD_META = 1 << 3
+};
+
 class ElaraDrawContext {
 public:
     virtual ~ElaraDrawContext() {}
@@ -31,14 +38,30 @@ public:
     virtual void dispatchMouseUp(int button, double x, double y) {}
 
     virtual void dispatchKeyDown(unsigned int keyval) {}
+    virtual void dispatchKeyDown(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        dispatchKeyDown(keyval);
+    }
     virtual void dispatchKeyUp(unsigned int keyval) {}
+    virtual void dispatchKeyUp(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        dispatchKeyUp(keyval);
+    }
 
     virtual void onMouseMove(double x, double y) {}
     virtual void onMouseDown(int button, double x, double y) {}
     virtual void onMouseUp(int button, double x, double y) {}
 
     virtual void onKeyDown(unsigned int keyval) {}
+    virtual void onKeyDown(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        onKeyDown(keyval);
+    }
     virtual void onKeyUp(unsigned int keyval) {}
+    virtual void onKeyUp(unsigned int keyval, unsigned int modifiers) {
+        (void)modifiers;
+        onKeyUp(keyval);
+    }
 };
 
 class ElaraGuiBackend {

@@ -535,4 +535,17 @@ bool ElaraWidget::handleEvent(const ElaraUiEvent& event) {
     return false;
 }
 
+bool ElaraWidget::dispatchAccelerator(unsigned int keyval, unsigned int modifiers) {
+    (void)keyval;
+    (void)modifiers;
+
+    for(int i = 0; i < (int)children.length(); i++) {
+        if(children[i] && children[i]->isVisible() && children[i]->dispatchAccelerator(keyval, modifiers)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 }

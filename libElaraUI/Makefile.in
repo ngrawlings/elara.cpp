@@ -25,6 +25,11 @@ DEMO_SOURCE=./demo/main.cpp
 DEMO_TARGET=$(BUILDPATH)/bin/libelaraui-demo
 DEMO_CFLAGS=@ARCH@ @DEBUG_FLAGS@ -I../ -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
 DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
+RPC_SERVER_SOURCE=./demo/rpc_server.cpp
+RPC_SERVER_TARGET=$(BUILDPATH)/bin/elaraui-server
+RPC_SERVER_STAGE_TARGET=$(ROOT_BUILD_DIR)/bin/elaraui-server
+RPC_SERVER_CFLAGS=@ARCH@ @DEBUG_FLAGS@ -I../ -I../libElaraUiRpc -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
+RPC_SERVER_LDFLAGS=-L$(STAGE_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
 
 all: $(SOURCES) $(STATIC_LIBRARY)
 
@@ -47,6 +52,16 @@ demo: $(STATIC_LIBRARY)
 run-demo: demo
 	$(DEMO_TARGET)
 
+rpc-server: $(STATIC_LIBRARY)
+	@if [ "$(GTK_BACKEND_ENABLED)" != "1" ]; then \
+		echo "GTK backend is disabled. Reconfigure without --disable-gtk to build elaraui-server."; \
+		exit 1; \
+	fi
+	@[ -d $(BUILDPATH)/bin ] || mkdir -p $(BUILDPATH)/bin
+	@[ -d $(ROOT_BUILD_DIR)/bin ] || mkdir -p $(ROOT_BUILD_DIR)/bin
+	$(CC) $(RPC_SERVER_CFLAGS) $(CFLAGS) $(RPC_SERVER_SOURCE) -o $(RPC_SERVER_TARGET) $(RPC_SERVER_LDFLAGS)
+	cp $(RPC_SERVER_TARGET) $(RPC_SERVER_STAGE_TARGET)
+
 copyconfig:
 	@[ -d ./$(NAME) ] || mkdir -p ./$(NAME)
 	cp config.h ./$(NAME)/config.h
@@ -60,15 +75,21 @@ install: all
 	done
 	mkdir -p $(INSTALL_LIB_PATH)
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	@if [ "$(GTK_BACKEND_ENABLED)" = "1" ]; then \
+		$(MAKE) rpc-server ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" || exit $$?; \
+	fi
 
 clean:
 	rm -Rf $(BUILDPATH)/*.o
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 	rm -f $(DEMO_TARGET)
+	rm -f $(RPC_SERVER_TARGET)
+	rm -f $(RPC_SERVER_STAGE_TARGET)
 
 remove:
 	rm -Rf $(INSTALL_HEADER_PATH)
 	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	rm -f $(RPC_SERVER_STAGE_TARGET)
 
 cleanconf:
 	rm -Rf config.status autom4te.cache
