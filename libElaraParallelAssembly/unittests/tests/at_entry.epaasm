@@ -1,0 +1,35 @@
+ENTRY_START 0 0 0 0
+
+  ENTRY_EXEC 1
+  WAIT_ON_SYNC
+  ENTRY_HALT 1
+  ENTRY_HALT 0
+
+ENTRY_END
+
+ENTRY_START 1 0 0 0
+
+  ; Allocate a real GHS payload, then preserve the split handle in locals.
+  SET_R 0 1
+  SET_R 1 16
+  G_ALLOC
+
+  PUSH R0
+  STORE_L 0
+  PUSH R1
+  STORE_L 1
+
+  ; AT ABI: r0=sub_id, r1=handle_lo, r2=handle_hi, r3=thread_count
+  SET_R 0 31249
+  LOAD_L 0
+  POP R1
+  LOAD_L 1
+  POP R2
+  SET_R 3 3
+  AT
+  WAIT_FOR_AT
+  SYNC
+
+ENTRY_END
+
+END

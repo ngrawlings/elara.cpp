@@ -83,6 +83,35 @@ It is intentionally biased toward:
   - `./install.sh` installs the built binary
   - `./install.sh --remove` removes it using a per-project manifest under `PREFIX/share/<target>/install-manifest.txt`
 
+### Elara Parallel Assembly
+
+- `libElaraParallelAssembly` is a framework library project, not a standalone nested repository.
+- The primary staged library artifact is:
+  - `build/lib/libelaraparallelassembly.a`
+- Staged public headers are copied from `libElaraParallelAssembly/src/` into:
+  - `build/include/libelaraparallelassembly/`
+- Treat `libElaraParallelAssembly/src/` as the current EPA public header surface unless a narrower exported include layer is introduced later.
+- EPA is a C project. Do not casually introduce C++-only constructs into EPA runtime code or headers.
+- The root framework build may pass C++-oriented flags to subprojects. EPA’s own build layer strips incompatible C++ standard flags before compiling C translation units.
+- Optional EPA developer targets remain local to the subproject:
+  - `make legacy-shared`
+  - `make tools`
+  - `make unit`
+  - `make e`
+  - `make epa-build`
+  - `make test`
+- `legacy-shared` builds:
+  - `libElaraParallelAssembly/build/libepa_kernel.so`
+  This is a compatibility target for the existing EPA runner/test workflow, not the primary framework artifact.
+- Core EPA entry points currently center around:
+  - `epa_kernel.h`
+  - `epa_kernel_so.h`
+  - `epa_asm_compiler.h`
+  - `epa_program_loader.h`
+- EPA documentation lives under:
+  - `libElaraParallelAssembly/docs/`
+- When instruction formats, opcodes, scheduler semantics, or the memory model change, update the corresponding EPA docs in the same change where practical.
+
 ### Project Builder And Generated Project Rules
 
 - The canonical bundled agent doc for the installed builder lives at:

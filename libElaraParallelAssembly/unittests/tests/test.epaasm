@@ -1,0 +1,105 @@
+ENTRY_START 0 0 0
+
+    ENTRY_EXEC 1
+
+    ; r2 = kernel_total
+    SET_R 2 0
+
+KERNEL_LOOP:
+
+    ; Wait for worker SYNC, payload will be on kernel stack:
+    ;  [wid, worker_total] (per your WAIT_ON_SYNC semantics)
+    WAIT_ON_SYNC
+    EXCEPT 1
+
+    ; pop worker_total into r0 (or any reg you like)
+    POP R0
+
+    ; pop wid (should be 1) into r1
+    POP R1
+
+    ; kernel_total++
+    INC 2
+
+    ; ---- kernel -> worker: send kernel_total ----
+    PUSH R2
+    IN_PUSH 1
+
+    ; release payload to worker (worker is sitting on WAIT_FOR_DATA)
+    DATA_READY 1
+
+    ; optional: assert DATA_READY succeeded (stack has 0/1)
+    EXCEPT 2
+
+    ; stop after 16 kernel iterations (so worker_total should be 256)
+    ; compare r2 (kernel_total) vs r3 (=16) using CMPZ convention (r2/r3)
+    SET_R 3 16
+    CMPZ
+    JLZ KERNEL_LOOP
+
+    ENTRY_HALT 0
+
+ENTRY_END
+
+
+ENTRY_START 1 4096 4096
+
+    ; r2 = worker_loop_counter (0..16)
+    ; r3 = compare (16)
+    ; r1 = worker_total (total INC count across all batches)
+    ; r0 = expected_kernel_total
+
+    SET_R 2 0
+    SET_R 3 16
+    SET_R 1 0
+    SET_R 0 0
+
+WORKER_BATCH:
+
+    ; run 16 times
+WORKER_LOOP:
+    INC 2
+    CMPZ
+    JLZ WORKER_LOOP
+
+    ; worker_total += 16
+    ; r1 = r1 + r2  (r2 is 16 here)
+    PUSH R1
+    PUSH R2
+    ADD_I32
+    POP R1
+
+    ; send worker_total to kernel (1 word)
+    PUSH R1
+    SYNC
+
+    ; wait for kernel_total reply (1 word)
+    WAIT_FOR_DATA
+    POP R2        ; reuse r2 to hold received kernel_total
+
+    ; expected_kernel_total++
+    INC 0
+
+    ; assert received kernel_total == expected_kernel_total
+    ; Use stack compare: (received - expected) == 0
+    PUSH R2
+    PUSH R0
+    SUB_I32
+    POP R2
+    ; r2 == 0?
+    ; We only have CMP/CMPZ; easiest is use r2==0 via JZ which tests r0,
+    ; so move r2 into r0 then JZ.
+    MV 0 2
+    JZ OK_REL32     ; assembler should resolve label
+
+    EXCEPT 3        ; mismatch!
+
+OK_REL32:
+
+    ; reset batch counter to 0 and go again
+    SET_R 2 0
+    JMP WORKER_BATCH
+
+ENTRY_END
+
+END

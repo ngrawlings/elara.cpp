@@ -157,6 +157,7 @@ static void printUsage(const char *program_name) {
     printf("  --app-kind <console|ui>\n");
     printf("  --ui-client-language <cpp|python>\n");
     printf("  --ui-template <tabbed-control-panel|rich-editor>\n");
+    printf("  --multi-cpu-python <yes|no>  Enable the Python multi-core worker template for Python UI clients\n");
     printf("  --repl <yes|no>             Enable or disable the REPL\n");
     printf("  --debug-harness <yes|no>    Enable or disable the debug artifact scaffold\n");
     printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
@@ -193,6 +194,7 @@ int main(int argc, const char *argv[]) {
         bool saw_socket_transport = false;
         bool saw_ui_client_language = false;
         bool saw_ui_template = false;
+        bool saw_multi_cpu_python = false;
 
         builder.setExecutablePath(resolveExecutablePath(argv[0]));
         options = builder.defaultOptions();
@@ -283,6 +285,18 @@ int main(int argc, const char *argv[]) {
                 return 1;
             }
             saw_ui_template = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--multi-cpu-python")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--multi-cpu-python");
+            if (!value || !parseBoolValue(value, &options.include_python_multi_cpu_template)) {
+                fprintf(stderr, "Invalid value for --multi-cpu-python: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_multi_cpu_python = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -450,6 +464,13 @@ int main(int argc, const char *argv[]) {
 
         if (interactive && !saw_generation_option) {
             return builder.runInteractive() ? 0 : 1;
+        }
+
+        if (saw_multi_cpu_python &&
+            (options.application_kind != ProjectOptions::APPLICATION_UI ||
+             options.ui_client_language != ProjectOptions::UI_CLIENT_PYTHON)) {
+            fprintf(stderr, "--multi-cpu-python is only valid for Python UI applications\n");
+            return 1;
         }
 
         if (saw_name) {

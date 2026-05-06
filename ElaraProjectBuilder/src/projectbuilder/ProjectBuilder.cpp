@@ -34,6 +34,121 @@ namespace elara {
             return "tabbed-control-panel";
         }
 
+        String applicationKindName(ProjectOptions::ApplicationKind value) {
+            if (value == ProjectOptions::APPLICATION_UI) {
+                return "ui";
+            }
+            return "console";
+        }
+
+        bool parseBoolText(String value, bool *result) {
+            value = value.trim();
+            if (value == String("1") || value == String("true") || value == String("yes") || value == String("on")) {
+                if (result) {
+                    *result = true;
+                }
+                return true;
+            }
+            if (value == String("0") || value == String("false") || value == String("no") || value == String("off")) {
+                if (result) {
+                    *result = false;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        bool parseApplicationKindText(String value, ProjectOptions::ApplicationKind *result) {
+            value = value.trim();
+            if (value == String("ui")) {
+                if (result) {
+                    *result = ProjectOptions::APPLICATION_UI;
+                }
+                return true;
+            }
+            if (value == String("console")) {
+                if (result) {
+                    *result = ProjectOptions::APPLICATION_CONSOLE;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        bool parseUiClientLanguageText(String value, ProjectOptions::UiClientLanguage *result) {
+            value = value.trim();
+            if (value == String("python")) {
+                if (result) {
+                    *result = ProjectOptions::UI_CLIENT_PYTHON;
+                }
+                return true;
+            }
+            if (value == String("cpp") || value == String("c++")) {
+                if (result) {
+                    *result = ProjectOptions::UI_CLIENT_CPP;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        bool parseUiTemplateText(String value, ProjectOptions::UiTemplate *result) {
+            value = value.trim();
+            if (value == String("rich-editor")) {
+                if (result) {
+                    *result = ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
+                }
+                return true;
+            }
+            if (value == String("tabbed-control-panel")) {
+                if (result) {
+                    *result = ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        bool parseSocketModeText(String value, ProjectOptions::SocketMode *result) {
+            value = value.trim();
+            if (value == String("none")) {
+                if (result) {
+                    *result = ProjectOptions::SOCKET_DISABLED;
+                }
+                return true;
+            }
+            if (value == String("server")) {
+                if (result) {
+                    *result = ProjectOptions::SOCKET_SERVER;
+                }
+                return true;
+            }
+            if (value == String("client")) {
+                if (result) {
+                    *result = ProjectOptions::SOCKET_CLIENT;
+                }
+                return true;
+            }
+            return false;
+        }
+
+        bool parseSocketTransportText(String value, ProjectOptions::SocketTransport *result) {
+            value = value.trim();
+            if (value == String("plain")) {
+                if (result) {
+                    *result = ProjectOptions::SOCKET_TRANSPORT_PLAIN;
+                }
+                return true;
+            }
+            if (value == String("json-rpc")) {
+                if (result) {
+                    *result = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+                }
+                return true;
+            }
+            return false;
+        }
+
         void appendTemplateAttr(String* attrs_text, const String& value) {
             if (!attrs_text) {
                 return;
@@ -121,6 +236,7 @@ namespace elara {
         String project_name_default = options.project_name;
         String target_name_default;
         String output_directory_default;
+        bool has_saved_config = false;
 
         printf("Elara Project Builder\n");
         printf("=====================\n");
@@ -131,11 +247,19 @@ namespace elara {
 
         output_directory_default = default_output_directory.length() ? default_output_directory : options.project_name;
         options.output_directory = promptString("Output directory", output_directory_default);
+        has_saved_config = loadSavedProjectOptions(options.output_directory, &options);
 
         options.application_kind = promptApplicationKind();
         if (options.application_kind == ProjectOptions::APPLICATION_UI) {
             options.ui_client_language = promptUiClientLanguage();
             options.ui_template = promptUiTemplate();
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+                if (!has_saved_config) {
+                    options.include_python_multi_cpu_template = promptPythonMultiCpuTemplate();
+                }
+            } else {
+                options.include_python_multi_cpu_template = false;
+            }
             options.socket_address = promptString("UI RPC server address", "127.0.0.1");
             options.socket_port = atoi(promptString("UI RPC server port", "18777").operator char *());
             options.include_repl = false;
@@ -146,7 +270,9 @@ namespace elara {
             options.socket_mode = ProjectOptions::SOCKET_DISABLED;
             options.socket_transport = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
         } else {
-            options.include_repl = promptYesNo("Include REPL client", true);
+            if (!has_saved_config) {
+                options.include_repl = promptYesNo("Include REPL client", true);
+            }
             options.socket_mode = promptSocketMode();
             if (options.socket_mode != ProjectOptions::SOCKET_DISABLED) {
                 options.socket_transport = promptSocketTransport();
@@ -158,10 +284,12 @@ namespace elara {
                 options.socket_address = promptString("Socket remote address", "127.0.0.1");
                 options.socket_port = atoi(promptString("Socket port", "4040").operator char *());
             }
-            options.include_thread_pool = promptYesNo("Include thread pool", false);
-            options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
-            options.include_debug_harness = promptYesNo("Include debug harness and artifacts", true);
-            options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
+            if (!has_saved_config) {
+                options.include_thread_pool = promptYesNo("Include thread pool", false);
+                options.include_threaded_worker = promptYesNo("Include threaded worker class", false);
+                options.include_debug_harness = promptYesNo("Include debug harness and artifacts", true);
+                options.include_indexed_data_store = promptYesNo("Include IndexedDataStore skeleton", false);
+            }
 
             if (options.include_threaded_worker) {
                 options.worker_name = promptString("Worker class name", projectClassPrefix(options.project_name) + "WorkerTask");
@@ -260,6 +388,10 @@ namespace elara {
         }
     }
 
+    bool ProjectBuilder::promptPythonMultiCpuTemplate() {
+        return promptYesNo("Generate the Python multi-core worker template", false);
+    }
+
     ProjectOptions::SocketMode ProjectBuilder::promptSocketMode() {
         char buffer[64];
 
@@ -350,6 +482,9 @@ namespace elara {
             options.include_indexed_data_store = false;
             options.socket_mode = ProjectOptions::SOCKET_DISABLED;
             options.socket_transport = ProjectOptions::SOCKET_TRANSPORT_JSON_RPC;
+            if (options.ui_client_language != ProjectOptions::UI_CLIENT_PYTHON) {
+                options.include_python_multi_cpu_template = false;
+            }
             if (!options.socket_address.length()) {
                 options.socket_address = "127.0.0.1";
             }
@@ -414,18 +549,25 @@ namespace elara {
         if (options.application_kind == ProjectOptions::APPLICATION_UI) {
             addFile(files, "README.md", renderReadme(options));
             addFile(files, "ELARA_AGENT_API.md", loadAgentReference());
+            addFile(files, ".elara-project-builder.config", renderProjectBuilderConfig(options));
             addFile(files, "build.sh", renderBuildScript(options));
             addFile(files, "install.sh", renderInstallScript(options));
             addFile(files, "run-ui-head.sh", renderRunUiHeadScript(options));
             addFile(files, "run-client.sh", renderRunUiClientScript(options));
 
             if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+                addFile(files, "configure.ac", renderConfigureAc(options));
+                addFile(files, "Makefile.in", renderMakefileIn(options));
                 addFile(files, "src/main.cpp", renderUiCppMain(options));
             } else {
                 addFile(files, "app.py", renderUiPythonApp(options));
                 addFile(files, "elara_ui/__init__.py", renderUiPythonPackageInit(options));
                 addFile(files, "elara_ui/builder.py", renderUiPythonPackageBuilder(options));
                 addFile(files, "elara_ui/rpc.py", renderUiPythonPackageRpc(options));
+                if (options.include_python_multi_cpu_template) {
+                    addFile(files, "elara_ui/multi_cpu.py", renderUiPythonMultiCpuHelper(options));
+                    addFile(files, "workers/worker_template.py", renderUiPythonWorkerTemplate(options));
+                }
             }
 
             return true;
@@ -442,6 +584,7 @@ namespace elara {
         addFile(files, "install.sh", renderInstallScript(options));
         addFile(files, "README.md", renderReadme(options));
         addFile(files, "ELARA_AGENT_API.md", loadAgentReference());
+        addFile(files, ".elara-project-builder.config", renderProjectBuilderConfig(options));
         addFile(files, "src/main.cpp", renderMainCpp(options));
         if (options.include_debug_harness) {
             String tests_name = projectClassPrefix(options.project_name) + "DebugTests";
@@ -502,6 +645,76 @@ namespace elara {
     }
 
     String ProjectBuilder::renderMakefileIn(const ProjectOptions &options) {
+        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
+            options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
+            String contents;
+            contents += "NAME=";
+            contents += options.target_name;
+            contents += "\n";
+            contents += "CC=@CXX@\n";
+            contents += "DEFS =\n";
+            contents += "ELARA_ROOT?=$(abspath ../build)\n";
+            contents += "ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include\n";
+            contents += "ELARA_LIB_DIR?=$(ELARA_ROOT)/lib\n";
+            contents += "PREFIX?=$(abspath ./dist)\n";
+            contents += "BIN_DIR?=$(PREFIX)/bin\n";
+            contents += "SHARE_DIR?=$(PREFIX)/share/";
+            contents += options.target_name;
+            contents += "\n";
+            contents += "INSTALL_MANIFEST?=$(SHARE_DIR)/install-manifest.txt\n";
+            contents += "BUILDPATH=./build\n";
+            contents += "COMMON_CFLAGS=-std=gnu++11\n";
+            contents += "DEBUG_CFLAGS=$(COMMON_CFLAGS) -O0 -g3\n";
+            contents += "RELEASE_CFLAGS=$(COMMON_CFLAGS) -O3 -DNDEBUG\n";
+            contents += "BUILD_PROFILE?=release\n";
+            contents += "ifeq ($(BUILD_PROFILE),debug)\n";
+            contents += "PROFILE_CFLAGS=$(DEBUG_CFLAGS)\n";
+            contents += "else\n";
+            contents += "PROFILE_CFLAGS=$(RELEASE_CFLAGS)\n";
+            contents += "endif\n";
+            contents += "STD_CFLAGS=-c $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) $(DEFS)\n";
+            contents += "STD_LDFLAGS=-L$(ELARA_LIB_DIR) -lelarauirpc -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore -pthread\n";
+            contents += "TARGET=";
+            contents += options.target_name;
+            contents += "\n";
+            contents += "SOURCES=$(shell find ./src -type f -name '*.cpp' -print)\n";
+            contents += "OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))\n\n";
+            contents += ".PHONY: all install clean remove cleanconf\n\n";
+            contents += "all: $(TARGET)\n\n";
+            contents += "$(TARGET): $(OBJECTS)\n";
+            contents += "\t$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)\n\n";
+            contents += "build/src/%.o: ./src/%.cpp\n";
+            contents += "\t@mkdir -p $(dir $@)\n";
+            contents += "\t$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@\n\n";
+            contents += "install:\n";
+            contents += "\t@if [ ! -x \"$(BUILDPATH)/$(TARGET)\" ]; then \\\n";
+            contents += "\t\techo \"Missing built binary $(BUILDPATH)/$(TARGET). Run ./build.sh first.\"; \\\n";
+            contents += "\t\texit 1; \\\n";
+            contents += "\tfi\n";
+            contents += "\tmkdir -p $(BIN_DIR)\n";
+            contents += "\tcp $(BUILDPATH)/$(TARGET) $(BIN_DIR)/$(TARGET)\n";
+            contents += "\tmkdir -p $(SHARE_DIR)\n";
+            contents += "\tprintf '%s\\n' \"$(BIN_DIR)/$(TARGET)\" > $(INSTALL_MANIFEST)\n\n";
+            contents += "clean:\n";
+            contents += "\trm -rf $(BUILDPATH)\n\n";
+            contents += "remove:\n";
+            contents += "\t@if [ -f \"$(INSTALL_MANIFEST)\" ]; then \\\n";
+            contents += "\t\twhile IFS= read -r installed_path; do \\\n";
+            contents += "\t\t\trm -f \"$$installed_path\"; \\\n";
+            contents += "\t\tdone < \"$(INSTALL_MANIFEST)\"; \\\n";
+            contents += "\t\trm -f \"$(INSTALL_MANIFEST)\"; \\\n";
+            contents += "\telse \\\n";
+            contents += "\t\trm -f $(BIN_DIR)/$(TARGET); \\\n";
+            contents += "\tfi\n";
+            contents += "\t@rmdir $(SHARE_DIR) 2>/dev/null || true\n\n";
+            contents += "cleanconf:\n";
+            contents += "\trm -f config.log\n";
+            contents += "\trm -f config.status\n";
+            contents += "\trm -f Makefile\n";
+            contents += "\trm -f configure\n";
+            return contents;
+        }
+
         String contents;
 
         contents += "NAME=";
@@ -670,21 +883,6 @@ namespace elara {
 
     String ProjectBuilder::renderBuildScript(const ProjectOptions &options) {
         if (options.application_kind == ProjectOptions::APPLICATION_UI &&
-            options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
-            String contents;
-            contents += "#!/usr/bin/env bash\n\n";
-            contents += "set -euo pipefail\n\n";
-            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
-            contents += "cd \"$ROOT_DIR\"\n\n";
-            contents += "ELARA_ROOT=\"${ELARA_ROOT:-$ROOT_DIR/../build}\"\n";
-            contents += "mkdir -p ./build\n";
-            contents += "g++ -std=gnu++11 -O0 -g3 -I\"$ROOT_DIR\" -I\"$ELARA_ROOT/include\" ./src/main.cpp -L\"$ELARA_ROOT/lib\" -lelarauirpc -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore -pthread -o ./build/";
-            contents += options.target_name;
-            contents += "\n";
-            return contents;
-        }
-
-        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
             options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
             String contents;
             contents += "#!/usr/bin/env bash\n\n";
@@ -692,7 +890,11 @@ namespace elara {
             contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
             contents += "cd \"$ROOT_DIR\"\n\n";
             contents += "mkdir -p ./build\n";
-            contents += "python3 -m py_compile app.py elara_ui/__init__.py elara_ui/builder.py elara_ui/rpc.py\n";
+            contents += "python3 -m py_compile app.py elara_ui/__init__.py elara_ui/builder.py elara_ui/rpc.py";
+            if (options.include_python_multi_cpu_template) {
+                contents += " elara_ui/multi_cpu.py workers/worker_template.py";
+            }
+            contents += "\n";
             contents += "printf '%s\\n' \"python build ok\" > ./build/build-stamp.txt\n";
             return contents;
         }
@@ -761,38 +963,6 @@ namespace elara {
 
     String ProjectBuilder::renderInstallScript(const ProjectOptions &options) {
         if (options.application_kind == ProjectOptions::APPLICATION_UI &&
-            options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
-            String contents;
-            contents += "#!/usr/bin/env bash\n\n";
-            contents += "set -euo pipefail\n\n";
-            contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
-            contents += "cd \"$ROOT_DIR\"\n\n";
-            contents += "INSTALL_PREFIX=\"${INSTALL_PREFIX:-/usr/local}\"\n";
-            contents += "TARGET_NAME=\"";
-            contents += options.target_name;
-            contents += "\"\n";
-            contents += "BUILD_TARGET=\"$ROOT_DIR/build/${TARGET_NAME}\"\n";
-            contents += "MANIFEST_DIR=\"${INSTALL_PREFIX}/share/${TARGET_NAME}\"\n";
-            contents += "MANIFEST_PATH=\"${MANIFEST_DIR}/install-manifest.txt\"\n\n";
-            contents += "if [[ \"${1:-}\" == \"--remove\" ]]; then\n";
-            contents += "  if [[ -f \"${MANIFEST_PATH}\" ]]; then\n";
-            contents += "    while IFS= read -r installed_path; do rm -f \"${installed_path}\"; done < \"${MANIFEST_PATH}\"\n";
-            contents += "    rm -f \"${MANIFEST_PATH}\"\n";
-            contents += "  fi\n";
-            contents += "  rmdir \"${MANIFEST_DIR}\" 2>/dev/null || true\n";
-            contents += "  exit 0\n";
-            contents += "fi\n\n";
-            contents += "if [[ ! -x \"$BUILD_TARGET\" ]]; then\n";
-            contents += "  echo \"Missing built binary $BUILD_TARGET. Run ./build.sh first.\"\n";
-            contents += "  exit 1\n";
-            contents += "fi\n\n";
-            contents += "mkdir -p \"${INSTALL_PREFIX}/bin\" \"${MANIFEST_DIR}\"\n";
-            contents += "cp \"$BUILD_TARGET\" \"${INSTALL_PREFIX}/bin/${TARGET_NAME}\"\n";
-            contents += "printf '%s\\n' \"${INSTALL_PREFIX}/bin/${TARGET_NAME}\" > \"${MANIFEST_PATH}\"\n";
-            return contents;
-        }
-
-        if (options.application_kind == ProjectOptions::APPLICATION_UI &&
             options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
             String contents;
             contents += "#!/usr/bin/env bash\n\n";
@@ -820,6 +990,11 @@ namespace elara {
             contents += "cp elara_ui/__init__.py \"${APP_DIR}/elara_ui/__init__.py\"\n";
             contents += "cp elara_ui/builder.py \"${APP_DIR}/elara_ui/builder.py\"\n";
             contents += "cp elara_ui/rpc.py \"${APP_DIR}/elara_ui/rpc.py\"\n";
+            if (options.include_python_multi_cpu_template) {
+                contents += "mkdir -p \"${APP_DIR}/workers\"\n";
+                contents += "cp elara_ui/multi_cpu.py \"${APP_DIR}/elara_ui/multi_cpu.py\"\n";
+                contents += "cp workers/worker_template.py \"${APP_DIR}/workers/worker_template.py\"\n";
+            }
             contents += "cat > \"${BIN_PATH}\" <<EOF\n";
             contents += "#!/usr/bin/env bash\n";
             contents += "exec python3 \"${APP_DIR}/app.py\" \"\\$@\"\n";
@@ -830,6 +1005,10 @@ namespace elara {
             contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/__init__.py\" >> \"${MANIFEST_PATH}\"\n";
             contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/builder.py\" >> \"${MANIFEST_PATH}\"\n";
             contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/rpc.py\" >> \"${MANIFEST_PATH}\"\n";
+            if (options.include_python_multi_cpu_template) {
+                contents += "printf '%s\\n' \"${APP_DIR}/elara_ui/multi_cpu.py\" >> \"${MANIFEST_PATH}\"\n";
+                contents += "printf '%s\\n' \"${APP_DIR}/workers/worker_template.py\" >> \"${MANIFEST_PATH}\"\n";
+            }
             return contents;
         }
 
@@ -877,10 +1056,10 @@ namespace elara {
         contents += "#!/usr/bin/env bash\n\n";
         contents += "set -euo pipefail\n\n";
         contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
-        contents += "DEFAULT_SERVER=\"${ROOT_DIR}/../libElaraUI/build/bin/libelaraui-rpc-server\"\n";
+        contents += "DEFAULT_SERVER=\"/usr/local/bin/elaraui-server\"\n";
         contents += "ELARA_UI_SERVER=\"${ELARA_UI_SERVER:-${DEFAULT_SERVER}}\"\n\n";
         contents += "if [[ ! -x \"${ELARA_UI_SERVER}\" ]]; then\n";
-        contents += "  echo \"Missing libElaraUI RPC server at ${ELARA_UI_SERVER}. Set ELARA_UI_SERVER to the correct path.\"\n";
+        contents += "  echo \"Missing Elara UI server at ${ELARA_UI_SERVER}. Install the framework server or set ELARA_UI_SERVER to the correct path.\"\n";
         contents += "  exit 1\n";
         contents += "fi\n\n";
         contents += "exec \"${ELARA_UI_SERVER}\" \"$@\"\n";
@@ -926,6 +1105,10 @@ namespace elara {
             contents += "- UI template: ";
             contents += uiTemplateName(options.ui_template);
             contents += "\n";
+            if (options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
+                contents += "- Python multi-core worker template: ";
+                contents += options.include_python_multi_cpu_template ? "yes\n" : "no\n";
+            }
             contents += "- UI RPC server address: ";
             contents += options.socket_address;
             contents += "\n";
@@ -944,10 +1127,13 @@ namespace elara {
             contents += ":";
             contents += String(options.socket_port);
             contents += "\n";
-            contents += "- `run-ui-head.sh` defaults to `../libElaraUI/build/bin/libelaraui-rpc-server`\n";
-            contents += "- override that with `ELARA_UI_SERVER=/path/to/libelaraui-rpc-server ./run-ui-head.sh`\n";
+            contents += "- `run-ui-head.sh` defaults to `/usr/local/bin/elaraui-server`\n";
+            contents += "- override that with `ELARA_UI_SERVER=/path/to/elaraui-server ./run-ui-head.sh`\n";
             if (options.ui_client_language == ProjectOptions::UI_CLIENT_PYTHON) {
                 contents += "- the Python client vendors a local copy of the flat builder and RPC client helpers\n";
+                if (options.include_python_multi_cpu_template) {
+                    contents += "- the generated project includes a `workers/worker_template.py` starter and `elara_ui.multi_cpu` helper that uses the installed `elara_threads` package\n";
+                }
             } else {
                 contents += "- the C++ client uses `ElaraUiDocumentBuilder` and `ElaraUiRpcPeer`\n";
                 contents += "- if the project lives outside this repo, set `ELARA_ROOT=/path/to/elara/build ./build.sh`\n";
@@ -1267,6 +1453,76 @@ namespace elara {
         return contents;
     }
 
+    bool ProjectBuilder::loadSavedProjectOptions(String output_directory, ProjectOptions *options) {
+        if (!options || !output_directory.length()) {
+            return false;
+        }
+
+        String config_path = joinPath(output_directory, ".elara-project-builder.config");
+        String config = readTextFile(config_path);
+
+        if (!config.length()) {
+            return false;
+        }
+
+        String config_copy = config;
+        StringList lines(config_copy, String("\n"));
+
+        for (unsigned int i = 0; i < lines.length(); i++) {
+            String line = lines[i].trim();
+            int eq = line.indexOf(String("="));
+            String key;
+            String value;
+
+            if (!line.length() || line.startsWith(String("#")) || eq < 0) {
+                continue;
+            }
+
+            key = line.substr(0, eq).trim();
+            value = line.substr(eq + 1).trim();
+
+            if (key == String("project_name")) {
+                options->project_name = value;
+            } else if (key == String("target_name")) {
+                options->target_name = value;
+            } else if (key == String("application_kind")) {
+                parseApplicationKindText(value, &options->application_kind);
+            } else if (key == String("ui_client_language")) {
+                parseUiClientLanguageText(value, &options->ui_client_language);
+            } else if (key == String("ui_template")) {
+                parseUiTemplateText(value, &options->ui_template);
+            } else if (key == String("include_python_multi_cpu_template")) {
+                parseBoolText(value, &options->include_python_multi_cpu_template);
+            } else if (key == String("include_repl")) {
+                parseBoolText(value, &options->include_repl);
+            } else if (key == String("socket_mode")) {
+                parseSocketModeText(value, &options->socket_mode);
+            } else if (key == String("socket_transport")) {
+                parseSocketTransportText(value, &options->socket_transport);
+            } else if (key == String("include_debug_harness")) {
+                parseBoolText(value, &options->include_debug_harness);
+            } else if (key == String("include_thread_pool")) {
+                parseBoolText(value, &options->include_thread_pool);
+            } else if (key == String("include_threaded_worker")) {
+                parseBoolText(value, &options->include_threaded_worker);
+            } else if (key == String("include_indexed_data_store")) {
+                parseBoolText(value, &options->include_indexed_data_store);
+            } else if (key == String("worker_name")) {
+                options->worker_name = value;
+            } else if (key == String("socket_address")) {
+                options->socket_address = value;
+            } else if (key == String("socket_port")) {
+                options->socket_port = atoi(value.operator char *());
+            } else if (key == String("indexed_data_store_path")) {
+                options->indexed_data_store_path = value;
+            } else if (key == String("indexed_data_store_bank_map_redundancy")) {
+                options->indexed_data_store_bank_map_redundancy = atoi(value.operator char *());
+            }
+        }
+
+        return true;
+    }
+
     String ProjectBuilder::renderUiCppMain(const ProjectOptions &options) {
         String contents;
         String title = options.project_name;
@@ -1412,6 +1668,7 @@ namespace elara {
         String contents;
         contents += "import argparse\n";
         contents += "import json\n";
+        contents += "import time\n";
         contents += "from pathlib import Path\n\n";
         contents += "from elara_ui.builder import UiDocumentBuilder\n";
         contents += "from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError\n\n\n";
@@ -1468,6 +1725,14 @@ namespace elara {
         }
 
         contents += "    return ui\n\n\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "def start_background_worker():\n";
+            contents += "    from elara_ui.multi_cpu import MultiCpuWorkerTemplate, ensure_multi_cpu_runtime\n";
+            contents += "    ensure_multi_cpu_runtime(thread_count=2)\n";
+            contents += "    worker = MultiCpuWorkerTemplate(str(Path(__file__).resolve().parent / \"workers\" / \"worker_template.py\"), [\"8\"])\n";
+            contents += "    worker.start()\n";
+            contents += "    return worker\n\n\n";
+        }
         contents += "def main():\n";
         contents += "    parser = argparse.ArgumentParser(description=\"Load the generated Elara UI document into a running RPC head\")\n";
         contents += "    parser.add_argument(\"--host\", default=\"";
@@ -1478,45 +1743,90 @@ namespace elara {
         contents += ", type=int, help=\"RPC server port\")\n";
         contents += "    parser.add_argument(\"--snapshot\", action=\"store_true\", help=\"Fetch a root snapshot after loading\")\n";
         contents += "    parser.add_argument(\"--output\", help=\"Write the generated document JSON to this path\")\n";
+        contents += "    parser.add_argument(\"--once\", action=\"store_true\", help=\"Load once and exit immediately\")\n";
+        contents += "    parser.add_argument(\"--no-events\", action=\"store_true\", help=\"Do not subscribe to default UI events\")\n";
         contents += "    args = parser.parse_args()\n\n";
+        contents += "    def on_ui_event(params):\n";
+        contents += "        print(json.dumps({\"ui.event\": params}, indent=2), flush=True)\n";
+        contents += "        return {\"received\": True}\n\n";
         contents += "    builder = build_document()\n";
         contents += "    document_json = builder.to_json(indent=2)\n";
         contents += "    if args.output:\n";
         contents += "        output_path = Path(args.output)\n";
         contents += "        output_path.parent.mkdir(parents=True, exist_ok=True)\n";
         contents += "        output_path.write_text(document_json, encoding=\"utf-8\")\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "    worker = None\n";
+        }
         contents += "    try:\n";
         contents += "        with ElaraUiRpcClient(args.host, args.port) as client:\n";
+        contents += "            client.add_handler(\"ui.event\", on_ui_event)\n";
         contents += "            load_result = client.load_document(builder)\n";
         contents += "            print(json.dumps(load_result, indent=2))\n";
         contents += "            if args.snapshot:\n";
         contents += "                snapshot = client.snapshot()\n";
         contents += "                print(json.dumps(snapshot, indent=2))\n";
+        contents += "            if not args.no_events:\n";
+        contents += "                for action in (\"clicked\", \"keysTyped\", \"valueChanged\", \"keyDown\", \"keyUp\"):\n";
+        contents += "                    client.enable_event(action)\n";
+        contents += "            if args.once:\n";
+        contents += "                return\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "            worker = start_background_worker()\n";
+            contents += "            print(json.dumps({\"multi_cpu_worker\": worker.snapshot()}, indent=2), flush=True)\n";
+        }
+        contents += "            print(\"Connected to Elara UI RPC head. Press Ctrl+C to exit.\", flush=True)\n";
+        contents += "            while True:\n";
+        contents += "                time.sleep(0.25)\n";
+        contents += "    except KeyboardInterrupt:\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "        if worker is not None:\n";
+            contents += "            try:\n";
+            contents += "                worker.stop()\n";
+            contents += "                worker.wait(timeout_ms=2000)\n";
+            contents += "            except Exception:\n";
+            contents += "                pass\n";
+        }
+        contents += "        return\n";
         contents += "    except ElaraUiRpcError as exc:\n";
         contents += "        raise SystemExit(str(exc))\n\n\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "    finally:\n";
+            contents += "        if worker is not None:\n";
+            contents += "            try:\n";
+            contents += "                worker.stop()\n";
+            contents += "                worker.wait(timeout_ms=2000)\n";
+            contents += "            except Exception:\n";
+            contents += "                pass\n\n\n";
+        }
         contents += "if __name__ == \"__main__\":\n";
         contents += "    main()\n";
         return contents;
     }
 
     String ProjectBuilder::renderUiPythonPackageInit(const ProjectOptions &options) {
-        (void)options;
         String contents;
         contents += "from .builder import UiDocumentBuilder\n";
-        contents += "from .rpc import ElaraUiRpcClient, ElaraUiRpcError\n\n";
+        contents += "from .rpc import ElaraUiRpcClient, ElaraUiRpcError\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "from .multi_cpu import MultiCpuWorkerTemplate, ensure_multi_cpu_runtime\n";
+        }
+        contents += "\n";
         contents += "__all__ = [\n";
         contents += "    \"UiDocumentBuilder\",\n";
         contents += "    \"ElaraUiRpcClient\",\n";
         contents += "    \"ElaraUiRpcError\",\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "    \"MultiCpuWorkerTemplate\",\n";
+            contents += "    \"ensure_multi_cpu_runtime\",\n";
+        }
         contents += "]\n";
         return contents;
     }
 
     String ProjectBuilder::renderUiPythonPackageBuilder(const ProjectOptions &options) {
         (void)options;
-        String executable_dir = pathDirectory(executable_path);
-        String repo_root = pathDirectory(pathDirectory(executable_dir));
-        String contents = readTextFile(joinPath(repo_root, "other_languages/python/builder.py"));
+        String contents = loadAsset("python/builder.py");
         if (contents.length()) {
             return contents;
         }
@@ -1525,13 +1835,117 @@ namespace elara {
 
     String ProjectBuilder::renderUiPythonPackageRpc(const ProjectOptions &options) {
         (void)options;
-        String executable_dir = pathDirectory(executable_path);
-        String repo_root = pathDirectory(pathDirectory(executable_dir));
-        String contents = readTextFile(joinPath(repo_root, "other_languages/python/rpc.py"));
+        String contents = loadAsset("python/rpc.py");
         if (contents.length()) {
             return contents;
         }
         return readTextFile("./other_languages/python/rpc.py");
+    }
+
+    String ProjectBuilder::renderUiPythonWorkerTemplate(const ProjectOptions &options) {
+        (void)options;
+        String contents;
+        contents += "#!/usr/bin/env python3\n\n";
+        contents += "import json\n";
+        contents += "import sys\n";
+        contents += "import time\n\n\n";
+        contents += "def main():\n";
+        contents += "    iterations = 8\n";
+        contents += "    if len(sys.argv) > 1:\n";
+        contents += "        iterations = int(sys.argv[1])\n";
+        contents += "    for index in range(iterations):\n";
+        contents += "        print(json.dumps({\"worker\": \"template\", \"tick\": index}), flush=True)\n";
+        contents += "        time.sleep(0.15)\n\n\n";
+        contents += "if __name__ == \"__main__\":\n";
+        contents += "    main()\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderUiPythonMultiCpuHelper(const ProjectOptions &options) {
+        (void)options;
+        String contents;
+        contents += "from elara_threads import PythonProcessThread\n";
+        contents += "from elara_threads import init_pool\n\n\n";
+        contents += "def ensure_multi_cpu_runtime(thread_count=2):\n";
+        contents += "    init_pool(thread_count)\n\n\n";
+        contents += "class MultiCpuWorkerTemplate:\n";
+        contents += "    def __init__(self, script_path, args=None, python_executable=None):\n";
+        contents += "        self._thread = PythonProcessThread(script_path, args=args or [], python_executable=python_executable)\n\n";
+        contents += "    def start(self):\n";
+        contents += "        self._thread.start()\n";
+        contents += "        return self\n\n";
+        contents += "    def stop(self):\n";
+        contents += "        self._thread.stop()\n\n";
+        contents += "    def wait(self, timeout_ms=-1):\n";
+        contents += "        return self._thread.wait(timeout_ms=timeout_ms)\n\n";
+        contents += "    def snapshot(self):\n";
+        contents += "        return self._thread.snapshot()\n";
+        return contents;
+    }
+
+    String ProjectBuilder::renderProjectBuilderConfig(const ProjectOptions &options) {
+        String contents;
+        contents += "project_name=";
+        contents += options.project_name;
+        contents += "\n";
+        contents += "target_name=";
+        contents += options.target_name;
+        contents += "\n";
+        contents += "application_kind=";
+        contents += applicationKindName(options.application_kind);
+        contents += "\n";
+        contents += "ui_client_language=";
+        contents += uiClientLanguageName(options.ui_client_language);
+        contents += "\n";
+        contents += "ui_template=";
+        contents += uiTemplateName(options.ui_template);
+        contents += "\n";
+        contents += "include_python_multi_cpu_template=";
+        contents += boolTemplateValue(options.include_python_multi_cpu_template);
+        contents += "\n";
+        contents += "include_repl=";
+        contents += boolTemplateValue(options.include_repl);
+        contents += "\n";
+        contents += "socket_mode=";
+        if (options.socket_mode == ProjectOptions::SOCKET_SERVER) {
+            contents += "server";
+        } else if (options.socket_mode == ProjectOptions::SOCKET_CLIENT) {
+            contents += "client";
+        } else {
+            contents += "none";
+        }
+        contents += "\n";
+        contents += "socket_transport=";
+        contents += options.socket_transport == ProjectOptions::SOCKET_TRANSPORT_JSON_RPC ? "json-rpc" : "plain";
+        contents += "\n";
+        contents += "include_debug_harness=";
+        contents += boolTemplateValue(options.include_debug_harness);
+        contents += "\n";
+        contents += "include_thread_pool=";
+        contents += boolTemplateValue(options.include_thread_pool);
+        contents += "\n";
+        contents += "include_threaded_worker=";
+        contents += boolTemplateValue(options.include_threaded_worker);
+        contents += "\n";
+        contents += "include_indexed_data_store=";
+        contents += boolTemplateValue(options.include_indexed_data_store);
+        contents += "\n";
+        contents += "worker_name=";
+        contents += options.worker_name;
+        contents += "\n";
+        contents += "socket_address=";
+        contents += options.socket_address;
+        contents += "\n";
+        contents += "socket_port=";
+        contents += String(options.socket_port);
+        contents += "\n";
+        contents += "indexed_data_store_path=";
+        contents += options.indexed_data_store_path;
+        contents += "\n";
+        contents += "indexed_data_store_bank_map_redundancy=";
+        contents += String(options.indexed_data_store_bank_map_redundancy);
+        contents += "\n";
+        return contents;
     }
 
     String ProjectBuilder::renderMainCpp(const ProjectOptions &options) {

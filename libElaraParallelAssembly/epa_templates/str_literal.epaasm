@@ -1,0 +1,6 @@
+.SSTR 0 "Hello world\n"
+.SSTR 1 "r0=%d r1=%u"
+ENTRY_START 0 0 0
+  ; ...
+ENTRY_END
+END

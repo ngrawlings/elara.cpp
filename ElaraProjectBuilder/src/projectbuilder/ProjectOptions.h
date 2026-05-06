@@ -37,6 +37,7 @@ namespace elara {
             application_kind(APPLICATION_CONSOLE),
             ui_client_language(UI_CLIENT_CPP),
             ui_template(UI_TEMPLATE_TABBED_CONTROL_PANEL),
+            include_python_multi_cpu_template(false),
             include_repl(true),
             socket_mode(SOCKET_DISABLED),
             socket_transport(SOCKET_TRANSPORT_PLAIN),
@@ -58,6 +59,7 @@ namespace elara {
         ApplicationKind application_kind;
         UiClientLanguage ui_client_language;
         UiTemplate ui_template;
+        bool include_python_multi_cpu_template;
         bool include_repl;
         SocketMode socket_mode;
         SocketTransport socket_transport;

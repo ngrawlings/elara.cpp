@@ -40,6 +40,7 @@ namespace elara {
         ProjectOptions::ApplicationKind promptApplicationKind();
         ProjectOptions::UiClientLanguage promptUiClientLanguage();
         ProjectOptions::UiTemplate promptUiTemplate();
+        bool promptPythonMultiCpuTemplate();
         ProjectOptions::SocketMode promptSocketMode();
         ProjectOptions::SocketTransport promptSocketTransport();
 
@@ -62,6 +63,8 @@ namespace elara {
         String renderUiPythonPackageInit(const ProjectOptions &options);
         String renderUiPythonPackageBuilder(const ProjectOptions &options);
         String renderUiPythonPackageRpc(const ProjectOptions &options);
+        String renderUiPythonWorkerTemplate(const ProjectOptions &options);
+        String renderUiPythonMultiCpuHelper(const ProjectOptions &options);
         String renderTestMainCpp(const ProjectOptions &options);
         String renderDebugTestsHeader(const ProjectOptions &options);
         String renderDebugTestsCpp(const ProjectOptions &options);
@@ -77,9 +80,11 @@ namespace elara {
         String renderJsonRPCServiceCpp(const ProjectOptions &options);
         String renderJsonRPCClientHeader(const ProjectOptions &options);
         String renderJsonRPCClientCpp(const ProjectOptions &options);
+        String renderProjectBuilderConfig(const ProjectOptions &options);
         String loadAgentReference();
         String loadAsset(String relative_path);
         String readTextFile(String path);
+        bool loadSavedProjectOptions(String output_directory, ProjectOptions *options);
 
         bool writeProjectFiles(String output_directory, const Array<PROJECT_FILE> &files);
         bool ensureDirectory(String path);

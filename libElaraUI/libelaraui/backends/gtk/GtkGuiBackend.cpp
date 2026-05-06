@@ -2,6 +2,23 @@
 
 namespace elara {
 
+namespace {
+
+PangoLayout* createLayout(cairo_t* cr, const String& text, double size) {
+    PangoLayout* layout = pango_cairo_create_layout(cr);
+    PangoFontDescription* desc = pango_font_description_new();
+
+    pango_font_description_set_family(desc, "Sans");
+    pango_font_description_set_absolute_size(desc, size * PANGO_SCALE);
+    pango_layout_set_font_description(layout, desc);
+    pango_layout_set_text(layout, (const char*)text, -1);
+
+    pango_font_description_free(desc);
+    return layout;
+}
+
+}
+
 void GtkDrawContext::clear(double r, double g, double b) {
     cairo_set_source_rgb(cr, r, g, b);
     cairo_paint(cr);
@@ -29,32 +46,25 @@ void GtkDrawContext::line(double x1, double y1, double x2, double y2, double wid
 }
 
 void GtkDrawContext::drawText(double x, double y, const String& text, double size) {
-    cairo_select_font_face(
-        cr,
-        "Sans",
-        CAIRO_FONT_SLANT_NORMAL,
-        CAIRO_FONT_WEIGHT_NORMAL
-    );
+    PangoLayout* layout = createLayout(cr, text, size);
+    PangoLayoutLine* line = pango_layout_get_line_readonly(layout, 0);
 
-    cairo_set_font_size(cr, size);
     cairo_move_to(cr, x, y);
-    cairo_show_text(cr, (const char*)text);
+    pango_cairo_show_layout_line(cr, line);
+
+    g_object_unref(layout);
 }
 
 double GtkDrawContext::measureTextWidth(const String& text, double size) {
-    cairo_text_extents_t extents;
+    PangoLayout* layout = createLayout(cr, text, size);
+    PangoRectangle logical;
+    double width = 0;
 
-    cairo_select_font_face(
-        cr,
-        "Sans",
-        CAIRO_FONT_SLANT_NORMAL,
-        CAIRO_FONT_WEIGHT_NORMAL
-    );
+    pango_layout_get_pixel_extents(layout, 0, &logical);
+    width = logical.width;
 
-    cairo_set_font_size(cr, size);
-    cairo_text_extents(cr, (const char*)text, &extents);
-
-    return extents.x_advance;
+    g_object_unref(layout);
+    return width;
 }
 
 GtkGuiBackend::GtkGuiBackend(const String& app_id)

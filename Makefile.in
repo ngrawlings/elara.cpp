@@ -8,6 +8,10 @@ PROJECT_DIRS := \
 	libElaraIO \
 	libElaraData \
 	libElaraSockets \
+	libElaraUI \
+	libElaraUiRpc \
+	libElaraPythonThreads \
+	libElaraParallelAssembly \
 	libElaraSerializer \
 	ElaraUnitTests \
 	ElaraProjectBuilder \
@@ -62,6 +66,10 @@ libElaraEvent: libElaraCore libElaraDebug libElaraThreads
 libElaraFormat: libElaraCore libElaraIO
 libElaraData: libElaraCore
 libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
+libElaraUI: libElaraCore libElaraThreads libElaraFormat libElaraIO
+libElaraUiRpc: libElaraCore libElaraThreads libElaraFormat libElaraSockets libElaraUI
+libElaraPythonThreads: libElaraCore libElaraThreads
+libElaraParallelAssembly: libElaraCore
 libElaraSerializer: libElaraCore
 ElaraUnitTests: libElaraCore libElaraDebug
 ElaraProjectBuilder: libElaraCore libElaraIO
@@ -131,20 +139,31 @@ clean cleanconf:
 	done
 
 install:
-	@for dir in $(BUILD_PROJECTS); do \
-		if [ -f "$$dir/Makefile" ]; then \
-			$(MAKE) -C $$dir install ROOT_BUILD_DIR="$(INSTALL_ROOT_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
-		else \
-			echo "Skipping $$dir install: no Makefile available"; \
+	@if [ ! -d "$(ROOT_BUILD_DIR)/include" ] && [ ! -d "$(ROOT_BUILD_DIR)/lib" ] && [ ! -d "$(ROOT_BUILD_DIR)/bin" ] && [ ! -d "$(ROOT_BUILD_DIR)/share" ]; then \
+		echo "Missing staged artifacts under $(ROOT_BUILD_DIR). Run make or ./build.sh first."; \
+		exit 1; \
+	fi
+	@for subdir in bin include lib share; do \
+		src="$(ROOT_BUILD_DIR)/$$subdir"; \
+		if [ -d "$$src" ]; then \
+			find "$$src" -type f | while IFS= read -r source_path; do \
+				relative_path="$${source_path#$(ROOT_BUILD_DIR)/}"; \
+				dest_path="$(INSTALL_ROOT_DIR)/$$relative_path"; \
+				mkdir -p "$$(dirname "$$dest_path")"; \
+				cp "$$source_path" "$$dest_path" || exit $$?; \
+			done || exit $$?; \
 		fi; \
 	done
 
 remove:
-	@for dir in $(BUILD_PROJECTS); do \
-		if [ -f "$$dir/Makefile" ]; then \
-			$(MAKE) -C $$dir remove ROOT_BUILD_DIR="$(INSTALL_ROOT_DIR)" CFLAGS="$(TOOLCHAIN_CFLAGS)" LDFLAGS="$(TOOLCHAIN_LDFLAGS)" || exit $$?; \
-		else \
-			echo "Skipping $$dir remove: no Makefile available"; \
+	@for subdir in bin include lib share; do \
+		src="$(ROOT_BUILD_DIR)/$$subdir"; \
+		if [ -d "$$src" ]; then \
+			find "$$src" -type f | while IFS= read -r source_path; do \
+				relative_path="$${source_path#$(ROOT_BUILD_DIR)/}"; \
+				dest_path="$(INSTALL_ROOT_DIR)/$$relative_path"; \
+				rm -f "$$dest_path" || exit $$?; \
+			done || exit $$?; \
 		fi; \
 	done
 

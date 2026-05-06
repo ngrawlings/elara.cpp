@@ -17,11 +17,6 @@ SOURCES=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -n
 HEADERS=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
 
-CLIENT_SOURCE=./demo/client.cpp
-CLIENT_TARGET=$(BUILDPATH)/bin/libelarauirpc-client
-CLIENT_CFLAGS= -I$(shell pwd) -I../libElaraUI -I$(STAGE_INCLUDE_DIR) $(DEFS)
-CLIENT_LDFLAGS=-L$(BUILDPATH) -lelarauirpc -L$(STAGE_LIB_DIR) -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore
-
 all: $(SOURCES) $(STATIC_LIBRARY)
 
 $(STATIC_LIBRARY): $(OBJECTS)
@@ -46,14 +41,9 @@ install: all
 	mkdir -p $(INSTALL_LIB_PATH)
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
 
-client: $(STATIC_LIBRARY)
-	@[ -d $(BUILDPATH)/bin ] || mkdir -p $(BUILDPATH)/bin
-	$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_SOURCE) -o $(CLIENT_TARGET) $(CLIENT_LDFLAGS)
-
 clean:
 	rm -Rf $(BUILDPATH)/*.o
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
-	rm -f $(CLIENT_TARGET)
 
 remove:
 	rm -Rf $(INSTALL_HEADER_PATH)

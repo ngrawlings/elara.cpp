@@ -1,0 +1,169 @@
+#pragma once
+
+#include <stddef.h>
+#include <stdio.h>
+
+typedef struct ETypeRef {
+  char *name;
+} ETypeRef;
+
+typedef struct EParam {
+  ETypeRef type;
+  char *name;
+} EParam;
+
+typedef struct EExpr EExpr;
+typedef struct EStmt EStmt;
+typedef struct ESwitchCase ESwitchCase;
+
+typedef enum {
+  E_EXPR_IDENT = 1,
+  E_EXPR_INT,
+  E_EXPR_STRING,
+  E_EXPR_BINARY,
+  E_EXPR_ASSIGN,
+  E_EXPR_CALL,
+  E_EXPR_FIELD,
+} EExprKind;
+
+typedef enum {
+  E_BIN_ADD = 1,
+  E_BIN_SUB,
+  E_BIN_MUL,
+  E_BIN_DIV,
+} EBinaryOp;
+
+struct EExpr {
+  EExprKind kind;
+  union {
+    char *ident;
+    long long int_lit;
+    char *string_lit;
+    struct {
+      EBinaryOp op;
+      EExpr *lhs;
+      EExpr *rhs;
+    } binary;
+    struct {
+      EExpr *lhs;
+      EExpr *rhs;
+    } assign;
+    struct {
+      char *callee;
+      EExpr **args;
+      size_t arg_count;
+    } call;
+    struct {
+      EExpr *base;
+      char *field;
+    } field;
+  } as;
+};
+
+typedef enum {
+  E_STMT_DECL = 1,
+  E_STMT_RETURN,
+  E_STMT_EXPR,
+  E_STMT_BLOCK,
+  E_STMT_IF,
+  E_STMT_SWITCH,
+  E_STMT_BREAK,
+} EStmtKind;
+
+typedef struct {
+  ETypeRef type;
+  char *name;
+  EExpr *init;
+} EDeclStmt;
+
+typedef struct {
+  EStmt **items;
+  size_t count;
+} EStmtList;
+
+struct ESwitchCase {
+  int is_default;
+  long long value;
+  EStmtList body;
+};
+
+struct EStmt {
+  EStmtKind kind;
+  union {
+    EDeclStmt decl;
+    EExpr *expr;
+    struct {
+      EExpr *value;
+    } ret;
+    EStmtList block;
+    struct {
+      EExpr *cond;
+      EStmt *then_branch;
+      EStmt *else_branch;
+    } if_stmt;
+    struct {
+      EExpr *target;
+      ESwitchCase *cases;
+      size_t case_count;
+    } switch_stmt;
+  } as;
+};
+
+typedef struct {
+  ETypeRef return_type;
+  char *name;
+  EParam *params;
+  size_t param_count;
+  EStmt *body;
+} EFunction;
+
+typedef struct {
+  char *name;
+  EParam *params;
+  size_t param_count;
+  EStmt *body;
+} EWorker;
+
+typedef struct {
+  EParam *params;
+  size_t param_count;
+  EStmt *body;
+} EKernel;
+
+typedef struct {
+  char *name;
+} EStructDecl;
+
+typedef struct {
+  char *name;
+  EParam *params;
+  size_t param_count;
+  EStmt *body;
+} ETypeDecl;
+
+typedef enum {
+  E_TOP_STRUCT = 1,
+  E_TOP_KERNEL,
+  E_TOP_WORKER,
+  E_TOP_FUNCTION,
+  E_TOP_TYPE,
+} ETopKind;
+
+typedef struct {
+  ETopKind kind;
+  union {
+    EStructDecl sdecl;
+    EKernel kernel;
+    EWorker worker;
+    EFunction func;
+    ETypeDecl tdecl;
+  } as;
+} ETopDecl;
+
+typedef struct {
+  ETopDecl *items;
+  size_t count;
+} EProgram;
+
+void e_program_free(EProgram *p);
+void e_program_dump(FILE *out, const EProgram *p);

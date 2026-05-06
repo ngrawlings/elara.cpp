@@ -1,0 +1,139 @@
+NAME=libelaraparallelassembly
+CC=@CC@
+AR=ar
+DEFS=@DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+STAGE_SHARE_DIR=$(ROOT_BUILD_DIR)/share/$(NAME)
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+STATIC_LIBRARY=$(NAME).a
+LEGACY_SHARED=libepa_kernel.so
+
+RM ?= rm -f
+MKDIR ?= mkdir -p
+MAKE ?= make
+PYTHON ?= python3
+
+STD_CFLAGS=@ARCH@ -std=gnu11 -c -fPIC -I$(shell pwd) -I./src -I$(STAGE_INCLUDE_DIR) $(DEFS)
+PROJECT_CFLAGS=$(filter-out -std=gnu++11,$(CFLAGS))
+PROJECT_LDFLAGS=$(LDFLAGS)
+EPA_FEATURE_DEFS=-D_POSIX_C_SOURCE=200809L -D_DEFAULT_SOURCE
+
+SRC_DIR=./src
+TOOLS_SRC_DIR=./tools
+UNIT_DIR=./unittests
+E_DIR=./e
+
+SOURCES=$(shell for file in `@TOOLPATH@find $(SRC_DIR) -type f -name '*.c' -print`; do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find $(SRC_DIR) -type f -name '*.h' -print`; do echo $$file; done)
+DOCS=$(shell for file in `@TOOLPATH@find ./docs -type f -print`; do echo $$file; done)
+OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.o,$(SOURCES))
+
+TOOLS_BUILD=$(BUILDPATH)/tools
+EPAASM_REPL=$(TOOLS_BUILD)/epa_asm_repl
+EPAASM_REPL_OBJS=$(TOOLS_BUILD)/epa_asm_repl.o $(TOOLS_BUILD)/epa_asm_compiler.o
+
+SHARED_LDLIBS=-pthread -lglfw -lGL -ldl -lrt
+
+.PHONY: all install clean remove cleanconf isa-lint legacy-shared tools unit clean-unit e epa-build clean-e test
+
+all: $(STATIC_LIBRARY)
+
+isa-lint:
+	$(PYTHON) scripts/isa_lint.py
+
+$(STATIC_LIBRARY): $(OBJECTS)
+	@$(MKDIR) $(BUILDPATH)
+	$(AR) rcs $(BUILDPATH)/$@ $(OBJECTS)
+
+$(BUILDPATH)/src/%.o: ./src/%.c
+	@$(MKDIR) $(dir $@)
+	$(CC) $(STD_CFLAGS) $(PROJECT_CFLAGS) $< -o $@
+
+legacy-shared: isa-lint $(OBJECTS)
+	@$(MKDIR) $(BUILDPATH)
+	$(CC) -shared $(PROJECT_LDFLAGS) -o $(BUILDPATH)/$(LEGACY_SHARED) $(OBJECTS) $(SHARED_LDLIBS)
+
+tools: $(EPAASM_REPL)
+
+$(EPAASM_REPL): $(EPAASM_REPL_OBJS)
+	@$(MKDIR) $(TOOLS_BUILD)
+	$(CC) -o $@ $(EPAASM_REPL_OBJS)
+
+$(TOOLS_BUILD)/epa_asm_repl.o: $(TOOLS_SRC_DIR)/epa_asm_repl.c
+	@$(MKDIR) $(TOOLS_BUILD)
+	$(CC) -std=gnu11 $(EPA_FEATURE_DEFS) -I./src $(PROJECT_CFLAGS) -c $< -o $@
+
+$(TOOLS_BUILD)/epa_asm_compiler.o: $(SRC_DIR)/epa_asm_compiler.c
+	@$(MKDIR) $(TOOLS_BUILD)
+	$(CC) -std=gnu11 $(EPA_FEATURE_DEFS) -I./src $(PROJECT_CFLAGS) -c $< -o $@
+
+unit:
+	@$(MAKE) -f $(UNIT_DIR)/Makefile \
+		PYTHON="$(PYTHON)" \
+		CC="$(CC)" \
+		CFLAGS="$(filter-out -std=gnu++11,$(PROJECT_CFLAGS)) -std=gnu11 $(EPA_FEATURE_DEFS) -I$(shell pwd)/src -I$(shell pwd)/unittests" \
+		LDFLAGS="" \
+		LDLIBS="-ldl -lm" \
+		unit_runner
+
+clean-unit:
+	@$(MAKE) -f $(UNIT_DIR)/Makefile clean-unit
+
+e:
+	@$(MAKE) -C $(E_DIR) \
+		CC="$(CC)" \
+		CFLAGS="-std=gnu11 $(EPA_FEATURE_DEFS) $(filter-out -std=gnu++11,$(PROJECT_CFLAGS))"
+
+epa-build:
+	@$(MAKE) -C $(E_DIR) \
+		CC="$(CC)" \
+		CFLAGS="-std=gnu11 $(EPA_FEATURE_DEFS) $(filter-out -std=gnu++11,$(PROJECT_CFLAGS))" \
+		epa-build
+
+clean-e:
+	@$(MAKE) -C $(E_DIR) clean
+
+test: legacy-shared
+	@$(MAKE) -f $(UNIT_DIR)/Makefile \
+		PYTHON="$(PYTHON)" \
+		CC="$(CC)" \
+		CFLAGS="$(filter-out -std=gnu++11,$(PROJECT_CFLAGS)) -std=gnu11 $(EPA_FEATURE_DEFS) -I$(shell pwd)/src -I$(shell pwd)/unittests" \
+		LDFLAGS="" \
+		LDLIBS="-ldl -lm" \
+		ctests
+	@echo "Running EPA unit tests"
+	$(BUILDPATH)/unittests/epa_unit_runner $(BUILDPATH)/$(LEGACY_SHARED) $(UNIT_DIR)/tests 5000000
+
+install: all
+	@for header in $(HEADERS); do \
+		rel="$${header#./src/}"; \
+		dst="$(INSTALL_HEADER_PATH)/$$rel"; \
+		[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+		cp "$$header" "$$dst" || exit $$?; \
+	done
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	@if [ -n "$(DOCS)" ]; then \
+		for doc in $(DOCS); do \
+			rel="$${doc#./docs/}"; \
+			dst="$(STAGE_SHARE_DIR)/docs/$$rel"; \
+			[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+			cp "$$doc" "$$dst" || exit $$?; \
+		done; \
+	fi
+
+clean:
+	rm -rf $(BUILDPATH)
+
+remove:
+	rm -rf $(INSTALL_HEADER_PATH)
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	rm -rf $(STAGE_SHARE_DIR)
+
+cleanconf:
+	rm -rf config.status autom4te.cache
+	rm -f config.log config.h Makefile

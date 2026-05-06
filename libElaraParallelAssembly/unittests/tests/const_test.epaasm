@@ -1,0 +1,98 @@
+; datablock_dump.epaasm
+; Verifies DATA_BLOCK emission + loader parse + LOAD_CONST works.
+; Worker sends (kind, off, len) triples to kernel OUTQ1.
+; Kernel drains OUTQ1 and stores last triple in locals for host to print.
+
+; --------------------------
+; Const pool (DATA_BLOCK)
+; --------------------------
+.CONST_STR  0 "Hello world\n"
+.CONST_STR  1 "Second string\n"
+.CONST_STR  2 "Third: 123\n"
+.CONST_STR  3 "Last line.\n"
+
+; --------------------------
+; Kernel (block 0)
+; --------------------------
+ENTRY_START 0 0 0
+
+KERNEL_LOOP:
+  ; run worker 1 until it yields/syncs/halts/end-of-block
+  ENTRY_EXEC 1
+
+  ; wait until any worker SYNC arrives
+  WAIT_ON_SYNC
+
+DRAIN_OUT:
+  ; if OUT_AVAIL(1) < 1 => empty
+  OUT_AVAIL 1
+  PUSH_I32 1
+  LT_I32
+  JNZ KERNEL_LOOP
+
+  ; Pop triple: kind, off, len
+  OUT_POP 1
+  STORE_L 0       ; L0 = kind (u32)
+
+  OUT_POP 1
+  STORE_L 1       ; L1 = abs_off (u32)
+
+  OUT_POP 1
+  STORE_L 2       ; L2 = len (u32)
+
+  ; Loop until OUTQ empty
+  JMP DRAIN_OUT
+
+END
+
+
+; --------------------------
+; Worker 1 (block 1)
+; --------------------------
+ENTRY_START 1 0 0
+
+  ; Send const #0
+  LOAD_CONST 0
+  ; Expect: r0=off r1=len r2=kind(STR)
+  ; Push triple to OUTQ1: kind, off, len
+  PUSH_R 2
+  OUT_PUSH 1
+  PUSH_R 0
+  OUT_PUSH 1
+  PUSH_R 1
+  OUT_PUSH 1
+
+  ; Send const #1
+  LOAD_CONST 1
+  PUSH_R 2
+  OUT_PUSH 1
+  PUSH_R 0
+  OUT_PUSH 1
+  PUSH_R 1
+  OUT_PUSH 1
+
+  ; Send const #2
+  LOAD_CONST 2
+  PUSH_R 2
+  OUT_PUSH 1
+  PUSH_R 0
+  OUT_PUSH 1
+  PUSH_R 1
+  OUT_PUSH 1
+
+  ; Send const #3
+  LOAD_CONST 3
+  PUSH_R 2
+  OUT_PUSH 1
+  PUSH_R 0
+  OUT_PUSH 1
+  PUSH_R 1
+  OUT_PUSH 1
+
+  ; Tell kernel we're done sending
+  SYNC
+
+  ; Halt worker
+  HALT
+
+END

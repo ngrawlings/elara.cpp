@@ -1,0 +1,475 @@
+// src/epa_sched_cpu_thread.c
+#include "epa_kernel.h"
+#include "epa_kernel_internal.h"
+#include "epa_kernel_hooks.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <pthread.h>
+#include <stdatomic.h>
+
+// ------------------------------------------------------------
+// CPU thread scheduler profile (first draft)
+//
+// Semantics:
+//  - One OS thread is bound to at most one worker at a time.
+//  - When a worker becomes runnable (ENTRY_EXEC), it may acquire a pool thread.
+//  - When a worker blocks/waits, its bound thread is returned to the pool.
+//  - When the worker wakes again, it can acquire a (possibly different) thread.
+//
+// IMPORTANT: This is intentionally a minimal first draft.
+//  - It preserves the existing single-threaded worker semantics.
+//  - It keeps kernel/worker interaction unidirectional via ring buffers.
+//  - It does not attempt to implement CUDA hot-idle; only CPU sleep.
+// ------------------------------------------------------------
+
+typedef struct CpuThreadState CpuThreadState;
+
+typedef struct {
+  EpaKernel *k;
+  CpuThreadState *st;
+  int32_t tid;
+} CpuThreadArg;
+
+typedef struct CpuThreadState {
+  pthread_mutex_t mu;
+  pthread_cond_t  cv;
+
+  uint32_t n_threads;
+  pthread_t *threads;
+
+  // tid->wid binding; -1 means idle thread
+  int32_t *tid_to_wid;
+
+  // wid->tid binding; -1 means no thread currently assigned
+  int32_t wid_to_tid[EPA_MAX_WORKERS];
+
+  // stop all worker threads
+  int stop;
+
+  // interrupt barrier:
+  // - when set, worker threads finish at most one tick and then park (unbind)
+  // - scheduler returns 2 once all threads are idle
+  _Atomic int interrupt;
+
+} CpuThreadState;
+
+static inline int worker_runnable(const EpaWorkerState *w) {
+  return w && w->inited && !w->halted && !w->faulted && !w->blocked;
+}
+
+static void unbind_locked(CpuThreadState *st, int32_t tid) {
+  int32_t wid = st->tid_to_wid[tid];
+  if (wid >= 0 && wid < (int32_t)EPA_MAX_WORKERS) {
+    st->wid_to_tid[wid] = -1;
+  }
+  st->tid_to_wid[tid] = -1;
+}
+
+// Execute exactly one worker tick (same semantics as wave scheduler).
+// Returns:
+//   0 = error/faulted
+//   1 = ok (continue)
+//   2 = kernel ended (worker 0 halted)
+static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
+  EpaWorkerState *w = &k->impl.workers[wid];
+
+  k->impl.cur_wid = wid;
+
+  EpaFlowRc frc = epa_flow_step(
+      k,
+      &k->flow,
+      w,
+      (EpaStack*)&w->vm.stack,
+      err
+  );
+
+  if (frc == EPA_FLOW_ERR) {
+    w->faulted = 1;
+    kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0002u, &w->vm.eip, err);
+    return 0;
+  }
+
+  if (frc == EPA_FLOW_OK) {
+    w->halted = 1;
+    if (wid == 0) return 2; // kernel ended
+    return 1;
+  }
+
+  if (frc == EPA_FLOW_NOT_FLOW) {
+    EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, k->vp, &k->prog, w, &w->vm.eip, err);
+
+    if (nrc == EPA_NF_EXEC_ERR) {
+      w->faulted = 1;
+      kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0003u, &w->vm.eip, err);
+      return 0;
+    }
+
+    if (nrc == EPA_NF_EXEC_HALT) {
+      w->halted = 1;
+      if (wid == 0) return 2;
+      return 1;
+    }
+  }
+
+  // Yielded or ran one step.
+  return 1;
+}
+
+static void* cpu_worker_thread_main(void *argp) {
+  CpuThreadArg *a = (CpuThreadArg*)argp;
+  EpaKernel *k = a->k;
+  CpuThreadState *st = a->st;
+  int32_t tid = a->tid;
+  free(a);
+
+  char err[EPA_MAX_ERR];
+  err[0] = 0;
+
+  for (;;) {
+    // Wait until assigned a worker, interrupted, or stopping.
+    pthread_mutex_lock(&st->mu);
+
+    while (!st->stop &&
+           atomic_load(&st->interrupt) == 0 &&
+           st->tid_to_wid[tid] < 0) {
+      pthread_cond_wait(&st->cv, &st->mu);
+    }
+
+    if (st->stop) {
+      pthread_mutex_unlock(&st->mu);
+      break;
+    }
+
+    // If interrupted, park (ensure unbound) and keep waiting.
+    if (atomic_load(&st->interrupt) != 0) {
+      if (st->tid_to_wid[tid] >= 0) {
+        unbind_locked(st, tid);
+        pthread_cond_broadcast(&st->cv);
+      }
+      pthread_mutex_unlock(&st->mu);
+      continue;
+    }
+
+    int32_t wid = st->tid_to_wid[tid];
+    pthread_mutex_unlock(&st->mu);
+
+    if (wid < 0 || wid >= (int32_t)EPA_MAX_WORKERS) {
+      continue;
+    }
+
+    // Execute ticks for this worker until it blocks/halts/faults or interrupt requested.
+    for (;;) {
+      if (atomic_load(&st->interrupt) != 0 || k->impl.interrupt_requested) {
+        // Stop at safe boundary (after a tick).
+        pthread_mutex_lock(&st->mu);
+        if (st->tid_to_wid[tid] == wid) {
+          unbind_locked(st, tid);
+          pthread_cond_broadcast(&st->cv);
+        }
+        pthread_mutex_unlock(&st->mu);
+        break;
+      }
+
+      EpaWorkerState *w = &k->impl.workers[wid];
+      if (!worker_runnable(w)) {
+        // worker entered wait/halt/fault; return thread to pool
+        pthread_mutex_lock(&st->mu);
+        if (st->tid_to_wid[tid] == wid) {
+          unbind_locked(st, tid);
+          pthread_cond_broadcast(&st->cv);
+        }
+        pthread_mutex_unlock(&st->mu);
+        break;
+      }
+
+      int rc = exec_one_tick(k, (uint32_t)wid, err);
+      if (rc == 0) {
+        // fault; unbind and park
+        pthread_mutex_lock(&st->mu);
+        if (st->tid_to_wid[tid] == wid) {
+          unbind_locked(st, tid);
+          pthread_cond_broadcast(&st->cv);
+        }
+        pthread_mutex_unlock(&st->mu);
+        break;
+      }
+
+      if (rc == 2) {
+        // kernel ended (worker 0 halted)
+        pthread_mutex_lock(&st->mu);
+        st->stop = 1;
+        pthread_cond_broadcast(&st->cv);
+        pthread_mutex_unlock(&st->mu);
+        break;
+      }
+
+      // Continue; worker may block on next iteration.
+    }
+  }
+
+  return NULL;
+}
+
+static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
+  if (err) err[0] = 0;
+  if (!k || !s) {
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: null kernel/state");
+    return 0;
+  }
+
+  CpuThreadState *st = (CpuThreadState*)calloc(1, sizeof(CpuThreadState));
+  if (!st) {
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM");
+    return 0;
+  }
+
+  // First draft: one thread per potential worker, capped by EPA_MAX_WORKERS.
+  // Later you can make this configurable (k->impl, env, profile config, etc).
+  st->n_threads = EPA_MAX_WORKERS;
+
+  st->threads = (pthread_t*)calloc(st->n_threads, sizeof(pthread_t));
+  st->tid_to_wid = (int32_t*)malloc(sizeof(int32_t) * st->n_threads);
+  if (!st->threads || !st->tid_to_wid) {
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM (threads/map)");
+    free(st->threads);
+    free(st->tid_to_wid);
+    free(st);
+    return 0;
+  }
+
+  for (uint32_t i = 0; i < st->n_threads; i++) st->tid_to_wid[i] = -1;
+  for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) st->wid_to_tid[i] = -1;
+
+  pthread_mutex_init(&st->mu, NULL);
+  pthread_cond_init(&st->cv, NULL);
+
+  atomic_store(&st->interrupt, 0);
+  st->stop = 0;
+
+  for (uint32_t i = 0; i < st->n_threads; i++) {
+    CpuThreadArg *a = (CpuThreadArg*)calloc(1, sizeof(CpuThreadArg));
+    if (!a) {
+      if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM (arg)");
+      st->stop = 1;
+      pthread_cond_broadcast(&st->cv);
+      for (uint32_t j = 0; j < i; j++) pthread_join(st->threads[j], NULL);
+      pthread_cond_destroy(&st->cv);
+      pthread_mutex_destroy(&st->mu);
+      free(st->threads);
+      free(st->tid_to_wid);
+      free(st);
+      return 0;
+    }
+
+    a->k = k;
+    a->st = st;
+    a->tid = (int32_t)i;
+
+    if (pthread_create(&st->threads[i], NULL, cpu_worker_thread_main, a) != 0) {
+      free(a);
+      if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: pthread_create failed");
+      st->stop = 1;
+      pthread_cond_broadcast(&st->cv);
+      for (uint32_t j = 0; j < i; j++) pthread_join(st->threads[j], NULL);
+      pthread_cond_destroy(&st->cv);
+      pthread_mutex_destroy(&st->mu);
+      free(st->threads);
+      free(st->tid_to_wid);
+      free(st);
+      return 0;
+    }
+  }
+
+  s->opaque = st;
+  return 1;
+}
+
+static void cpu_destroy(EpaKernel *k, EpaSchedState *s) {
+  (void)k;
+  if (!s || !s->opaque) return;
+
+  CpuThreadState *st = (CpuThreadState*)s->opaque;
+
+  pthread_mutex_lock(&st->mu);
+  st->stop = 1;
+  pthread_cond_broadcast(&st->cv);
+  pthread_mutex_unlock(&st->mu);
+
+  for (uint32_t i = 0; i < st->n_threads; i++) {
+    if (st->threads[i]) pthread_join(st->threads[i], NULL);
+  }
+
+  pthread_cond_destroy(&st->cv);
+  pthread_mutex_destroy(&st->mu);
+
+  free(st->threads);
+  free(st->tid_to_wid);
+  free(st);
+
+  s->opaque = NULL;
+}
+
+static void cpu_request_interrupt(EpaKernel *k, EpaSchedState *s) {
+  if (!k) return;
+
+  // keep flag in kernel impl to match wave profile behavior
+  k->impl.interrupt_requested = 1;
+
+  // also force worker threads to park at safe boundary
+  if (s && s->opaque) {
+    CpuThreadState *st = (CpuThreadState*)s->opaque;
+    atomic_store(&st->interrupt, 1);
+    pthread_mutex_lock(&st->mu);
+    pthread_cond_broadcast(&st->cv);
+    pthread_mutex_unlock(&st->mu);
+  }
+}
+
+static void cpu_wake(EpaKernel *k, EpaSchedState *s) {
+  (void)k;
+  if (!s || !s->opaque) return;
+  CpuThreadState *st = (CpuThreadState*)s->opaque;
+  pthread_mutex_lock(&st->mu);
+  pthread_cond_broadcast(&st->cv);
+  pthread_mutex_unlock(&st->mu);
+}
+
+// Bind free pool threads to runnable workers.
+static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
+  // NOTE: called under st->mu.
+  if (atomic_load(&st->interrupt) != 0 || k->impl.interrupt_requested) return;
+
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    EpaWorkerState *w = &k->impl.workers[wid];
+    if (!worker_runnable(w)) continue;
+    if (st->wid_to_tid[wid] >= 0) continue; // already bound
+
+    // Find a free thread
+    int32_t free_tid = -1;
+    for (uint32_t tid = 0; tid < st->n_threads; tid++) {
+      if (st->tid_to_wid[tid] < 0) { free_tid = (int32_t)tid; break; }
+    }
+    if (free_tid < 0) return; // no free threads right now
+
+    st->tid_to_wid[free_tid] = (int32_t)wid;
+    st->wid_to_tid[wid] = free_tid;
+  }
+
+  pthread_cond_broadcast(&st->cv);
+}
+
+static int all_threads_idle_locked(CpuThreadState *st) {
+  for (uint32_t tid = 0; tid < st->n_threads; tid++) {
+    if (st->tid_to_wid[tid] >= 0) return 0;
+  }
+  return 1;
+}
+
+static int cpu_run(EpaKernel *k,
+                   EpaSchedState *s,
+                   uint32_t max_ticks,
+                   int debug,
+                   char err[EPA_MAX_ERR]) {
+  (void)debug;
+
+  if (err) err[0] = 0;
+  if (!k || !k->prog_loaded) {
+    snprintf(err, EPA_MAX_ERR, "run: program not loaded");
+    return 0;
+  }
+  if (!s || !s->opaque) {
+    snprintf(err, EPA_MAX_ERR, "run: cpu_thread scheduler not initialised");
+    return 0;
+  }
+
+  CpuThreadState *st = (CpuThreadState*)s->opaque;
+
+  // Clear interrupt pause at the start of a run invocation.
+  atomic_store(&st->interrupt, 0);
+  k->impl.interrupt_requested = 0;
+
+  // Drain ingress up front (same as wave)
+  if (!epa_kernel_drain_ingress(k, err)) return 0;
+
+  uint32_t ticks = 0;
+
+  for (;;) {
+    if (max_ticks && ticks++ >= max_ticks) {
+      // In this profile, max_ticks is a management loop budget.
+      snprintf(err, EPA_MAX_ERR, "run: cpu_thread budget exhausted after %u ticks", ticks);
+      return 0;
+    }
+
+    // Kernel end condition
+    if (k->impl.workers[0].halted) return 1;
+    if (k->impl.workers[0].faulted) {
+      snprintf(err, EPA_MAX_ERR, "run: worker[0] faulted");
+      return 0;
+    }
+
+    // Drain ingress each management cycle (may wake workers)
+    if (!epa_kernel_drain_ingress(k, err)) return 0;
+
+    pthread_mutex_lock(&st->mu);
+
+    // Bind threads to runnable workers
+    cpu_bind_runnable(k, st);
+
+    // Interrupt/yield handling:
+    if (k->impl.interrupt_requested) {
+      atomic_store(&st->interrupt, 1);
+      pthread_cond_broadcast(&st->cv);
+
+      while (!st->stop && !all_threads_idle_locked(st)) {
+        pthread_cond_wait(&st->cv, &st->mu);
+      }
+
+      // Clear and yield
+      k->impl.interrupt_requested = 0;
+      atomic_store(&st->interrupt, 0);
+
+      pthread_mutex_unlock(&st->mu);
+      return 2;
+    }
+
+    // Determine if any runnable worker is currently unbound (needs a thread)
+    int any_runnable_unbound = 0;
+    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+      EpaWorkerState *w = &k->impl.workers[wid];
+      if (!worker_runnable(w)) continue;
+      if (st->wid_to_tid[wid] < 0) { any_runnable_unbound = 1; break; }
+    }
+
+    if (k->vp) {
+      // With a viewport, keep pumping the UI while still doing binding work.
+      pthread_mutex_unlock(&st->mu);
+      vp_present_gl(k->vp);
+      if (!vp_pump(k->vp)) return 1;
+      // If there is runnable work but no threads, yield to OS briefly:
+      // (optional; keeps CPU down; can be tuned later)
+      // sched_yield();
+      continue;
+    }
+
+    // Headless: sleep until woken by ingress, worker unbind, or explicit wake()
+    if (!any_runnable_unbound) {
+      pthread_cond_wait(&st->cv, &st->mu);
+      pthread_mutex_unlock(&st->mu);
+    } else {
+      // Runnable work exists but no free threads; wait for a thread to return.
+      pthread_cond_wait(&st->cv, &st->mu);
+      pthread_mutex_unlock(&st->mu);
+    }
+  }
+}
+
+const EpaSchedulerVt EPA_SCHED_CPU_THREAD_VT = {
+  .name = "cpu_thread",
+  .init = cpu_init,
+  .destroy = cpu_destroy,
+  .request_interrupt = cpu_request_interrupt,
+  .wake = cpu_wake,
+  .run = cpu_run,
+};

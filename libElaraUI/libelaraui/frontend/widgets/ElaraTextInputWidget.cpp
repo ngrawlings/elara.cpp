@@ -110,6 +110,14 @@ double ElaraTextInputWidget::textViewportWidth() const {
     return viewport > 0 ? viewport : 0;
 }
 
+double ElaraTextInputWidget::measuredTextWidth(ElaraDrawContext* ctx, const String& text) const {
+    if(ctx) {
+        return ctx->measureTextWidth(text, font_size);
+    }
+
+    return estimateTextWidth(text);
+}
+
 double ElaraTextInputWidget::estimateTextWidth(const String& text) const {
     return text.length() * font_size * 0.58;
 }
@@ -118,14 +126,20 @@ double ElaraTextInputWidget::textY() const {
     return (height / 2) + (font_size / 2) - 2;
 }
 
-int ElaraTextInputWidget::visibleTextStart() const {
+void ElaraTextInputWidget::rebuildMetrics(ElaraDrawContext* ctx) {
     double viewport = textViewportWidth();
+    int start = caret_index;
+    int end = 0;
+
+    metrics_cache.visible_start = 0;
+    metrics_cache.visible_text = "";
+    metrics_cache.caret_positions.clear();
+    metrics_cache.caret_positions.push(0.0);
 
     if(viewport <= 0 || value.length() <= 0) {
-        return 0;
+        return;
     }
 
-    int start = caret_index;
     if(start < 0) {
         start = 0;
     }
@@ -134,51 +148,56 @@ int ElaraTextInputWidget::visibleTextStart() const {
     }
 
     while(start > 0) {
-        String visible = value.substr(start - 1, caret_index - start + 1);
-        if(estimateTextWidth(visible) > viewport) {
+        String candidate = value.substr(start - 1, caret_index - start + 1);
+
+        if(measuredTextWidth(ctx, candidate) > viewport) {
             break;
         }
+
         start--;
     }
 
-    return start;
-}
+    end = start;
+    while(end < (int)value.length()) {
+        String candidate = value.substr(start, end - start + 1);
 
-String ElaraTextInputWidget::visibleText() const {
-    int start = visibleTextStart();
-    if(start < 0) {
-        start = 0;
+        if(measuredTextWidth(ctx, candidate) > viewport) {
+            break;
+        }
+
+        end++;
     }
 
-    String visible = value.substr(start);
-    double viewport = textViewportWidth();
+    metrics_cache.visible_start = start;
+    metrics_cache.visible_text = value.substr(start, end - start);
 
-    while(visible.length() > 0 && estimateTextWidth(visible) > viewport) {
-        visible = visible.substr(0, visible.length() - 1);
+    for(int i = 1; i <= (int)metrics_cache.visible_text.length(); i++) {
+        metrics_cache.caret_positions.push(
+            measuredTextWidth(ctx, metrics_cache.visible_text.substr(0, i))
+        );
     }
-
-    return visible;
 }
 
 int ElaraTextInputWidget::caretIndexAtX(double px) const {
-    int start = visibleTextStart();
+    int start = metrics_cache.visible_start;
 
     if(px <= padding_x) {
         return start;
     }
 
-    String visible = visibleText();
+    if(metrics_cache.caret_positions.length() <= 0) {
+        return start;
+    }
 
-    for(int i = 0; i <= (int)visible.length(); i++) {
-        String before = visible.substr(0, i);
-        double caret_x = padding_x + estimateTextWidth(before) + caret_padding;
+    for(int i = 0; i < (int)metrics_cache.caret_positions.length(); i++) {
+        double caret_x = padding_x + metrics_cache.caret_positions[i] + caret_padding;
 
         if(px <= caret_x) {
             return start + i;
         }
     }
 
-    return start + (int)visible.length();
+    return start + (int)metrics_cache.visible_text.length();
 }
 
 bool ElaraTextInputWidget::isPrintableKey(unsigned int keyval) const {
@@ -264,21 +283,33 @@ void ElaraTextInputWidget::draw(ElaraDrawContext* ctx) {
     ctx->line(width - 1, 0, width - 1, height, 1);
 
     ctx->setColor(c.text.r, c.text.g, c.text.b);
+    rebuildMetrics(ctx);
 
     if(value.length() > 0) {
-        ctx->drawText(padding_x, textY(), visibleText(), font_size);
+        ctx->drawText(padding_x, textY(), metrics_cache.visible_text, font_size);
     } else {
         String visible_placeholder = placeholder;
-        while(visible_placeholder.length() > 0 && estimateTextWidth(visible_placeholder) > textViewportWidth()) {
+        while(visible_placeholder.length() > 0 && measuredTextWidth(ctx, visible_placeholder) > textViewportWidth()) {
             visible_placeholder = visible_placeholder.substr(0, visible_placeholder.length() - 1);
         }
         ctx->drawText(padding_x, textY(), visible_placeholder, font_size);
     }
 
     if(enabled && focused) {
-        int start = visibleTextStart();
-        String before = value.substr(start, caret_index - start);
-        double caret_x = padding_x + estimateTextWidth(before) + caret_padding;
+        int visible_column = caret_index - metrics_cache.visible_start;
+        double caret_x = padding_x + caret_padding;
+
+        if(visible_column < 0) {
+            visible_column = 0;
+        }
+
+        if(visible_column >= (int)metrics_cache.caret_positions.length()) {
+            visible_column = (int)metrics_cache.caret_positions.length() - 1;
+        }
+
+        if(visible_column >= 0 && visible_column < (int)metrics_cache.caret_positions.length()) {
+            caret_x += metrics_cache.caret_positions[visible_column];
+        }
 
         ctx->setColor(c.text.r, c.text.g, c.text.b);
         ctx->line(caret_x, 7, caret_x, height - 7, 1);

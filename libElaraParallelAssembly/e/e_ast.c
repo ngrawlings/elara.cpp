@@ -1,0 +1,297 @@
+#define _POSIX_C_SOURCE 200809L
+#include "e_ast.h"
+
+#include <stdlib.h>
+#include <string.h>
+
+static void free_expr(EExpr *e) {
+  size_t i;
+  if (!e) return;
+  switch (e->kind) {
+    case E_EXPR_IDENT:
+      free(e->as.ident);
+      break;
+    case E_EXPR_STRING:
+      free(e->as.string_lit);
+      break;
+    case E_EXPR_BINARY:
+      free_expr(e->as.binary.lhs);
+      free_expr(e->as.binary.rhs);
+      break;
+    case E_EXPR_ASSIGN:
+      free_expr(e->as.assign.lhs);
+      free_expr(e->as.assign.rhs);
+      break;
+    case E_EXPR_CALL:
+      free(e->as.call.callee);
+      for (i = 0; i < e->as.call.arg_count; i++) free_expr(e->as.call.args[i]);
+      free(e->as.call.args);
+      break;
+    case E_EXPR_FIELD:
+      free_expr(e->as.field.base);
+      free(e->as.field.field);
+      break;
+    case E_EXPR_INT:
+      break;
+  }
+  free(e);
+}
+
+static void free_stmt(EStmt *s) {
+  size_t i;
+  if (!s) return;
+  switch (s->kind) {
+    case E_STMT_DECL:
+      free(s->as.decl.type.name);
+      free(s->as.decl.name);
+      free_expr(s->as.decl.init);
+      break;
+    case E_STMT_RETURN:
+      free_expr(s->as.ret.value);
+      break;
+    case E_STMT_EXPR:
+      free_expr(s->as.expr);
+      break;
+    case E_STMT_BLOCK:
+      for (i = 0; i < s->as.block.count; i++) free_stmt(s->as.block.items[i]);
+      free(s->as.block.items);
+      break;
+    case E_STMT_IF:
+      free_expr(s->as.if_stmt.cond);
+      free_stmt(s->as.if_stmt.then_branch);
+      free_stmt(s->as.if_stmt.else_branch);
+      break;
+    case E_STMT_SWITCH:
+      free_expr(s->as.switch_stmt.target);
+      for (i = 0; i < s->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < s->as.switch_stmt.cases[i].body.count; j++) {
+          free_stmt(s->as.switch_stmt.cases[i].body.items[j]);
+        }
+        free(s->as.switch_stmt.cases[i].body.items);
+      }
+      free(s->as.switch_stmt.cases);
+      break;
+    case E_STMT_BREAK:
+      break;
+  }
+  free(s);
+}
+
+static void free_params(EParam *params, size_t param_count) {
+  size_t i;
+  for (i = 0; i < param_count; i++) {
+    free(params[i].type.name);
+    free(params[i].name);
+  }
+  free(params);
+}
+
+void e_program_free(EProgram *p) {
+  size_t i;
+  if (!p) return;
+  for (i = 0; i < p->count; i++) {
+    ETopDecl *d = &p->items[i];
+    switch (d->kind) {
+      case E_TOP_STRUCT:
+        free(d->as.sdecl.name);
+        break;
+      case E_TOP_KERNEL:
+        free_params(d->as.kernel.params, d->as.kernel.param_count);
+        free_stmt(d->as.kernel.body);
+        break;
+      case E_TOP_WORKER:
+        free(d->as.worker.name);
+        free_params(d->as.worker.params, d->as.worker.param_count);
+        free_stmt(d->as.worker.body);
+        break;
+      case E_TOP_FUNCTION:
+        free(d->as.func.return_type.name);
+        free(d->as.func.name);
+        free_params(d->as.func.params, d->as.func.param_count);
+        free_stmt(d->as.func.body);
+        break;
+      case E_TOP_TYPE:
+        free(d->as.tdecl.name);
+        free_params(d->as.tdecl.params, d->as.tdecl.param_count);
+        free_stmt(d->as.tdecl.body);
+        break;
+    }
+  }
+  free(p->items);
+  p->items = NULL;
+  p->count = 0;
+}
+
+static void indent(FILE *out, int depth) {
+  int i;
+  for (i = 0; i < depth; i++) fputs("  ", out);
+}
+
+static const char *bin_name(EBinaryOp op) {
+  switch (op) {
+    case E_BIN_ADD: return "+";
+    case E_BIN_SUB: return "-";
+    case E_BIN_MUL: return "*";
+    case E_BIN_DIV: return "/";
+  }
+  return "?";
+}
+
+static void dump_expr(FILE *out, const EExpr *e, int depth) {
+  size_t i;
+  if (!e) {
+    indent(out, depth);
+    fputs("(null-expr)\n", out);
+    return;
+  }
+  switch (e->kind) {
+    case E_EXPR_IDENT:
+      indent(out, depth);
+      fprintf(out, "ident %s\n", e->as.ident);
+      break;
+    case E_EXPR_INT:
+      indent(out, depth);
+      fprintf(out, "int %lld\n", e->as.int_lit);
+      break;
+    case E_EXPR_STRING:
+      indent(out, depth);
+      fprintf(out, "string %s\n", e->as.string_lit);
+      break;
+    case E_EXPR_BINARY:
+      indent(out, depth);
+      fprintf(out, "binary %s\n", bin_name(e->as.binary.op));
+      dump_expr(out, e->as.binary.lhs, depth + 1);
+      dump_expr(out, e->as.binary.rhs, depth + 1);
+      break;
+    case E_EXPR_ASSIGN:
+      indent(out, depth);
+      fputs("assign\n", out);
+      dump_expr(out, e->as.assign.lhs, depth + 1);
+      dump_expr(out, e->as.assign.rhs, depth + 1);
+      break;
+    case E_EXPR_CALL:
+      indent(out, depth);
+      fprintf(out, "call %s argc=%zu\n", e->as.call.callee, e->as.call.arg_count);
+      for (i = 0; i < e->as.call.arg_count; i++) dump_expr(out, e->as.call.args[i], depth + 1);
+      break;
+    case E_EXPR_FIELD:
+      indent(out, depth);
+      fprintf(out, "field %s\n", e->as.field.field);
+      dump_expr(out, e->as.field.base, depth + 1);
+      break;
+  }
+}
+
+static void dump_stmt(FILE *out, const EStmt *s, int depth) {
+  size_t i;
+  if (!s) return;
+  switch (s->kind) {
+    case E_STMT_DECL:
+      indent(out, depth);
+      fprintf(out, "decl %s %s\n", s->as.decl.type.name, s->as.decl.name);
+      if (s->as.decl.init) dump_expr(out, s->as.decl.init, depth + 1);
+      break;
+    case E_STMT_RETURN:
+      indent(out, depth);
+      fputs("return\n", out);
+      if (s->as.ret.value) dump_expr(out, s->as.ret.value, depth + 1);
+      break;
+    case E_STMT_EXPR:
+      indent(out, depth);
+      fputs("expr\n", out);
+      dump_expr(out, s->as.expr, depth + 1);
+      break;
+    case E_STMT_BLOCK:
+      indent(out, depth);
+      fputs("block\n", out);
+      for (i = 0; i < s->as.block.count; i++) dump_stmt(out, s->as.block.items[i], depth + 1);
+      break;
+    case E_STMT_IF:
+      indent(out, depth);
+      fputs("if\n", out);
+      indent(out, depth + 1);
+      fputs("cond\n", out);
+      dump_expr(out, s->as.if_stmt.cond, depth + 2);
+      indent(out, depth + 1);
+      fputs("then\n", out);
+      dump_stmt(out, s->as.if_stmt.then_branch, depth + 2);
+      if (s->as.if_stmt.else_branch) {
+        indent(out, depth + 1);
+        fputs("else\n", out);
+        dump_stmt(out, s->as.if_stmt.else_branch, depth + 2);
+      }
+      break;
+    case E_STMT_SWITCH:
+      indent(out, depth);
+      fputs("switch\n", out);
+      indent(out, depth + 1);
+      fputs("target\n", out);
+      dump_expr(out, s->as.switch_stmt.target, depth + 2);
+      for (i = 0; i < s->as.switch_stmt.case_count; i++) {
+        size_t j;
+        indent(out, depth + 1);
+        if (s->as.switch_stmt.cases[i].is_default) {
+          fputs("default\n", out);
+        } else {
+          fprintf(out, "case %lld\n", s->as.switch_stmt.cases[i].value);
+        }
+        for (j = 0; j < s->as.switch_stmt.cases[i].body.count; j++) {
+          dump_stmt(out, s->as.switch_stmt.cases[i].body.items[j], depth + 2);
+        }
+      }
+      break;
+    case E_STMT_BREAK:
+      indent(out, depth);
+      fputs("break\n", out);
+      break;
+  }
+}
+
+void e_program_dump(FILE *out, const EProgram *p) {
+  size_t i, j;
+  for (i = 0; i < p->count; i++) {
+    const ETopDecl *d = &p->items[i];
+    switch (d->kind) {
+      case E_TOP_STRUCT:
+        fprintf(out, "struct %s;\n", d->as.sdecl.name);
+        break;
+      case E_TOP_KERNEL:
+        fputs("kernel(", out);
+        for (j = 0; j < d->as.kernel.param_count; j++) {
+          if (j) fputs(", ", out);
+          fprintf(out, "%s %s", d->as.kernel.params[j].type.name, d->as.kernel.params[j].name);
+        }
+        fputs(")\n", out);
+        dump_stmt(out, d->as.kernel.body, 1);
+        break;
+      case E_TOP_WORKER:
+        fprintf(out, "worker %s(", d->as.worker.name);
+        for (j = 0; j < d->as.worker.param_count; j++) {
+          if (j) fputs(", ", out);
+          fprintf(out, "%s %s", d->as.worker.params[j].type.name, d->as.worker.params[j].name);
+        }
+        fputs(")\n", out);
+        dump_stmt(out, d->as.worker.body, 1);
+        break;
+      case E_TOP_FUNCTION:
+        fprintf(out, "function %s %s(", d->as.func.return_type.name, d->as.func.name);
+        for (j = 0; j < d->as.func.param_count; j++) {
+          if (j) fputs(", ", out);
+          fprintf(out, "%s %s", d->as.func.params[j].type.name, d->as.func.params[j].name);
+        }
+        fputs(")\n", out);
+        dump_stmt(out, d->as.func.body, 1);
+        break;
+      case E_TOP_TYPE:
+        fprintf(out, "type %s(", d->as.tdecl.name);
+        for (j = 0; j < d->as.tdecl.param_count; j++) {
+          if (j) fputs(", ", out);
+          fprintf(out, "%s %s", d->as.tdecl.params[j].type.name, d->as.tdecl.params[j].name);
+        }
+        fputs(")\n", out);
+        dump_stmt(out, d->as.tdecl.body, 1);
+        break;
+    }
+  }
+}

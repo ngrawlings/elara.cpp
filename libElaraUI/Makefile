@@ -26,11 +26,6 @@ DEMO_TARGET=$(BUILDPATH)/bin/libelaraui-demo
 DEMO_CFLAGS=  -I../ -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
 DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
 
-RPC_SERVER_SOURCE=./demo/rpc_server.cpp
-RPC_SERVER_TARGET=$(BUILDPATH)/bin/libelaraui-rpc-server
-RPC_SERVER_CFLAGS=  -I../ -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
-RPC_SERVER_LDFLAGS=-L$(STAGE_LIB_DIR) -lelarauirpc -L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore $(GTK_LIBS)
-
 all: $(SOURCES) $(STATIC_LIBRARY)
 
 $(STATIC_LIBRARY): $(OBJECTS)
@@ -52,17 +47,6 @@ demo: $(STATIC_LIBRARY)
 run-demo: demo
 	$(DEMO_TARGET)
 
-rpc-server: $(STATIC_LIBRARY)
-	@if [ "$(GTK_BACKEND_ENABLED)" != "1" ]; then \
-		echo "GTK backend is disabled. Reconfigure without --disable-gtk to build the RPC server."; \
-		exit 1; \
-	fi
-	@[ -d $(BUILDPATH)/bin ] || mkdir -p $(BUILDPATH)/bin
-	$(CC) $(RPC_SERVER_CFLAGS) $(CFLAGS) $(RPC_SERVER_SOURCE) -o $(RPC_SERVER_TARGET) $(RPC_SERVER_LDFLAGS)
-
-run-rpc-server: rpc-server
-	$(RPC_SERVER_TARGET)
-
 copyconfig:
 	@[ -d ./$(NAME) ] || mkdir -p ./$(NAME)
 	cp config.h ./$(NAME)/config.h
@@ -81,7 +65,6 @@ clean:
 	rm -Rf $(BUILDPATH)/*.o
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 	rm -f $(DEMO_TARGET)
-	rm -f $(RPC_SERVER_TARGET)
 
 remove:
 	rm -Rf $(INSTALL_HEADER_PATH)

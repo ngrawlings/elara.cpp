@@ -33,6 +33,7 @@
 .DS_Store
 autom4te.cache
 build
+.build-config
 
 /artifacts
 ElaraUnitTests/artifacts
@@ -169,3 +170,12 @@ ElaraUnitTests/artifacts
 /ElaraProjectBuilder/libtool
 /ElaraProjectBuilder/stamp-h1
 /ElaraProjectBuilder/build/
+
+/libElaraParallelAssembly/Makefile
+/libElaraParallelAssembly/autom4te.cache/
+/libElaraParallelAssembly/config.log
+/libElaraParallelAssembly/config.status
+/libElaraParallelAssembly/configure
+/libElaraParallelAssembly/stamp-h1
+/libElaraParallelAssembly/config.h
+/libElaraParallelAssembly/build/

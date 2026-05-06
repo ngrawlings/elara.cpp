@@ -7,6 +7,17 @@ namespace elara {
 
 class ElaraTextInputWidget : public ElaraWidget {
 private:
+    struct ElaraTextInputMetrics {
+        int visible_start;
+        String visible_text;
+        Array<double> caret_positions;
+
+        ElaraTextInputMetrics()
+            : visible_start(0),
+              visible_text(""),
+              caret_positions() {}
+    };
+
     String value;
     String placeholder;
 
@@ -22,14 +33,15 @@ private:
     double caret_padding;
 
     int caret_index;
+    ElaraTextInputMetrics metrics_cache;
 
-    int visibleTextStart() const;
-    String visibleText() const;
     double textViewportWidth() const;
 
     double estimateTextWidth(const String& text) const;
     double textY() const;
     int caretIndexAtX(double px) const;
+    void rebuildMetrics(ElaraDrawContext* ctx);
+    double measuredTextWidth(ElaraDrawContext* ctx, const String& text) const;
 
     bool isPrintableKey(unsigned int keyval) const;
     char printableChar(unsigned int keyval) const;

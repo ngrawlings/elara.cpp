@@ -1,0 +1,185 @@
+// mk_test_suite.epaasm
+// Kernel sequentially runs each worker-test.
+// Contract:
+//   - Each worker signals completion by pushing 1 word to OUTQ and then SYNC.
+//   - That word is a status code you define (e.g. 0x1000 + test_id for PASS).
+//   - Worker then parks forever (kernel will never exec it again).
+
+// --------------------------
+// Kernel (block 0)
+// --------------------------
+ENTRY_START 0 0 0
+
+// L0 = current_test (1..N)
+// L1 = last_status (debuggable)
+// L2 = pass_count (optional)
+// L3 = fail_count (optional)  (only if you do "soft fail" without traps)
+
+  PUSH_I32 1
+  STORE_L 0           // current_test = 1
+  PUSH_I32 0
+  STORE_L 2           // pass_count = 0
+  PUSH_I32 0
+  STORE_L 3           // fail_count = 0
+
+KERNEL_DISPATCH:
+  // if (current_test == 1) goto RUN_T1
+  LOAD_L 0
+  PUSH_I32 1
+  CMP                // R0 = -1/0/1
+  JZ RUN_T1
+
+  LOAD_L 0
+  PUSH_I32 2
+  CMP
+  JZ RUN_T2
+
+  LOAD_L 0
+  PUSH_I32 3
+  CMP
+  JZ RUN_T3
+
+  // ... add more RUN_Tn blocks as needed ...
+
+  JMP ALL_DONE
+
+RUN_T1:
+  ENTRY_EXEC 1
+  JMP KERNEL_WAIT_DONE
+
+RUN_T2:
+  ENTRY_EXEC 2
+  JMP KERNEL_WAIT_DONE
+
+RUN_T3:
+  ENTRY_EXEC 3
+  JMP KERNEL_WAIT_DONE
+
+KERNEL_WAIT_DONE:
+  // Sleep until any worker SYNC arrives (including the active one).
+  WAIT_ON_SYNC
+
+DRAIN_OUT:
+  OUT_AVAIL 1
+  PUSH_I32 1
+  LT_I32
+  JNZ AFTER_DRAIN
+
+  OUT_POP 1
+  STORE_L 1           // last_status = popped word (debuggable)
+
+  // OPTIONAL: interpret status for pass/fail counts if you want.
+  // Example policy:
+  //   PASS if status != 0
+  //   FAIL if status == 0   (soft-fail without traps)
+  LOAD_L 1
+  PUSH_I32 0
+  CMP
+  JZ COUNT_FAIL
+
+COUNT_PASS:
+  LOAD_L 2
+  PUSH_I32 1
+  ADD_I32
+  STORE_L 2
+  JMP ADVANCE_TEST
+
+COUNT_FAIL:
+  LOAD_L 3
+  PUSH_I32 1
+  ADD_I32
+  STORE_L 3
+  JMP ADVANCE_TEST
+
+ADVANCE_TEST:
+  // current_test++
+  LOAD_L 0
+  PUSH_I32 1
+  ADD_I32
+  STORE_L 0
+
+  // Drain any extra OUT words (if worker emitted more) before next test
+  JMP DRAIN_OUT
+
+AFTER_DRAIN:
+  // Next test
+  YIELD
+  JMP KERNEL_DISPATCH
+
+ALL_DONE:
+  // Suite finished. Park / yield forever.
+DONE_LOOP:
+  YIELD
+  JMP DONE_LOOP
+
+ENTRY_END
+
+// --------------------------
+// Worker 1 (block 1) : TEST 1
+// --------------------------
+ENTRY_START 1 0 0
+
+// ---- TEST BODY HERE ----
+// You can emit debug breadcrumbs anytime:
+//   PUSH_I32 <value>
+//   OUT_PUSH 1
+//
+// When finished successfully:
+TEST1_PASS:
+  PUSH_I32 0x1001     // your PASS code for test 1
+  OUT_PUSH 1
+  SYNC
+PARK1:
+  YIELD
+  JMP PARK1
+
+// If you want "soft fail" (kernel can count it) without TRAP:
+TEST1_SOFT_FAIL:
+  PUSH_I32 0x0001     // or 0, if you want kernel's "status==0 => fail"
+  OUT_PUSH 1
+  SYNC
+  JMP PARK1
+
+// If you want hard fail (host runner fails immediately):
+TEST1_HARD_FAIL:
+  PUSH_I32 0          // ensure r0==0 if your TRAP checks that convention
+  TRAP                // (or cause EXCEPT)
+  JMP PARK1
+
+ENTRY_END
+
+// --------------------------
+// Worker 2 (block 2) : TEST 2
+// --------------------------
+ENTRY_START 2 0 0
+
+// ---- TEST BODY HERE ----
+
+TEST2_PASS:
+  PUSH_I32 0x1002
+  OUT_PUSH 1
+  SYNC
+PARK2:
+  YIELD
+  JMP PARK2
+
+ENTRY_END
+
+// --------------------------
+// Worker 3 (block 3) : TEST 3
+// --------------------------
+ENTRY_START 3 0 0
+
+// ---- TEST BODY HERE ----
+
+TEST3_PASS:
+  PUSH_I32 0x1003
+  OUT_PUSH 1
+  SYNC
+PARK3:
+  YIELD
+  JMP PARK3
+
+ENTRY_END
+
+END

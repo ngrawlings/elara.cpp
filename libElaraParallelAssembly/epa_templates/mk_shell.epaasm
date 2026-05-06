@@ -1,0 +1,47 @@
+// mkshell.epaasm
+// MVP EPA micro-kernel shell
+
+// --------------------------
+// Kernel (block 0)
+// --------------------------
+ENTRY_START 0 0 0
+
+KERNEL_LOOP:
+  // Run worker for a time slice (until it yields/syncs/halts/end-of-block)
+  ENTRY_EXEC 1
+
+  // Sleep until any worker SYNC arrives.
+  WAIT_ON_SYNC
+
+DRAIN_OUT:
+  // if (OUT_AVAIL(1) < 1) => empty
+  OUT_AVAIL 1            // push count
+  PUSH_I32 1
+  LT_I32                 // (count < 1)
+  JNZ KERNEL_YIELD        // if true => nothing to drain
+
+  // Pop one word from worker outq and discard (or store/route)
+  OUT_POP 1              // push value
+  STORE_L 1              // L1 = value (debuggable)
+
+  JMP DRAIN_OUT
+
+KERNEL_YIELD:
+  YIELD
+  JMP KERNEL_LOOP
+
+ENTRY_END
+
+// --------------------------
+// Worker (block 1)
+// --------------------------
+ENTRY_START 1 0 0
+
+WORKER_LOOP:
+  SYNC
+  YIELD
+  JMP WORKER_LOOP
+
+ENTRY_END
+
+END

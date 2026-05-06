@@ -1,0 +1,142 @@
+; E -> EPA ASM skeleton emitter
+; Generated for manual inspection. Some operations remain comments/placeholders.
+
+; struct Packet
+
+; struct Blob
+
+; type Packet
+; ghs_span=8
+;   field tag offset=0 size=4
+;   field primitive_int offset=4 size=4
+FUNC_START 1 0
+  ; decl int base
+  ; expr binary
+  ; expr ident primitive_int
+  PUSH 1
+  ADD_I32
+  ; return
+  ; expr binary
+  ; expr ident base
+  PUSH 41
+  ADD_I32
+  RET
+FUNC_END
+
+; kernel entry
+ENTRY_START 0 0 0 0
+  ; call worker_ingest argc=1 pending lowering
+  ; expr ident vm
+ENTRY_END
+
+; worker worker_ingest
+; typed GHS view Packet span=8
+ENTRY_START 1 0 0 0
+  ; switch target
+  ; expr ident packet
+  ; case 0 -> E_SWITCH_CASE_2
+  E_SWITCH_CASE_2:
+  ; call dispatch_packet argc=2 pending lowering
+  ; expr ident packet
+  PUSH 7
+  JMP E_SWITCH_JOIN_1
+  ; case 1 -> E_SWITCH_CASE_3
+  E_SWITCH_CASE_3:
+  ; call dispatch_packet argc=2 pending lowering
+  ; expr ident packet
+  PUSH 8
+  JMP E_SWITCH_JOIN_1
+  ; default -> E_SWITCH_CASE_4
+  E_SWITCH_CASE_4:
+  ; call dispatch_packet argc=2 pending lowering
+  ; expr ident packet
+  PUSH 9
+  JMP E_SWITCH_JOIN_1
+  E_SWITCH_JOIN_1:
+ENTRY_END
+
+; function validate_packet
+FUNC_START 2 2
+  ; return
+  PUSH 1
+  RET
+FUNC_END
+
+; function sum4
+FUNC_START 3 4
+  ; decl int total
+  ; expr binary
+  ; expr ident a
+  ; expr ident b
+  ADD_I32
+  ; assign pending lowering
+  ; expr ident total
+  ; expr binary
+  ; expr ident total
+  ; expr ident c
+  ADD_I32
+  ; return
+  ; expr binary
+  ; expr ident total
+  ; expr ident d
+  ADD_I32
+  RET
+FUNC_END
+
+; function dispatch_packet
+FUNC_START 4 3
+  ; decl int valid
+  ; call validate_packet argc=1 pending lowering
+  ; expr ident packet
+  ; if condition
+  ; expr ident z
+  JZ E_IF_ELSE_5
+  ; assign pending lowering
+  ; expr ident valid
+  ; expr binary
+  ; expr ident valid
+  PUSH 10
+  ADD_I32
+  JMP E_IF_JOIN_6
+  E_IF_ELSE_5:
+  ; if condition
+  ; expr ident packet
+  JZ E_IF_ELSE_7
+  ; assign pending lowering
+  ; expr ident valid
+  ; expr binary
+  ; expr ident valid
+  PUSH 20
+  ADD_I32
+  JMP E_IF_JOIN_8
+  E_IF_ELSE_7:
+  ; assign pending lowering
+  ; expr ident valid
+  ; expr binary
+  ; expr ident valid
+  PUSH 30
+  ADD_I32
+  E_IF_JOIN_8:
+  E_IF_JOIN_6:
+  ; decl int base
+  ; call sum4 argc=4 pending lowering
+  ; expr ident z
+  PUSH 2
+  PUSH 3
+  PUSH 4
+  ; return
+  ; expr binary
+  ; expr ident valid
+  ; expr ident base
+  ADD_I32
+  RET
+FUNC_END
+
+; function unchecked
+FUNC_START 5 1
+  ; return
+  ; expr ident z
+  RET
+FUNC_END
+
+END

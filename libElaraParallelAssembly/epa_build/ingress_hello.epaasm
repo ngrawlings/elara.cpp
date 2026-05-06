@@ -1,0 +1,43 @@
+; E -> EPA ASM skeleton emitter
+; Generated for manual inspection. Some operations remain comments/placeholders.
+
+; type GreetingIngress
+; ghs_span=8
+;   field day_phase offset=0 size=4
+;   field greeting_id offset=4 size=4
+FUNC_START 1 0
+  ; return
+  ; expr ident day_phase
+  RET
+FUNC_END
+
+; kernel entry
+ENTRY_START 0 0 0 0
+  ; call ingress_greeting argc=2 pending lowering
+  ; expr ident vm
+  ; expr ident hello_world
+ENTRY_END
+
+; worker hello_world
+; typed GHS view GreetingIngress span=8
+ENTRY_START 1 0 0 0
+  ; if condition
+  ; field ingress.day_phase [ghs+0]
+  JZ E_IF_ELSE_1
+  ; call emit_phrase argc=1 pending lowering
+  PUSH 1
+  JMP E_IF_JOIN_2
+  E_IF_ELSE_1:
+  ; call emit_phrase argc=1 pending lowering
+  PUSH 2
+  E_IF_JOIN_2:
+ENTRY_END
+
+; function emit_phrase
+FUNC_START 2 1
+  ; return
+  ; expr ident phrase_id
+  RET
+FUNC_END
+
+END

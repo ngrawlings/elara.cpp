@@ -1,0 +1,47 @@
+; ingress_to_mailbox.epaasm
+; Worker waits for ingress, copies inbound bytes into local byte heap,
+; logs a marker, writes first 16 bytes to SIGNAL mailbox via SM_PUT, then SYNC.
+;
+; Mailbox write format: 16 x u32, each u32 = byte (low 8 bits) from ingress[0..15]
+
+.CONST_STR 0 "[worker] got ingress, dumping first 16 bytes to SIGNAL mailbox\n"
+
+; --------------------------
+; Kernel (block 0)
+; --------------------------
+ENTRY_START 0 256 256 128
+
+  ENTRY_EXEC 1
+  WAIT_ON_SYNC
+  SIGNAL
+
+ENTRY_END
+
+; --------------------------
+; Worker (block 1)
+; --------------------------
+ENTRY_START 1 256 256 128
+
+  ; Block until ingress is available for this worker
+  WAIT_FOR_DATA
+
+  ; Pull inbound bytes into local byte heap at offset 0
+  ; (len is fixed for this test; adjust if you want more)
+  WORKER_TRX_IN_R 3
+  WORKER_TRX_IN_R 0
+  WORKER_TRX_IN_R 1
+  
+  SET_R 2 0
+  GR_MOV4 0
+  SM_PUT
+
+  ; Log marker so we know we reached this point
+  ;LOAD_CONST 0
+  ;LOG r0
+
+  ; Notify kernel
+  SIGNAL
+
+ENTRY_END
+
+END

@@ -1,0 +1,95 @@
+ENTRY_START 0 0 0 0
+
+  ENTRY_EXEC 1
+  WAIT_ON_SYNC
+
+  KERNEL_TRX_IN_L 1 0 1
+  LOAD_L 0
+  PUSH 419434500
+  SUB_I32
+  POP R0
+  JZ KERNEL_PASS
+  EXCEPT 91
+
+KERNEL_PASS:
+  ENTRY_HALT 1
+  ENTRY_HALT 0
+
+ENTRY_END
+
+ENTRY_START 1 0 0 0
+
+  ; Allocate 4 x u32 partial-result slots in GHS.
+  SET_R 0 1
+  SET_R 1 16
+  G_ALLOC
+
+  PUSH R0
+  STORE_L 0
+  PUSH R1
+  STORE_L 1
+
+  ; Launch math AT: r0=sub_id, r1=handle_lo, r2=handle_hi, r3=thread_count
+  SET_R 0 31250
+  LOAD_L 0
+  POP R1
+  LOAD_L 1
+  POP R2
+  SET_R 3 4
+  AT
+  WAIT_FOR_AT
+
+  ; Read back 4 partial sums from GHS payload.
+  LOAD_L 0
+  POP R0
+  LOAD_L 1
+  POP R1
+  SET_R 2 0
+  GR_MOV4 3
+  PUSH R3
+  STORE_L 2
+
+  LOAD_L 0
+  POP R0
+  LOAD_L 1
+  POP R1
+  SET_R 2 4
+  GR_MOV4 3
+  PUSH R3
+  STORE_L 3
+
+  LOAD_L 0
+  POP R0
+  LOAD_L 1
+  POP R1
+  SET_R 2 8
+  GR_MOV4 3
+  PUSH R3
+  STORE_L 4
+
+  LOAD_L 0
+  POP R0
+  LOAD_L 1
+  POP R1
+  SET_R 2 12
+  GR_MOV4 3
+  PUSH R3
+  STORE_L 5
+
+  ; Reduce partials -> one result.
+  LOAD_L 2
+  LOAD_L 3
+  ADD_I32
+  LOAD_L 4
+  ADD_I32
+  LOAD_L 5
+  ADD_I32
+  STORE_L 6
+
+  ; Return result to kernel through worker outq.
+  WORKER_TRX_OUT_L 6 1
+  SYNC
+
+ENTRY_END
+
+END

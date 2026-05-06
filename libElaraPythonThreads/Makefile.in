@@ -1,0 +1,94 @@
+NAME=libelarapythonthreads
+CC=@CC@
+AR=ar
+DEFS=@DEFS@
+ROOT_BUILD_DIR?=$(abspath ../build)
+STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
+STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
+BUILDPATH=./build
+INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
+INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+STATIC_LIBRARY=$(NAME).a
+
+PYTHON3=@PYTHON3@
+PYTHON3_CONFIG=@PYTHON3_CONFIG@
+PYTHON_VERSION=$(shell $(PYTHON3) -c "import sys; print('python%d.%d' % sys.version_info[:2])")
+PYTHON_SITE_PACKAGES=$(STAGE_LIB_DIR)/$(PYTHON_VERSION)/site-packages
+PYTHON_PACKAGE_PATH=$(PYTHON_SITE_PACKAGES)/elara_threads
+PYTHON_EXTENSION_SUFFIX=$(shell $(PYTHON3_CONFIG) --extension-suffix)
+PYTHON_INCLUDES=$(shell $(PYTHON3_CONFIG) --includes)
+PYTHON_LDFLAGS=$(shell $(PYTHON3_CONFIG) --ldflags)
+
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -fPIC -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_LDFLAGS=
+
+SOURCES=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
+OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
+
+PYTHON_MODULE_SOURCE=./python/module.cpp
+PYTHON_MODULE_TARGET=$(PYTHON_PACKAGE_PATH)/_native$(PYTHON_EXTENSION_SUFFIX)
+PYTHON_PACKAGE_SOURCES=$(shell for file in `@TOOLPATH@find ./python/elara_threads -type f -name '*.py' -print`; do echo $$file; done)
+PYTHON_NATIVE_DEP_SOURCES=\
+	../libElaraCore/libelaracore/memory/String.cpp \
+	../libElaraThreads/libelarathreads/Mutex.cpp \
+	../libElaraThreads/libelarathreads/ThreadWaitCondition.cpp \
+	../libElaraThreads/libelarathreads/Task.cpp \
+	../libElaraThreads/libelarathreads/Thread.cpp
+
+DEMO_WORKER_SOURCE=./demo/worker_template.py
+DEMO_CLIENT_SOURCE=./demo/example.py
+DEMO_DIR=$(ROOT_BUILD_DIR)/share/$(NAME)/demo
+
+all: $(STATIC_LIBRARY) python-module
+
+$(STATIC_LIBRARY): $(OBJECTS)
+	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
+	$(AR) rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
+
+$(BUILDPATH)/%.o: copyconfig
+	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
+
+python-module: $(STATIC_LIBRARY) $(PYTHON_MODULE_SOURCE) $(PYTHON_PACKAGE_SOURCES)
+	@[ -d $(PYTHON_PACKAGE_PATH) ] || mkdir -p $(PYTHON_PACKAGE_PATH)
+	$(CC) -std=gnu++11 -fPIC -shared $(PYTHON_INCLUDES) -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(CFLAGS) $(LDFLAGS) $(PYTHON_MODULE_SOURCE) $(SOURCES) $(PYTHON_NATIVE_DEP_SOURCES) -o $(PYTHON_MODULE_TARGET) $(PYTHON_LDFLAGS) -pthread
+	@for source in $(PYTHON_PACKAGE_SOURCES); do \
+		rel="$${source#./python/elara_threads/}"; \
+		dst="$(PYTHON_PACKAGE_PATH)/$$rel"; \
+		[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+		cp "$$source" "$$dst" || exit $$?; \
+	done
+
+copyconfig:
+	@[ -d ./$(NAME) ] || mkdir -p ./$(NAME)
+	cp config.h ./$(NAME)/config.h
+
+install: all
+	@for header in $(HEADERS); do \
+		rel="$${header#./$(NAME)/}"; \
+		dst="$(INSTALL_HEADER_PATH)/$$rel"; \
+		[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+		cp "$$header" "$$dst" || exit $$?; \
+	done
+	mkdir -p $(INSTALL_LIB_PATH)
+	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	@[ -d $(DEMO_DIR) ] || mkdir -p $(DEMO_DIR)
+	cp $(DEMO_WORKER_SOURCE) $(DEMO_DIR)/worker_template.py
+	cp $(DEMO_CLIENT_SOURCE) $(DEMO_DIR)/example.py
+
+clean:
+	rm -Rf $(BUILDPATH)/*.o
+	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
+	rm -Rf $(PYTHON_PACKAGE_PATH)
+	rm -Rf $(DEMO_DIR)
+
+remove:
+	rm -Rf $(INSTALL_HEADER_PATH)
+	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	rm -Rf $(PYTHON_PACKAGE_PATH)
+	rm -Rf $(DEMO_DIR)
+
+cleanconf:
+	rm -Rf config.status autom4te.cache
+	rm -f config.log config.h Makefile
