@@ -1056,8 +1056,14 @@ namespace elara {
         contents += "#!/usr/bin/env bash\n\n";
         contents += "set -euo pipefail\n\n";
         contents += "ROOT_DIR=\"$(cd \"$(dirname \"${BASH_SOURCE[0]}\")\" && pwd)\"\n";
+        contents += "LOCAL_FRAMEWORK_SERVER=\"$(cd \"${ROOT_DIR}/../elara.cpp\" 2>/dev/null && pwd)/build/bin/elaraui-server\"\n";
         contents += "DEFAULT_SERVER=\"/usr/local/bin/elaraui-server\"\n";
-        contents += "ELARA_UI_SERVER=\"${ELARA_UI_SERVER:-${DEFAULT_SERVER}}\"\n\n";
+        contents += "if [[ -x \"${LOCAL_FRAMEWORK_SERVER}\" ]]; then\n";
+        contents += "  RESOLVED_SERVER=\"${LOCAL_FRAMEWORK_SERVER}\"\n";
+        contents += "else\n";
+        contents += "  RESOLVED_SERVER=\"${DEFAULT_SERVER}\"\n";
+        contents += "fi\n";
+        contents += "ELARA_UI_SERVER=\"${ELARA_UI_SERVER:-${RESOLVED_SERVER}}\"\n\n";
         contents += "if [[ ! -x \"${ELARA_UI_SERVER}\" ]]; then\n";
         contents += "  echo \"Missing Elara UI server at ${ELARA_UI_SERVER}. Install the framework server or set ELARA_UI_SERVER to the correct path.\"\n";
         contents += "  exit 1\n";
@@ -1679,8 +1685,20 @@ namespace elara {
         contents += "    ui.set_theme_mode(\"light\")\n";
 
         if (options.ui_template == ProjectOptions::UI_TEMPLATE_RICH_EDITOR) {
+            contents += "    ui.create_grid(\"app.shell\")\n";
+            contents += "    ui.add_grid_column_fill(\"app.shell\")\n";
+            contents += "    ui.add_grid_row_exact(\"app.shell\", 32)\n";
+            contents += "    ui.add_grid_row_fill(\"app.shell\")\n";
+            contents += "    ui.set_root_content(\"app.shell\")\n";
+            contents += "    ui.create_menu_bar(\"app.menu\")\n";
+            contents += "    ui.set_property_number(\"app.menu\", \"font_size\", 14)\n";
+            contents += "    ui.add_menu_bar_menu(\"app.menu\", \"file\", \"File\")\n";
+            contents += "    ui.add_menu_bar_item(\"app.menu\", \"file\", \"file.new\", \"New\")\n";
+            contents += "    ui.add_menu_bar_item(\"app.menu\", \"file\", \"file.open\", \"Open...\")\n";
+            contents += "    ui.add_menu_bar_item(\"app.menu\", \"file\", \"file.save\", \"Save\")\n";
+            contents += "    ui.add_menu_bar_item(\"app.menu\", \"file\", \"file.save_as\", \"Save As...\")\n";
+            contents += "    ui.add_menu_bar_item(\"app.menu\", \"file\", \"file.exit\", \"Exit\")\n";
             contents += "    ui.create_tabs(\"app.tabs\")\n";
-            contents += "    ui.set_root_content(\"app.tabs\")\n";
             contents += "    ui.create_rich_text_edit(\"app.editor\", \"# ";
             contents += options.project_name;
             contents += "\\n\\nThis template gives you a starting point for a document-oriented editor built on libElaraUI.\\n\\n- Connect backend actions over RPC\\n- Extend the toolbar and outline tabs\\n- Use snapshots to inspect state while iterating\\n\")\n";
@@ -1690,6 +1708,8 @@ namespace elara {
             contents += "    ui.set_property_number(\"app.outline\", \"font_size\", 14)\n";
             contents += "    ui.set_section_json(\"app.outline\", \"items\", [{\"id\": \"draft\", \"label\": \"Draft notes\"}, {\"id\": \"tasks\", \"label\": \"Editing tasks\"}, {\"id\": \"publish\", \"label\": \"Publishing checklist\"}])\n";
             contents += "    ui.add_tab(\"app.tabs\", \"Outline\", \"app.outline\")\n";
+            contents += "    ui.place_grid_child(\"app.shell\", \"app.menu\", 0, 0)\n";
+            contents += "    ui.place_grid_child(\"app.shell\", \"app.tabs\", 0, 1)\n";
         } else {
             contents += "    ui.create_tabs(\"app.tabs\")\n";
             contents += "    ui.set_root_content(\"app.tabs\")\n";
@@ -1745,6 +1765,9 @@ namespace elara {
         contents += "    parser.add_argument(\"--output\", help=\"Write the generated document JSON to this path\")\n";
         contents += "    parser.add_argument(\"--once\", action=\"store_true\", help=\"Load once and exit immediately\")\n";
         contents += "    parser.add_argument(\"--no-events\", action=\"store_true\", help=\"Do not subscribe to default UI events\")\n";
+        if (options.include_python_multi_cpu_template) {
+            contents += "    parser.add_argument(\"--no-worker\", action=\"store_true\", help=\"Do not start the optional multi-core worker template\")\n";
+        }
         contents += "    args = parser.parse_args()\n\n";
         contents += "    def on_ui_event(params):\n";
         contents += "        print(json.dumps({\"ui.event\": params}, indent=2), flush=True)\n";
@@ -1767,13 +1790,17 @@ namespace elara {
         contents += "                snapshot = client.snapshot()\n";
         contents += "                print(json.dumps(snapshot, indent=2))\n";
         contents += "            if not args.no_events:\n";
-        contents += "                for action in (\"clicked\", \"keysTyped\", \"valueChanged\", \"keyDown\", \"keyUp\"):\n";
+        contents += "                for action in (\"clicked\", \"keysTyped\", \"valueChanged\", \"keyDown\", \"keyUp\", \"action\"):\n";
         contents += "                    client.enable_event(action)\n";
         contents += "            if args.once:\n";
         contents += "                return\n";
         if (options.include_python_multi_cpu_template) {
-            contents += "            worker = start_background_worker()\n";
-            contents += "            print(json.dumps({\"multi_cpu_worker\": worker.snapshot()}, indent=2), flush=True)\n";
+            contents += "            if not args.no_worker:\n";
+            contents += "                try:\n";
+            contents += "                    worker = start_background_worker()\n";
+            contents += "                    print(json.dumps({\"multi_cpu_worker\": worker.snapshot()}, indent=2), flush=True)\n";
+            contents += "                except RuntimeError as exc:\n";
+            contents += "                    print(json.dumps({\"multi_cpu_worker_disabled\": str(exc)}, indent=2), flush=True)\n";
         }
         contents += "            print(\"Connected to Elara UI RPC head. Press Ctrl+C to exit.\", flush=True)\n";
         contents += "            while True:\n";
@@ -1809,7 +1836,11 @@ namespace elara {
         contents += "from .builder import UiDocumentBuilder\n";
         contents += "from .rpc import ElaraUiRpcClient, ElaraUiRpcError\n";
         if (options.include_python_multi_cpu_template) {
-            contents += "from .multi_cpu import MultiCpuWorkerTemplate, ensure_multi_cpu_runtime\n";
+            contents += "try:\n";
+            contents += "    from .multi_cpu import MultiCpuWorkerTemplate, ensure_multi_cpu_runtime\n";
+            contents += "except RuntimeError:\n";
+            contents += "    MultiCpuWorkerTemplate = None\n";
+            contents += "    ensure_multi_cpu_runtime = None\n";
         }
         contents += "\n";
         contents += "__all__ = [\n";
@@ -1864,12 +1895,25 @@ namespace elara {
     String ProjectBuilder::renderUiPythonMultiCpuHelper(const ProjectOptions &options) {
         (void)options;
         String contents;
-        contents += "from elara_threads import PythonProcessThread\n";
-        contents += "from elara_threads import init_pool\n\n\n";
+        contents += "try:\n";
+        contents += "    from elara_threads import PythonProcessThread\n";
+        contents += "    from elara_threads import init_pool\n";
+        contents += "    _ELARA_THREADS_IMPORT_ERROR = None\n";
+        contents += "except ModuleNotFoundError as exc:\n";
+        contents += "    PythonProcessThread = None\n";
+        contents += "    init_pool = None\n";
+        contents += "    _ELARA_THREADS_IMPORT_ERROR = exc\n\n\n";
+        contents += "def _require_elara_threads():\n";
+        contents += "    if _ELARA_THREADS_IMPORT_ERROR is not None:\n";
+        contents += "        raise RuntimeError(\n";
+        contents += "            \"Optional Python multi-core support requires the installed elara_threads package\"\n";
+        contents += "        ) from _ELARA_THREADS_IMPORT_ERROR\n\n\n";
         contents += "def ensure_multi_cpu_runtime(thread_count=2):\n";
+        contents += "    _require_elara_threads()\n";
         contents += "    init_pool(thread_count)\n\n\n";
         contents += "class MultiCpuWorkerTemplate:\n";
         contents += "    def __init__(self, script_path, args=None, python_executable=None):\n";
+        contents += "        _require_elara_threads()\n";
         contents += "        self._thread = PythonProcessThread(script_path, args=args or [], python_executable=python_executable)\n\n";
         contents += "    def start(self):\n";
         contents += "        self._thread.start()\n";

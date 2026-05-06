@@ -1,5 +1,7 @@
 #include "ElaraUiDocumentBuilder.h"
 
+#include <libelaraformat/json/Json.h>
+#include <libelaraformat/json/types/JsonValue.h>
 #include <libelaraformat/json/types/JsonString.h>
 
 namespace elara {
@@ -379,6 +381,10 @@ bool ElaraUiDocumentBuilder::createPopup(const String& id) {
     return createWidget(id, "elara.widgets.popup");
 }
 
+bool ElaraUiDocumentBuilder::createMenuBar(const String& id) {
+    return createWidget(id, "elara.widgets.menu_bar");
+}
+
 bool ElaraUiDocumentBuilder::createGrid(const String& id) {
     return createWidget(id, "elara.layouts.grid");
 }
@@ -562,6 +568,173 @@ bool ElaraUiDocumentBuilder::addPopupItem(
     item.id = item_id;
     item.label = label;
     popup->popup_items.push(item);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::addMenuBarMenu(
+    const String& menu_bar_id,
+    const String& menu_id,
+    const String& label
+) {
+    WidgetSpec* menu_bar = getWidgetSpec(menu_bar_id);
+
+    if(!menu_bar || menu_id.length() <= 0 || label.length() <= 0) {
+        return false;
+    }
+
+    String menus_json = String("[");
+    Ref<JsonValue> existing_value;
+
+    for(int i = 0; i < (int)menu_bar->sections.length(); i++) {
+        if(menu_bar->sections[i].name == String("menus")) {
+            menus_json = menu_bar->sections[i].json_value;
+            break;
+        }
+    }
+
+    Json menus_document(
+        menus_json.length() > 1
+            ? String("{\"menus\":") + menus_json + String("}")
+            : String("{\"menus\":[]}")
+    );
+    Array< Ref<JsonValue> > menus = menus_document.getArray("menus");
+    String updated("[");
+    bool first = true;
+    bool found = false;
+
+    for(int i = 0; i < (int)menus.length(); i++) {
+        Json menu_json(menus[i]);
+        String id = menu_json.getStringValue("id");
+
+        if(!first) {
+            updated += ",";
+        }
+        first = false;
+
+        if(id == menu_id) {
+            found = true;
+            updated += String("{\"id\":") + jsonStringLiteral(menu_id) +
+                       String(",\"label\":") + jsonStringLiteral(label) +
+                       String(",\"items\":") + menu_json.getJsonValue("items")->toString() +
+                       String("}");
+        } else {
+            updated += menus[i]->toString();
+        }
+    }
+
+    if(!found) {
+        if(!first) {
+            updated += ",";
+        }
+        updated += String("{\"id\":") + jsonStringLiteral(menu_id) +
+                   String(",\"label\":") + jsonStringLiteral(label) +
+                   String(",\"items\":[]}");
+    }
+
+    updated += "]";
+    setField(&menu_bar->sections, "menus", updated);
+    return true;
+}
+
+bool ElaraUiDocumentBuilder::addMenuBarItem(
+    const String& menu_bar_id,
+    const String& menu_id,
+    const String& item_id,
+    const String& label,
+    bool enabled
+) {
+    WidgetSpec* menu_bar = getWidgetSpec(menu_bar_id);
+
+    if(!menu_bar || menu_id.length() <= 0 || item_id.length() <= 0 || label.length() <= 0) {
+        return false;
+    }
+
+    String menus_json = String("[]");
+    for(int i = 0; i < (int)menu_bar->sections.length(); i++) {
+        if(menu_bar->sections[i].name == String("menus")) {
+            menus_json = menu_bar->sections[i].json_value;
+            break;
+        }
+    }
+
+    Json menus_document(String("{\"menus\":") + menus_json + String("}"));
+    Array< Ref<JsonValue> > menus = menus_document.getArray("menus");
+    String updated("[");
+    bool first_menu = true;
+    bool found_menu = false;
+
+    for(int i = 0; i < (int)menus.length(); i++) {
+        Json menu_json(menus[i]);
+        String current_id = menu_json.getStringValue("id");
+        String current_label = menu_json.getStringValue("label");
+        Array< Ref<JsonValue> > items = menu_json.getArray("items");
+
+        if(!first_menu) {
+            updated += ",";
+        }
+        first_menu = false;
+
+        updated += String("{\"id\":") + jsonStringLiteral(current_id) +
+                   String(",\"label\":") + jsonStringLiteral(current_label) +
+                   String(",\"items\":[");
+
+        bool first_item = true;
+        bool inserted = false;
+
+        if(current_id == menu_id) {
+            found_menu = true;
+        }
+
+        for(int j = 0; j < (int)items.length(); j++) {
+            Json item_json(items[j]);
+            String current_item_id = item_json.getStringValue("id");
+
+            if(!first_item) {
+                updated += ",";
+            }
+            first_item = false;
+
+            if(current_id == menu_id && current_item_id == item_id) {
+                inserted = true;
+                updated += String("{\"id\":") + jsonStringLiteral(item_id) +
+                           String(",\"label\":") + jsonStringLiteral(label) +
+                           String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                           String("}");
+            } else {
+                updated += items[j]->toString();
+            }
+        }
+
+        if(current_id == menu_id && !inserted) {
+            if(!first_item) {
+                updated += ",";
+            }
+
+            updated += String("{\"id\":") + jsonStringLiteral(item_id) +
+                       String(",\"label\":") + jsonStringLiteral(label) +
+                       String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                       String("}");
+        }
+
+        updated += "]}";
+    }
+
+    if(!found_menu) {
+        if(!first_menu) {
+            updated += ",";
+        }
+        updated += String("{\"id\":") + jsonStringLiteral(menu_id) +
+                   String(",\"label\":") + jsonStringLiteral(menu_id) +
+                   String(",\"items\":[") +
+                   String("{\"id\":") + jsonStringLiteral(item_id) +
+                   String(",\"label\":") + jsonStringLiteral(label) +
+                   String(",\"enabled\":") + (enabled ? String("true") : String("false")) +
+                   String("}") +
+                   String("]}");
+    }
+
+    updated += "]";
+    setField(&menu_bar->sections, "menus", updated);
     return true;
 }
 

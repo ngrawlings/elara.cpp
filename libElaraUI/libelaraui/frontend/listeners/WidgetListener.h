@@ -61,6 +61,11 @@ public:
         double value
     ) {}
 
+    virtual void onWidgetAction(
+        ElaraWidgetHandle handle,
+        const String& action
+    ) {}
+
 };
 
 }

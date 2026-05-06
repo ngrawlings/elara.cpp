@@ -4,6 +4,7 @@
 #include "widgets/ElaraButtonWidget.h"
 #include "widgets/ElaraCheckboxWidget.h"
 #include "widgets/ElaraLabelWidget.h"
+#include "widgets/ElaraMenuBarWidget.h"
 #include "widgets/ElaraPopupWidget.h"
 #include "widgets/ElaraRadioButtonWidget.h"
 #include "widgets/ElaraRootWidget.h"
@@ -79,6 +80,10 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
 
     if(dynamic_cast<ElaraTabWidget*>(widget)) {
         return "ElaraTabWidget";
+    }
+
+    if(dynamic_cast<ElaraMenuBarWidget*>(widget)) {
+        return "ElaraMenuBarWidget";
     }
 
     if(dynamic_cast<ElaraPopupWidget*>(widget)) {
@@ -307,7 +312,21 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
     if(popup) {
         state.kind = ELARA_WIDGET_STATE_POPUP;
         state.popup_visible = popup->isVisible();
+        state.item_count = popup->itemCount();
         state.has_popup_visible = true;
+        state.has_item_count = true;
+        return state;
+    }
+
+    ElaraMenuBarWidget* menu_bar = dynamic_cast<ElaraMenuBarWidget*>(widget.getPtr());
+    if(menu_bar) {
+        state.kind = ELARA_WIDGET_STATE_MENU_BAR;
+        state.selected_id = menu_bar->getActiveMenuId();
+        state.font_size = menu_bar->getFontSize();
+        state.item_count = menu_bar->menuCount();
+        state.has_selected_id = true;
+        state.has_font_size = true;
+        state.has_item_count = true;
         return state;
     }
 

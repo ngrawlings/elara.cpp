@@ -96,6 +96,7 @@ public:
     bool createWidget(const String& id, const String& type);
     bool createTabs(const String& id);
     bool createPopup(const String& id);
+    bool createMenuBar(const String& id);
     bool createGrid(const String& id);
     bool createButton(const String& id, const String& text, const String& action);
     bool createCheckbox(const String& id, const String& text, bool checked);
@@ -127,6 +128,14 @@ public:
     bool addChild(const String& parent_id, const String& child_id);
     bool addTab(const String& tabs_id, const String& title, const String& child_id);
     bool addPopupItem(const String& popup_id, const String& item_id, const String& label);
+    bool addMenuBarMenu(const String& menu_bar_id, const String& menu_id, const String& label);
+    bool addMenuBarItem(
+        const String& menu_bar_id,
+        const String& menu_id,
+        const String& item_id,
+        const String& label,
+        bool enabled = true
+    );
     bool addGridColumnExact(const String& grid_id, double size);
     bool addGridColumnFill(const String& grid_id);
     bool addGridRowExact(const String& grid_id, double size);

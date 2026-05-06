@@ -9,6 +9,7 @@
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCheckboxWidget.h>
+#include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
@@ -291,9 +292,45 @@ private:
             Json item(items[i]);
             String id = item.getStringValue("id");
             String label = item.getStringValue("label");
+            bool enabled = jsonString(item, "enabled", String("true")) != String("false");
 
             if(id.length() > 0 && label.length() > 0) {
-                popup->addItem(id, label);
+                popup->addItem(id, label, enabled);
+            }
+        }
+    }
+
+    void applyMenuBarMenus(ElaraMenuBarWidget* menu_bar, const Json& spec) {
+        if(!menu_bar) {
+            return;
+        }
+
+        menu_bar->clearMenus();
+
+        Array< Ref<JsonValue> > menu_specs = spec.getArray("menus");
+
+        for(int i = 0; i < (int)menu_specs.length(); i++) {
+            Json menu_spec(menu_specs[i]);
+            String id = menu_spec.getStringValue("id");
+            String label = menu_spec.getStringValue("label");
+
+            if(id.length() <= 0 || label.length() <= 0) {
+                continue;
+            }
+
+            menu_bar->addMenu(id, label);
+
+            Array< Ref<JsonValue> > items = menu_spec.getArray("items");
+
+            for(int j = 0; j < (int)items.length(); j++) {
+                Json item(items[j]);
+                String item_id = item.getStringValue("id");
+                String item_label = item.getStringValue("label");
+                bool enabled = jsonString(item, "enabled", String("true")) != String("false");
+
+                if(item_id.length() > 0 && item_label.length() > 0) {
+                    menu_bar->addMenuItem(id, item_id, item_label, enabled);
+                }
             }
         }
     }
@@ -433,6 +470,7 @@ public:
         return
             type == String("elara.widgets.tabs") ||
             type == String("elara.widgets.popup") ||
+            type == String("elara.widgets.menu_bar") ||
             type == String("elara.layouts.grid") ||
             type == String("elara.widgets.button") ||
             type == String("elara.widgets.checkbox") ||
@@ -469,6 +507,10 @@ public:
             ElaraPopupWidget* popup = new ElaraPopupWidget(root, id);
             applyPopupItems(popup, spec);
             widget = popup;
+        } else if(type == String("elara.widgets.menu_bar")) {
+            ElaraMenuBarWidget* menu_bar = new ElaraMenuBarWidget(root, id);
+            applyMenuBarMenus(menu_bar, spec);
+            widget = menu_bar;
         } else if(type == String("elara.layouts.grid")) {
             ElaraGridLayout* grid = new ElaraGridLayout(root, id);
             applyGridTracks(grid, spec);
@@ -680,6 +722,12 @@ public:
 
             chart->setShowPoints(jsonString(spec, "properties.show_points", String("true")) == String("true"));
             applyLineChartDemoData(chart, spec);
+        }
+
+        ElaraMenuBarWidget* menu_bar = dynamic_cast<ElaraMenuBarWidget*>(widget);
+        if(menu_bar) {
+            menu_bar->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
+            applyMenuBarMenus(menu_bar, spec);
         }
     }
 };

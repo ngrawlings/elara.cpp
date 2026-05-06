@@ -1,5 +1,7 @@
 #include "ElaraOutboundEventFilter.h"
 
+#include <libelaraformat/json/types/JsonString.h>
+
 namespace elara {
 
 ElaraOutboundEventFilter::ElaraOutboundEventFilter() {}
@@ -45,6 +47,15 @@ String ElaraOutboundEventFilter::buttonPayload(
            String(",\"x\":") + String(x) +
            String(",\"y\":") + String(y) +
            String("}");
+}
+
+String ElaraOutboundEventFilter::stringPayload(
+    const String& field,
+    const String& value
+) const {
+    return String("{\"") + field + String("\":\"") +
+           JsonString::encode(value) +
+           String("\"}");
 }
 
 void ElaraOutboundEventFilter::onWidgetMouseMove(
@@ -111,7 +122,7 @@ void ElaraOutboundEventFilter::onWidgetKeysTyped(
     ElaraWidgetHandle handle,
     const String& text
 ) {
-    queue(handle, "keysTyped", String("{\"text\":\"") + text + String("\"}"));
+    queue(handle, "keysTyped", stringPayload("text", text));
 }
 
 void ElaraOutboundEventFilter::onWidgetValueChanged(
@@ -119,6 +130,13 @@ void ElaraOutboundEventFilter::onWidgetValueChanged(
     double value
 ) {
     queue(handle, "valueChanged", String("{\"value\":") + String(value) + String("}"));
+}
+
+void ElaraOutboundEventFilter::onWidgetAction(
+    ElaraWidgetHandle handle,
+    const String& action
+) {
+    queue(handle, "action", stringPayload("action", action));
 }
 
 }

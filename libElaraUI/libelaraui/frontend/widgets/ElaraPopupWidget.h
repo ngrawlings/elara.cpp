@@ -42,7 +42,8 @@ public:
     bool isVisible() const;
 
     void clearItems();
-    void addItem(const String& id, const String& text);
+    void addItem(const String& id, const String& text, bool enabled = true);
+    int itemCount() const;
 
     virtual void onItemSelected(const String& id) {}
 

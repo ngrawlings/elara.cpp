@@ -71,6 +71,9 @@ class UiDocumentBuilder:
     def create_popup(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.popup")
 
+    def create_menu_bar(self, widget_id):
+        return self.create_widget(widget_id, "elara.widgets.menu_bar")
+
     def create_grid(self, widget_id):
         return self.create_widget(widget_id, "elara.layouts.grid")
 
@@ -157,6 +160,49 @@ class UiDocumentBuilder:
     def add_popup_item(self, popup_id, item_id, label):
         popup = self._get_widget(popup_id)
         popup["popup_items"].append({"id": item_id, "label": label})
+        return self
+
+    def add_menu_bar_menu(self, menu_bar_id, menu_id, label):
+        menu_bar = self._get_widget(menu_bar_id)
+        menus = list(menu_bar["sections"].get("menus", []))
+
+        for menu in menus:
+            if menu.get("id") == menu_id:
+                menu["label"] = label
+                menu.setdefault("items", [])
+                break
+        else:
+            menus.append({"id": menu_id, "label": label, "items": []})
+
+        menu_bar["sections"]["menus"] = menus
+        return self
+
+    def add_menu_bar_item(self, menu_bar_id, menu_id, item_id, label, enabled=True):
+        menu_bar = self._get_widget(menu_bar_id)
+        menus = list(menu_bar["sections"].get("menus", []))
+
+        for menu in menus:
+            if menu.get("id") != menu_id:
+                continue
+            menu.setdefault("items", [])
+            for item in menu["items"]:
+                if item.get("id") == item_id:
+                    item["label"] = label
+                    item["enabled"] = bool(enabled)
+                    break
+            else:
+                menu["items"].append({"id": item_id, "label": label, "enabled": bool(enabled)})
+            break
+        else:
+            menus.append(
+                {
+                    "id": menu_id,
+                    "label": menu_id,
+                    "items": [{"id": item_id, "label": label, "enabled": bool(enabled)}],
+                }
+            )
+
+        menu_bar["sections"]["menus"] = menus
         return self
 
     def add_grid_column_exact(self, grid_id, size):

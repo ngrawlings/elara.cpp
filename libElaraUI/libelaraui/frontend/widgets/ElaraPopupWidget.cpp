@@ -57,9 +57,15 @@ void ElaraPopupWidget::clearItems() {
     height = padding * 2;
 }
 
-void ElaraPopupWidget::addItem(const String& id, const String& text) {
-    items.push(ElaraPopupItem(id, text));
+void ElaraPopupWidget::addItem(const String& id, const String& text, bool enabled) {
+    ElaraPopupItem item(id, text);
+    item.setEnabled(enabled);
+    items.push(item);
     height = padding * 2 + items.length() * item_height;
+}
+
+int ElaraPopupWidget::itemCount() const {
+    return (int)items.length();
 }
 
 int ElaraPopupWidget::itemAt(double px, double py) const {

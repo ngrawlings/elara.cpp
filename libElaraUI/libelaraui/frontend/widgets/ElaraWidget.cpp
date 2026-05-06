@@ -221,6 +221,14 @@ void ElaraWidget::emitValueChanged(double value) {
     }
 }
 
+void ElaraWidget::emitAction(const String& action) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetAction(widget_handle, action);
+        }
+    }
+}
+
 void ElaraWidget::setParent(ElaraWidget* widget_parent) {
     parent = widget_parent;
 }

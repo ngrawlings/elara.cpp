@@ -69,6 +69,11 @@ public:
         double value
     );
 
+    void onWidgetAction(
+        ElaraWidgetHandle handle,
+        const String& action
+    );
+
 private:
     HashMap<String> whitelist;
 
@@ -80,6 +85,7 @@ private:
 
     String mousePayload(double x, double y) const;
     String buttonPayload(int button, double x, double y) const;
+    String stringPayload(const String& field, const String& value) const;
 };
 
 }

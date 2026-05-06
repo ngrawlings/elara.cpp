@@ -30,6 +30,8 @@
 *.swp
 *.swo
 *.log
+*.pyc
+__pycache__
 .DS_Store
 autom4te.cache
 build
