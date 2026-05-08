@@ -44,6 +44,7 @@ private:
     bool replaceChildren(Ref<ElaraWidget> target_widget, const Json& spec);
     void applyRoot(const Json& document);
     void applyTheme(const Json& document);
+    void applyOverlays(const Json& document);
     void createTopLevelWidgets(const Json& document);
 
 public:

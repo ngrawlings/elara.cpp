@@ -101,6 +101,8 @@ void printHelp() {
     printf("  wait <ms>\n");
     printf("  set-text <id> <text>\n");
     printf("  set-focus <id>\n");
+    printf("  add-demo-overlay [x] [y]\n");
+    printf("  clear-vector-overlays\n");
     printf("  show <json-method> <json-params>\n");
     printf("  quit\n");
 }
@@ -399,6 +401,26 @@ bool executeCommand(
             "setFocus",
             String("{\"target\":") + toJsonStringLiteral(String(id.c_str())) + String("}")
         );
+        return true;
+    }
+
+    if(line == "clear-vector-overlays") {
+        String result = callUi(peer, "clearVectorOverlays", "{}");
+        if(result.length() > 0) {
+            printf("%s\n", (const char*)result);
+        }
+        return true;
+    }
+
+    if(startsWith(line, "add-demo-overlay")) {
+        int ox = 0, oy = 0;
+        sscanf(line.c_str(), "add-demo-overlay %d %d", &ox, &oy);
+        char params[64];
+        snprintf(params, sizeof(params), "{\"x\":%d,\"y\":%d}", ox, oy);
+        String result = callUi(peer, "addDemoVectorOverlay", String(params));
+        if(result.length() > 0) {
+            printf("%s\n", (const char*)result);
+        }
         return true;
     }
 

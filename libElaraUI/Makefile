@@ -24,12 +24,12 @@ DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
 DEMO_SOURCE=./demo/main.cpp
 DEMO_TARGET=$(BUILDPATH)/bin/libelaraui-demo
 DEMO_CFLAGS=  -I../ -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
-DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
+DEMO_LDFLAGS=-L$(BUILDPATH) -lelaraui -L$(STAGE_LIB_DIR) -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
 RPC_SERVER_SOURCE=./demo/rpc_server.cpp
 RPC_SERVER_TARGET=$(BUILDPATH)/bin/elaraui-server
 RPC_SERVER_STAGE_TARGET=$(ROOT_BUILD_DIR)/bin/elaraui-server
 RPC_SERVER_CFLAGS=  -I../ -I../libElaraUiRpc -I../libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
-RPC_SERVER_LDFLAGS=-L$(STAGE_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
+RPC_SERVER_LDFLAGS=-L$(STAGE_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaracore $(GTK_LIBS)
 
 all: $(SOURCES) $(STATIC_LIBRARY)
 

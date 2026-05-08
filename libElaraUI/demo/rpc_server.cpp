@@ -12,6 +12,9 @@
 
 #include <libelaraformat/json/types/JsonString.h>
 
+#include <libelaravector/elara_vector.h>
+#include <libelaravectorcpp/ElaraVectorDocument.h>
+
 #include <libelaraui/config.h>
 #include <libelaraui/ElaraGui.h>
 #include <libelaraui/ElaraJsonUiProtocol.h>
@@ -32,6 +35,45 @@ using namespace elara;
 using namespace elara::ui::rpc;
 
 namespace {
+
+static EvDocument *buildDemoOverlay() {
+    const float w = 200.0f;
+    const float h = 72.0f;
+
+    EvDocument *doc = ev_document_create(w, h);
+    if (!doc) return 0;
+
+    EvNode *bg = ev_rect(0, 0, w, h);
+    ev_set_fill(bg, ev_rgba(255, 248, 180, 220));
+    ev_set_stroke(bg, ev_rgba(140, 110, 0, 255), 2.0f);
+    ev_document_add_child(doc, bg);
+
+    EvNode *dot = ev_circle(w - 16.0f, 16.0f, 8.0f);
+    ev_set_fill(dot, ev_rgba(60, 200, 60, 220));
+    ev_document_add_child(doc, dot);
+
+    EvNode *title = ev_node_create(EV_NODE_TEXT);
+    if (title) {
+        title->data.text.x = 10.0f;
+        title->data.text.y = 28.0f;
+        title->data.text.text = strdup("Vector Overlay");
+        title->data.text.size = 13.0f;
+        ev_set_fill(title, ev_rgba(80, 50, 0, 255));
+        ev_document_add_child(doc, title);
+    }
+
+    EvNode *sub = ev_node_create(EV_NODE_TEXT);
+    if (sub) {
+        sub->data.text.x = 10.0f;
+        sub->data.text.y = 50.0f;
+        sub->data.text.text = strdup("debug.demo overlay");
+        sub->data.text.size = 10.0f;
+        ev_set_fill(sub, ev_rgba(100, 80, 20, 200));
+        ev_document_add_child(doc, sub);
+    }
+
+    return doc;
+}
 
 class DeferredUiRequest {
 public:
@@ -371,6 +413,7 @@ public:
 
 class MainThreadUiService : public sockets::rpc::json::JsonRPCService {
 private:
+    ElaraRootWidget* root;
     ElaraUiRpcUiService executor;
     ElaraJsonUiProtocol* protocol;
     SecondaryWindowManager* window_manager;
@@ -387,6 +430,7 @@ public:
         SecondaryWindowManager* secondary_window_manager
     )
         : sockets::rpc::json::JsonRPCService("ui"),
+          root(root),
           executor(root, ui_protocol),
           protocol(ui_protocol),
           window_manager(secondary_window_manager),
@@ -508,6 +552,51 @@ public:
         return true;
     }
 
+    bool addDemoVectorOverlay(
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        if (!root) {
+            error_code = "missing_root";
+            error_message = "root widget is not available";
+            return false;
+        }
+
+        Json params(params_json);
+        int ix = params.getIntValue("x");
+        int iy = params.getIntValue("y");
+        float x = (ix == 0 && iy == 0) ? 560.0f : (float)ix;
+        float y = (ix == 0 && iy == 0) ? 10.0f  : (float)iy;
+
+        ElaraVectorDocument overlay;
+        overlay.setDocument(buildDemoOverlay());
+        overlay.setPosition(x, y);
+        root->addVectorOverlay("debug.demo", overlay);
+
+        result_json = "{\"added\":true}";
+        return true;
+    }
+
+    bool clearVectorOverlays(
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        (void)params_json;
+        (void)error_code;
+        (void)error_message;
+
+        if (root) {
+            root->clearVectorOverlays();
+        }
+
+        result_json = "{\"cleared\":true}";
+        return true;
+    }
+
     bool call(
         const String& method,
         const String& params_json,
@@ -583,6 +672,20 @@ public:
                 );
             } else if(request->method == String("closeWindow")) {
                 ok = closeWindow(
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
+            } else if(request->method == String("addDemoVectorOverlay")) {
+                ok = addDemoVectorOverlay(
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
+            } else if(request->method == String("clearVectorOverlays")) {
+                ok = clearVectorOverlays(
                     request->params_json,
                     result_json,
                     error_code,
@@ -842,6 +945,12 @@ public:
 
         installEventTracing();
         installDemoLogic();
+
+        ElaraVectorDocument overlay;
+        overlay.setDocument(buildDemoOverlay());
+        overlay.setPosition(560.0f, 10.0f);
+        root->addVectorOverlay("debug.demo", overlay);
+
         layout_attached = true;
 
         if(backend) {
@@ -849,6 +958,7 @@ public:
         }
 
         logger.log("ui.layout", "layout loaded over rpc");
+        logger.log("vector.overlay", "debug.demo overlay installed at 560,10");
     }
 
     bool listen(const String& bind_address, unsigned short port) {

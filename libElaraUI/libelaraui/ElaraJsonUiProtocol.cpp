@@ -1,8 +1,11 @@
 #include "ElaraJsonUiProtocol.h"
 
 #include <stdio.h>
+#include <string.h>
 #include <libelaraio/File.h>
 #include <libelaraformat/json/types/JsonValue.h>
+#include <libelaravector/elara_vector.h>
+#include <libelaravectorcpp/ElaraVectorDocument.h>
 
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
@@ -1037,12 +1040,173 @@ void ElaraJsonUiProtocol::createTopLevelWidgets(const Json& document) {
     }
 }
 
+static EvColor jsonToEvColor(const Array< Ref<JsonValue> >& arr) {
+    float r = arr.length() > 0 ? (float)jsonValueDouble(arr[0], 0.0) : 0.0f;
+    float g = arr.length() > 1 ? (float)jsonValueDouble(arr[1], 0.0) : 0.0f;
+    float b = arr.length() > 2 ? (float)jsonValueDouble(arr[2], 0.0) : 0.0f;
+    float a = arr.length() > 3 ? (float)jsonValueDouble(arr[3], 1.0) : 1.0f;
+    return ev_rgba(
+        (unsigned char)(r * 255),
+        (unsigned char)(g * 255),
+        (unsigned char)(b * 255),
+        (unsigned char)(a * 255)
+    );
+}
+
+static void applyVectorNodeStyle(EvNode *node, const Json& spec) {
+    Array< Ref<JsonValue> > fill = spec.getArray("fill");
+    Array< Ref<JsonValue> > stroke = spec.getArray("stroke");
+    float stroke_width = (float)jsonDouble(spec, "stroke_width", 1.0);
+
+    if (fill.length() >= 3) {
+        ev_set_fill(node, jsonToEvColor(fill));
+    }
+
+    if (stroke.length() >= 3) {
+        ev_set_stroke(node, jsonToEvColor(stroke), stroke_width);
+    }
+}
+
+static EvNode *parseVectorNode(const Json& spec);
+
+static void parseVectorChildren(EvNode *parent, const Json& spec) {
+    Array< Ref<JsonValue> > children = spec.getArray("children");
+    for (int i = 0; i < (int)children.length(); i++) {
+        Json child_spec(children[i]);
+        EvNode *child = parseVectorNode(child_spec);
+        if (child) {
+            ev_node_add_child(parent, child);
+        }
+    }
+}
+
+static EvNode *parseVectorNode(const Json& spec) {
+    String type = spec.getStringValue("type");
+
+    if (type == String("rect")) {
+        float x = (float)jsonDouble(spec, "x", 0.0);
+        float y = (float)jsonDouble(spec, "y", 0.0);
+        float w = (float)jsonDouble(spec, "w", 0.0);
+        float h = (float)jsonDouble(spec, "h", 0.0);
+        EvNode *node = ev_rect(x, y, w, h);
+        if (node) {
+            applyVectorNodeStyle(node, spec);
+        }
+        return node;
+    }
+
+    if (type == String("circle")) {
+        float x = (float)jsonDouble(spec, "x", 0.0);
+        float y = (float)jsonDouble(spec, "y", 0.0);
+        float r = (float)jsonDouble(spec, "r", 0.0);
+        EvNode *node = ev_circle(x, y, r);
+        if (node) {
+            applyVectorNodeStyle(node, spec);
+        }
+        return node;
+    }
+
+    if (type == String("line")) {
+        float x1 = (float)jsonDouble(spec, "x1", 0.0);
+        float y1 = (float)jsonDouble(spec, "y1", 0.0);
+        float x2 = (float)jsonDouble(spec, "x2", 0.0);
+        float y2 = (float)jsonDouble(spec, "y2", 0.0);
+        EvNode *node = ev_line(x1, y1, x2, y2);
+        if (node) {
+            applyVectorNodeStyle(node, spec);
+        }
+        return node;
+    }
+
+    if (type == String("text")) {
+        float x = (float)jsonDouble(spec, "x", 0.0);
+        float y = (float)jsonDouble(spec, "y", 0.0);
+        float size = (float)jsonDouble(spec, "size", 12.0);
+        String text = spec.getStringValue("text");
+
+        EvNode *node = ev_node_create(EV_NODE_TEXT);
+        if (node) {
+            node->data.text.x = x;
+            node->data.text.y = y;
+            node->data.text.size = size;
+            node->data.text.text = strdup((const char*)text);
+            node->data.text.font = 0;
+            applyVectorNodeStyle(node, spec);
+        }
+        return node;
+    }
+
+    if (type == String("group")) {
+        EvNode *node = ev_group();
+        if (node) {
+            applyVectorNodeStyle(node, spec);
+            parseVectorChildren(node, spec);
+        }
+        return node;
+    }
+
+    printf("json overlay: unknown node type '%s'\n", (const char*)type);
+    return 0;
+}
+
+void ElaraJsonUiProtocol::applyOverlays(const Json& document) {
+    if (!root) {
+        return;
+    }
+
+    Array< Ref<JsonValue> > overlays = document.getArray("overlays");
+
+    for (int i = 0; i < (int)overlays.length(); i++) {
+        Json overlay_spec(overlays[i]);
+
+        String id = overlay_spec.getStringValue("id");
+        if (id.length() <= 0) {
+            printf("json overlay: missing id, skipping\n");
+            continue;
+        }
+
+        float x = (float)jsonDouble(overlay_spec, "x", 0.0);
+        float y = (float)jsonDouble(overlay_spec, "y", 0.0);
+        float w = (float)jsonDouble(overlay_spec, "width", 100.0);
+        float h = (float)jsonDouble(overlay_spec, "height", 100.0);
+
+        EvDocument *doc = ev_document_create(w, h);
+        if (!doc) {
+            continue;
+        }
+
+        Array< Ref<JsonValue> > nodes = overlay_spec.getArray("nodes");
+        for (int j = 0; j < (int)nodes.length(); j++) {
+            Json node_spec(nodes[j]);
+            EvNode *node = parseVectorNode(node_spec);
+            if (node) {
+                ev_document_add_child(doc, node);
+            }
+        }
+
+        String anchor_x = overlay_spec.getStringValue("anchor_x");
+        String anchor_y = overlay_spec.getStringValue("anchor_y");
+
+        ElaraVectorDocument overlay;
+        overlay.setDocument(doc);
+        overlay.setPosition(x, y);
+        overlay.setAnchorH(anchor_x == String("right")
+            ? ELARA_OVERLAY_ANCHOR_RIGHT : ELARA_OVERLAY_ANCHOR_LEFT);
+        overlay.setAnchorV(anchor_y == String("bottom")
+            ? ELARA_OVERLAY_ANCHOR_BOTTOM : ELARA_OVERLAY_ANCHOR_TOP);
+
+        root->addVectorOverlay(id, overlay);
+        printf("json overlay: '%s' loaded at (%.0f, %.0f)\n", (const char*)id, x, y);
+    }
+}
+
 bool ElaraJsonUiProtocol::load(const String& json_text) {
     Json document(json_text);
 
     applyTheme(document);
     createTopLevelWidgets(document);
     applyRoot(document);
+    applyOverlays(document);
 
     return true;
 }

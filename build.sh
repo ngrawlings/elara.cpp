@@ -21,6 +21,7 @@ PROJECT_FLAGS=(
   "libelarapythonthreads"
   "libelaraparallelassembly"
   "libelaraserializer"
+  "libelaravector"
   "libelaraui"
   "elaraunittests"
   "elaraprojectbuilder"

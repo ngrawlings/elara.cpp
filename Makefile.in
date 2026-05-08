@@ -8,6 +8,7 @@ PROJECT_DIRS := \
 	libElaraIO \
 	libElaraData \
 	libElaraSockets \
+	libElaraVector \
 	libElaraUI \
 	libElaraUiRpc \
 	libElaraPythonThreads \
@@ -66,7 +67,7 @@ libElaraEvent: libElaraCore libElaraDebug libElaraThreads
 libElaraFormat: libElaraCore libElaraIO
 libElaraData: libElaraCore
 libElaraSockets: libElaraCore libElaraDebug libElaraThreads libElaraEvent
-libElaraUI: libElaraCore libElaraThreads libElaraFormat libElaraIO
+libElaraUI: libElaraCore libElaraThreads libElaraFormat libElaraIO libElaraVector
 libElaraUiRpc: libElaraCore libElaraThreads libElaraFormat libElaraSockets libElaraUI
 libElaraPythonThreads: libElaraCore libElaraThreads
 libElaraParallelAssembly: libElaraCore

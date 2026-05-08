@@ -3,6 +3,7 @@
 
 #include <libelaracore/memory/Memory.h>
 #include <libelaracore/memory/HashMap.h>
+#include <libelaravectorcpp/ElaraVectorDocument.h>
 
 #include "../ElaraWidgetRegistry.h"
 #include "../ElaraWidgetStateProbe.h"
@@ -18,6 +19,9 @@ private:
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
     Array<ElaraWidgetHandle> popups;
+    HashMap<ElaraVectorDocument> vector_overlays;
+    int overlay_count;
+    int max_overlays;
 
     Ref<WidgetListener> event_filter;
 
@@ -56,6 +60,12 @@ public:
     ElaraWidgetHandle getFocus() const;
     void enableOutboundEvent(const String& action);
     void disableOutboundEvent(const String& action);
+
+    void addVectorOverlay(const String& id, ElaraVectorDocument overlay);
+    void removeVectorOverlay(const String& id);
+    void clearVectorOverlays();
+    void setMaxOverlays(int max);
+    int getMaxOverlays() const;
 
     void setPalette(ElaraPalette* widget_palette);
 
