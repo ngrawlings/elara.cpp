@@ -17,6 +17,7 @@ enum ElaraUiEventType {
     ELARA_UI_MOUSE_MOVE,
     ELARA_UI_MOUSE_DOWN,
     ELARA_UI_MOUSE_UP,
+    ELARA_UI_MOUSE_DOUBLE_CLICK,
     ELARA_UI_KEY_DOWN,
     ELARA_UI_KEY_UP,
     ELARA_UI_KEYS_TYPED
@@ -174,6 +175,8 @@ public:
     virtual bool dispatchAccelerator(unsigned int keyval, unsigned int modifiers);
     virtual ElaraMouseCursor cursor() const;
     virtual ElaraMouseCursor cursorAt(double px, double py) const;
+    virtual bool acceptsDoubleClick() const;
+    virtual bool acceptsDoubleClickAt(double px, double py) const;
 
     virtual void onDraw(ElaraDrawContext* ctx, int draw_width, int draw_height);
     virtual void draw(ElaraDrawContext* ctx) = 0;
@@ -181,6 +184,7 @@ public:
     virtual void onMouseMove(double px, double py) {}
     virtual void onMouseDown(int button, double px, double py) {}
     virtual void onMouseUp(int button, double px, double py) {}
+    virtual void onMouseDoubleClick(int button, double px, double py) {}
     virtual void onKeyDown(unsigned int keyval) {}
     virtual void onKeyDown(unsigned int keyval, unsigned int modifiers) {
         (void)modifiers;

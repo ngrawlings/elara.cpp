@@ -1046,6 +1046,36 @@ bool ElaraJsonUiProtocol::replaceChildren(
         return true;
     }
 
+    ElaraListViewWidget* list = dynamic_cast<ElaraListViewWidget*>(target_widget.getPtr());
+    if(list) {
+        list->clearItems();
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            list->addItem(ElaraListViewItem(
+                item_json.getStringValue("id"),
+                item_json.getStringValue("label")
+            ));
+        }
+        return true;
+    }
+
+    ElaraTreeViewWidget* tree_target = dynamic_cast<ElaraTreeViewWidget*>(target_widget.getPtr());
+    if(tree_target) {
+        tree_target->clearNodes();
+        Array< Ref<JsonValue> > nodes = spec.getArray("nodes");
+        for(int i = 0; i < (int)nodes.length(); i++) {
+            Json node_json(nodes[i]->toString());
+            ElaraTreeViewNode node(
+                node_json.getStringValue("id"),
+                node_json.getStringValue("label")
+            );
+            node.setExpanded(jsonBool(node_json, "expanded", false));
+            tree_target->addRootNode(node);
+        }
+        return true;
+    }
+
     Array< Ref<JsonValue> > children = spec.getArray("children");
 
     for(int i = 0; i < (int)children.length(); i++) {

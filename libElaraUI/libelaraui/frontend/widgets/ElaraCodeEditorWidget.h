@@ -56,6 +56,8 @@ private:
     Array<VisibleLineMetrics> viewport_metrics;
 
     // Layout
+    double effectiveScrollbarW() const;
+    double effectiveScrollbarH() const;
     double editorLeft() const;
     double editorRight() const;
     double editorContentWidth() const;

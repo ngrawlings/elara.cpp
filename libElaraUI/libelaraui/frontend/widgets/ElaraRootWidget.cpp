@@ -494,6 +494,31 @@ void ElaraRootWidget::draw(ElaraDrawContext* ctx) {
     }
 }
 
+bool ElaraRootWidget::acceptsDoubleClickAt(double x, double y) const {
+    for(int i = (int)popups.length() - 1; i >= 0; i--) {
+        Ref<ElaraWidget> popup = getWidget(popups[i]);
+        ElaraPopupWidget* popup_widget = asPopup(popup);
+
+        if(!popup_widget || !popup_widget->isVisible()) {
+            continue;
+        }
+
+        if(popup_widget->contains(x, y)) {
+            return popup_widget->acceptsDoubleClickAt(
+                x - popup_widget->getX() - popup_widget->getMarginLeft(),
+                y - popup_widget->getY() - popup_widget->getMarginTop()
+            );
+        }
+    }
+
+    Ref<ElaraWidget> c = getWidget(content);
+    if(c) {
+        return c->acceptsDoubleClickAt(x, y);
+    }
+
+    return false;
+}
+
 ElaraMouseCursor ElaraRootWidget::currentCursor(double x, double y) {
     for(int i = (int)popups.length() - 1; i >= 0; i--) {
         Ref<ElaraWidget> popup = getWidget(popups[i]);
@@ -523,7 +548,8 @@ bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
     bool is_mouse =
         event.type == ELARA_UI_MOUSE_MOVE ||
         event.type == ELARA_UI_MOUSE_DOWN ||
-        event.type == ELARA_UI_MOUSE_UP;
+        event.type == ELARA_UI_MOUSE_UP ||
+        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK;
 
     if(!is_mouse) {
         return ElaraWidget::eventPropagate(event);
@@ -608,6 +634,17 @@ void ElaraRootWidget::dispatchMouseUp(int button, double px, double py) {
     ElaraUiEvent event;
     event.root_widget = this;
     event.type = ELARA_UI_MOUSE_UP;
+    event.x = px;
+    event.y = py;
+    event.button = button;
+
+    eventPropagate(event);
+}
+
+void ElaraRootWidget::dispatchDoubleClick(int button, double px, double py) {
+    ElaraUiEvent event;
+    event.root_widget = this;
+    event.type = ELARA_UI_MOUSE_DOUBLE_CLICK;
     event.x = px;
     event.y = py;
     event.button = button;

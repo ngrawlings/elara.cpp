@@ -41,6 +41,8 @@ private:
     Array<ElaraRichTextEditLineMetrics> visible_line_metrics;
 
     ElaraRootWidget* rootWidget() const;
+    double effectiveScrollbarW() const;
+    double effectiveScrollbarH() const;
     double charWidth() const;
     double charWidth(double size) const;
     double textViewportWidth() const;

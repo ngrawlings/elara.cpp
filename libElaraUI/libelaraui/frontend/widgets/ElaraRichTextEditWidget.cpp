@@ -77,6 +77,14 @@ ElaraRootWidget* ElaraRichTextEditWidget::rootWidget() const {
     return 0;
 }
 
+double ElaraRichTextEditWidget::effectiveScrollbarW() const {
+    return vertical_slider->isVisible() ? scrollbar_size : 0.0;
+}
+
+double ElaraRichTextEditWidget::effectiveScrollbarH() const {
+    return horizontal_slider->isVisible() ? scrollbar_size : 0.0;
+}
+
 double ElaraRichTextEditWidget::charWidth() const {
     return font_size * 0.58;
 }
@@ -86,12 +94,12 @@ double ElaraRichTextEditWidget::charWidth(double size) const {
 }
 
 double ElaraRichTextEditWidget::textViewportWidth() const {
-    double viewport = width - scrollbar_size - (padding_x * 2);
+    double viewport = width - effectiveScrollbarW() - (padding_x * 2);
     return viewport > 0 ? viewport : 0;
 }
 
 double ElaraRichTextEditWidget::textViewportHeight() const {
-    double viewport = height - scrollbar_size - (padding_y * 2);
+    double viewport = height - effectiveScrollbarH() - (padding_y * 2);
     return viewport > 0 ? viewport : 0;
 }
 
@@ -181,22 +189,28 @@ void ElaraRichTextEditWidget::updateScrollbars() {
 
     int max_scroll_y = lineCount() - visibleLineCount();
     int max_scroll_x = longestLineLength() - visibleCharCount();
+    if(max_scroll_y < 0) max_scroll_y = 0;
+    if(max_scroll_x < 0) max_scroll_x = 0;
 
-    if(max_scroll_y < 0) {
-        max_scroll_y = 0;
+    vertical_slider->setVisible(max_scroll_y > 0);
+    horizontal_slider->setVisible(max_scroll_x > 0);
+
+    // Second pass: visibility change affects viewport sizes, recompute ranges.
+    max_scroll_y = lineCount() - visibleLineCount();
+    max_scroll_x = longestLineLength() - visibleCharCount();
+    if(max_scroll_y < 0) max_scroll_y = 0;
+    if(max_scroll_x < 0) max_scroll_x = 0;
+
+    if(vertical_slider->isVisible()) {
+        vertical_slider->setRange(0, max_scroll_y);
+        vertical_slider->setStep(1);
+        vertical_slider->setValue(scroll_y);
     }
-
-    if(max_scroll_x < 0) {
-        max_scroll_x = 0;
+    if(horizontal_slider->isVisible()) {
+        horizontal_slider->setRange(0, max_scroll_x);
+        horizontal_slider->setStep(1);
+        horizontal_slider->setValue(scroll_x);
     }
-
-    vertical_slider->setRange(0, max_scroll_y);
-    vertical_slider->setStep(1);
-    vertical_slider->setValue(scroll_y);
-
-    horizontal_slider->setRange(0, max_scroll_x);
-    horizontal_slider->setStep(1);
-    horizontal_slider->setValue(scroll_x);
 }
 
 int ElaraRichTextEditWidget::lineStartForIndex(int index) const {
@@ -572,15 +586,20 @@ ElaraMouseCursor ElaraRichTextEditWidget::cursor() const {
 }
 
 void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
-    vertical_slider->setBounds(width - scrollbar_size, 0, scrollbar_size, height - scrollbar_size);
-    horizontal_slider->setBounds(0, height - scrollbar_size, width - scrollbar_size, scrollbar_size);
     updateScrollbars();
+
+    if(vertical_slider->isVisible()) {
+        vertical_slider->setBounds(width - scrollbar_size, 0, scrollbar_size, height - effectiveScrollbarH());
+    }
+    if(horizontal_slider->isVisible()) {
+        horizontal_slider->setBounds(0, height - scrollbar_size, width - effectiveScrollbarW(), scrollbar_size);
+    }
 
     String sub = enabled ? String("default") : String("disabled");
     ElaraPaletteTriplet c = colors(palette_master, sub);
 
     ctx->setColor(c.base.r, c.base.g, c.base.b);
-    ctx->fillRect(0, 0, width - scrollbar_size, height - scrollbar_size);
+    ctx->fillRect(0, 0, width - effectiveScrollbarW(), height - effectiveScrollbarH());
 
     ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
     ctx->line(0, 0, width, 0, 1);
@@ -630,18 +649,26 @@ void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
         }
     }
 
-    vertical_slider->onDraw(ctx, (int)scrollbar_size, (int)(height - scrollbar_size));
-    horizontal_slider->onDraw(ctx, (int)(width - scrollbar_size), (int)scrollbar_size);
+    if(vertical_slider->isVisible()) {
+        vertical_slider->onDraw(ctx, (int)scrollbar_size, (int)(height - effectiveScrollbarH()));
+    }
+    if(horizontal_slider->isVisible()) {
+        horizontal_slider->onDraw(ctx, (int)(width - effectiveScrollbarW()), (int)scrollbar_size);
+    }
 }
 
 bool ElaraRichTextEditWidget::eventPropagate(ElaraUiEvent event) {
-    vertical_slider->setBounds(width - scrollbar_size, 0, scrollbar_size, height - scrollbar_size);
-    horizontal_slider->setBounds(0, height - scrollbar_size, width - scrollbar_size, scrollbar_size);
+    if(vertical_slider->isVisible()) {
+        vertical_slider->setBounds(width - scrollbar_size, 0, scrollbar_size, height - effectiveScrollbarH());
+    }
+    if(horizontal_slider->isVisible()) {
+        horizontal_slider->setBounds(0, height - scrollbar_size, width - effectiveScrollbarW(), scrollbar_size);
+    }
 
     bool handled = ElaraWidget::eventPropagate(event);
 
-    scroll_y = (int)vertical_slider->getValue();
-    scroll_x = (int)horizontal_slider->getValue();
+    if(vertical_slider->isVisible()) scroll_y = (int)vertical_slider->getValue();
+    if(horizontal_slider->isVisible()) scroll_x = (int)horizontal_slider->getValue();
     clampScroll();
 
     return handled;
@@ -654,7 +681,7 @@ void ElaraRichTextEditWidget::onMouseDown(int button, double px, double py) {
         return;
     }
 
-    if(px <= width - scrollbar_size && py <= height - scrollbar_size) {
+    if(px <= width - effectiveScrollbarW() && py <= height - effectiveScrollbarH()) {
         caret_index = caretIndexAtPoint(px, py);
         clampCaret();
         preferred_column = -1;

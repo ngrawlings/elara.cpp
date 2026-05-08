@@ -44,6 +44,8 @@ public:
     virtual void dispatchMouseMove(double x, double y) {}
     virtual void dispatchMouseDown(int button, double x, double y) {}
     virtual void dispatchMouseUp(int button, double x, double y) {}
+    virtual void dispatchDoubleClick(int button, double x, double y) {}
+    virtual bool acceptsDoubleClickAt(double x, double y) const { return false; }
 
     virtual void dispatchKeyDown(unsigned int keyval) {}
     virtual void dispatchKeyDown(unsigned int keyval, unsigned int modifiers) {

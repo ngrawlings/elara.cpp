@@ -102,6 +102,10 @@ int ElaraListViewWidget::getItemCount() const {
     return (int)items.length();
 }
 
+bool ElaraListViewWidget::acceptsDoubleClick() const {
+    return true;
+}
+
 ElaraMouseCursor ElaraListViewWidget::cursor() const {
     return enabled ? ELARA_CURSOR_POINTER : ELARA_CURSOR_DEFAULT;
 }
@@ -163,10 +167,26 @@ void ElaraListViewWidget::onMouseUp(int button, double px, double py) {
         return;
     }
 
-    selected_id = items[row_index].getId();
+    selected_id   = items[row_index].getId();
     selected_text = items[row_index].getText();
     emitValueChanged(1.0);
     emitClicked(button, px, py);
+}
+
+void ElaraListViewWidget::onMouseDoubleClick(int button, double px, double py) {
+    printf("[dc] listview onMouseDoubleClick button=%d px=%.1f py=%.1f row=%d items=%d enabled=%d\n",
+        button, px, py, rowAt(py), (int)items.length(), (int)enabled); fflush(stdout);
+    if(!enabled || button != 1) {
+        return;
+    }
+
+    int row_index = rowAt(py);
+
+    if(row_index < 0 || row_index >= (int)items.length()) {
+        return;
+    }
+
+    emitAction(items[row_index].getId());
 }
 
 }

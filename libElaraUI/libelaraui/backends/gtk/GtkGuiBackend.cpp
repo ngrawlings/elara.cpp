@@ -13,6 +13,13 @@ public:
     int width;
     int height;
 
+    int pending_button;
+    double pending_press_x;
+    double pending_press_y;
+    double pending_release_x;
+    double pending_release_y;
+    guint pending_timer_id;
+
     WindowState(
         GtkGuiBackend* window_backend,
         const String& window_title,
@@ -25,7 +32,13 @@ public:
         surface(draw_surface),
         title(window_title),
         width(window_width),
-        height(window_height) {
+        height(window_height),
+        pending_button(-1),
+        pending_press_x(0),
+        pending_press_y(0),
+        pending_release_x(0),
+        pending_release_y(0),
+        pending_timer_id(0) {
     }
 };
 
@@ -111,6 +124,9 @@ void GtkDrawContext::line(double x1, double y1, double x2, double y2, double wid
 }
 
 void GtkDrawContext::drawText(double x, double y, const String& text, double size) {
+    if (text.byteLength() == 0 || size == 0)
+        return;
+        
     PangoLayout* layout = createLayout(cr, text, size);
     PangoLayoutLine* line = pango_layout_get_line_readonly(layout, 0);
 
@@ -121,6 +137,9 @@ void GtkDrawContext::drawText(double x, double y, const String& text, double siz
 }
 
 double GtkDrawContext::measureTextWidth(const String& text, double size) {
+    if (text.byteLength() == 0 || size == 0)
+        return 0;
+
     PangoLayout* layout = createLayout(cr, text, size);
     PangoRectangle logical;
     double width = 0;
@@ -289,6 +308,24 @@ void GtkGuiBackend::onMouseMotion(
     }
 }
 
+gboolean GtkGuiBackend::onClickTimer(gpointer user_data) {
+    WindowState* state = (WindowState*)user_data;
+    state->pending_timer_id = 0;
+
+    if(state->surface && state->pending_button >= 0) {
+        state->surface->dispatchMouseDown(state->pending_button, state->pending_press_x, state->pending_press_y);
+        state->surface->dispatchMouseUp(state->pending_button, state->pending_release_x, state->pending_release_y);
+    }
+
+    state->pending_button = -1;
+
+    if(state->backend) {
+        state->backend->invalidate();
+    }
+
+    return G_SOURCE_REMOVE;
+}
+
 void GtkGuiBackend::onMousePressed(
     GtkGestureClick* gesture,
     int n_press,
@@ -300,7 +337,28 @@ void GtkGuiBackend::onMousePressed(
 
     if(state && state->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        state->surface->dispatchMouseDown(button, x, y);
+        bool is_double = (n_press == 2) || (state->pending_timer_id != 0);
+
+        if(state->pending_timer_id != 0) {
+            g_source_remove(state->pending_timer_id);
+            state->pending_timer_id = 0;
+        }
+
+        if(is_double) {
+            printf("[dc] DISPATCH double click at %.0f,%.0f n_press=%d timer=%u\n", x, y, n_press, state->pending_timer_id); fflush(stdout);
+            state->pending_button = -1;
+            state->surface->dispatchDoubleClick(button, x, y);
+        } else if(state->surface->acceptsDoubleClickAt(x, y)) {
+            printf("[dc] deferred press at %.0f,%.0f n_press=%d\n", x, y, n_press); fflush(stdout);
+            state->pending_button = button;
+            state->pending_press_x = x;
+            state->pending_press_y = y;
+            state->pending_release_x = x;
+            state->pending_release_y = y;
+        } else {
+            state->pending_button = -1;
+            state->surface->dispatchMouseDown(button, x, y);
+        }
     }
 
     if(state && state->drawing_area) {
@@ -323,7 +381,21 @@ void GtkGuiBackend::onMouseReleased(
 
     if(state && state->surface) {
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
-        state->surface->dispatchMouseUp(button, x, y);
+
+        if(n_press == 2 && state->pending_button >= 0) {
+            if(state->pending_timer_id != 0) {
+                g_source_remove(state->pending_timer_id);
+                state->pending_timer_id = 0;
+            }
+            state->pending_button = -1;
+            state->surface->dispatchDoubleClick(button, x, y);
+        } else if(state->pending_button >= 0 && state->pending_timer_id == 0) {
+            state->pending_release_x = x;
+            state->pending_release_y = y;
+            state->pending_timer_id = g_timeout_add(300, onClickTimer, state);
+        } else if(state->pending_button < 0) {
+            state->surface->dispatchMouseUp(button, x, y);
+        }
     }
 
     if(state && state->backend) {

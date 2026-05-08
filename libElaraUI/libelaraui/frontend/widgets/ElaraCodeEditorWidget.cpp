@@ -80,12 +80,20 @@ ElaraCodeEditorWidget::~ElaraCodeEditorWidget() {}
 // Layout helpers
 // ---------------------------------------------------------------------------
 
+double ElaraCodeEditorWidget::effectiveScrollbarW() const {
+    return vertical_slider->isVisible() ? scrollbar_size : 0.0;
+}
+
+double ElaraCodeEditorWidget::effectiveScrollbarH() const {
+    return horizontal_slider->isVisible() ? scrollbar_size : 0.0;
+}
+
 double ElaraCodeEditorWidget::editorLeft() const {
     return gutter_width;
 }
 
 double ElaraCodeEditorWidget::editorRight() const {
-    return width - minimap_width - scrollbar_size;
+    return width - minimap_width - effectiveScrollbarW();
 }
 
 double ElaraCodeEditorWidget::editorContentWidth() const {
@@ -94,7 +102,7 @@ double ElaraCodeEditorWidget::editorContentWidth() const {
 }
 
 double ElaraCodeEditorWidget::minimapLeft() const {
-    return width - minimap_width - scrollbar_size;
+    return width - minimap_width - effectiveScrollbarW();
 }
 
 double ElaraCodeEditorWidget::charWidth() const {
@@ -102,7 +110,7 @@ double ElaraCodeEditorWidget::charWidth() const {
 }
 
 int ElaraCodeEditorWidget::viewportLineCount() const {
-    double h = height - scrollbar_size;
+    double h = height - effectiveScrollbarH();
     int count = (int)(h / line_height);
     return count > 1 ? count : 1;
 }
@@ -297,17 +305,28 @@ void ElaraCodeEditorWidget::updateScrollbars() {
     int vis   = (int)visible_line_map.length();
     int max_y = vis - viewportLineCount();
     if (max_y < 0) max_y = 0;
-
     int max_x = longestVisibleLineLength() - viewportCharCount();
     if (max_x < 0) max_x = 0;
 
-    vertical_slider->setRange(0, max_y);
-    vertical_slider->setStep(1);
-    vertical_slider->setValue(scroll_y);
+    vertical_slider->setVisible(max_y > 0);
+    horizontal_slider->setVisible(max_x > 0);
 
-    horizontal_slider->setRange(0, max_x);
-    horizontal_slider->setStep(1);
-    horizontal_slider->setValue(scroll_x);
+    // Second pass: hiding a scrollbar changes effective viewport, recompute ranges.
+    max_y = vis - viewportLineCount();
+    if (max_y < 0) max_y = 0;
+    max_x = longestVisibleLineLength() - viewportCharCount();
+    if (max_x < 0) max_x = 0;
+
+    if (vertical_slider->isVisible()) {
+        vertical_slider->setRange(0, max_y);
+        vertical_slider->setStep(1);
+        vertical_slider->setValue(scroll_y);
+    }
+    if (horizontal_slider->isVisible()) {
+        horizontal_slider->setRange(0, max_x);
+        horizontal_slider->setStep(1);
+        horizontal_slider->setValue(scroll_x);
+    }
 }
 
 void ElaraCodeEditorWidget::scrollToCaret() {
@@ -383,7 +402,7 @@ void ElaraCodeEditorWidget::rebuildViewportMetrics(ElaraDrawContext* ctx) {
 // ---------------------------------------------------------------------------
 
 void ElaraCodeEditorWidget::drawGutter(ElaraDrawContext* ctx) {
-    double gh = height - scrollbar_size;
+    double gh = height - effectiveScrollbarH();
 
     ElaraPaletteTriplet gc = colors(palette_master, "gutter");
     // Gutter background — slightly different: darken base a touch
@@ -461,7 +480,7 @@ void ElaraCodeEditorWidget::drawGutter(ElaraDrawContext* ctx) {
 void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
     double ex = editorLeft();
     double ew = editorContentWidth();
-    double eh = height - scrollbar_size;
+    double eh = height - effectiveScrollbarH();
 
     String sub = enabled ? String("default") : String("disabled");
     ElaraPaletteTriplet c = colors(palette_master, sub);
@@ -866,25 +885,33 @@ void ElaraCodeEditorWidget::draw(ElaraDrawContext* ctx) {
         rebuildVisibleLineMap();
     }
 
-    // Position scrollbar children
-    vertical_slider->setBounds(
-        width - scrollbar_size, 0,
-        scrollbar_size, height - scrollbar_size
-    );
-    horizontal_slider->setBounds(
-        editorLeft(), height - scrollbar_size,
-        editorContentWidth(), scrollbar_size
-    );
-
+    // Determine visibility before any layout so effectiveScrollbar*() is correct.
     updateScrollbars();
-    rebuildViewportMetrics(ctx);
 
+    if (vertical_slider->isVisible()) {
+        vertical_slider->setBounds(
+            width - scrollbar_size, 0,
+            scrollbar_size, height - effectiveScrollbarH()
+        );
+    }
+    if (horizontal_slider->isVisible()) {
+        horizontal_slider->setBounds(
+            editorLeft(), height - scrollbar_size,
+            editorContentWidth(), scrollbar_size
+        );
+    }
+
+    rebuildViewportMetrics(ctx);
     drawGutter(ctx);
     drawEditor(ctx);
     drawMinimap(ctx);
 
-    vertical_slider->onDraw(ctx,   (int)scrollbar_size,     (int)(height - scrollbar_size));
-    horizontal_slider->onDraw(ctx, (int)editorContentWidth(), (int)scrollbar_size);
+    if (vertical_slider->isVisible()) {
+        vertical_slider->onDraw(ctx, (int)scrollbar_size, (int)(height - effectiveScrollbarH()));
+    }
+    if (horizontal_slider->isVisible()) {
+        horizontal_slider->onDraw(ctx, (int)editorContentWidth(), (int)scrollbar_size);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -892,14 +919,18 @@ void ElaraCodeEditorWidget::draw(ElaraDrawContext* ctx) {
 // ---------------------------------------------------------------------------
 
 bool ElaraCodeEditorWidget::eventPropagate(ElaraUiEvent event) {
-    vertical_slider->setBounds(
-        width - scrollbar_size, 0,
-        scrollbar_size, height - scrollbar_size
-    );
-    horizontal_slider->setBounds(
-        editorLeft(), height - scrollbar_size,
-        editorContentWidth(), scrollbar_size
-    );
+    if (vertical_slider->isVisible()) {
+        vertical_slider->setBounds(
+            width - scrollbar_size, 0,
+            scrollbar_size, height - effectiveScrollbarH()
+        );
+    }
+    if (horizontal_slider->isVisible()) {
+        horizontal_slider->setBounds(
+            editorLeft(), height - scrollbar_size,
+            editorContentWidth(), scrollbar_size
+        );
+    }
 
     // While dragging the minimap, own all mouse move/up events so children
     // (scrollbars) cannot steal them even if the cursor drifts.
@@ -916,8 +947,8 @@ bool ElaraCodeEditorWidget::eventPropagate(ElaraUiEvent event) {
 
     bool handled = ElaraWidget::eventPropagate(event);
 
-    scroll_y = (int)vertical_slider->getValue();
-    scroll_x = (int)horizontal_slider->getValue();
+    if (vertical_slider->isVisible()) scroll_y = (int)vertical_slider->getValue();
+    if (horizontal_slider->isVisible()) scroll_x = (int)horizontal_slider->getValue();
     clampScroll();
 
     return handled;

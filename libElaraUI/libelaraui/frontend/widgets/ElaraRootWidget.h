@@ -71,10 +71,12 @@ public:
 
     void draw(ElaraDrawContext* ctx);
     ElaraMouseCursor currentCursor(double x, double y);
+    bool acceptsDoubleClickAt(double x, double y) const;
 
     void dispatchMouseMove(double px, double py);
     void dispatchMouseDown(int button, double px, double py);
     void dispatchMouseUp(int button, double px, double py);
+    void dispatchDoubleClick(int button, double px, double py);
 
     void dispatchKeyDown(unsigned int keyval);
     void dispatchKeyUp(unsigned int keyval);

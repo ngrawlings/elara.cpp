@@ -476,7 +476,8 @@ bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
     bool is_mouse =
         event.type == ELARA_UI_MOUSE_MOVE ||
         event.type == ELARA_UI_MOUSE_DOWN ||
-        event.type == ELARA_UI_MOUSE_UP;
+        event.type == ELARA_UI_MOUSE_UP ||
+        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK;
 
     if(is_mouse) {
         int winner = -1;
@@ -523,6 +524,10 @@ bool ElaraWidget::handleEvent(const ElaraUiEvent& event) {
             onMouseUp(event.button, event.x, event.y);
             return true;
 
+        case ELARA_UI_MOUSE_DOUBLE_CLICK:
+            onMouseDoubleClick(event.button, event.x, event.y);
+            return true;
+
         case ELARA_UI_KEY_DOWN:
             onKeyDown(event.keyval);
             return true;
@@ -550,6 +555,27 @@ bool ElaraWidget::dispatchAccelerator(unsigned int keyval, unsigned int modifier
 
 ElaraMouseCursor ElaraWidget::cursor() const {
     return ELARA_CURSOR_DEFAULT;
+}
+
+bool ElaraWidget::acceptsDoubleClick() const {
+    return false;
+}
+
+bool ElaraWidget::acceptsDoubleClickAt(double px, double py) const {
+    for(int i = (int)children.length() - 1; i >= 0; i--) {
+        if(!children[i] || !children[i]->isVisible()) {
+            continue;
+        }
+
+        if(children[i]->contains(px, py)) {
+            return children[i]->acceptsDoubleClickAt(
+                px - children[i]->getX() - children[i]->getMarginLeft(),
+                py - children[i]->getY() - children[i]->getMarginTop()
+            );
+        }
+    }
+
+    return containsLocal(px, py) ? acceptsDoubleClick() : false;
 }
 
 ElaraMouseCursor ElaraWidget::cursorAt(double px, double py) const {

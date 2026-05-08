@@ -48,6 +48,8 @@ private:
         gpointer user_data
     );
 
+    static gboolean onClickTimer(gpointer user_data);
+
     static void onMousePressed(
         GtkGestureClick* gesture,
         int n_press,
