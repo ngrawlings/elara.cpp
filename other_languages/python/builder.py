@@ -327,7 +327,7 @@ class UiDocumentBuilder:
         return self._serialize_widget(self._get_widget(widget_id))
 
     def widget_json(self, widget_id, indent=2):
-        return json.dumps(self.widget_dict(widget_id), indent=indent)
+        return json.dumps(self.widget_dict(widget_id), indent=indent, ensure_ascii=False)
 
     def to_dict(self):
         root = {"content": self.root_content or ""}
@@ -355,7 +355,7 @@ class UiDocumentBuilder:
         }
 
     def to_json(self, indent=2):
-        return json.dumps(self.to_dict(), indent=indent)
+        return json.dumps(self.to_dict(), indent=indent, ensure_ascii=False)
 
     def load_document_params(self):
         return {"document": self.to_json(indent=2)}

@@ -45,7 +45,7 @@ namespace elara {
         int start = 0;
         int end = (int)trimmed.length();
 
-        if (trimmed.length() >= 2 && trimmed[0] == '"' && trimmed[trimmed.length() - 1] == '"') {
+        if (trimmed.length() >= 2 && trimmed.byteAt(0) == '"' && trimmed.byteAt(trimmed.length() - 1) == '"') {
             start = 1;
             end--;
         }

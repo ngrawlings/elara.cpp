@@ -154,7 +154,7 @@ class ElaraUiRpcClient:
         return self.call("ui.dispatchKeyUp", {"keyval": keyval}, timeout=timeout)
 
     def _send_payload(self, payload: dict):
-        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         frame = struct.pack(">I", len(body)) + body
         with self._send_lock:
             if self._socket is None:
@@ -215,23 +215,25 @@ class ElaraUiRpcClient:
             return
 
         handler = self._handlers.get(method)
-        ok = True
-        result = None
-        error = None
 
-        try:
-            if handler is not None:
-                result = handler(params)
-            else:
-                result = {"received": True}
-        except Exception as exc:
-            ok = False
-            error = {"code": "handler_error", "message": str(exc)}
+        def _dispatch():
+            ok = True
+            result = None
+            error = None
+            try:
+                if handler is not None:
+                    result = handler(params)
+                else:
+                    result = {"received": True}
+            except Exception as exc:
+                ok = False
+                error = {"code": "handler_error", "message": str(exc)}
+            if payload_id is not None:
+                response = {"id": str(payload_id), "ok": ok}
+                if ok:
+                    response["result"] = result
+                else:
+                    response["error"] = error
+                self._send_payload(response)
 
-        if payload_id is not None:
-            response = {"id": str(payload_id), "ok": ok}
-            if ok:
-                response["result"] = result
-            else:
-                response["error"] = error
-            self._send_payload(response)
+        threading.Thread(target=_dispatch, daemon=True).start()

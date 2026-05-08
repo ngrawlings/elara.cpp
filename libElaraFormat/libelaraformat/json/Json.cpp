@@ -71,6 +71,7 @@ namespace elara {
             if (len) {
                 for (int i=0; i<len; i++) {
                     JsonObject *jo = (JsonObject*)val.getPtr();
+                    if (!jo) return Ref<JsonValue>(0);
                     val = jo->getValue(names[i]);
                 }
             }

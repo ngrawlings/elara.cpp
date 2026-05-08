@@ -2,5 +2,6 @@
     "Build": "./build.sh",
     "Install": "pkexec ./install.sh",
     "UI Server": "/usr/local/bin/elaraui-server",
+    "Debug UI Server": "gdb /usr/local/bin/elaraui-server",
     "UI Client": "cd /home/nyhl/workspace/elara.cpp/libElaraUiRpc && ./build/bin/libelarauirpc-client 127.0.0.1 18777 /home/nyhl/workspace/elara.cpp/libElaraUI/elara_ui_layout.json"
 }

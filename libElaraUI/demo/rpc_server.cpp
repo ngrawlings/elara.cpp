@@ -946,11 +946,6 @@ public:
         installEventTracing();
         installDemoLogic();
 
-        ElaraVectorDocument overlay;
-        overlay.setDocument(buildDemoOverlay());
-        overlay.setPosition(560.0f, 10.0f);
-        root->addVectorOverlay("debug.demo", overlay);
-
         layout_attached = true;
 
         if(backend) {
@@ -958,7 +953,6 @@ public:
         }
 
         logger.log("ui.layout", "layout loaded over rpc");
-        logger.log("vector.overlay", "debug.demo overlay installed at 560,10");
     }
 
     bool listen(const String& bind_address, unsigned short port) {

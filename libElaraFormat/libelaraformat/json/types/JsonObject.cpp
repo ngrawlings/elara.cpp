@@ -72,7 +72,7 @@ namespace elara {
                     if (quotation || parsing_value) {
                         val += json.byteAt(i);
                         if (i + 1 < slen)
-                            val += json[i + 1];
+                            val += json.byteAt(i + 1);
                     }
                     i++;
                     break;
