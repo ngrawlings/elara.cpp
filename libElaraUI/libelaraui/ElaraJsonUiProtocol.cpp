@@ -15,6 +15,7 @@
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
+#include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSpinnerWidget.h>
 #include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
@@ -552,6 +553,7 @@ public:
             type == String("elara.widgets.radio_button") ||
             type == String("elara.widgets.label") ||
             type == String("elara.widgets.rich_text_edit") ||
+            type == String("elara.widgets.code_editor") ||
             type == String("elara.widgets.slider") ||
             type == String("elara.widgets.spinner") ||
             type == String("elara.widgets.text_input") ||
@@ -609,6 +611,8 @@ public:
             widget = tree;
         } else if(type == String("elara.widgets.rich_text_edit")) {
             widget = new ElaraRichTextEditWidget(root, id);
+        } else if(type == String("elara.widgets.code_editor")) {
+            widget = new ElaraCodeEditorWidget(root, id);
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
             widget = new ElaraJsonLabelWidget(root, id);
         } else if(type == String("elara.widgets.text_input") || type == String("demo.widgets.text_input")) {
@@ -767,6 +771,21 @@ public:
             }
 
             rich->setFontSize((double)font_size);
+        }
+
+        ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget);
+        if(code_editor) {
+            String text = spec.getStringValue("properties.text");
+            int font_size = jsonInt(spec, "properties.font_size", 14);
+
+            if(text.length() > 0) {
+                code_editor->setText(text);
+            }
+
+            code_editor->setFontSize((double)font_size);
+            code_editor->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
         }
 
         ElaraDensityMapWidget* density = dynamic_cast<ElaraDensityMapWidget*>(widget);
