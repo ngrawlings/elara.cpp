@@ -16,6 +16,7 @@
 #include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
+#include <libelaraui/frontend/widgets/ElaraToolBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSpinnerWidget.h>
 #include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
@@ -286,6 +287,33 @@ private:
         }
     }
 
+    void applyToolbarItems(ElaraToolBarWidget* toolbar, const Json& spec) {
+        toolbar->clearItems();
+
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item(items[i]);
+            bool separator = jsonBool(item, "separator", false)
+                || item.getStringValue("type") == String("separator");
+
+            if(separator) {
+                toolbar->addSeparator();
+                continue;
+            }
+
+            String id = item.getStringValue("id");
+            String text = item.getStringValue("text");
+            String icon = item.getStringValue("icon");
+            bool enabled = jsonString(item, "enabled", String("true")) != String("false");
+            String tooltip = item.getStringValue("tooltip");
+
+            if(id.length() > 0) {
+                toolbar->addItem(id, text, icon, enabled, tooltip);
+            }
+        }
+    }
+
     void applyListItems(ElaraListViewWidget* list, const Json& spec) {
         list->clearItems();
 
@@ -414,7 +442,9 @@ private:
                 continue;
             }
 
-            tabs->addTab(title, child);
+            String btn_glyph = tab_spec.getStringValue("button_glyph");
+            String btn_action = tab_spec.getStringValue("button_action");
+            tabs->addTab(title, child, btn_glyph, btn_action);
         }
     }
 
@@ -554,6 +584,7 @@ public:
             type == String("elara.widgets.label") ||
             type == String("elara.widgets.rich_text_edit") ||
             type == String("elara.widgets.code_editor") ||
+            type == String("elara.widgets.toolbar") ||
             type == String("elara.widgets.slider") ||
             type == String("elara.widgets.spinner") ||
             type == String("elara.widgets.text_input") ||
@@ -613,6 +644,14 @@ public:
             widget = new ElaraRichTextEditWidget(root, id);
         } else if(type == String("elara.widgets.code_editor")) {
             widget = new ElaraCodeEditorWidget(root, id);
+        } else if(type == String("elara.widgets.toolbar")) {
+            ElaraToolBarWidget* toolbar = new ElaraToolBarWidget(root, id);
+            String tb_orientation = spec.getStringValue("properties.orientation");
+            if(tb_orientation == String("vertical")) {
+                toolbar->setOrientation(ELARA_TOOLBAR_VERTICAL);
+            }
+            applyToolbarItems(toolbar, spec);
+            widget = toolbar;
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
             widget = new ElaraJsonLabelWidget(root, id);
         } else if(type == String("elara.widgets.text_input") || type == String("demo.widgets.text_input")) {
@@ -786,6 +825,31 @@ public:
             code_editor->setEnabled(
                 jsonString(spec, "properties.enabled", String("true")) != String("false")
             );
+        }
+
+        ElaraToolBarWidget* toolbar = dynamic_cast<ElaraToolBarWidget*>(widget);
+        if(toolbar) {
+            String orientation = spec.getStringValue("properties.orientation");
+            if(orientation == String("vertical")) {
+                toolbar->setOrientation(ELARA_TOOLBAR_VERTICAL);
+            } else if(orientation == String("horizontal")) {
+                toolbar->setOrientation(ELARA_TOOLBAR_HORIZONTAL);
+            }
+            toolbar->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
+
+            double pad_x = jsonDouble(spec, "properties.item_padding_x", -1.0);
+            double pad_y = jsonDouble(spec, "properties.item_padding_y", -1.0);
+            if(pad_x >= 0.0 || pad_y >= 0.0) {
+                toolbar->setItemPadding(
+                    pad_x >= 0.0 ? pad_x : 10.0,
+                    pad_y >= 0.0 ? pad_y : 6.0
+                );
+            }
+
+            double spacing = jsonDouble(spec, "properties.item_spacing", -1.0);
+            if(spacing >= 0.0) {
+                toolbar->setItemSpacing(spacing);
+            }
         }
 
         ElaraDensityMapWidget* density = dynamic_cast<ElaraDensityMapWidget*>(widget);
@@ -973,7 +1037,9 @@ bool ElaraJsonUiProtocol::replaceChildren(
             ElaraWidget* child = createWidget(widget_spec);
 
             if(child) {
-                tabs->addTab(title, child);
+                String btn_glyph = tab_spec.getStringValue("button_glyph");
+                String btn_action = tab_spec.getStringValue("button_action");
+                tabs->addTab(title, child, btn_glyph, btn_action);
             }
         }
 

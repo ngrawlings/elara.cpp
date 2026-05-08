@@ -13,27 +13,45 @@ class ElaraTabPage {
 private:
     String title;
     Ref<ElaraWidget> widget;
+    String button_glyph;
+    String button_action;
 
 public:
     ElaraTabPage();
     ElaraTabPage(const String& tab_title, ElaraWidget* tab_widget);
+    ElaraTabPage(
+        const String& tab_title,
+        ElaraWidget* tab_widget,
+        const String& btn_glyph,
+        const String& btn_action
+    );
 
     String getTitle() const;
     Ref<ElaraWidget> getWidget() const;
+    String getButtonGlyph() const;
+    String getButtonAction() const;
+    bool hasButton() const;
 };
 
 class ElaraTabWidget : public ElaraWidget {
 private:
     Array< Ref<ElaraTabPage> > pages;
+    Array< Ref<ElaraTabPage> > orphaned_pages;
 
     int active_index;
     int hover_index;
+    int hover_button_index;
+    int pressed_button_index;
 
     double tab_height;
+    double tab_button_size;
+    double tab_button_margin;
 
     int tabAt(double px, double py) const;
+    int tabButtonAt(double px, double py) const;
     double tabX(int index) const;
     double tabWidth(int index) const;
+    double tabButtonX(int index) const;
 
     Ref<ElaraTabPage> activePage() const;
 
@@ -44,7 +62,13 @@ public:
 
     void setPalette(ElaraPalette* widget_palette);
 
-    int addTab(const String& title, ElaraWidget* widget);
+    int addTab(
+        const String& title,
+        ElaraWidget* widget,
+        const String& button_glyph = String(),
+        const String& button_action = String()
+    );
+    void removeTab(int index);
     void clearChildren();
 
     void setActiveTab(int index);
