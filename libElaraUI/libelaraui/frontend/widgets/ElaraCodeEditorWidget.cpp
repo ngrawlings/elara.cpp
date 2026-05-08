@@ -59,7 +59,8 @@ ElaraCodeEditorWidget::ElaraCodeEditorWidget(
     caret_index(0),
     preferred_column(-1),
     scroll_x(0),
-    scroll_y(0) {
+    scroll_y(0),
+    minimap_dragging(false) {
 
     vertical_slider->setOrientation("vertical");
     vertical_slider->setStep(1);
@@ -833,6 +834,27 @@ ElaraMouseCursor ElaraCodeEditorWidget::cursor() const {
     return enabled ? ELARA_CURSOR_TEXT : ELARA_CURSOR_DEFAULT;
 }
 
+ElaraMouseCursor ElaraCodeEditorWidget::cursorAt(double px, double py) const {
+    // Children (scrollbars) take priority
+    for (int i = (int)children.length() - 1; i >= 0; i--) {
+        if (!children[i] || !children[i]->isVisible()) continue;
+        if (children[i]->contains(px, py)) {
+            return children[i]->cursorAt(
+                px - children[i]->getX() - children[i]->getMarginLeft(),
+                py - children[i]->getY() - children[i]->getMarginTop()
+            );
+        }
+    }
+
+    if (px >= minimapLeft() && px < minimapLeft() + minimap_width) {
+        return ELARA_CURSOR_POINTER;
+    }
+    if (px >= editorLeft() && px < editorRight()) {
+        return enabled ? ELARA_CURSOR_TEXT : ELARA_CURSOR_DEFAULT;
+    }
+    return ELARA_CURSOR_DEFAULT;
+}
+
 // ---------------------------------------------------------------------------
 // draw()
 // ---------------------------------------------------------------------------
@@ -878,6 +900,19 @@ bool ElaraCodeEditorWidget::eventPropagate(ElaraUiEvent event) {
         editorLeft(), height - scrollbar_size,
         editorContentWidth(), scrollbar_size
     );
+
+    // While dragging the minimap, own all mouse move/up events so children
+    // (scrollbars) cannot steal them even if the cursor drifts.
+    if (minimap_dragging) {
+        if (event.type == ELARA_UI_MOUSE_MOVE) {
+            onMouseMove(event.x, event.y);
+            return true;
+        }
+        if (event.type == ELARA_UI_MOUSE_UP) {
+            onMouseUp(event.button, event.x, event.y);
+            return true;
+        }
+    }
 
     bool handled = ElaraWidget::eventPropagate(event);
 
@@ -934,9 +969,12 @@ void ElaraCodeEditorWidget::onMouseDown(int button, double px, double py) {
 
     // --- Minimap click ---
     if (px >= minimapLeft() && px < minimapLeft() + minimap_width) {
+        minimap_dragging = true;
         int vis_total = (int)visible_line_map.length();
         if (vis_total > 0) {
             double rel   = py / height;
+            if (rel < 0.0) rel = 0.0;
+            if (rel > 1.0) rel = 1.0;
             int target   = (int)(rel * vis_total) - viewportLineCount() / 2;
             if (target < 0) target = 0;
             scroll_y = target;
@@ -958,6 +996,34 @@ void ElaraCodeEditorWidget::onMouseDown(int button, double px, double py) {
 
         ElaraRootWidget* root = rootWidget();
         if (root) root->setFocus(getHandle());
+    }
+}
+
+// ---------------------------------------------------------------------------
+// onMouseMove() / onMouseUp()
+// ---------------------------------------------------------------------------
+
+void ElaraCodeEditorWidget::onMouseMove(double px, double py) {
+    if (!minimap_dragging) return;
+
+    int vis_total = (int)visible_line_map.length();
+    if (vis_total <= 0) return;
+
+    double rel  = py / height;
+    if (rel < 0.0) rel = 0.0;
+    if (rel > 1.0) rel = 1.0;
+
+    int target = (int)(rel * vis_total) - viewportLineCount() / 2;
+    if (target < 0) target = 0;
+    scroll_y = target;
+    clampScroll();
+    updateScrollbars();
+}
+
+void ElaraCodeEditorWidget::onMouseUp(int button, double px, double py) {
+    (void)px; (void)py;
+    if (button == 1) {
+        minimap_dragging = false;
     }
 }
 

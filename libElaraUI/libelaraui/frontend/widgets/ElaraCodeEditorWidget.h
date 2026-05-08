@@ -98,6 +98,8 @@ private:
     void drawEditor(ElaraDrawContext* ctx);
     void drawMinimap(ElaraDrawContext* ctx);
 
+    bool minimap_dragging;
+
     // Hit testing
     int caretAtPoint(double px, double py) const;
     int gutterLogicalLine(double py) const;
@@ -137,9 +139,12 @@ public:
     bool hasBookmark(int logical_line) const;
 
     ElaraMouseCursor cursor() const;
+    ElaraMouseCursor cursorAt(double px, double py) const;
     void draw(ElaraDrawContext* ctx);
     bool eventPropagate(ElaraUiEvent event);
     void onMouseDown(int button, double px, double py);
+    void onMouseMove(double px, double py);
+    void onMouseUp(int button, double px, double py);
     void onKeyDown(unsigned int keyval);
 
     void onWidgetValueChanged(ElaraWidgetHandle handle, double value);
