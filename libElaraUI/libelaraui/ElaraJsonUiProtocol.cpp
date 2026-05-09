@@ -102,6 +102,25 @@ static String handleString(const ElaraWidgetHandle& handle) {
     return String((const char*)memory.getPtr(), memory.length());
 }
 
+static ElaraTreeViewNode parseTreeNodeSpec(const Json& spec) {
+    ElaraTreeViewNode node(spec.getStringValue("id"), spec.getStringValue("label"));
+    node.setExpanded(jsonBool(spec, "expanded", false));
+    Array< Ref<JsonValue> > buttons = spec.getArray("buttons");
+    for(int i = 0; i < (int)buttons.length(); i++) {
+        Json btn(buttons[i]->toString());
+        ElaraTreeViewNodeButton button;
+        button.glyph  = btn.getStringValue("glyph");
+        button.action = btn.getStringValue("action");
+        node.addButton(button);
+    }
+    Array< Ref<JsonValue> > children = spec.getArray("children");
+    for(int i = 0; i < (int)children.length(); i++) {
+        Json child_json(children[i]->toString());
+        node.addChild(parseTreeNodeSpec(child_json));
+    }
+    return node;
+}
+
 class ElaraJsonLabelWidget : public ElaraWidget {
 private:
     String value;
@@ -337,6 +356,15 @@ private:
         );
 
         node.setExpanded(jsonBool(spec, "expanded", false));
+
+        Array< Ref<JsonValue> > buttons = spec.getArray("buttons");
+        for(int i = 0; i < (int)buttons.length(); i++) {
+            Json btn(buttons[i]->toString());
+            ElaraTreeViewNodeButton button;
+            button.glyph  = btn.getStringValue("glyph");
+            button.action = btn.getStringValue("action");
+            node.addButton(button);
+        }
 
         Array< Ref<JsonValue> > children = spec.getArray("children");
 
@@ -1066,12 +1094,7 @@ bool ElaraJsonUiProtocol::replaceChildren(
         Array< Ref<JsonValue> > nodes = spec.getArray("nodes");
         for(int i = 0; i < (int)nodes.length(); i++) {
             Json node_json(nodes[i]->toString());
-            ElaraTreeViewNode node(
-                node_json.getStringValue("id"),
-                node_json.getStringValue("label")
-            );
-            node.setExpanded(jsonBool(node_json, "expanded", false));
-            tree_target->addRootNode(node);
+            tree_target->addRootNode(parseTreeNodeSpec(node_json));
         }
         return true;
     }

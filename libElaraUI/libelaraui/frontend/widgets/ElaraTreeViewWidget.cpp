@@ -36,6 +36,10 @@ bool ElaraTreeViewNode::isExpanded() const {
     return expanded;
 }
 
+void ElaraTreeViewNode::addButton(const ElaraTreeViewNodeButton& button) {
+    buttons.push(button);
+}
+
 void ElaraTreeViewNode::addChild(const ElaraTreeViewNode& child) {
     children.push(child);
 }
@@ -62,6 +66,7 @@ ElaraTreeViewWidget::ElaraTreeViewWidget(
     selected_text(""),
     enabled(true),
     hover_index(-1),
+    hover_button_index(-1),
     font_size(14),
     row_height(24),
     indent_width(18),
@@ -86,6 +91,7 @@ void ElaraTreeViewWidget::appendVisibleRows(
         row.text = nodes[i].getText();
         row.expanded = nodes[i].isExpanded();
         row.has_children = nodes[i].childCount() > 0;
+        row.button_count = (int)nodes[i].buttons.length();
         rows.push(row);
 
         if(nodes[i].isExpanded() && nodes[i].childCount() > 0) {
@@ -172,6 +178,7 @@ void ElaraTreeViewWidget::clearNodes() {
     selected_id = "";
     selected_text = "";
     hover_index = -1;
+    hover_button_index = -1;
 }
 
 void ElaraTreeViewWidget::addRootNode(const ElaraTreeViewNode& node) {
@@ -236,6 +243,11 @@ void ElaraTreeViewWidget::draw(ElaraDrawContext* ctx) {
 
     Array<VisibleRow> rows = visibleRows();
 
+    static const double btn_w   = 20.0;
+    static const double btn_pad =  4.0;
+    static const double btn_gap =  2.0;
+    static const double btn_fs  = 12.0;
+
     for(int i = 0; i < (int)rows.length(); i++) {
         double y = i * row_height;
 
@@ -264,12 +276,59 @@ void ElaraTreeViewWidget::draw(ElaraDrawContext* ctx) {
         }
 
         ctx->drawText(x + 14, y + font_size + 5, rows[i].text, font_size);
+
+        if(i == hover_index && rows[i].button_count > 0) {
+            ElaraTreeViewNode* btn_node = nodeAtPath(rows[i].path);
+            if(btn_node) {
+                double btn_h = row_height - 6;
+                double btn_y = y + 3;
+                ElaraPaletteTriplet btn_colors = colors("button", "default");
+                ElaraPaletteTriplet btn_hover  = colors("button", "hover");
+
+                for(int b = 0; b < (int)btn_node->buttons.length(); b++) {
+                    double btn_right = width - btn_pad - b * (btn_w + btn_gap);
+                    double btn_left  = btn_right - btn_w;
+
+                    if(b == hover_button_index) {
+                        ctx->setColor(btn_hover.base.r, btn_hover.base.g, btn_hover.base.b);
+                    } else {
+                        ctx->setColor(btn_colors.base.r, btn_colors.base.g, btn_colors.base.b);
+                    }
+                    ctx->fillRect(btn_left, btn_y, btn_w, btn_h);
+
+                    double glyph_w = ctx->measureTextWidth(btn_node->buttons[b].glyph, btn_fs);
+                    double glyph_x = btn_left + (btn_w - glyph_w) / 2.0;
+                    double glyph_y = y + btn_fs + (row_height - btn_fs) / 2.0 - 1;
+                    ctx->setColor(btn_colors.text.r, btn_colors.text.g, btn_colors.text.b);
+                    ctx->drawText(glyph_x, glyph_y, btn_node->buttons[b].glyph, btn_fs);
+                }
+            }
+        }
     }
 }
 
 void ElaraTreeViewWidget::onMouseMove(double px, double py) {
+    static const double btn_w   = 20.0;
+    static const double btn_pad =  4.0;
+    static const double btn_gap =  2.0;
+
     emitMouseMove(px, py);
     hover_index = rowAt(py);
+    hover_button_index = -1;
+
+    if(hover_index >= 0) {
+        Array<VisibleRow> rows = visibleRows();
+        if(hover_index < (int)rows.length() && rows[hover_index].button_count > 0) {
+            for(int b = 0; b < rows[hover_index].button_count; b++) {
+                double btn_right = width - btn_pad - b * (btn_w + btn_gap);
+                double btn_left  = btn_right - btn_w;
+                if(px >= btn_left && px < btn_right) {
+                    hover_button_index = b;
+                    break;
+                }
+            }
+        }
+    }
 }
 
 void ElaraTreeViewWidget::onMouseDown(int button, double px, double py) {
@@ -277,6 +336,10 @@ void ElaraTreeViewWidget::onMouseDown(int button, double px, double py) {
 }
 
 void ElaraTreeViewWidget::onMouseUp(int button, double px, double py) {
+    static const double btn_w   = 20.0;
+    static const double btn_pad =  4.0;
+    static const double btn_gap =  2.0;
+
     emitMouseUp(button, px, py);
 
     if(!enabled || button != 1) {
@@ -288,6 +351,20 @@ void ElaraTreeViewWidget::onMouseUp(int button, double px, double py) {
 
     if(row_index < 0 || row_index >= (int)rows.length()) {
         return;
+    }
+
+    if(rows[row_index].button_count > 0) {
+        ElaraTreeViewNode* btn_node = nodeAtPath(rows[row_index].path);
+        if(btn_node) {
+            for(int b = 0; b < (int)btn_node->buttons.length(); b++) {
+                double btn_right = width - btn_pad - b * (btn_w + btn_gap);
+                double btn_left  = btn_right - btn_w;
+                if(px >= btn_left && px < btn_right) {
+                    emitAction(btn_node->buttons[b].action);
+                    return;
+                }
+            }
+        }
     }
 
     ElaraTreeViewNode* node = nodeAtPath(rows[row_index].path);

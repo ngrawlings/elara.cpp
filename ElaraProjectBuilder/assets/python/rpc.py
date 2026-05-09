@@ -126,11 +126,18 @@ class ElaraUiRpcClient:
     def snapshot_widget(self, target: str, timeout: float = 5.0):
         return self.call("ui.snapshotWidget", {"target": target}, timeout=timeout)
 
+    def replace_list_items(self, target: str, items: list, timeout: float = 5.0):
+        document = json.dumps({"items": items}, separators=(",", ":"))
+        return self.call("ui.replaceChildren", {"target": target, "document": document}, timeout=timeout)
+
     def set_text(self, target: str, value: str, timeout: float = 5.0):
         return self.call("ui.setText", {"target": target, "value": value}, timeout=timeout)
 
     def set_focus(self, target: str, timeout: float = 5.0):
         return self.call("ui.setFocus", {"target": target}, timeout=timeout)
+
+    def set_window_title(self, title: str, timeout: float = 5.0):
+        return self.call("ui.setWindowTitle", {"title": title}, timeout=timeout)
 
     def enable_event(self, action: str, timeout: float = 5.0):
         return self.call("ui.enableEvent", {"action": action}, timeout=timeout)

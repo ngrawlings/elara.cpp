@@ -11,7 +11,7 @@ class UiDocumentBuilder:
         self.window_width = 800
         self.window_height = 600
         self.window_backend_id = "org.elara.ui.app"
-        self.theme_mode = "light"
+        self.theme_mode = "dark"
         self.root_content = None
         self.root_popups = []
         self._widgets = {}

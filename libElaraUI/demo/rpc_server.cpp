@@ -204,6 +204,99 @@ public:
     }
 };
 
+class DebugEventLog : public ElaraUiRpcEventSink {
+private:
+    FILE* file;
+    Mutex mutex;
+    int seq;
+
+    long long nowMs() const {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        return (long long)ts.tv_sec * 1000LL + (long long)ts.tv_nsec / 1000000LL;
+    }
+
+    void writeLine(const String& line) {
+        if(!file) {
+            return;
+        }
+        fwrite((const char*)line, 1, line.byteLength(), file);
+        fwrite("\n", 1, 1, file);
+        fflush(file);
+    }
+
+public:
+    DebugEventLog(const char* path)
+        : mutex("debug-event-log"),
+          seq(0) {
+        file = fopen(path, "a");
+        if(file) {
+            fprintf(file, "{\"type\":\"session_start\",\"ts_ms\":%lld}\n", nowMs());
+            fflush(file);
+        }
+    }
+
+    ~DebugEventLog() {
+        if(file) {
+            fclose(file);
+            file = 0;
+        }
+    }
+
+    bool isOpen() const {
+        return file != 0;
+    }
+
+    void logRpcIn(const String& method, const String& params_json) {
+        Mutex::Lock lock(mutex);
+        int s = seq++;
+        long long ts = nowMs();
+        String line =
+            String("{\"type\":\"rpc_in\",\"seq\":") + String(s) +
+            String(",\"ts_ms\":") + String((int)ts) +
+            String(",\"method\":\"") + method +
+            String("\",\"params\":") + params_json +
+            String("}");
+        writeLine(line);
+    }
+
+    void logRpcOut(const String& method, bool ok, const String& error_code) {
+        Mutex::Lock lock(mutex);
+        int s = seq++;
+        long long ts = nowMs();
+        String line =
+            String("{\"type\":\"rpc_out\",\"seq\":") + String(s) +
+            String(",\"ts_ms\":") + String((int)ts) +
+            String(",\"method\":\"") + method +
+            String("\",\"ok\":") + String(ok ? "true" : "false");
+        if(error_code.length() > 0) {
+            line = line + String(",\"error\":\"") + error_code + String("\"");
+        }
+        line = line + String("}");
+        writeLine(line);
+    }
+
+    void onOutboundEvent(
+        const String& target,
+        const String& action,
+        const String& payload,
+        int event_seq,
+        long long ts_ms
+    ) {
+        Mutex::Lock lock(mutex);
+        int s = seq++;
+        String line =
+            String("{\"type\":\"event_out\",\"seq\":") + String(s) +
+            String(",\"event_seq\":") + String(event_seq) +
+            String(",\"ts_ms\":") + String((int)ts_ms) +
+            String(",\"target\":\"") + target +
+            String("\",\"action\":\"") + action +
+            String("\",\"payload\":") + payload +
+            String("}");
+        writeLine(line);
+    }
+};
+
 class EventTraceListener : public WidgetListener {
 private:
     EventArtifactLogger* logger;
@@ -409,6 +502,63 @@ public:
 
         return false;
     }
+
+    void setMainWindowTitle(const String& title) {
+        GtkGuiBackend* gtk_backend = dynamic_cast<GtkGuiBackend*>(backend.getPtr());
+        if(gtk_backend) {
+            gtk_backend->setWindowTitle(title);
+        }
+    }
+
+    String snapshotAll() const {
+        String result = "[";
+        for(int i = 0; i < (int)windows.length(); i++) {
+            WindowRecord* record = windows[i];
+            if(!record || !record->root) {
+                continue;
+            }
+            if(result.length() > 1) {
+                result = result + String(",");
+            }
+            result = result +
+                String("{\"window_id\":\"") + record->window_id +
+                String("\",\"snapshot\":") + record->root->getRootSnapshotJson() +
+                String("}");
+        }
+        return result + String("]");
+    }
+
+    bool tryCallSecondary(
+        const String& method,
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        for(int i = 0; i < (int)windows.length(); i++) {
+            WindowRecord* record = windows[i];
+            if(!record || !record->root || !record->protocol) {
+                continue;
+            }
+
+            ElaraUiRpcUiService executor(record->root, record->protocol);
+            String r, ec, em;
+            if(executor.call(method, params_json, r, ec, em)) {
+                result_json = r;
+                return true;
+            }
+
+            if(ec != String("widget_not_found")) {
+                error_code = ec;
+                error_message = em;
+                return false;
+            }
+        }
+
+        error_code = "widget_not_found";
+        error_message = "No widget matched the requested target id in any window";
+        return false;
+    }
 };
 
 class MainThreadUiService : public sockets::rpc::json::JsonRPCService {
@@ -552,6 +702,23 @@ public:
         return true;
     }
 
+    bool setWindowTitle(
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        (void)error_code;
+        (void)error_message;
+        Json params(params_json);
+        String title = params.getStringValue("title");
+        if(window_manager) {
+            window_manager->setMainWindowTitle(title);
+        }
+        result_json = "{\"ok\":true}";
+        return true;
+    }
+
     bool addDemoVectorOverlay(
         const String& params_json,
         String& result_json,
@@ -677,6 +844,13 @@ public:
                     error_code,
                     error_message
                 );
+            } else if(request->method == String("setWindowTitle")) {
+                ok = setWindowTitle(
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
             } else if(request->method == String("addDemoVectorOverlay")) {
                 ok = addDemoVectorOverlay(
                     request->params_json,
@@ -691,6 +865,14 @@ public:
                     error_code,
                     error_message
                 );
+            } else if(request->method == String("snapshot") && window_manager) {
+                String main_snapshot = root ? root->getRootSnapshotJson() : String("null");
+                String secondary_snapshots = window_manager->snapshotAll();
+                result_json =
+                    String("{\"main\":") + main_snapshot +
+                    String(",\"windows\":") + secondary_snapshots +
+                    String("}");
+                ok = true;
             } else {
                 ok = executor.call(
                     request->method,
@@ -699,6 +881,16 @@ public:
                     error_code,
                     error_message
                 );
+
+                if(!ok && error_code != String("method_not_found") && window_manager) {
+                    ok = window_manager->tryCallSecondary(
+                        request->method,
+                        request->params_json,
+                        result_json,
+                        error_code,
+                        error_message
+                    );
+                }
             }
 
             if(logger) {
@@ -882,6 +1074,7 @@ private:
     Ref<WidgetListener> demo_logic_listener;
     Ref<WidgetListener> trace_listener;
     bool layout_attached;
+    DebugEventLog* debug_log;
 
     int listen_fd;
     bool running;
@@ -905,6 +1098,7 @@ public:
           rpc_ui_service_ref(Ref<sockets::rpc::json::JsonRPCService>::borrow((sockets::rpc::json::JsonRPCService*)ui_service_ref.getPtr())),
           ui_service((MainThreadUiService*)ui_service_ref.getPtr()),
           layout_attached(false),
+          debug_log(0),
           listen_fd(0),
           running(false),
           accept_thread(0) {
@@ -916,6 +1110,20 @@ public:
 
     String getSessionDir() const {
         return logger.getSessionDir();
+    }
+
+    void setEventLogPath(const char* path) {
+        if(debug_log) {
+            delete debug_log;
+        }
+        debug_log = new DebugEventLog(path);
+        if(!debug_log->isOpen()) {
+            printf("warning: could not open event log at %s\n", path);
+            delete debug_log;
+            debug_log = 0;
+        } else {
+            printf("event log: %s\n", path);
+        }
     }
 
     void installDemoLogic() {
@@ -1060,6 +1268,9 @@ private:
 
         if(peer->attach(fd)) {
             ui_bridge = Ref<ElaraUiRpcUiBridge>(new ElaraUiRpcUiBridge(root, peer));
+            if(debug_log) {
+                ui_bridge->setEventSink(debug_log);
+            }
             logger.log("rpc.connection", String("client connected fd=") + String(fd));
             root->enableOutboundEvent("mouseMove");
             root->enableOutboundEvent("mouseDown");
@@ -1166,9 +1377,18 @@ int main(int argc, char** argv) {
     return 1;
 #else
     unsigned short rpc_port = 18777;
+    const char* event_log_path = 0;
 
-    if(argc > 2) {
-        rpc_port = (unsigned short)atoi(argv[2]);
+    for(int i = 1; i < argc; i++) {
+        if(strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+            rpc_port = (unsigned short)atoi(argv[++i]);
+        } else if(strcmp(argv[i], "--event-log") == 0 && i + 1 < argc) {
+            event_log_path = argv[++i];
+        } else if(i == 1 && argv[i][0] != '-') {
+            /* legacy positional port argument */
+        } else if(i == 2 && argv[i][0] != '-') {
+            rpc_port = (unsigned short)atoi(argv[i]);
+        }
     }
 
     WindowConfig window_config;
@@ -1181,6 +1401,10 @@ int main(int argc, char** argv) {
 
     Ref<ElaraGuiBackend> backend(new GtkGuiBackend(window_config.backend_id));
     UiRpcHost host(root_surface, backend, &theme, &protocol);
+
+    if(event_log_path) {
+        host.setEventLogPath(event_log_path);
+    }
 
     if(!host.listen("0.0.0.0", rpc_port)) {
         printf("failed to listen for RPC clients on port %d\n", (int)rpc_port);

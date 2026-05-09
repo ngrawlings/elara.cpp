@@ -59,6 +59,7 @@ class UiDocumentBuilder:
             "grid_children": [],
             "tabs": [],
             "popup_items": [],
+            "toolbar_items": [],
             "grid_columns": [],
             "grid_rows": [],
         }
@@ -134,6 +135,34 @@ class UiDocumentBuilder:
         self.create_widget(widget_id, "elara.widgets.rich_text_edit")
         return self.set_property_string(widget_id, "text", text)
 
+    def create_toolbar(self, widget_id, orientation="vertical"):
+        self.create_widget(widget_id, "elara.widgets.toolbar")
+        self.set_property_string(widget_id, "orientation", orientation)
+        return self
+
+    def add_toolbar_item(self, widget_id, item_id, text, icon="", enabled=True, tooltip=""):
+        widget = self._get_widget(widget_id)
+        item = {"id": item_id, "text": text}
+        if icon:
+            item["icon"] = icon
+        if not enabled:
+            item["enabled"] = False
+        if tooltip:
+            item["tooltip"] = tooltip
+        widget["toolbar_items"].append(item)
+        return self
+
+    def add_toolbar_separator(self, widget_id):
+        self._get_widget(widget_id)["toolbar_items"].append({"separator": True})
+        return self
+
+    def create_code_editor(self, widget_id, text="", font_size=14):
+        self.create_widget(widget_id, "elara.widgets.code_editor")
+        if text:
+            self.set_property_string(widget_id, "text", text)
+        self.set_property_number(widget_id, "font_size", font_size)
+        return self
+
     def create_surface_panel(self, widget_id):
         return self.create_widget(widget_id, "demo.widgets.surface_panel")
 
@@ -150,11 +179,16 @@ class UiDocumentBuilder:
         parent["children"].append({"child_id": child_id})
         return self
 
-    def add_tab(self, tabs_id, title, child_id):
+    def add_tab(self, tabs_id, title, child_id, button_glyph=None, button_action=None):
         tabs = self._get_widget(tabs_id)
         self._get_widget(child_id)
         self._detach_child_reference(child_id)
-        tabs["tabs"].append({"title": title, "child_id": child_id})
+        entry = {"title": title, "child_id": child_id}
+        if button_glyph:
+            entry["button_glyph"] = button_glyph
+        if button_action:
+            entry["button_action"] = button_action
+        tabs["tabs"].append(entry)
         return self
 
     def add_popup_item(self, popup_id, item_id, label):
@@ -323,6 +357,30 @@ class UiDocumentBuilder:
         self._get_widget(widget_id)["sections"][section_name] = value
         return self
 
+
+    def snapshot_client_sections(self):
+        """Return static client-side sections by widget id for snapshot augmentation.
+
+        The C++ runtime snapshot is intentionally sparse for complex controls.
+        This helper preserves builder-side payloads such as list items, tree nodes,
+        menu definitions, toolbar items, chart data, and custom sections so a
+        dumped snapshot can include the full logical widget state known by Python.
+        """
+        result = {}
+        for widget_id, widget in self._widgets.items():
+            sections = {}
+            if widget.get("sections"):
+                sections.update(deepcopy(widget["sections"]))
+            if widget.get("popup_items"):
+                sections["items"] = deepcopy(widget["popup_items"])
+            if widget.get("toolbar_items"):
+                sections["items"] = deepcopy(widget["toolbar_items"])
+            if widget.get("properties"):
+                sections["properties"] = deepcopy(widget["properties"])
+            if sections:
+                result[widget_id] = sections
+        return result
+
     def widget_dict(self, widget_id):
         return self._serialize_widget(self._get_widget(widget_id))
 
@@ -399,6 +457,8 @@ class UiDocumentBuilder:
 
         if widget["popup_items"]:
             result["items"] = deepcopy(widget["popup_items"])
+        elif widget.get("toolbar_items"):
+            result["items"] = deepcopy(widget["toolbar_items"])
 
         if widget["grid_columns"]:
             result["columns"] = [
@@ -433,12 +493,15 @@ class UiDocumentBuilder:
         if widget["tabs"]:
             result["tabs"] = []
             for tab in widget["tabs"]:
-                result["tabs"].append(
-                    {
-                        "title": tab["title"],
-                        "widget": self._serialize_widget(self._get_widget(tab["child_id"])),
-                    }
-                )
+                tab_dict = {
+                    "title": tab["title"],
+                    "widget": self._serialize_widget(self._get_widget(tab["child_id"])),
+                }
+                if "button_glyph" in tab:
+                    tab_dict["button_glyph"] = tab["button_glyph"]
+                if "button_action" in tab:
+                    tab_dict["button_action"] = tab["button_action"]
+                result["tabs"].append(tab_dict)
         elif widget["grid_children"]:
             result["children"] = []
             for child in widget["grid_children"]:

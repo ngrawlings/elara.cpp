@@ -12,6 +12,18 @@ namespace elara {
 namespace ui {
 namespace rpc {
 
+class ElaraUiRpcEventSink {
+public:
+    virtual void onOutboundEvent(
+        const String& target,
+        const String& action,
+        const String& payload,
+        int seq,
+        long long ts_ms
+    ) = 0;
+    virtual ~ElaraUiRpcEventSink() {}
+};
+
 class ElaraUiRpcUiBridge {
 public:
     ElaraUiRpcUiBridge(
@@ -27,12 +39,16 @@ public:
     void setOutboundEventMethod(const String& method_name);
     String getOutboundEventMethod() const;
 
+    void setEventSink(ElaraUiRpcEventSink* sink);
+
     bool flushOutboundEvents(int timeout_ms = 1000);
 
 private:
     ElaraRootWidget* root;
     Ref<ElaraUiRpcPeer> peer;
     String outbound_event_method;
+    ElaraUiRpcEventSink* event_sink;
+    int seq;
 };
 
 }

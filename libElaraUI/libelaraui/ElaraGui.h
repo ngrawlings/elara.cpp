@@ -94,6 +94,7 @@ public:
     virtual void show() = 0;
     virtual void invalidate() = 0;
     virtual int run(int argc, char** argv) = 0;
+    virtual void setWindowTitle(const String& title) {}
 };
 
 class ElaraWindow {

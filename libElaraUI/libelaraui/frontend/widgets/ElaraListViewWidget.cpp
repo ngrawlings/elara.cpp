@@ -38,7 +38,20 @@ ElaraListViewWidget::ElaraListViewWidget(
     hover_index(-1),
     font_size(14),
     row_height(24),
-    padding_x(8) {
+    padding_x(8),
+    scroll_offset(0),
+    scrollbar_size(14),
+    vscroll(new ElaraSliderWidget(
+        root_widget,
+        ElaraWidgetHandle(
+            String((const char*)widget_handle.getHandle().getPtr(), widget_handle.getHandle().length()) +
+            String(".vscroll")
+        )
+    )) {
+    vscroll->setOrientation("vertical");
+    vscroll->setStep(1);
+    vscroll->setZOrder(10);
+    addChild(Ref<ElaraWidget>(vscroll));
 }
 
 ElaraListViewWidget::~ElaraListViewWidget() {
@@ -49,7 +62,7 @@ int ElaraListViewWidget::rowAt(double py) const {
         return -1;
     }
 
-    int index = (int)(py / row_height);
+    int index = (int)(py / row_height) + scroll_offset;
 
     if(index < 0 || index >= (int)items.length()) {
         return -1;
@@ -63,6 +76,7 @@ void ElaraListViewWidget::clearItems() {
     selected_id = "";
     selected_text = "";
     hover_index = -1;
+    scroll_offset = 0;
 }
 
 void ElaraListViewWidget::addItem(const ElaraListViewItem& item) {
@@ -111,38 +125,75 @@ ElaraMouseCursor ElaraListViewWidget::cursor() const {
 }
 
 void ElaraListViewWidget::draw(ElaraDrawContext* ctx) {
+    int visible_rows = height > 0 ? (int)(height / row_height) : 0;
+    int max_scroll = (int)items.length() - visible_rows;
+    if(max_scroll < 0) max_scroll = 0;
+
+    if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+    if(scroll_offset < 0) scroll_offset = 0;
+
+    bool show_scroll = max_scroll > 0;
+    vscroll->setVisible(show_scroll);
+
+    if(show_scroll) {
+        vscroll->setRange(0, max_scroll);
+        vscroll->setStep(1);
+        vscroll->setValue(scroll_offset);
+        vscroll->setBounds(width - scrollbar_size, 0, scrollbar_size, height);
+    }
+
+    double content_width = show_scroll ? width - scrollbar_size : width;
+
     String sub = enabled ? String("default") : String("disabled");
     ElaraPaletteTriplet c = colors(palette_master, sub);
-    ElaraPaletteTriplet hover = colors("button", "hover");
-    ElaraPaletteTriplet selected = colors("button", "pressed");
+    ElaraPaletteTriplet hover_c = colors("button", "hover");
+    ElaraPaletteTriplet selected_c = colors("button", "pressed");
 
     ctx->setColor(c.base.r, c.base.g, c.base.b);
-    ctx->fillRect(0, 0, width, height);
+    ctx->fillRect(0, 0, content_width, height);
 
     ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
-    ctx->line(0, 0, width, 0, 1);
-    ctx->line(0, height - 1, width, height - 1, 1);
+    ctx->line(0, 0, content_width, 0, 1);
+    ctx->line(0, height - 1, content_width, height - 1, 1);
     ctx->line(0, 0, 0, height, 1);
-    ctx->line(width - 1, 0, width - 1, height, 1);
+    ctx->line(content_width - 1, 0, content_width - 1, height, 1);
 
-    for(int i = 0; i < (int)items.length(); i++) {
-        double y = i * row_height;
+    for(int i = scroll_offset; i < (int)items.length(); i++) {
+        double row_y = (i - scroll_offset) * row_height;
 
-        if(y + row_height > height) {
+        if(row_y + row_height > height) {
             break;
         }
 
         if(items[i].getId() == selected_id) {
-            ctx->setColor(selected.base.r, selected.base.g, selected.base.b);
-            ctx->fillRect(2, y + 1, width - 4, row_height - 2);
+            ctx->setColor(selected_c.base.r, selected_c.base.g, selected_c.base.b);
+            ctx->fillRect(2, row_y + 1, content_width - 4, row_height - 2);
         } else if(i == hover_index) {
-            ctx->setColor(hover.base.r, hover.base.g, hover.base.b);
-            ctx->fillRect(2, y + 1, width - 4, row_height - 2);
+            ctx->setColor(hover_c.base.r, hover_c.base.g, hover_c.base.b);
+            ctx->fillRect(2, row_y + 1, content_width - 4, row_height - 2);
         }
 
         ctx->setColor(c.text.r, c.text.g, c.text.b);
-        ctx->drawText(padding_x, y + font_size + 5, items[i].getText(), font_size);
+        ctx->drawText(padding_x, row_y + font_size + 5, items[i].getText(), font_size);
     }
+
+    if(show_scroll) {
+        vscroll->onDraw(ctx, (int)scrollbar_size, (int)height);
+    }
+}
+
+bool ElaraListViewWidget::eventPropagate(ElaraUiEvent event) {
+    if(vscroll->isVisible()) {
+        vscroll->setBounds(width - scrollbar_size, 0, scrollbar_size, height);
+    }
+
+    bool handled = ElaraWidget::eventPropagate(event);
+
+    if(vscroll->isVisible()) {
+        scroll_offset = (int)vscroll->getValue();
+    }
+
+    return handled;
 }
 
 void ElaraListViewWidget::onMouseMove(double px, double py) {
@@ -174,8 +225,6 @@ void ElaraListViewWidget::onMouseUp(int button, double px, double py) {
 }
 
 void ElaraListViewWidget::onMouseDoubleClick(int button, double px, double py) {
-    printf("[dc] listview onMouseDoubleClick button=%d px=%.1f py=%.1f row=%d items=%d enabled=%d\n",
-        button, px, py, rowAt(py), (int)items.length(), (int)enabled); fflush(stdout);
     if(!enabled || button != 1) {
         return;
     }

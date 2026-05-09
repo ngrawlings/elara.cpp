@@ -5,6 +5,11 @@
 
 namespace elara {
 
+struct ElaraTreeViewNodeButton {
+    String glyph;
+    String action;
+};
+
 class ElaraTreeViewNode {
 private:
     String id;
@@ -13,6 +18,7 @@ private:
 
 public:
     Array<ElaraTreeViewNode> children;
+    Array<ElaraTreeViewNodeButton> buttons;
 
     ElaraTreeViewNode();
     ElaraTreeViewNode(const String& node_id, const String& node_text);
@@ -25,6 +31,8 @@ public:
 
     void setExpanded(bool value);
     bool isExpanded() const;
+
+    void addButton(const ElaraTreeViewNodeButton& button);
 
     void addChild(const ElaraTreeViewNode& child);
     int childCount() const;
@@ -41,12 +49,14 @@ private:
         String text;
         bool expanded;
         bool has_children;
+        int button_count;
 
         VisibleRow()
             : path(),
               depth(0),
               expanded(false),
-              has_children(false) {
+              has_children(false),
+              button_count(0) {
         }
     };
 
@@ -58,6 +68,7 @@ private:
 
     bool enabled;
     int hover_index;
+    int hover_button_index;
     double font_size;
     double row_height;
     double indent_width;

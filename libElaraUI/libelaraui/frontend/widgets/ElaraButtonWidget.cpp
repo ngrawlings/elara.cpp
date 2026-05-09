@@ -69,12 +69,9 @@ double ElaraButtonWidget::textY() const {
 }
 
 void ElaraButtonWidget::onClicked() {
-    printf("button clicked: %s action=%s\n", (const char*)text, (const char*)action);
-
-    /*
-        Later:
-        rootWidget()->emitAction(getHandle(), action);
-    */
+    if(action.length() > 0) {
+        emitAction(action);
+    }
 }
 
 void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {

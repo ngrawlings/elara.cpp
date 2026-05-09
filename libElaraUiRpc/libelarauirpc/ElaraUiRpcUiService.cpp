@@ -325,6 +325,12 @@ bool ElaraUiRpcUiService::replaceChildren(
         return false;
     }
 
+    if(!root->getWidget(ElaraWidgetHandle(target))) {
+        error_code = "widget_not_found";
+        error_message = "No widget matched the requested target id";
+        return false;
+    }
+
     if(!protocol->replaceChildren(ElaraWidgetHandle(target), document)) {
         error_code = "replace_failed";
         error_message = "The target widget children could not be replaced";

@@ -97,6 +97,7 @@ public:
     void invalidate();
     int run(int argc, char** argv);
     void destroyWindow(Ref<ElaraDrawSurface> surface);
+    void setWindowTitle(const String& title);
 };
 
 }

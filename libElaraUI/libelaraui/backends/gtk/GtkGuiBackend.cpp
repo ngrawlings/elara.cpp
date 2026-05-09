@@ -345,11 +345,9 @@ void GtkGuiBackend::onMousePressed(
         }
 
         if(is_double) {
-            printf("[dc] DISPATCH double click at %.0f,%.0f n_press=%d timer=%u\n", x, y, n_press, state->pending_timer_id); fflush(stdout);
             state->pending_button = -1;
             state->surface->dispatchDoubleClick(button, x, y);
         } else if(state->surface->acceptsDoubleClickAt(x, y)) {
-            printf("[dc] deferred press at %.0f,%.0f n_press=%d\n", x, y, n_press); fflush(stdout);
             state->pending_button = button;
             state->pending_press_x = x;
             state->pending_press_y = y;
@@ -470,6 +468,16 @@ void GtkGuiBackend::removeWindowState(WindowState* state) {
 
     if(activated && windows.length() <= 0 && app) {
         g_application_quit(G_APPLICATION(app));
+    }
+}
+
+void GtkGuiBackend::setWindowTitle(const String& title) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_window_set_title(state->window, (const char*)title);
+            return;
+        }
     }
 }
 
