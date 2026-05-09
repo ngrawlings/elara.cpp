@@ -25,6 +25,11 @@ namespace elara {
         Memory mem = widget_handle.getHandle();
         Ref<ElaraWidget> widget = this->widgets.get(mem);
         if(!widget) {
+            String key((const char*)mem.getPtr(), mem.length());
+            if(key.startsWith(String("new-file::"))) {
+                printf("[reg] getWidget MISS: %s\n", (const char*)key);
+                fflush(stdout);
+            }
             return Ref<ElaraWidget>();
         }
         return Ref<ElaraWidget>::borrow(widget.getPtr());
@@ -32,6 +37,10 @@ namespace elara {
 
     void ElaraWidgetRegistry::clearNamespace(const String& namespace_prefix) {
         const String prefix = namespace_prefix + String("::");
+        if(namespace_prefix == String("new-file")) {
+            printf("[reg] clearNamespace: new-file\n");
+            fflush(stdout);
+        }
         Array<Memory> keys_to_remove;
 
         {

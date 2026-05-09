@@ -305,7 +305,14 @@ Ref<ElaraWidget> ElaraRootWidget::getPopup(int index) const {
 }
 
 void ElaraRootWidget::registerWidget(ElaraWidgetHandle widget_handle, void* widget) {
-    ElaraWidgetRegistry::getInstance()->setWidget(qualifyHandle(widget_handle), (ElaraWidget*)widget);
+    ElaraWidgetHandle qh = qualifyHandle(widget_handle);
+    Memory qmem = qh.getHandle();
+    String qstr((const char*)qmem.getPtr(), qmem.length());
+    if(qstr.startsWith(String("new-file::"))) {
+        printf("[reg] registering: %s\n", (const char*)qstr);
+        fflush(stdout);
+    }
+    ElaraWidgetRegistry::getInstance()->setWidget(qh, (ElaraWidget*)widget);
     ((ElaraWidget*)widget)->addListener(this->event_filter);
 }
 

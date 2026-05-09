@@ -1379,16 +1379,22 @@ int main(int argc, char** argv) {
     unsigned short rpc_port = 18777;
     const char* event_log_path = 0;
 
-    for(int i = 1; i < argc; i++) {
-        if(strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
-            rpc_port = (unsigned short)atoi(argv[++i]);
-        } else if(strcmp(argv[i], "--event-log") == 0 && i + 1 < argc) {
-            event_log_path = argv[++i];
-        } else if(i == 1 && argv[i][0] != '-') {
-            /* legacy positional port argument */
-        } else if(i == 2 && argv[i][0] != '-') {
-            rpc_port = (unsigned short)atoi(argv[i]);
+    /* Parse and strip our custom args so GTK never sees them. */
+    {
+        int out = 1;
+        for(int i = 1; i < argc; i++) {
+            if(strcmp(argv[i], "--port") == 0 && i + 1 < argc) {
+                rpc_port = (unsigned short)atoi(argv[++i]);
+            } else if(strcmp(argv[i], "--event-log") == 0 && i + 1 < argc) {
+                event_log_path = argv[++i];
+            } else if(i == 1 && argv[i][0] != '-') {
+                rpc_port = (unsigned short)atoi(argv[i]);
+            } else {
+                argv[out++] = argv[i];
+            }
         }
+        argc = out;
+        argv[argc] = 0;
     }
 
     WindowConfig window_config;
