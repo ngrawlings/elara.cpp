@@ -135,6 +135,35 @@ static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
 }
 
+static unsigned int worker_entry_id_for_name(const ESemanticModel *model, const char *name) {
+  size_t i;
+  for (i = 0; i < model->worker_count; i++) {
+    if (strcmp(model->workers[i]->name, name) == 0) {
+      return (unsigned int)(i + 1u);
+    }
+  }
+  return 0u;
+}
+
+static void emit_verbatim_epa(FILE *out, const char *text, int depth) {
+  const char *cursor;
+  if (!text || !text[0]) return;
+  cursor = text;
+  while (*cursor) {
+    const char *line_end = strchr(cursor, '\n');
+    emit_indent(out, depth);
+    if (line_end) {
+      fwrite(cursor, 1, (size_t)(line_end - cursor), out);
+      fputc('\n', out);
+      cursor = line_end + 1;
+    } else {
+      fputs(cursor, out);
+      fputc('\n', out);
+      break;
+    }
+  }
+}
+
 static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, const char *break_label) {
   size_t i;
   if (!stmt) return;
@@ -219,6 +248,23 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         fputs("; break outside switch pending semantic error\n", out);
       }
       break;
+    case E_STMT_NEXT: {
+      unsigned int next_worker_id = worker_entry_id_for_name(ctx->model, stmt->as.next_stmt.worker_name);
+      emit_indent(out, depth);
+      fprintf(out, "; next %s\n", stmt->as.next_stmt.worker_name);
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH R1\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "SET_R 2 %u\n", next_worker_id);
+      emit_indent(out, depth);
+      fputs("G_XFER\n", out);
+      break;
+    }
+    case E_STMT_RAW_EPA:
+      emit_verbatim_epa(out, stmt->as.raw_epa.text, depth);
+      break;
   }
 }
 
@@ -226,6 +272,21 @@ static int frame_words_for_function(const ESemanticModel *model, const char *nam
   const EFunctionFrame *frame = find_frame(model, name);
   if (!frame) return 0;
   return (int)((frame->total_size + 3u) / 4u);
+}
+
+static unsigned int resolved_in_words(const ESemanticModel *model, const EEntryAttributes *attrs) {
+  if (attrs && attrs->has_in_words) return attrs->in_words;
+  return model->default_in_words;
+}
+
+static unsigned int resolved_out_words(const ESemanticModel *model, const EEntryAttributes *attrs) {
+  if (attrs && attrs->has_out_words) return attrs->out_words;
+  return model->default_out_words;
+}
+
+static unsigned int resolved_signal_mail_box_size(const ESemanticModel *model, const EEntryAttributes *attrs) {
+  if (attrs && attrs->has_signal_mail_box_size) return attrs->signal_mail_box_size;
+  return model->default_signal_mail_box_size;
 }
 
 int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model, char err[256]) {
@@ -267,9 +328,14 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         fputs("FUNC_END\n\n", out);
         break;
       }
+      case E_TOP_DECLARE:
+        break;
       case E_TOP_KERNEL:
         fputs("; kernel entry\n", out);
-        fputs("ENTRY_START 0 0 0 0\n", out);
+        fprintf(out, "ENTRY_START 0 %u %u %u\n",
+                resolved_in_words(model, &top->as.kernel.attrs),
+                resolved_out_words(model, &top->as.kernel.attrs),
+                resolved_signal_mail_box_size(model, &top->as.kernel.attrs));
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL);
         fputs("ENTRY_END\n\n", out);
         break;
@@ -281,8 +347,31 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
             fprintf(out, "; typed GHS view %s span=%zu\n", layout->type_name, layout->total_size);
           }
         }
-        fprintf(out, "ENTRY_START %u 0 0 0\n", ctx.next_worker_id++);
-        emit_stmt(out, top->as.worker.body, &ctx, 1, NULL);
+        fprintf(out, "ENTRY_START %u %u %u %u\n",
+                ctx.next_worker_id++,
+                resolved_in_words(model, &top->as.worker.attrs),
+                resolved_out_words(model, &top->as.worker.attrs),
+                resolved_signal_mail_box_size(model, &top->as.worker.attrs));
+        {
+          unsigned int loop_id = next_label(&ctx);
+          emit_indent(out, 1);
+          fprintf(out, "E_WORKER_WAIT_%u:\n", loop_id);
+          emit_indent(out, 1);
+          fputs("WAIT_FOR_DATA\n", out);
+          emit_indent(out, 1);
+          fputs("; current wake carries the inbound GHS handle in worker ingress\n", out);
+          emit_indent(out, 1);
+          fputs("WORKER_TRX_IN_R 3\n", out);
+          emit_indent(out, 1);
+          fputs("WORKER_TRX_IN_R 0\n", out);
+          emit_indent(out, 1);
+          fputs("WORKER_TRX_IN_R 1\n", out);
+          emit_indent(out, 1);
+          fputs("; E worker body begins after ingress wake-up\n", out);
+          emit_stmt(out, top->as.worker.body, &ctx, 1, NULL);
+          emit_indent(out, 1);
+          fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);
+        }
         fputs("ENTRY_END\n\n", out);
         break;
       case E_TOP_FUNCTION: {

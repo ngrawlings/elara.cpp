@@ -49,6 +49,9 @@ typedef struct {
 typedef struct {
   const EKernel *kernel;
   size_t kernel_count;
+  unsigned int default_in_words;
+  unsigned int default_out_words;
+  unsigned int default_signal_mail_box_size;
 
   const EWorker **workers;
   size_t worker_count;

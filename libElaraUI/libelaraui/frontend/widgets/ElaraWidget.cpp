@@ -213,6 +213,14 @@ void ElaraWidget::emitKeysTyped(const String& text) {
     }
 }
 
+void ElaraWidget::emitTextChanged(const String& text) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetTextChanged(widget_handle, text);
+        }
+    }
+}
+
 void ElaraWidget::emitValueChanged(double value) {
     for(int i = 0; i < (int)listeners.length(); i++) {
         if(listeners[i]) {

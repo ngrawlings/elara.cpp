@@ -16,6 +16,15 @@ typedef struct EExpr EExpr;
 typedef struct EStmt EStmt;
 typedef struct ESwitchCase ESwitchCase;
 
+typedef struct {
+  int has_in_words;
+  int has_out_words;
+  int has_signal_mail_box_size;
+  unsigned int in_words;
+  unsigned int out_words;
+  unsigned int signal_mail_box_size;
+} EEntryAttributes;
+
 typedef enum {
   E_EXPR_IDENT = 1,
   E_EXPR_INT,
@@ -68,6 +77,8 @@ typedef enum {
   E_STMT_IF,
   E_STMT_SWITCH,
   E_STMT_BREAK,
+  E_STMT_NEXT,
+  E_STMT_RAW_EPA,
 } EStmtKind;
 
 typedef struct {
@@ -106,6 +117,12 @@ struct EStmt {
       ESwitchCase *cases;
       size_t case_count;
     } switch_stmt;
+    struct {
+      char *worker_name;
+    } next_stmt;
+    struct {
+      char *text;
+    } raw_epa;
   } as;
 };
 
@@ -122,12 +139,14 @@ typedef struct {
   EParam *params;
   size_t param_count;
   EStmt *body;
+  EEntryAttributes attrs;
 } EWorker;
 
 typedef struct {
   EParam *params;
   size_t param_count;
   EStmt *body;
+  EEntryAttributes attrs;
 } EKernel;
 
 typedef struct {
@@ -142,11 +161,23 @@ typedef struct {
 } ETypeDecl;
 
 typedef enum {
+  E_DECLARE_DEFAULT_IN_WORDS = 1,
+  E_DECLARE_DEFAULT_OUT_WORDS,
+  E_DECLARE_DEFAULT_SIGNAL_MAIL_BOX_SIZE,
+} EDeclareKind;
+
+typedef struct {
+  EDeclareKind kind;
+  unsigned int value;
+} EDeclareDecl;
+
+typedef enum {
   E_TOP_STRUCT = 1,
   E_TOP_KERNEL,
   E_TOP_WORKER,
   E_TOP_FUNCTION,
   E_TOP_TYPE,
+  E_TOP_DECLARE,
 } ETopKind;
 
 typedef struct {
@@ -157,6 +188,7 @@ typedef struct {
     EWorker worker;
     EFunction func;
     ETypeDecl tdecl;
+    EDeclareDecl declare_decl;
   } as;
 } ETopDecl;
 

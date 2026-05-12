@@ -79,6 +79,54 @@ static int parse_type(Parser *p, ETypeRef *out) {
   return 1;
 }
 
+static int apply_entry_attribute(
+  Parser *p,
+  EEntryAttributes *attrs,
+  const EToken *name_tok,
+  unsigned int value
+) {
+  if (strcmp(name_tok->text, "in_words") == 0) {
+    if (attrs->has_in_words) return set_err(p, "duplicate in_words attribute", name_tok);
+    attrs->has_in_words = 1;
+    attrs->in_words = value;
+    return 1;
+  }
+  if (strcmp(name_tok->text, "out_words") == 0) {
+    if (attrs->has_out_words) return set_err(p, "duplicate out_words attribute", name_tok);
+    attrs->has_out_words = 1;
+    attrs->out_words = value;
+    return 1;
+  }
+  if (strcmp(name_tok->text, "signal_mail_box_size") == 0) {
+    if (attrs->has_signal_mail_box_size) return set_err(p, "duplicate signal_mail_box_size attribute", name_tok);
+    attrs->has_signal_mail_box_size = 1;
+    attrs->signal_mail_box_size = value;
+    return 1;
+  }
+  return set_err(p, "unknown entry attribute", name_tok);
+}
+
+static int parse_entry_attributes(Parser *p, EEntryAttributes *attrs) {
+  const EToken *name_tok;
+  if (!expect(p, E_TOK_IDENT, "expected attributes after '@'")) return 0;
+  name_tok = &p->tokens->items[p->pos - 1];
+  if (strcmp(name_tok->text, "attributes") != 0) {
+    return set_err(p, "expected attributes after '@'", name_tok);
+  }
+
+  while (peek(p)->kind == E_TOK_IDENT) {
+    const EToken *attr_tok = peek(p);
+    unsigned int value;
+    if (!expect(p, E_TOK_IDENT, "expected attribute name")) return 0;
+    if (!expect(p, E_TOK_COLON, "expected ':' after attribute name")) return 0;
+    if (peek(p)->kind != E_TOK_INT_LIT) return set_err(p, "expected integer after ':'", peek(p));
+    value = (unsigned int)strtoul(peek(p)->text, NULL, 10);
+    p->pos++;
+    if (!apply_entry_attribute(p, attrs, attr_tok, value)) return 0;
+  }
+  return 1;
+}
+
 static EExpr *parse_expr(Parser *p);
 
 static EExpr *parse_primary(Parser *p) {
@@ -313,6 +361,12 @@ static EStmt *parse_switch_stmt(Parser *p) {
 
 static EStmt *parse_stmt(Parser *p) {
   if (peek(p)->kind == E_TOK_LBRACE) return parse_block(p);
+  if (peek(p)->kind == E_TOK_RAW_EPA) {
+    EStmt *s = new_stmt(E_STMT_RAW_EPA);
+    s->as.raw_epa.text = xstrdup_local(peek(p)->text);
+    p->pos++;
+    return s;
+  }
   if (match(p, E_TOK_KW_IF)) return parse_if_stmt(p);
   if (match(p, E_TOK_KW_SWITCH)) return parse_switch_stmt(p);
   if (match(p, E_TOK_KW_RETURN)) {
@@ -326,6 +380,13 @@ static EStmt *parse_stmt(Parser *p) {
   }
   if (match(p, E_TOK_KW_BREAK)) {
     EStmt *s = new_stmt(E_STMT_BREAK);
+    if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
+    return s;
+  }
+  if (match(p, E_TOK_KW_NEXT)) {
+    EStmt *s = new_stmt(E_STMT_NEXT);
+    if (!expect(p, E_TOK_IDENT, "expected worker name after next")) return NULL;
+    s->as.next_stmt.worker_name = xstrdup_local(p->tokens->items[p->pos - 1].text);
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
     return s;
   }
@@ -404,9 +465,46 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
 
   while (peek(&p)->kind != E_TOK_EOF) {
     ETopDecl top;
+    EEntryAttributes pending_attrs;
     memset(&top, 0, sizeof(top));
+    memset(&pending_attrs, 0, sizeof(pending_attrs));
+
+    while (match(&p, E_TOK_AT)) {
+      if (!parse_entry_attributes(&p, &pending_attrs)) return 0;
+    }
+
+    if (match(&p, E_TOK_KW_DECLARE)) {
+      const EToken *name_tok;
+      unsigned int value;
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
+      top.kind = E_TOP_DECLARE;
+      if (!expect(&p, E_TOK_IDENT, "expected declaration name")) return 0;
+      name_tok = &tokens->items[p.pos - 1];
+      if (peek(&p)->kind != E_TOK_INT_LIT) return set_err(&p, "expected integer after declaration name", peek(&p));
+      value = (unsigned int)strtoul(peek(&p)->text, NULL, 10);
+      p.pos++;
+      if (match(&p, E_TOK_SEMI)) {}
+
+      if (strcmp(name_tok->text, "default_in_words") == 0) {
+        top.as.declare_decl.kind = E_DECLARE_DEFAULT_IN_WORDS;
+      } else if (strcmp(name_tok->text, "default_out_words") == 0) {
+        top.as.declare_decl.kind = E_DECLARE_DEFAULT_OUT_WORDS;
+      } else if (strcmp(name_tok->text, "default_signal_mail_box_size") == 0) {
+        top.as.declare_decl.kind = E_DECLARE_DEFAULT_SIGNAL_MAIL_BOX_SIZE;
+      } else {
+        return set_err(&p, "unknown declaration name", name_tok);
+      }
+      top.as.declare_decl.value = value;
+      top_push(out_program, &top);
+      continue;
+    }
 
     if (match(&p, E_TOK_KW_STRUCT)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
       top.kind = E_TOP_STRUCT;
       if (!expect(&p, E_TOK_IDENT, "expected struct name")) return 0;
       top.as.sdecl.name = xstrdup_local(tokens->items[p.pos - 1].text);
@@ -416,6 +514,9 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
     }
 
     if (match(&p, E_TOK_KW_TYPE)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
       top.kind = E_TOP_TYPE;
       if (!expect(&p, E_TOK_IDENT, "expected type name")) return 0;
       top.as.tdecl.name = xstrdup_local(tokens->items[p.pos - 1].text);
@@ -429,6 +530,7 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
 
     if (match(&p, E_TOK_KW_KERNEL)) {
       top.kind = E_TOP_KERNEL;
+      top.as.kernel.attrs = pending_attrs;
       if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
       if (!parse_param_list(&p, &top.as.kernel.params, &top.as.kernel.param_count)) return 0;
       top.as.kernel.body = parse_block(&p);
@@ -439,6 +541,7 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
 
     if (match(&p, E_TOK_KW_WORKER)) {
       top.kind = E_TOP_WORKER;
+      top.as.worker.attrs = pending_attrs;
       if (!expect(&p, E_TOK_IDENT, "expected worker name")) return 0;
       top.as.worker.name = xstrdup_local(tokens->items[p.pos - 1].text);
       if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
@@ -450,6 +553,9 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
     }
 
     if (match(&p, E_TOK_KW_FUNCTION)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
       top.kind = E_TOP_FUNCTION;
       if (!parse_type(&p, &top.as.func.return_type)) return 0;
       if (!expect(&p, E_TOK_IDENT, "expected function name")) return 0;

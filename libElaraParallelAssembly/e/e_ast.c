@@ -74,6 +74,12 @@ static void free_stmt(EStmt *s) {
       break;
     case E_STMT_BREAK:
       break;
+    case E_STMT_NEXT:
+      free(s->as.next_stmt.worker_name);
+      break;
+    case E_STMT_RAW_EPA:
+      free(s->as.raw_epa.text);
+      break;
   }
   free(s);
 }
@@ -115,6 +121,8 @@ void e_program_free(EProgram *p) {
         free(d->as.tdecl.name);
         free_params(d->as.tdecl.params, d->as.tdecl.param_count);
         free_stmt(d->as.tdecl.body);
+        break;
+      case E_TOP_DECLARE:
         break;
     }
   }
@@ -245,6 +253,52 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
       indent(out, depth);
       fputs("break\n", out);
       break;
+    case E_STMT_NEXT:
+      indent(out, depth);
+      fprintf(out, "next %s\n", s->as.next_stmt.worker_name);
+      break;
+    case E_STMT_RAW_EPA:
+      indent(out, depth);
+      fputs("EPA {\n", out);
+      if (s->as.raw_epa.text && s->as.raw_epa.text[0]) {
+        const char *cursor = s->as.raw_epa.text;
+        while (*cursor) {
+          const char *line_end = strchr(cursor, '\n');
+          indent(out, depth + 1);
+          if (line_end) {
+            fwrite(cursor, 1, (size_t)(line_end - cursor), out);
+            fputc('\n', out);
+            cursor = line_end + 1;
+          } else {
+            fputs(cursor, out);
+            fputc('\n', out);
+            break;
+          }
+        }
+      }
+      indent(out, depth);
+      fputs("}\n", out);
+      break;
+  }
+}
+
+static void dump_entry_attrs(FILE *out, const EEntryAttributes *attrs) {
+  int any = 0;
+  if (!attrs) return;
+  if (attrs->has_in_words) {
+    fprintf(out, " in_words:%u", attrs->in_words);
+    any = 1;
+  }
+  if (attrs->has_out_words) {
+    fprintf(out, " out_words:%u", attrs->out_words);
+    any = 1;
+  }
+  if (attrs->has_signal_mail_box_size) {
+    fprintf(out, " signal_mail_box_size:%u", attrs->signal_mail_box_size);
+    any = 1;
+  }
+  if (any) {
+    fputc('\n', out);
   }
 }
 
@@ -257,6 +311,12 @@ void e_program_dump(FILE *out, const EProgram *p) {
         fprintf(out, "struct %s;\n", d->as.sdecl.name);
         break;
       case E_TOP_KERNEL:
+        if (d->as.kernel.attrs.has_in_words ||
+            d->as.kernel.attrs.has_out_words ||
+            d->as.kernel.attrs.has_signal_mail_box_size) {
+          fputs("@attributes", out);
+          dump_entry_attrs(out, &d->as.kernel.attrs);
+        }
         fputs("kernel(", out);
         for (j = 0; j < d->as.kernel.param_count; j++) {
           if (j) fputs(", ", out);
@@ -266,6 +326,12 @@ void e_program_dump(FILE *out, const EProgram *p) {
         dump_stmt(out, d->as.kernel.body, 1);
         break;
       case E_TOP_WORKER:
+        if (d->as.worker.attrs.has_in_words ||
+            d->as.worker.attrs.has_out_words ||
+            d->as.worker.attrs.has_signal_mail_box_size) {
+          fputs("@attributes", out);
+          dump_entry_attrs(out, &d->as.worker.attrs);
+        }
         fprintf(out, "worker %s(", d->as.worker.name);
         for (j = 0; j < d->as.worker.param_count; j++) {
           if (j) fputs(", ", out);
@@ -291,6 +357,19 @@ void e_program_dump(FILE *out, const EProgram *p) {
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.tdecl.body, 1);
+        break;
+      case E_TOP_DECLARE:
+        switch (d->as.declare_decl.kind) {
+          case E_DECLARE_DEFAULT_IN_WORDS:
+            fprintf(out, "declare default_in_words %u\n", d->as.declare_decl.value);
+            break;
+          case E_DECLARE_DEFAULT_OUT_WORDS:
+            fprintf(out, "declare default_out_words %u\n", d->as.declare_decl.value);
+            break;
+          case E_DECLARE_DEFAULT_SIGNAL_MAIL_BOX_SIZE:
+            fprintf(out, "declare default_signal_mail_box_size %u\n", d->as.declare_decl.value);
+            break;
+        }
         break;
     }
   }

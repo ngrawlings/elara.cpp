@@ -702,6 +702,12 @@ public:
             return;
         }
 
+        widget->setVisible(
+            jsonString(spec, "properties.visible", String("true")) == String("false")
+                ? false
+                : true
+        );
+
         ElaraButtonWidget* button = dynamic_cast<ElaraButtonWidget*>(widget);
         if(button) {
             String text = spec.getStringValue("properties.text");
@@ -714,6 +720,12 @@ public:
             if(action.length() > 0) {
                 button->setAction(action);
             }
+
+            button->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) == String("false")
+                    ? false
+                    : true
+            );
         }
 
         ElaraCheckboxWidget* checkbox = dynamic_cast<ElaraCheckboxWidget*>(widget);
@@ -852,6 +864,9 @@ public:
             code_editor->setFontSize((double)font_size);
             code_editor->setEnabled(
                 jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            code_editor->setReadOnly(
+                jsonString(spec, "properties.read_only", String("false")) == String("true")
             );
         }
 

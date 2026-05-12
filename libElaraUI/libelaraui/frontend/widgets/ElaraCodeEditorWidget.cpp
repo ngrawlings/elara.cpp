@@ -51,6 +51,7 @@ ElaraCodeEditorWidget::ElaraCodeEditorWidget(
     enabled(true),
     focused(false),
     selecting(false),
+    read_only(false),
     font_size(14.0),
     line_height(20.0),
     scrollbar_size(18.0),
@@ -558,8 +559,52 @@ void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
         }
     }
 
+    // Diagnostics
+    for (int i = 0; i < (int)viewport_metrics.length(); i++) {
+        const VisibleLineMetrics& m = viewport_metrics[i];
+        for (int j = 0; j < (int)diagnostics.length(); j++) {
+            const Diagnostic& diagnostic = diagnostics[j];
+            if (diagnostic.line != m.logical_line) {
+                continue;
+            }
+
+            int start_vis_col = diagnostic.column - scroll_x;
+            int end_vis_col = diagnostic.column + diagnostic.length - scroll_x;
+            int max_vis_col = (int)m.caret_positions.length() - 1;
+
+            if (end_vis_col < 0 || start_vis_col > max_vis_col) {
+                continue;
+            }
+
+            if (start_vis_col < 0) start_vis_col = 0;
+            if (end_vis_col < 0) end_vis_col = 0;
+            if (start_vis_col > max_vis_col) start_vis_col = max_vis_col;
+            if (end_vis_col > max_vis_col) end_vis_col = max_vis_col;
+
+            double sx = m.caret_positions[start_vis_col];
+            double ex_diag = m.caret_positions[end_vis_col];
+            if (ex_diag <= sx) {
+                ex_diag = sx + charWidth();
+            }
+
+            double base_y = (double)i * line_height + line_height - 4.0;
+            ctx->setColor(0.88, 0.20, 0.18);
+            double x0 = ex + padding_x + sx;
+            double x1 = ex + padding_x + ex_diag;
+            double step = 4.0;
+            for (double x = x0; x < x1; x += step) {
+                double mid = x + step * 0.5;
+                double end = x + step;
+                if (mid > x1) mid = x1;
+                if (end > x1) end = x1;
+                ctx->line(x, base_y, mid, base_y + 2.0, 1.0);
+                ctx->line(mid, base_y + 2.0, end, base_y, 1.0);
+            }
+        }
+    }
+
     // Caret
-    if (focused) {
+    if (focused && !read_only) {
         int caret_col = columnForIndex(caret_index);
 
         for (int i = 0; i < (int)viewport_metrics.length(); i++) {
@@ -591,7 +636,10 @@ void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
 
 void ElaraCodeEditorWidget::drawMinimap(ElaraDrawContext* ctx) {
     double mx = minimapLeft();
-    double mh = height;
+    double mh = height - effectiveScrollbarH();
+    if (mh < 1.0) {
+        mh = 1.0;
+    }
 
     ElaraPaletteTriplet mc = colors(palette_master, "default");
 
@@ -602,14 +650,14 @@ void ElaraCodeEditorWidget::drawMinimap(ElaraDrawContext* ctx) {
     int vis_total = (int)visible_line_map.length();
     if (vis_total == 0) return;
 
-    // Pixels per line — compress if document is large
+    // Use one shared linear scale for draw and hit testing so clicks land
+    // on the same visual position shown in the overview.
     double lph = mh / (double)vis_total;
-    if (lph > 3.0) lph = 3.0;
-    if (lph < 0.5) lph = 0.5;
 
     // Viewport indicator rectangle
     double vp_y0 = (double)scroll_y * lph;
     double vp_y1 = (double)(scroll_y + viewportLineCount()) * lph;
+    if (vp_y1 > mh) vp_y1 = mh;
     ctx->setColor(mc.accent.r * 0.5 + 0.3, mc.accent.g * 0.5 + 0.3, mc.accent.b * 0.5 + 0.3);
     ctx->fillRect(mx, vp_y0, minimap_width, vp_y1 - vp_y0);
 
@@ -749,8 +797,8 @@ String ElaraCodeEditorWidget::selectedText() const {
     return value.substr(selectionStart(), selectionEnd() - selectionStart());
 }
 
-void ElaraCodeEditorWidget::deleteSelection() {
-    if (!hasSelection()) return;
+bool ElaraCodeEditorWidget::deleteSelection() {
+    if (!hasSelection()) return false;
 
     int start = selectionStart();
     int end = selectionEnd();
@@ -760,12 +808,13 @@ void ElaraCodeEditorWidget::deleteSelection() {
     preferred_column = -1;
     rebuildFolds();
     rebuildVisibleLineMap();
+    return true;
 }
 
-void ElaraCodeEditorWidget::replaceSelection(const String& text) {
-    deleteSelection();
+bool ElaraCodeEditorWidget::replaceSelection(const String& text) {
+    bool changed = deleteSelection();
 
-    if ((int)text.length() <= 0) return;
+    if ((int)text.length() <= 0) return changed;
 
     value = value.substr(0, caret_index) + text + value.substr(caret_index);
     caret_index += (int)text.length();
@@ -773,39 +822,40 @@ void ElaraCodeEditorWidget::replaceSelection(const String& text) {
     preferred_column = -1;
     rebuildFolds();
     rebuildVisibleLineMap();
+    return true;
 }
 
-void ElaraCodeEditorWidget::insertText(const String& text) {
-    replaceSelection(text);
+bool ElaraCodeEditorWidget::insertText(const String& text) {
+    return replaceSelection(text);
 }
 
-void ElaraCodeEditorWidget::backspace() {
+bool ElaraCodeEditorWidget::backspace() {
     if (hasSelection()) {
-        deleteSelection();
-        return;
+        return deleteSelection();
     }
 
-    if (caret_index <= 0) return;
+    if (caret_index <= 0) return false;
     String before = value.substr(0, caret_index - 1);
     String after  = value.substr(caret_index);
     value = before + after;
     caret_index--;
     rebuildFolds();
     rebuildVisibleLineMap();
+    return true;
 }
 
-void ElaraCodeEditorWidget::deleteForward() {
+bool ElaraCodeEditorWidget::deleteForward() {
     if (hasSelection()) {
-        deleteSelection();
-        return;
+        return deleteSelection();
     }
 
-    if (caret_index >= (int)value.length()) return;
+    if (caret_index >= (int)value.length()) return false;
     String before = value.substr(0, caret_index);
     String after  = value.substr(caret_index + 1);
     value = before + after;
     rebuildFolds();
     rebuildVisibleLineMap();
+    return true;
 }
 
 void ElaraCodeEditorWidget::moveCaretHorizontal(int delta) {
@@ -904,6 +954,14 @@ bool ElaraCodeEditorWidget::isEnabled() const {
     return enabled;
 }
 
+void ElaraCodeEditorWidget::setReadOnly(bool v) {
+    read_only = v;
+}
+
+bool ElaraCodeEditorWidget::isReadOnly() const {
+    return read_only;
+}
+
 void ElaraCodeEditorWidget::setFocused(bool v) {
     focused = enabled && v;
     if (!focused) {
@@ -944,6 +1002,24 @@ void ElaraCodeEditorWidget::setBookmark(int logical_line, bool v) {
 bool ElaraCodeEditorWidget::hasBookmark(int logical_line) const {
     if (logical_line >= (int)decorations.length()) return false;
     return decorations[logical_line].bookmark;
+}
+
+void ElaraCodeEditorWidget::clearDiagnostics() {
+    diagnostics.clear();
+}
+
+void ElaraCodeEditorWidget::addDiagnostic(
+    int line,
+    int column,
+    int length,
+    const String& message
+) {
+    Diagnostic diagnostic;
+    diagnostic.line = line < 0 ? 0 : line;
+    diagnostic.column = column < 0 ? 0 : column;
+    diagnostic.length = length > 0 ? length : 1;
+    diagnostic.message = message;
+    diagnostics.push(diagnostic);
 }
 
 ElaraMouseCursor ElaraCodeEditorWidget::cursor() const {
@@ -1096,11 +1172,13 @@ void ElaraCodeEditorWidget::onMouseDown(int button, double px, double py) {
     }
 
     // --- Minimap click ---
-    if (px >= minimapLeft() && px < minimapLeft() + minimap_width) {
+        if (px >= minimapLeft() && px < minimapLeft() + minimap_width) {
         minimap_dragging = true;
         int vis_total = (int)visible_line_map.length();
         if (vis_total > 0) {
-            double rel   = py / height;
+            double mh = height - effectiveScrollbarH();
+            if (mh < 1.0) mh = 1.0;
+            double rel   = py / mh;
             if (rel < 0.0) rel = 0.0;
             if (rel > 1.0) rel = 1.0;
             int target   = (int)(rel * vis_total) - viewportLineCount() / 2;
@@ -1141,7 +1219,9 @@ void ElaraCodeEditorWidget::onMouseMove(double px, double py) {
         int vis_total = (int)visible_line_map.length();
         if (vis_total <= 0) return;
 
-        double rel  = py / height;
+        double mh = height - effectiveScrollbarH();
+        if (mh < 1.0) mh = 1.0;
+        double rel  = py / mh;
         if (rel < 0.0) rel = 0.0;
         if (rel > 1.0) rel = 1.0;
 
@@ -1214,27 +1294,36 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
                 return;
 
             case 'x':
-                if (hasSelection()) {
+                if (!read_only && hasSelection()) {
                     ElaraRootWidget* root = rootWidget();
                     if (root) {
                         root->setClipboardText(selectedText());
                     }
-                    deleteSelection();
+                    if (deleteSelection()) {
+                        emitTextChanged(value);
+                    }
                     scrollToCaret();
                     updateScrollbars();
                 }
                 return;
 
             case 'v': {
+                if (read_only) {
+                    return;
+                }
                 ElaraRootWidget* root = rootWidget();
                 String clipboard = root ? root->getClipboardText() : String();
                 if ((int)clipboard.length() > 0) {
-                    replaceSelection(clipboard);
+                    if (replaceSelection(clipboard)) {
+                        emitTextChanged(value);
+                    }
                     emitKeysTyped(clipboard);
                     scrollToCaret();
                     updateScrollbars();
                 } else if (hasSelection()) {
-                    deleteSelection();
+                    if (deleteSelection()) {
+                        emitTextChanged(value);
+                    }
                     scrollToCaret();
                     updateScrollbars();
                 }
@@ -1243,14 +1332,55 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
         }
     }
 
+    if (read_only) {
+        switch (keyval) {
+            case ELARA_KEY_LEFT:
+                moveCaretHorizontal(-1);
+                break;
+            case ELARA_KEY_RIGHT:
+                moveCaretHorizontal(1);
+                break;
+            case ELARA_KEY_UP:
+                moveCaretVertical(-1);
+                break;
+            case ELARA_KEY_DOWN:
+                moveCaretVertical(1);
+                break;
+            case ELARA_KEY_PAGE_UP:
+                moveCaretVertical(-viewportLineCount());
+                break;
+            case ELARA_KEY_PAGE_DOWN:
+                moveCaretVertical(viewportLineCount());
+                break;
+            case ELARA_KEY_HOME:
+                caret_index = logicalLineStart(logicalLineForIndex(caret_index));
+                clearSelection();
+                preferred_column = -1;
+                break;
+            case ELARA_KEY_END:
+                caret_index = logicalLineEnd(logicalLineForIndex(caret_index));
+                clearSelection();
+                preferred_column = -1;
+                break;
+            default:
+                return;
+        }
+
+        clampCaret();
+        scrollToCaret();
+        updateScrollbars();
+        return;
+    }
+
+    bool text_changed = false;
     switch (keyval) {
         case ELARA_KEY_BACKSPACE:
-            backspace();
+            text_changed = backspace();
             preferred_column = -1;
             break;
 
         case ELARA_KEY_DELETE:
-            deleteForward();
+            text_changed = deleteForward();
             preferred_column = -1;
             break;
 
@@ -1292,23 +1422,29 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
 
         case ELARA_KEY_RETURN:
         case ELARA_KEY_KP_ENTER:
-            insertText(String('\n'));
+            text_changed = insertText(String('\n'));
             preferred_column = -1;
             break;
 
         case ELARA_KEY_TAB:
-            insertText(String("    "));
+            text_changed = insertText(String("    "));
             preferred_column = -1;
             break;
 
         default:
             if (keyval >= 32 && keyval <= 126) {
-                insertText(String((char)keyval));
+                text_changed = insertText(String((char)keyval));
+                if (text_changed) {
+                    emitKeysTyped(String((char)keyval));
+                }
                 preferred_column = -1;
             }
             break;
     }
 
+    if (text_changed) {
+        emitTextChanged(value);
+    }
     clampCaret();
     scrollToCaret();
     updateScrollbars();
@@ -1361,12 +1497,14 @@ bool ElaraCodeEditorWidget::performAction(const String& action) {
     }
 
     if (action == String("edit.cut")) {
-        if (hasSelection()) {
+        if (!read_only && hasSelection()) {
             ElaraRootWidget* root = rootWidget();
             if (root) {
                 root->setClipboardText(selectedText());
             }
-            deleteSelection();
+            if (deleteSelection()) {
+                emitTextChanged(value);
+            }
             scrollToCaret();
             updateScrollbars();
         }
@@ -1374,15 +1512,22 @@ bool ElaraCodeEditorWidget::performAction(const String& action) {
     }
 
     if (action == String("edit.paste")) {
+        if (read_only) {
+            return true;
+        }
         ElaraRootWidget* root = rootWidget();
         String clipboard = root ? root->getClipboardText() : String();
         if ((int)clipboard.length() > 0) {
-            replaceSelection(clipboard);
+            if (replaceSelection(clipboard)) {
+                emitTextChanged(value);
+            }
             emitKeysTyped(clipboard);
             scrollToCaret();
             updateScrollbars();
         } else if (hasSelection()) {
-            deleteSelection();
+            if (deleteSelection()) {
+                emitTextChanged(value);
+            }
             scrollToCaret();
             updateScrollbars();
         }

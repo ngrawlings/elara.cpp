@@ -212,6 +212,8 @@ static Region build_stmt(GraphBuild *gb, const EStmt *stmt) {
       }
       return r;
     }
+    case E_STMT_NEXT: return build_simple(gb, E_TPL_SEQ, "next", 0);
+    case E_STMT_RAW_EPA: return build_simple(gb, E_TPL_SEQ, "raw-epa", 0);
   }
   return build_simple(gb, E_TPL_INVALID, "invalid", 1);
 }

@@ -20,6 +20,9 @@ typedef enum {
   E_TOK_KW_CASE,
   E_TOK_KW_DEFAULT,
   E_TOK_KW_BREAK,
+  E_TOK_KW_DECLARE,
+  E_TOK_KW_NEXT,
+  E_TOK_RAW_EPA,
 
   E_TOK_LPAREN,
   E_TOK_RPAREN,
@@ -34,6 +37,7 @@ typedef enum {
   E_TOK_MINUS,
   E_TOK_STAR,
   E_TOK_SLASH,
+  E_TOK_AT,
 } ETokenKind;
 
 typedef struct {

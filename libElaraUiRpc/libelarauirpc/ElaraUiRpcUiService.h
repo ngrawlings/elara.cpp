@@ -4,8 +4,10 @@
 #include <libelaraui/frontend/ElaraWidgetStateProbe.h>
 #include <libelaraui/ElaraJsonUiProtocol.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
+#include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
+#include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
@@ -56,6 +58,18 @@ private:
         String& error_message
     );
     bool setEnabled(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setReadOnly(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setCodeEditorDiagnostics(
         const Json& params,
         String& result_json,
         String& error_code,

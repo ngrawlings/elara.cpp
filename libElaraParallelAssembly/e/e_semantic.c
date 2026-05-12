@@ -217,6 +217,47 @@ static int collect_validators(const EProgram *program, ESemanticModel *model, ch
   return 1;
 }
 
+static int collect_declares(const EProgram *program, ESemanticModel *model, char err[256]) {
+  size_t i;
+  int seen_default_in_words = 0;
+  int seen_default_out_words = 0;
+  int seen_default_signal_mail_box_size = 0;
+
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    if (top->kind != E_TOP_DECLARE) continue;
+
+    switch (top->as.declare_decl.kind) {
+      case E_DECLARE_DEFAULT_IN_WORDS:
+        if (seen_default_in_words) {
+          snprintf(err, 256, "duplicate declare default_in_words");
+          return 0;
+        }
+        model->default_in_words = top->as.declare_decl.value;
+        seen_default_in_words = 1;
+        break;
+      case E_DECLARE_DEFAULT_OUT_WORDS:
+        if (seen_default_out_words) {
+          snprintf(err, 256, "duplicate declare default_out_words");
+          return 0;
+        }
+        model->default_out_words = top->as.declare_decl.value;
+        seen_default_out_words = 1;
+        break;
+      case E_DECLARE_DEFAULT_SIGNAL_MAIL_BOX_SIZE:
+        if (seen_default_signal_mail_box_size) {
+          snprintf(err, 256, "duplicate declare default_signal_mail_box_size");
+          return 0;
+        }
+        model->default_signal_mail_box_size = top->as.declare_decl.value;
+        seen_default_signal_mail_box_size = 1;
+        break;
+    }
+  }
+
+  return 1;
+}
+
 static int collect_top_level_roles(const EProgram *program, ESemanticModel *model, char err[256]) {
   size_t i;
   for (i = 0; i < program->count; i++) {
@@ -254,6 +295,7 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
         break;
       case E_TOP_STRUCT:
       case E_TOP_TYPE:
+      case E_TOP_DECLARE:
         break;
     }
   }
@@ -349,9 +391,78 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
   return 1;
 }
 
+static int worker_exists(const ESemanticModel *model, const char *name) {
+  size_t i;
+  for (i = 0; i < model->worker_count; i++) {
+    if (strcmp(model->workers[i]->name, name) == 0) return 1;
+  }
+  return 0;
+}
+
+static int validate_next_stmt_in_stmt(
+  const EStmt *stmt,
+  const ESemanticModel *model,
+  const char *current_worker,
+  char err[256]
+) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_next_stmt_in_stmt(stmt->as.block.items[i], model, current_worker, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!validate_next_stmt_in_stmt(stmt->as.if_stmt.then_branch, model, current_worker, err)) return 0;
+      if (!validate_next_stmt_in_stmt(stmt->as.if_stmt.else_branch, model, current_worker, err)) return 0;
+      return 1;
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_next_stmt_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, current_worker, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_NEXT:
+      if (!worker_exists(model, stmt->as.next_stmt.worker_name)) {
+        snprintf(err, 256, "worker '%s' routes to unknown worker '%s'", current_worker, stmt->as.next_stmt.worker_name);
+        return 0;
+      }
+      return 1;
+    case E_STMT_DECL:
+    case E_STMT_RETURN:
+    case E_STMT_EXPR:
+    case E_STMT_BREAK:
+    case E_STMT_RAW_EPA:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_worker_next_targets(const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < model->worker_count; i++) {
+    const EWorker *worker = model->workers[i];
+    if (!validate_next_stmt_in_stmt(worker->body, model, worker->name, err)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]) {
   memset(out_model, 0, sizeof(*out_model));
   if (err) err[0] = 0;
+  out_model->default_in_words = 256u;
+  out_model->default_out_words = 256u;
+  out_model->default_signal_mail_box_size = 128u;
+
+  if (!collect_declares(program, out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
 
   if (!collect_validators(program, out_model, err)) {
     e_semantic_model_free(out_model);
@@ -371,6 +482,11 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   if (!collect_function_checks(program, out_model)) {
     e_semantic_model_free(out_model);
     snprintf(err, 256, "failed to collect function parameter validation plan");
+    return 0;
+  }
+
+  if (!validate_worker_next_targets(out_model, err)) {
+    e_semantic_model_free(out_model);
     return 0;
   }
 
@@ -426,6 +542,10 @@ static const char *check_kind_name(EParamValidationKind kind) {
 void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
   size_t i;
 
+  fprintf(out, "entry-defaults in_words=%u out_words=%u signal_mail_box_size=%u\n",
+          model->default_in_words,
+          model->default_out_words,
+          model->default_signal_mail_box_size);
   fputs("program-shape\n", out);
   fprintf(out, "  kernel count=%zu\n", model->kernel_count);
   if (model->kernel) {

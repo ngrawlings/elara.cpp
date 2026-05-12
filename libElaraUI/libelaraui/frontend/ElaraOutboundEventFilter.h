@@ -64,6 +64,11 @@ public:
         const String& text
     );
 
+    void onWidgetTextChanged(
+        ElaraWidgetHandle handle,
+        const String& text
+    );
+
     void onWidgetValueChanged(
         ElaraWidgetHandle handle,
         double value

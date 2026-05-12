@@ -192,6 +192,22 @@ class ElaraUiRpcClient:
     def set_text(self, target: str, value: str, timeout: float = 5.0):
         return self.call("ui.setText", {"target": target, "value": value}, timeout=timeout)
 
+    def set_visible(self, target: str, visible: bool, timeout: float = 5.0):
+        return self.call("ui.setVisible", {"target": target, "visible": bool(visible)}, timeout=timeout)
+
+    def set_enabled(self, target: str, enabled: bool, timeout: float = 5.0):
+        return self.call("ui.setEnabled", {"target": target, "enabled": bool(enabled)}, timeout=timeout)
+
+    def set_read_only(self, target: str, read_only: bool, timeout: float = 5.0):
+        return self.call("ui.setReadOnly", {"target": target, "read_only": bool(read_only)}, timeout=timeout)
+
+    def set_code_editor_diagnostics(self, target: str, diagnostics: list, timeout: float = 5.0):
+        return self.call(
+            "ui.setCodeEditorDiagnostics",
+            {"target": target, "diagnostics": diagnostics},
+            timeout=timeout,
+        )
+
     def set_focus(self, target: str, timeout: float = 5.0):
         return self.call("ui.setFocus", {"target": target}, timeout=timeout)
 

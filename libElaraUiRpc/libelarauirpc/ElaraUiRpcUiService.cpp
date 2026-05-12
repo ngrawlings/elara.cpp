@@ -160,13 +160,19 @@ bool ElaraUiRpcUiService::setText(
 
     String value = params.getStringValue("value");
     ElaraButtonWidget* button = dynamic_cast<ElaraButtonWidget*>(widget.getPtr());
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
     ElaraLabelWidget* label = dynamic_cast<ElaraLabelWidget*>(widget.getPtr());
+    ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget.getPtr());
     ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget.getPtr());
 
     if(button) {
         button->setText(value);
+    } else if(code_editor) {
+        code_editor->setText(value);
     } else if(label) {
         label->setText(value);
+    } else if(rich) {
+        rich->setText(value);
     } else if(input) {
         input->setText(value);
     } else {
@@ -210,16 +216,78 @@ bool ElaraUiRpcUiService::setEnabled(
 
     bool enabled = jsonBool(params, "enabled", true);
     ElaraButtonWidget* button = dynamic_cast<ElaraButtonWidget*>(widget.getPtr());
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
     ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget.getPtr());
 
     if(button) {
         button->setEnabled(enabled);
+    } else if(code_editor) {
+        code_editor->setEnabled(enabled);
     } else if(input) {
         input->setEnabled(enabled);
     } else {
         error_code = "unsupported_widget";
         error_message = "The target widget does not support setEnabled";
         return false;
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setReadOnly(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if(!code_editor) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget does not support setReadOnly";
+        return false;
+    }
+
+    code_editor->setReadOnly(jsonBool(params, "read_only", false));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setCodeEditorDiagnostics(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if(!code_editor) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget does not support code editor diagnostics";
+        return false;
+    }
+
+    code_editor->clearDiagnostics();
+    Array< Ref<JsonValue> > diagnostics = params.getArray("diagnostics");
+    for(int i = 0; i < (int)diagnostics.length(); i++) {
+        Json diagnostic_json(diagnostics[i]->toString());
+        code_editor->addDiagnostic(
+            diagnostic_json.getIntValue("line"),
+            diagnostic_json.getIntValue("column"),
+            (int)jsonNumber(diagnostic_json, "length", 1),
+            diagnostic_json.getStringValue("message")
+        );
     }
 
     result_json = "{\"updated\":true}";
@@ -616,6 +684,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setEnabled")) {
         return setEnabled(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setReadOnly")) {
+        return setReadOnly(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setCodeEditorDiagnostics")) {
+        return setCodeEditorDiagnostics(params, result_json, error_code, error_message);
     }
 
     if(method == String("setBounds")) {

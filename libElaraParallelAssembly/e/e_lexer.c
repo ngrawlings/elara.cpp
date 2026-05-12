@@ -65,7 +65,20 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "case") == 0) return E_TOK_KW_CASE;
   if (strcmp(text, "default") == 0) return E_TOK_KW_DEFAULT;
   if (strcmp(text, "break") == 0) return E_TOK_KW_BREAK;
+  if (strcmp(text, "declare") == 0) return E_TOK_KW_DECLARE;
+  if (strcmp(text, "next") == 0) return E_TOK_KW_NEXT;
   return E_TOK_IDENT;
+}
+
+static void advance_char(const char **p, int *line, int *col) {
+  if (**p == '\n') {
+    (*p)++;
+    (*line)++;
+    *col = 1;
+    return;
+  }
+  (*p)++;
+  (*col)++;
 }
 
 int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
@@ -96,6 +109,75 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
         col++;
       }
       continue;
+    }
+
+    if (strncmp(p, "EPA", 3) == 0 &&
+        !isalnum((unsigned char)p[3]) &&
+        p[3] != '_') {
+      const char *q = p + 3;
+      int qline = line;
+      int qcol = col + 3;
+
+      for (;;) {
+        if (*q == ' ' || *q == '\t' || *q == '\r') {
+          q++;
+          qcol++;
+          continue;
+        }
+        if (*q == '\n') {
+          q++;
+          qline++;
+          qcol = 1;
+          continue;
+        }
+        if (q[0] == '/' && q[1] == '/') {
+          q += 2;
+          qcol += 2;
+          while (*q && *q != '\n') {
+            q++;
+            qcol++;
+          }
+          continue;
+        }
+        break;
+      }
+
+      if (*q == '{') {
+        const char *raw_start;
+        int depth = 1;
+        p += 3;
+        col += 3;
+        while (p < q) {
+          advance_char(&p, &line, &col);
+        }
+        advance_char(&p, &line, &col); /* consume '{' */
+        raw_start = p;
+
+        while (*p && depth > 0) {
+          if (*p == '{') {
+            depth++;
+            advance_char(&p, &line, &col);
+            continue;
+          }
+          if (*p == '}') {
+            depth--;
+            if (depth == 0) break;
+            advance_char(&p, &line, &col);
+            continue;
+          }
+          advance_char(&p, &line, &col);
+        }
+
+        if (depth != 0) {
+          if (err) snprintf(err, 256, "unterminated EPA block at %d:%d", qline, qcol);
+          e_token_vec_free(out_tokens);
+          return 0;
+        }
+
+        if (!push_tok(out_tokens, E_TOK_RAW_EPA, raw_start, (size_t)(p - raw_start), qline, qcol)) return 0;
+        advance_char(&p, &line, &col); /* consume '}' */
+        continue;
+      }
     }
 
     if (isalpha((unsigned char)*p) || *p == '_') {
@@ -172,6 +254,7 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
         case '-': kind = E_TOK_MINUS; break;
         case '*': kind = E_TOK_STAR; break;
         case '/': kind = E_TOK_SLASH; break;
+        case '@': kind = E_TOK_AT; break;
         default: break;
       }
       if (kind == E_TOK_EOF) {

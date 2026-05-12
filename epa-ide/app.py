@@ -1,5 +1,8 @@
 import argparse
 import json
+import re
+import subprocess
+import tempfile
 import threading
 import time
 from pathlib import Path
@@ -8,6 +11,89 @@ from elara_ui.builder import UiDocumentBuilder
 from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
 from elara_ui.snapshot_dumper import UiSnapshotDumper
 from elara_ui.repl_client import ElaraUiRepl
+
+
+INITIAL_E_TABS = [
+    (
+        "editor.main",
+        "main.e",
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        "type Packet(int value) {\n"
+        "  return value;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        "  worker_ingest(vm);\n"
+        "}\n"
+        "\n"
+        "worker worker_ingest(Packet packet) {\n"
+        "  packet.value;\n"
+        "}\n",
+    ),
+    (
+        "editor.ai",
+        "assistant.e",
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        "type Prompt(int code) {\n"
+        "  return code;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        "  prompt_agent(vm);\n"
+        "}\n"
+        "\n"
+        "@attributes in_words:64 out_words:64 signal_mail_box_size:32\n"
+        "worker prompt_agent(Prompt prompt) {\n"
+        "  prompt.code;\n"
+        "}\n",
+    ),
+]
+
+
+def _editor_ids(tab_id: str):
+    return {
+        "container": f"{tab_id}.container",
+        "toolbar": f"{tab_id}.toolbar",
+        "button_e": f"{tab_id}.view.e",
+        "button_epa": f"{tab_id}.view.epa",
+        "source": f"{tab_id}.source",
+        "epa": f"{tab_id}.epa",
+    }
+
+
+def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: str):
+    ids = _editor_ids(tab_id)
+    ui.create_grid(ids["container"])
+    ui.add_grid_column_fill(ids["container"])
+    ui.add_grid_row_exact(ids["container"], 34)
+    ui.add_grid_row_fill(ids["container"])
+
+    ui.create_grid(ids["toolbar"])
+    ui.add_grid_column_exact(ids["toolbar"], 54)
+    ui.add_grid_column_exact(ids["toolbar"], 64)
+    ui.add_grid_column_fill(ids["toolbar"])
+    ui.add_grid_row_fill(ids["toolbar"])
+    ui.create_button(ids["button_e"], "E", f"{ids['button_e']}")
+    ui.create_button(ids["button_epa"], "EPA", f"{ids['button_epa']}")
+    ui.set_property_bool(ids["button_e"], "enabled", False)
+    ui.place_grid_child(ids["toolbar"], ids["button_e"], 0, 0)
+    ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
+    ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
+
+    ui.create_code_editor(ids["source"], source_text)
+    ui.create_code_editor(ids["epa"], "")
+    ui.set_property_bool(ids["epa"], "read_only", True)
+    ui.set_property_bool(ids["epa"], "visible", False)
+    ui.place_grid_child(ids["container"], ids["source"], 0, 1)
+    ui.place_grid_child(ids["container"], ids["epa"], 0, 1)
+    ui.add_tab("editor.tabs", title, ids["container"],
+               button_glyph="×", button_action=f"tab.close.{tab_id}")
 
 
 def build_document():
@@ -213,12 +299,8 @@ def build_document():
     ])
 
     ui.create_tabs("editor.tabs")
-    ui.create_code_editor("editor.main", "# main.e\n\nfn main() {\n    print(\"EPA IDE prototype\");\n}\n")
-    ui.add_tab("editor.tabs", "main.e", "editor.main",
-               button_glyph="×", button_action="tab.close.editor.main")
-    ui.create_code_editor("editor.ai", "# assistant.e\n\nfn prompt_agent(message) {\n    // AI-assisted tooling script draft\n}\n")
-    ui.add_tab("editor.tabs", "assistant.e", "editor.ai",
-               button_glyph="×", button_action="tab.close.editor.ai")
+    for tab_id, title, source_text in INITIAL_E_TABS:
+        _create_e_tab(ui, tab_id, title, source_text)
 
     ui.create_grid("ai.panel")
     ui.add_grid_column_fill("ai.panel")
@@ -609,26 +691,41 @@ def _to_class_name(stem: str) -> str:
     return ''.join(p.capitalize() for p in parts if p) or stem.capitalize()
 
 
+def _cpp_header_content(header_name: str) -> str:
+    stem = Path(header_name).stem
+    cls = _to_class_name(stem)
+    return (
+        "#pragma once\n\n"
+        f"class {cls} {{\n"
+        "public:\n"
+        f"    {cls}();\n"
+        f"    ~{cls}();\n"
+        "};\n"
+    )
+
+
+def _cpp_source_content(source_name: str) -> str:
+    stem = Path(source_name).stem
+    cls = _to_class_name(stem)
+    header_name = f"{stem}.h"
+    return (
+        f'#include "{header_name}"\n\n'
+        f'{cls}::{cls}() {{\n'
+        "}\n\n"
+        f'{cls}::~{cls}() {{\n'
+        "}\n"
+    )
+
+
 def _file_content(tech: str, name: str) -> str:
     stem = Path(name).stem
     ext  = Path(name).suffix.lower()
     cls  = _to_class_name(stem)
 
     if ext == ".cpp":
-        return (
-            f'#include "{cls}.h"\n\n'
-            f'{cls}::{cls}() {{\n}}\n\n'
-            f'{cls}::~{cls}() {{\n}}\n'
-        )
+        return _cpp_source_content(name)
     if ext == ".h":
-        guard = stem.upper().replace('-', '_') + '_H'
-        return (
-            f'#pragma once\n\n'
-            f'class {cls} {{\npublic:\n'
-            f'    {cls}();\n'
-            f'    ~{cls}();\n'
-            f'}};\n'
-        )
+        return _cpp_header_content(name)
     if ext == ".py":
         return (
             f'# {stem}\n\n\n'
@@ -778,6 +875,123 @@ def main():
     app_state = {}               # persistent project state set after successful creation
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
+    editor_state = {}
+
+    def _compiler_root():
+        return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
+
+    def _compiler_binary():
+        return _compiler_root() / ".." / "build" / "e" / "e2epa"
+
+    def _ensure_e2epa():
+        compiler = _compiler_binary()
+        if compiler.is_file():
+            return compiler
+
+        subprocess.run(
+            ["make", "-C", str(_compiler_root()), "-j2"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return compiler
+
+    def _diagnostic_from_error(message: str):
+        match = re.search(r"\bat (\d+):(\d+)\b", message)
+        if not match:
+            match = re.search(r"\b(\d+):(\d+)\b", message)
+        if not match:
+            return []
+
+        line = max(0, int(match.group(1)) - 1)
+        column = max(0, int(match.group(2)) - 1)
+        token_match = re.search(r"near '([^']*)'", message)
+        length = 1
+        if token_match:
+            token = token_match.group(1)
+            if token:
+                length = len(token)
+        return [{
+            "line": line,
+            "column": column,
+            "length": max(1, length),
+            "message": message.strip(),
+        }]
+
+    def _compile_e_source(source_text: str):
+        compiler = _ensure_e2epa()
+        with tempfile.TemporaryDirectory(prefix="epa-ide-e2epa-") as tmp:
+            tmp_path = Path(tmp)
+            source_path = tmp_path / "buffer.e"
+            output_path = tmp_path / "buffer.epaasm"
+            source_path.write_text(source_text, encoding="utf-8")
+            proc = subprocess.run(
+                [str(compiler), str(source_path), str(output_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if proc.returncode == 0:
+                epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+                return {"ok": True, "epa_text": epa_text, "diagnostics": [], "message": ""}
+            message = (proc.stderr or proc.stdout or "compile failed").strip()
+            return {
+                "ok": False,
+                "epa_text": "",
+                "diagnostics": _diagnostic_from_error(message),
+                "message": message,
+            }
+
+    def _apply_editor_view(client, tab_id: str):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        ids = _editor_ids(tab_id)
+        view = state.get("view", "e")
+        is_epa = view == "epa"
+        client.set_visible(ids["source"], not is_epa)
+        client.set_visible(ids["epa"], is_epa)
+        client.set_enabled(ids["button_e"], is_epa)
+        client.set_enabled(ids["button_epa"], not is_epa)
+        client.set_read_only(ids["epa"], True)
+
+    def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        ids = _editor_ids(tab_id)
+        source_text = state.get("source_text", "")
+        try:
+            result = _compile_e_source(source_text)
+        except Exception as exc:
+            result = {
+                "ok": False,
+                "epa_text": "",
+                "diagnostics": [],
+                "message": str(exc),
+            }
+        if expected_seq is not None:
+            current = editor_state.get(tab_id)
+            if not current or current.get("compile_seq") != expected_seq:
+                return
+        state["epa_text"] = result["epa_text"]
+        state["compile_error"] = result["message"]
+        client.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
+        client.set_code_editor_diagnostics(ids["source"], result["diagnostics"])
+        _apply_editor_view(client, tab_id)
+
+    def _init_editor_state():
+        editor_state.clear()
+        for tab_id, title, source_text in INITIAL_E_TABS:
+            editor_state[tab_id] = {
+                "title": title,
+                "source_text": source_text,
+                "epa_text": "",
+                "view": "e",
+                "compile_error": "",
+                "compile_seq": 0,
+            }
 
     def _wizard_navigate(client, path: str):
         """Navigate the wizard folder browser to path and refresh the list."""
@@ -916,6 +1130,18 @@ def main():
         payload = params.get("payload") or {}
         target = params.get("target")
 
+        for tab_id, state in editor_state.items():
+            ids = _editor_ids(tab_id)
+            if action == "textChanged" and target == ids["source"]:
+                state["source_text"] = payload.get("text", "")
+                state["compile_seq"] = int(state.get("compile_seq", 0)) + 1
+                if client is not None:
+                    c = client
+                    current_tab = tab_id
+                    seq = state["compile_seq"]
+                    _deferred(lambda: _refresh_e_tab(c, current_tab, seq))
+                return {"received": True}
+
         # Track technology checkbox toggles from the wizard.
         if action == "valueChanged" and target in (
             "wizard.tech.epa", "wizard.tech.cpp", "wizard.tech.python"
@@ -998,6 +1224,19 @@ def main():
         if action == "action" and client is not None:
             item_action = payload.get("action")
             c = client
+
+            for tab_id, state in editor_state.items():
+                ids = _editor_ids(tab_id)
+                if item_action == ids["button_e"]:
+                    state["view"] = "e"
+                    current_tab = tab_id
+                    _deferred(lambda: _apply_editor_view(c, current_tab))
+                    return {"received": True}
+                if item_action == ids["button_epa"]:
+                    state["view"] = "epa"
+                    current_tab = tab_id
+                    _deferred(lambda: _apply_editor_view(c, current_tab))
+                    return {"received": True}
 
             if target == "app.menu" and item_action in (
                 "edit.cut", "edit.copy", "edit.paste", "edit.select_all"
@@ -1137,11 +1376,14 @@ def main():
                     dest = Path(save_dir) / name
                     try:
                         dest.parent.mkdir(parents=True, exist_ok=True)
-                        dest.write_text(_file_content(tech, name), encoding="utf-8")
-                        if tech == "Cpp" and dest.suffix == ".cpp":
+                        if tech == "Cpp":
+                            if dest.suffix.lower() != ".cpp":
+                                dest = dest.with_suffix(".cpp")
                             header = dest.with_suffix(".h")
-                            if not header.exists():
-                                header.write_text(_file_content(tech, header.name), encoding="utf-8")
+                            dest.write_text(_cpp_source_content(dest.name), encoding="utf-8")
+                            header.write_text(_cpp_header_content(header.name), encoding="utf-8")
+                        else:
+                            dest.write_text(_file_content(tech, name), encoding="utf-8")
                     except OSError as exc:
                         try:
                             c.set_text("new_file.error", f"Could not create file: {exc}")
@@ -1243,6 +1485,7 @@ def main():
         return {"received": True}
 
     builder = build_document()
+    _init_editor_state()
     document_json = builder.to_json(indent=2)
     artifact_root = Path(__file__).resolve().parent / "artifacts"
     if args.output:
@@ -1259,6 +1502,8 @@ def main():
             client.add_handler("ui.event", on_ui_event)
             load_result = client.load_document(builder)
             print(json.dumps(load_result, indent=2))
+            for tab_id in editor_state:
+                _refresh_e_tab(client, tab_id)
             snapshot_sections = builder.snapshot_client_sections() if hasattr(builder, "snapshot_client_sections") else {}
             dumper = UiSnapshotDumper(client, client_sections=snapshot_sections)
             if args.snapshot:
@@ -1268,7 +1513,7 @@ def main():
                 path = dumper.dump(args.snapshot_out)
                 print(json.dumps({"snapshot_written": str(path)}, indent=2), flush=True)
             if not args.no_events:
-                for action in ("clicked", "keysTyped", "valueChanged", "keyDown", "keyUp", "action"):
+                for action in ("clicked", "keysTyped", "textChanged", "valueChanged", "keyDown", "keyUp", "action"):
                     client.enable_event(action)
             if args.once:
                 return

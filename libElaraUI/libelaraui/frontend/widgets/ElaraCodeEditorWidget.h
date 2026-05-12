@@ -30,6 +30,14 @@ private:
         VisibleLineMetrics() : logical_line(-1) {}
     };
 
+    struct Diagnostic {
+        int line;
+        int column;
+        int length;
+        String message;
+        Diagnostic() : line(0), column(0), length(1) {}
+    };
+
     ElaraSliderWidget* vertical_slider;
     ElaraSliderWidget* horizontal_slider;
 
@@ -39,6 +47,7 @@ private:
     bool enabled;
     bool focused;
     bool selecting;
+    bool read_only;
     double font_size;
     double line_height;
     double scrollbar_size;
@@ -57,6 +66,7 @@ private:
     Array<FoldRegion> folds;
     Array<int> visible_line_map;
     Array<VisibleLineMetrics> viewport_metrics;
+    Array<Diagnostic> diagnostics;
 
     // Layout
     double effectiveScrollbarW() const;
@@ -115,11 +125,11 @@ private:
     int selectionEnd() const;
     void clearSelection();
     String selectedText() const;
-    void deleteSelection();
-    void replaceSelection(const String& text);
-    void insertText(const String& text);
-    void backspace();
-    void deleteForward();
+    bool deleteSelection();
+    bool replaceSelection(const String& text);
+    bool insertText(const String& text);
+    bool backspace();
+    bool deleteForward();
     void moveCaretHorizontal(int delta);
     void moveCaretVertical(int delta);
 
@@ -138,6 +148,9 @@ public:
     void setEnabled(bool v);
     bool isEnabled() const;
 
+    void setReadOnly(bool v);
+    bool isReadOnly() const;
+
     void setFocused(bool v);
     bool isFocused() const;
 
@@ -149,6 +162,9 @@ public:
 
     void setBookmark(int logical_line, bool v);
     bool hasBookmark(int logical_line) const;
+
+    void clearDiagnostics();
+    void addDiagnostic(int line, int column, int length, const String& message);
 
     ElaraMouseCursor cursor() const;
     ElaraMouseCursor cursorAt(double px, double py) const;

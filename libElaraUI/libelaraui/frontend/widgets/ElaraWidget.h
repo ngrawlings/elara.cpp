@@ -92,6 +92,7 @@ protected:
     virtual void emitKeyDown(unsigned int keyval);
     virtual void emitKeyUp(unsigned int keyval);
     virtual void emitKeysTyped(const String& text);
+    virtual void emitTextChanged(const String& text);
     virtual void emitValueChanged(double value);
     virtual void emitAction(const String& action);
 
