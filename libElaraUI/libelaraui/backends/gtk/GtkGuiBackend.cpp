@@ -44,6 +44,16 @@ public:
 
 namespace {
 
+class ClipboardReadState {
+public:
+    bool done;
+    String text;
+
+    ClipboardReadState()
+        : done(false),
+          text("") {}
+};
+
 unsigned int translateModifiers(GdkModifierType state) {
     unsigned int modifiers = 0;
 
@@ -93,6 +103,24 @@ const char* cursorName(ElaraMouseCursor cursor) {
         default:
             return "default";
     }
+}
+
+void onClipboardTextRead(GObject* source_object, GAsyncResult* result, gpointer user_data) {
+    ClipboardReadState* state = (ClipboardReadState*)user_data;
+    GdkClipboard* clipboard = GDK_CLIPBOARD(source_object);
+    GError* error = 0;
+    char* text = gdk_clipboard_read_text_finish(clipboard, result, &error);
+
+    if(text) {
+        state->text = String(text);
+        g_free(text);
+    }
+
+    if(error) {
+        g_error_free(error);
+    }
+
+    state->done = true;
 }
 
 }
@@ -496,6 +524,41 @@ void GtkGuiBackend::destroyWindow(Ref<ElaraDrawSurface> surface) {
         }
         return;
     }
+}
+
+void GtkGuiBackend::setClipboardText(const String& text) {
+    GdkDisplay* display = gdk_display_get_default();
+    if(!display) {
+        return;
+    }
+
+    GdkClipboard* clipboard = gdk_display_get_clipboard(display);
+    if(!clipboard) {
+        return;
+    }
+
+    gdk_clipboard_set_text(clipboard, (const char*)text);
+}
+
+String GtkGuiBackend::getClipboardText() {
+    GdkDisplay* display = gdk_display_get_default();
+    if(!display) {
+        return String();
+    }
+
+    GdkClipboard* clipboard = gdk_display_get_clipboard(display);
+    if(!clipboard) {
+        return String();
+    }
+
+    ClipboardReadState state;
+    gdk_clipboard_read_text_async(clipboard, 0, onClipboardTextRead, &state);
+
+    while(!state.done) {
+        g_main_context_iteration(0, true);
+    }
+
+    return state.text;
 }
 
 }

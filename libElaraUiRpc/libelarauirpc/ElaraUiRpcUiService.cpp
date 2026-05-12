@@ -9,6 +9,27 @@ namespace rpc {
 
 namespace {
 
+String targetWindowId(const String& target) {
+    String copy(target);
+    int separator = copy.indexOf(String("::"));
+
+    if(separator <= 0) {
+        return String();
+    }
+
+    return copy.substr(0, separator).trim();
+}
+
+String requestedWindowId(const Json& params) {
+    String window_id = params.getStringValue("window_id").trim();
+
+    if(window_id.length() > 0) {
+        return window_id;
+    }
+
+    return targetWindowId(params.getStringValue("target").trim());
+}
+
 double widgetEventX(Ref<ElaraWidget> widget) {
     if(!widget) {
         return 0;
@@ -90,7 +111,9 @@ Ref<ElaraWidget> ElaraUiRpcUiService::requireWidget(
     String& error_code,
     String& error_message
 ) const {
-    String target = params.getStringValue("target");
+    String target = params.getStringValue("target").trim();
+    String window_id = params.getStringValue("window_id").trim();
+    String target_window_id = targetWindowId(target);
 
     if(target.length() <= 0) {
         error_code = "missing_target";
@@ -98,11 +121,26 @@ Ref<ElaraWidget> ElaraUiRpcUiService::requireWidget(
         return Ref<ElaraWidget>();
     }
 
+    if(window_id.length() > 0 && target_window_id.length() > 0 && window_id != target_window_id) {
+        error_code = "invalid_target_window";
+        error_message = "The requested target widget id does not belong to the requested window_id";
+        return Ref<ElaraWidget>();
+    }
+
+    String requested_window_id = window_id.length() > 0 ? window_id : target_window_id;
+    if(root && requested_window_id.length() > 0 && root->getRootId() != requested_window_id) {
+        error_code = "widget_not_found";
+        error_message = "No widget matched the requested target id in the requested window";
+        return Ref<ElaraWidget>();
+    }
+
     Ref<ElaraWidget> widget = root->getWidget(ElaraWidgetHandle(target));
 
     if(!widget) {
         error_code = "widget_not_found";
-        error_message = "No widget matched the requested target id";
+        error_message = requested_window_id.length() > 0
+            ? String("No widget matched the requested target id in the requested window")
+            : String("No widget matched the requested target id");
     }
 
     return widget;
@@ -217,15 +255,13 @@ bool ElaraUiRpcUiService::setFocus(
     String& error_code,
     String& error_message
 ) {
-    String target = params.getStringValue("target");
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
 
-    if(target.length() <= 0) {
-        error_code = "missing_target";
-        error_message = "The ui method requires a target widget id";
+    if(!widget) {
         return false;
     }
 
-    root->setFocus(ElaraWidgetHandle(target));
+    root->setFocus(widget->getHandle());
     result_json = "{\"updated\":true}";
     return true;
 }
@@ -280,17 +316,17 @@ bool ElaraUiRpcUiService::clearChildren(
         return false;
     }
 
-    String target = params.getStringValue("target");
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
 
-    if(target.length() <= 0) {
-        error_code = "missing_target";
-        error_message = "The ui method requires a target widget id";
+    if(!widget) {
         return false;
     }
 
-    if(!protocol->clearChildren(ElaraWidgetHandle(target))) {
+    if(!protocol->clearChildren(widget->getHandle())) {
         error_code = "widget_not_found";
-        error_message = "No widget matched the requested target id";
+        error_message = requestedWindowId(params).length() > 0
+            ? String("No widget matched the requested target id in the requested window")
+            : String("No widget matched the requested target id");
         return false;
     }
 
@@ -310,14 +346,8 @@ bool ElaraUiRpcUiService::replaceChildren(
         return false;
     }
 
-    String target = params.getStringValue("target");
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
     String document = params.getStringValue("document");
-
-    if(target.length() <= 0) {
-        error_code = "missing_target";
-        error_message = "The ui method requires a target widget id";
-        return false;
-    }
 
     if(document.length() <= 0) {
         error_code = "missing_document";
@@ -325,13 +355,11 @@ bool ElaraUiRpcUiService::replaceChildren(
         return false;
     }
 
-    if(!root->getWidget(ElaraWidgetHandle(target))) {
-        error_code = "widget_not_found";
-        error_message = "No widget matched the requested target id";
+    if(!widget) {
         return false;
     }
 
-    if(!protocol->replaceChildren(ElaraWidgetHandle(target), document)) {
+    if(!protocol->replaceChildren(widget->getHandle(), document)) {
         error_code = "replace_failed";
         error_message = "The target widget children could not be replaced";
         return false;
@@ -438,6 +466,67 @@ bool ElaraUiRpcUiService::dispatchKeyUp(
         (unsigned int)params.getIntValue("keyval"),
         (unsigned int)params.getIntValue("modifiers")
     );
+    result_json = "{\"dispatched\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::performAction(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    String action = params.getStringValue("action").trim();
+
+    if(action.length() <= 0) {
+        error_code = "missing_action";
+        error_message = "The ui method requires an action name";
+        return false;
+    }
+
+    if(!widget) {
+        return false;
+    }
+
+    if(!widget->performAction(action)) {
+        error_code = "unsupported_action";
+        error_message = "The target widget does not support the requested action";
+        return false;
+    }
+
+    result_json = "{\"dispatched\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::performFocusedAction(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    String action = params.getStringValue("action").trim();
+
+    if(action.length() <= 0) {
+        error_code = "missing_action";
+        error_message = "The ui method requires an action name";
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root ? root->getWidget(root->getFocus()) : Ref<ElaraWidget>();
+
+    if(!widget) {
+        error_code = "widget_not_found";
+        error_message = "No focused widget is available for the requested action";
+        return false;
+    }
+
+    if(!widget->performAction(action)) {
+        error_code = "unsupported_action";
+        error_message = "The focused widget does not support the requested action";
+        return false;
+    }
+
     result_json = "{\"dispatched\":true}";
     return true;
 }
@@ -575,6 +664,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("dispatchKeyUp")) {
         return dispatchKeyUp(params, result_json);
+    }
+
+    if(method == String("performAction")) {
+        return performAction(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("performFocusedAction")) {
+        return performFocusedAction(params, result_json, error_code, error_message);
     }
 
     if(method == String("typeWidget")) {

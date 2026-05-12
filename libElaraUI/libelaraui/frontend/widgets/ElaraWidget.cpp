@@ -553,6 +553,11 @@ bool ElaraWidget::dispatchAccelerator(unsigned int keyval, unsigned int modifier
     return false;
 }
 
+bool ElaraWidget::performAction(const String& action) {
+    (void)action;
+    return false;
+}
+
 ElaraMouseCursor ElaraWidget::cursor() const {
     return ELARA_CURSOR_DEFAULT;
 }

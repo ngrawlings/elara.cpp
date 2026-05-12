@@ -28,6 +28,7 @@ private:
 
     bool enabled;
     bool focused;
+    bool selecting;
     double font_size;
     double line_height;
     double padding_x;
@@ -35,6 +36,8 @@ private:
     double scrollbar_size;
 
     int caret_index;
+    int selection_anchor;
+    int selection_focus;
     int preferred_column;
     int scroll_x;
     int scroll_y;
@@ -71,6 +74,13 @@ private:
         const String& line,
         int column
     ) const;
+    bool hasSelection() const;
+    int selectionStart() const;
+    int selectionEnd() const;
+    void clearSelection();
+    String selectedText() const;
+    void deleteSelection();
+    void replaceSelection(const String& text);
     void insertChar(char c);
     void backspace();
     void deleteForward();
@@ -106,7 +116,11 @@ public:
     ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
     void onMouseDown(int button, double px, double py);
+    void onMouseMove(double px, double py);
+    void onMouseUp(int button, double px, double py);
     void onKeyDown(unsigned int keyval);
+    void onKeyDown(unsigned int keyval, unsigned int modifiers);
+    bool performAction(const String& action);
     bool eventPropagate(ElaraUiEvent event);
 
     void onWidgetValueChanged(

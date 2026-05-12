@@ -38,6 +38,7 @@ private:
 
     bool enabled;
     bool focused;
+    bool selecting;
     double font_size;
     double line_height;
     double scrollbar_size;
@@ -46,6 +47,8 @@ private:
     double padding_x;
 
     int caret_index;
+    int selection_anchor;
+    int selection_focus;
     int preferred_column;
     int scroll_x;
     int scroll_y;
@@ -107,6 +110,13 @@ private:
     int gutterLogicalLine(double py) const;
 
     // Editing
+    bool hasSelection() const;
+    int selectionStart() const;
+    int selectionEnd() const;
+    void clearSelection();
+    String selectedText() const;
+    void deleteSelection();
+    void replaceSelection(const String& text);
     void insertText(const String& text);
     void backspace();
     void deleteForward();
@@ -148,6 +158,8 @@ public:
     void onMouseMove(double px, double py);
     void onMouseUp(int button, double px, double py);
     void onKeyDown(unsigned int keyval);
+    void onKeyDown(unsigned int keyval, unsigned int modifiers);
+    bool performAction(const String& action);
 
     void onWidgetValueChanged(ElaraWidgetHandle handle, double value);
 };

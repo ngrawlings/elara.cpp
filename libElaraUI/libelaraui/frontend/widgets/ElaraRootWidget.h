@@ -16,6 +16,7 @@ namespace elara {
 class ElaraRootWidget : public ElaraWidget, public ElaraWidgetRegister {
 private:
     String root_id;
+    ElaraGuiBackend* gui_backend;
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
     Array<ElaraWidgetHandle> popups;
@@ -36,6 +37,10 @@ public:
 
     void setContent(ElaraWidgetHandle root_content);
     Ref<ElaraWidget> getContent() const;
+    void setGuiBackend(ElaraGuiBackend* backend);
+    ElaraGuiBackend* getGuiBackend() const;
+    void setClipboardText(const String& text);
+    String getClipboardText() const;
 
     void setPopup(ElaraWidgetHandle root_popup);
     Ref<ElaraWidget> getPopup() const;

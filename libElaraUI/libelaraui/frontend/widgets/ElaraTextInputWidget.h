@@ -27,12 +27,15 @@ private:
     bool focused;
     bool key_down;
     unsigned int last_keyval;
+    bool selecting;
 
     double font_size;
     double padding_x;
     double caret_padding;
 
     int caret_index;
+    int selection_anchor;
+    int selection_focus;
     ElaraTextInputMetrics metrics_cache;
 
     double textViewportWidth() const;
@@ -45,6 +48,14 @@ private:
 
     bool isPrintableKey(unsigned int keyval) const;
     char printableChar(unsigned int keyval) const;
+    bool hasSelection() const;
+    int selectionStart() const;
+    int selectionEnd() const;
+    void clearSelection();
+    void selectRange(int anchor, int focus);
+    String selectedText() const;
+    void deleteSelection();
+    void replaceSelection(const String& text);
 
     void clampCaret();
     void insertChar(char c);
@@ -76,10 +87,14 @@ public:
     virtual void draw(ElaraDrawContext* ctx);
     virtual ElaraMouseCursor cursor() const;
 
+    virtual void onMouseMove(double px, double py);
     virtual void onMouseDown(int button, double px, double py);
     virtual void onMouseUp(int button, double px, double py);
     virtual void onKeyDown(unsigned int keyval);
+    virtual void onKeyDown(unsigned int keyval, unsigned int modifiers);
     virtual void onKeyUp(unsigned int keyval);
+    virtual void onKeyUp(unsigned int keyval, unsigned int modifiers);
+    virtual bool performAction(const String& action);
 };
 
 }

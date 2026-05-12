@@ -105,6 +105,7 @@ void printHelp() {
     printf("  clear-vector-overlays\n");
     printf("  show <json-method> <json-params>\n");
     printf("  quit\n");
+    printf("widget ids may be qualified as <window_id>::<widget_id>, or raw json commands can include window_id.\n");
 }
 
 bool readFileText(const char* path, String* out) {

@@ -29,6 +29,13 @@ The current `ui.*` surface supports:
 `ui.snapshot` returns the active content tree, popup tree, and focus handle.
 `ui.snapshotWidget` returns a recursive snapshot for a single widget target.
 
+For widget-targeted methods, callers can disambiguate cross-window lookups by:
+
+- passing `window_id` alongside `target`
+- using a fully qualified widget id such as `main::demo.widgets.button`
+
+If the same unqualified widget id exists in more than one window, the server now rejects the call with `ambiguous_widget_target` instead of guessing.
+
 ## Flat Document Builder
 
 `ElaraUiDocumentBuilder` is intended for language-agnostic client layers and bindings. It keeps a cached document model locally and serializes it back to the exact JSON layout format the server expects.

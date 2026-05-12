@@ -41,6 +41,7 @@ build
 /artifacts
 ElaraUnitTests/artifacts
 libElaraUI/artifacts
+epa-ide/artifacts
 
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile

@@ -173,6 +173,7 @@ public:
     virtual bool eventPropagate(ElaraUiEvent event);
     virtual bool handleEvent(const ElaraUiEvent& event);
     virtual bool dispatchAccelerator(unsigned int keyval, unsigned int modifiers);
+    virtual bool performAction(const String& action);
     virtual ElaraMouseCursor cursor() const;
     virtual ElaraMouseCursor cursorAt(double px, double py) const;
     virtual bool acceptsDoubleClick() const;

@@ -36,6 +36,7 @@ int main(int argc, char** argv) {
     }
 
     Ref<ElaraGuiBackend> backend(new GtkGuiBackend("org.elara.ui.demo"));
+    root->setGuiBackend(backend.getPtr());
     ElaraWindow window(backend);
     window.setSurface(root_surface);
     window.create("libElaraUI Demo", 800, 600);

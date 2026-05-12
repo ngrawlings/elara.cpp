@@ -123,6 +123,18 @@ private:
         const Json& params,
         String& result_json
     );
+    bool performAction(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool performFocusedAction(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool typeWidget(
         const Json& params,
         String& result_json,

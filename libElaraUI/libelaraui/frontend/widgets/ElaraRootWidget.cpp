@@ -10,6 +10,11 @@ namespace elara {
 
 namespace {
 
+String& fallbackClipboard() {
+    static String clipboard;
+    return clipboard;
+}
+
 bool handlesEqual(const ElaraWidgetHandle& left, const ElaraWidgetHandle& right) {
     return left.getHandle() == right.getHandle();
 }
@@ -167,6 +172,7 @@ void renderVectorOverlay(ElaraVectorDocument *overlay, ElaraDrawContext *ctx,
 
 ElaraRootWidget::ElaraRootWidget(const String& root_widget_id)
     : root_id(root_widget_id),
+      gui_backend(0),
       overlay_count(0),
       max_overlays(32) {
     event_filter = Ref<WidgetListener>(new ElaraOutboundEventFilter());
@@ -217,6 +223,34 @@ void ElaraRootWidget::setContent(ElaraWidgetHandle root_content) {
 
 Ref<ElaraWidget> ElaraRootWidget::getContent() const {
     return getWidget(content);
+}
+
+void ElaraRootWidget::setGuiBackend(ElaraGuiBackend* backend) {
+    gui_backend = backend;
+}
+
+ElaraGuiBackend* ElaraRootWidget::getGuiBackend() const {
+    return gui_backend;
+}
+
+void ElaraRootWidget::setClipboardText(const String& text) {
+    fallbackClipboard() = text;
+
+    if(gui_backend) {
+        gui_backend->setClipboardText(text);
+    }
+}
+
+String ElaraRootWidget::getClipboardText() const {
+    if(gui_backend) {
+        String text = gui_backend->getClipboardText();
+        if(text.length() > 0) {
+            fallbackClipboard() = text;
+            return text;
+        }
+    }
+
+    return fallbackClipboard();
 }
 
 void ElaraRootWidget::setPopup(ElaraWidgetHandle root_popup) {

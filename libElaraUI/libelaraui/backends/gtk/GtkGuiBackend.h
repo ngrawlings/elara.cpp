@@ -98,6 +98,8 @@ public:
     int run(int argc, char** argv);
     void destroyWindow(Ref<ElaraDrawSurface> surface);
     void setWindowTitle(const String& title);
+    void setClipboardText(const String& text);
+    String getClipboardText();
 };
 
 }

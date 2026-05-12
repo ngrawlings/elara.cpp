@@ -95,6 +95,8 @@ public:
     virtual void invalidate() = 0;
     virtual int run(int argc, char** argv) = 0;
     virtual void setWindowTitle(const String& title) {}
+    virtual void setClipboardText(const String& text) { (void)text; }
+    virtual String getClipboardText() { return String(); }
 };
 
 class ElaraWindow {

@@ -360,6 +360,48 @@ public:
     }
 };
 
+namespace {
+
+String targetWindowId(const String& target) {
+    String copy(target);
+    int separator = copy.indexOf(String("::"));
+
+    if(separator <= 0) {
+        return String();
+    }
+
+    return copy.substr(0, separator).trim();
+}
+
+bool targetOwnedByRoot(ElaraRootWidget* root, const String& target) {
+    if(!root) {
+        return false;
+    }
+
+    String target_window_id = targetWindowId(target);
+
+    if(target_window_id.length() > 0 && root->getRootId() != target_window_id) {
+        return false;
+    }
+
+    return root->getWidget(ElaraWidgetHandle(target)).getPtr() != 0;
+}
+
+bool targetsSpecificWidget(const String& method) {
+    return method == String("setText") ||
+        method == String("setVisible") ||
+        method == String("setEnabled") ||
+        method == String("setBounds") ||
+        method == String("setFocus") ||
+        method == String("clearChildren") ||
+        method == String("replaceChildren") ||
+        method == String("clickWidget") ||
+        method == String("typeWidget") ||
+        method == String("snapshotWidget");
+}
+
+}
+
 class SecondaryWindowManager {
 private:
     class WindowRecord {
@@ -454,6 +496,9 @@ public:
         record->window_id = window_id;
         record->surface = Ref<ElaraDrawSurface>(new ElaraRootWidget(window_id));
         record->root = dynamic_cast<ElaraRootWidget*>(record->surface.getPtr());
+        if(record->root) {
+            record->root->setGuiBackend(backend.getPtr());
+        }
         record->protocol = new ElaraJsonUiProtocol(record->root, theme);
 
         if(!record->root || !record->protocol || !record->protocol->load(document)) {
@@ -478,7 +523,7 @@ public:
     bool closeWindow(const String& window_id) {
         for(int i = 0; i < (int)windows.length(); i++) {
             WindowRecord* record = windows[i];
-            if(!record || record->window_id != window_id) {
+            if(!record || !(record->window_id == window_id)) {
                 continue;
             }
 
@@ -510,6 +555,10 @@ public:
         }
     }
 
+    bool hasWindow(const String& window_id) const {
+        return findWindow(window_id) != 0;
+    }
+
     String snapshotAll() const {
         String result = "[";
         for(int i = 0; i < (int)windows.length(); i++) {
@@ -526,6 +575,59 @@ public:
                 String("}");
         }
         return result + String("]");
+    }
+
+    int countWidgetMatches(
+        const String& target,
+        String* matched_window_id
+    ) const {
+        int matches = 0;
+
+        if(matched_window_id) {
+            *matched_window_id = String();
+        }
+
+        for(int i = 0; i < (int)windows.length(); i++) {
+            WindowRecord* record = windows[i];
+            if(!record || !record->root) {
+                continue;
+            }
+
+            if(!targetOwnedByRoot(record->root, target)) {
+                continue;
+            }
+
+            matches++;
+            if(matched_window_id && matches == 1) {
+                *matched_window_id = record->window_id;
+            }
+        }
+
+        if(matched_window_id && matches != 1) {
+            *matched_window_id = String();
+        }
+
+        return matches;
+    }
+
+    bool callWindow(
+        const String& window_id,
+        const String& method,
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        WindowRecord* record = findWindow(window_id);
+
+        if(!record || !record->root || !record->protocol) {
+            error_code = "window_not_found";
+            error_message = "No open window matched the requested window id";
+            return false;
+        }
+
+        ElaraUiRpcUiService executor(record->root, record->protocol);
+        return executor.call(method, params_json, result_json, error_code, error_message);
     }
 
     bool tryCallSecondary(
@@ -548,7 +650,7 @@ public:
                 return true;
             }
 
-            if(ec != String("widget_not_found")) {
+            if(!(ec == String("widget_not_found"))) {
                 error_code = ec;
                 error_message = em;
                 return false;
@@ -571,6 +673,84 @@ private:
     Array< Ref<DeferredUiRequest> > queue;
     EventArtifactLogger* logger;
     bool layout_loaded;
+
+    bool dispatchWidgetTargetedCall(
+        const String& method,
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        Json params(params_json);
+        String target = params.getStringValue("target").trim();
+        String window_id = params.getStringValue("window_id").trim();
+        String target_window_id = targetWindowId(target);
+
+        if(window_id.length() > 0 && target_window_id.length() > 0 && window_id != target_window_id) {
+            error_code = "invalid_target_window";
+            error_message = "The requested target widget id does not belong to the requested window_id";
+            return false;
+        }
+
+        String requested_window_id = window_id.length() > 0 ? window_id : target_window_id;
+
+        if(requested_window_id.length() > 0) {
+            if(root && root->getRootId() == requested_window_id) {
+                return executor.call(method, params_json, result_json, error_code, error_message);
+            }
+
+            if(window_manager && window_manager->hasWindow(requested_window_id)) {
+                return window_manager->callWindow(
+                    requested_window_id,
+                    method,
+                    params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
+            }
+
+            error_code = "window_not_found";
+            error_message = "No open window matched the requested window id";
+            return false;
+        }
+
+        if(target.length() <= 0) {
+            return executor.call(method, params_json, result_json, error_code, error_message);
+        }
+
+        bool main_matches = targetOwnedByRoot(root, target);
+        String matched_window_id;
+        int secondary_matches = window_manager
+            ? window_manager->countWidgetMatches(target, &matched_window_id)
+            : 0;
+        int matches = (main_matches ? 1 : 0) + secondary_matches;
+
+        if(matches > 1) {
+            error_code = "ambiguous_widget_target";
+            error_message = "Multiple windows matched the requested target id; specify window_id or use a qualified widget id";
+            return false;
+        }
+
+        if(main_matches) {
+            return executor.call(method, params_json, result_json, error_code, error_message);
+        }
+
+        if(matched_window_id.length() > 0 && window_manager) {
+            return window_manager->callWindow(
+                matched_window_id,
+                method,
+                params_json,
+                result_json,
+                error_code,
+                error_message
+            );
+        }
+
+        error_code = "widget_not_found";
+        error_message = "No widget matched the requested target id";
+        return false;
+    }
 
 public:
     MainThreadUiService(
@@ -873,6 +1053,14 @@ public:
                     String(",\"windows\":") + secondary_snapshots +
                     String("}");
                 ok = true;
+            } else if(targetsSpecificWidget(request->method)) {
+                ok = dispatchWidgetTargetedCall(
+                    request->method,
+                    request->params_json,
+                    result_json,
+                    error_code,
+                    error_message
+                );
             } else {
                 ok = executor.call(
                     request->method,
@@ -882,7 +1070,7 @@ public:
                     error_message
                 );
 
-                if(!ok && error_code != String("method_not_found") && window_manager) {
+                if(!ok && !(error_code == String("method_not_found")) && window_manager) {
                     ok = window_manager->tryCallSecondary(
                         request->method,
                         request->params_json,
@@ -1406,6 +1594,9 @@ int main(int argc, char** argv) {
     ElaraJsonUiProtocol protocol(root, &theme);
 
     Ref<ElaraGuiBackend> backend(new GtkGuiBackend(window_config.backend_id));
+    if(root) {
+        root->setGuiBackend(backend.getPtr());
+    }
     UiRpcHost host(root_surface, backend, &theme, &protocol);
 
     if(event_log_path) {

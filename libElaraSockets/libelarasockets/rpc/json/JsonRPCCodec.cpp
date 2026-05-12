@@ -111,7 +111,7 @@ namespace json {
             return true;
         }
 
-        if (ok_json != String("false")) {
+        if (!(ok_json == String("false"))) {
             parse_error_message = "Invalid response ok field";
             return false;
         }

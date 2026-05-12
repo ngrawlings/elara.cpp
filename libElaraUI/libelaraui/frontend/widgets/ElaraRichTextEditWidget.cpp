@@ -37,12 +37,15 @@ ElaraRichTextEditWidget::ElaraRichTextEditWidget(
     palette_master("input"),
     enabled(true),
     focused(false),
+    selecting(false),
     font_size(14),
     line_height(20),
     padding_x(10),
     padding_y(8),
     scrollbar_size(18),
     caret_index(0),
+    selection_anchor(0),
+    selection_focus(0),
     preferred_column(-1),
     scroll_x(0),
     scroll_y(0) {
@@ -472,14 +475,67 @@ double ElaraRichTextEditWidget::visiblePrefixWidth(
     return ctx->measureTextWidth(prefix, lineFontSize(line));
 }
 
+bool ElaraRichTextEditWidget::hasSelection() const {
+    return selection_anchor != selection_focus;
+}
+
+int ElaraRichTextEditWidget::selectionStart() const {
+    return selection_anchor < selection_focus ? selection_anchor : selection_focus;
+}
+
+int ElaraRichTextEditWidget::selectionEnd() const {
+    return selection_anchor > selection_focus ? selection_anchor : selection_focus;
+}
+
+void ElaraRichTextEditWidget::clearSelection() {
+    selection_anchor = caret_index;
+    selection_focus = caret_index;
+}
+
+String ElaraRichTextEditWidget::selectedText() const {
+    if(!hasSelection()) {
+        return String();
+    }
+
+    return value.substr(selectionStart(), selectionEnd() - selectionStart());
+}
+
+void ElaraRichTextEditWidget::deleteSelection() {
+    if(!hasSelection()) {
+        return;
+    }
+
+    int start = selectionStart();
+    int end = selectionEnd();
+    value = value.substr(0, start) + value.substr(end);
+    caret_index = start;
+    clearSelection();
+    preferred_column = -1;
+}
+
+void ElaraRichTextEditWidget::replaceSelection(const String& text) {
+    deleteSelection();
+
+    if(text.length() <= 0) {
+        return;
+    }
+
+    value = value.substr(0, caret_index) + text + value.substr(caret_index);
+    caret_index += (int)text.length();
+    clearSelection();
+    preferred_column = -1;
+}
+
 void ElaraRichTextEditWidget::insertChar(char c) {
-    String before = value.substr(0, caret_index);
-    String after = value.substr(caret_index);
-    value = before + String(c) + after;
-    caret_index++;
+    replaceSelection(String(c));
 }
 
 void ElaraRichTextEditWidget::backspace() {
+    if(hasSelection()) {
+        deleteSelection();
+        return;
+    }
+
     if(caret_index <= 0) {
         return;
     }
@@ -491,6 +547,11 @@ void ElaraRichTextEditWidget::backspace() {
 }
 
 void ElaraRichTextEditWidget::deleteForward() {
+    if(hasSelection()) {
+        deleteSelection();
+        return;
+    }
+
     if(caret_index >= value.length()) {
         return;
     }
@@ -503,6 +564,7 @@ void ElaraRichTextEditWidget::deleteForward() {
 void ElaraRichTextEditWidget::moveCaretHorizontal(int delta) {
     caret_index += delta;
     clampCaret();
+    clearSelection();
     preferred_column = -1;
 }
 
@@ -525,11 +587,13 @@ void ElaraRichTextEditWidget::moveCaretVertical(int delta) {
 
     caret_index = caretIndexForLineColumn(current_line, preferred_column);
     clampCaret();
+    clearSelection();
 }
 
 void ElaraRichTextEditWidget::setText(const String& text_value) {
     value = text_value;
     caret_index = (int)value.length();
+    clearSelection();
     updateScrollbars();
 }
 
@@ -549,6 +613,11 @@ void ElaraRichTextEditWidget::setEnabled(bool value_state) {
     enabled = value_state;
     vertical_slider->setEnabled(value_state);
     horizontal_slider->setEnabled(value_state);
+
+    if(!enabled) {
+        selecting = false;
+        clearSelection();
+    }
 }
 
 bool ElaraRichTextEditWidget::isEnabled() const {
@@ -557,6 +626,10 @@ bool ElaraRichTextEditWidget::isEnabled() const {
 
 void ElaraRichTextEditWidget::setFocused(bool value_state) {
     focused = enabled && value_state;
+
+    if(!focused) {
+        selecting = false;
+    }
 }
 
 bool ElaraRichTextEditWidget::isFocused() const {
@@ -627,6 +700,27 @@ void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
             double y = padding_y + ((double)i * line_height);
             double size = lineFontSize(line);
 
+            if(hasSelection()) {
+                int line_start = caretIndexForLineColumn(line_index, 0);
+                int line_end = line_start + (int)line.length();
+                int draw_start = selectionStart() > line_start ? selectionStart() : line_start;
+                int draw_end = selectionEnd() < line_end ? selectionEnd() : line_end;
+
+                if(draw_end > draw_start) {
+                    int start_col = columnForCaret(draw_start);
+                    int end_col = columnForCaret(draw_end);
+                    double hx = padding_x + visiblePrefixWidth(ctx, line_index, line, start_col);
+                    double hw = visiblePrefixWidth(ctx, line_index, line, end_col) -
+                        visiblePrefixWidth(ctx, line_index, line, start_col);
+
+                    if(hw > 0) {
+                        ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
+                        ctx->fillRect(hx, y + 2, hw, line_height - 4);
+                        ctx->setColor(c.text.r, c.text.g, c.text.b);
+                    }
+                }
+            }
+
             ctx->drawText(padding_x, y + size, visible, size);
         }
     }
@@ -684,6 +778,9 @@ void ElaraRichTextEditWidget::onMouseDown(int button, double px, double py) {
     if(px <= width - effectiveScrollbarW() && py <= height - effectiveScrollbarH()) {
         caret_index = caretIndexAtPoint(px, py);
         clampCaret();
+        selecting = true;
+        selection_anchor = caret_index;
+        selection_focus = caret_index;
         preferred_column = -1;
         setFocused(true);
 
@@ -694,12 +791,100 @@ void ElaraRichTextEditWidget::onMouseDown(int button, double px, double py) {
     }
 }
 
+void ElaraRichTextEditWidget::onMouseMove(double px, double py) {
+    emitMouseMove(px, py);
+
+    if(!enabled || !focused || !selecting) {
+        return;
+    }
+
+    if(px < 0) {
+        px = 0;
+    }
+    if(py < 0) {
+        py = 0;
+    }
+    if(px > width - effectiveScrollbarW()) {
+        px = width - effectiveScrollbarW();
+    }
+    if(py > height - effectiveScrollbarH()) {
+        py = height - effectiveScrollbarH();
+    }
+
+    caret_index = caretIndexAtPoint(px, py);
+    clampCaret();
+    selection_focus = caret_index;
+    preferred_column = -1;
+}
+
+void ElaraRichTextEditWidget::onMouseUp(int button, double px, double py) {
+    emitMouseUp(button, px, py);
+
+    if(button == 1) {
+        selecting = false;
+    }
+}
+
 void ElaraRichTextEditWidget::onKeyDown(unsigned int keyval) {
+    onKeyDown(keyval, 0);
+}
+
+void ElaraRichTextEditWidget::onKeyDown(unsigned int keyval, unsigned int modifiers) {
     if(!enabled || !focused) {
         return;
     }
 
     emitKeyDown(keyval);
+
+    if((modifiers & ELARA_KEY_MOD_CTRL) != 0) {
+        unsigned int normalized = keyval;
+        if(normalized >= 'A' && normalized <= 'Z') {
+            normalized = normalized - 'A' + 'a';
+        }
+
+        switch(normalized) {
+            case 'a':
+                selection_anchor = 0;
+                selection_focus = (int)value.length();
+                caret_index = selection_focus;
+                updateScrollbars();
+                return;
+
+            case 'c':
+                if(hasSelection()) {
+                    ElaraRootWidget* root = rootWidget();
+                    if(root) {
+                        root->setClipboardText(selectedText());
+                    }
+                }
+                return;
+
+            case 'x':
+                if(hasSelection()) {
+                    ElaraRootWidget* root = rootWidget();
+                    if(root) {
+                        root->setClipboardText(selectedText());
+                    }
+                    deleteSelection();
+                    updateScrollbars();
+                }
+                return;
+
+            case 'v': {
+                ElaraRootWidget* root = rootWidget();
+                String clipboard = root ? root->getClipboardText() : String();
+                if(clipboard.length() > 0) {
+                    replaceSelection(clipboard);
+                    emitKeysTyped(clipboard);
+                    updateScrollbars();
+                } else if(hasSelection()) {
+                    deleteSelection();
+                    updateScrollbars();
+                }
+                return;
+            }
+        }
+    }
 
     switch(keyval) {
         case ELARA_KEY_BACKSPACE:
@@ -728,11 +913,13 @@ void ElaraRichTextEditWidget::onKeyDown(unsigned int keyval) {
 
         case ELARA_KEY_HOME:
             caret_index = lineStartForIndex(caret_index);
+            clearSelection();
             preferred_column = -1;
             break;
 
         case ELARA_KEY_END:
             caret_index = lineEndForIndex(caret_index);
+            clearSelection();
             preferred_column = -1;
             break;
 
@@ -788,6 +975,58 @@ void ElaraRichTextEditWidget::onWidgetValueChanged(
         scroll_x = (int)value_state;
         clampScroll();
     }
+}
+
+bool ElaraRichTextEditWidget::performAction(const String& action) {
+    if(!enabled || !focused) {
+        return false;
+    }
+
+    if(action == String("edit.select_all")) {
+        selection_anchor = 0;
+        selection_focus = (int)value.length();
+        caret_index = selection_focus;
+        updateScrollbars();
+        return true;
+    }
+
+    if(action == String("edit.copy")) {
+        if(hasSelection()) {
+            ElaraRootWidget* root = rootWidget();
+            if(root) {
+                root->setClipboardText(selectedText());
+            }
+        }
+        return true;
+    }
+
+    if(action == String("edit.cut")) {
+        if(hasSelection()) {
+            ElaraRootWidget* root = rootWidget();
+            if(root) {
+                root->setClipboardText(selectedText());
+            }
+            deleteSelection();
+            updateScrollbars();
+        }
+        return true;
+    }
+
+    if(action == String("edit.paste")) {
+        ElaraRootWidget* root = rootWidget();
+        String clipboard = root ? root->getClipboardText() : String();
+        if(clipboard.length() > 0) {
+            replaceSelection(clipboard);
+            emitKeysTyped(clipboard);
+            updateScrollbars();
+        } else if(hasSelection()) {
+            deleteSelection();
+            updateScrollbars();
+        }
+        return true;
+    }
+
+    return false;
 }
 
 }
