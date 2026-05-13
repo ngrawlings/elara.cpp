@@ -744,8 +744,11 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 
 	{"LOAD_CONST", EPA_OP_LOAD_CONST, 1,1, 1,{AK_U32}, NULL, "LOAD_CONST <id:u32>"},
 
-	{"L_ALLOC", EPA_OP_L_ALLOC, 1,1, 0,{0}, NULL, "L_ALLOC   ; r0=size_bytes -> r0=off,r1=size,r2=ok"},
-	{"L_RESET", EPA_OP_L_RESET, 1,1, 0,{0}, NULL, "L_RESET   ; reset local byte arena head"},
+	{"L_ALLOC", EPA_OP_L_ALLOC, 0,0, 0,{0}, NULL, "L_ALLOC   ; r0=size_bytes -> r0=off,r1=size,r2=ok"},
+	{"L_RESET", EPA_OP_L_RESET, 0,0, 0,{0}, NULL, "L_RESET   ; reset local byte arena head"},
+	{"L_SCOPE_ENTER", EPA_OP_L_SCOPE_ENTER, 0,0, 0,{0}, NULL, "L_SCOPE_ENTER   ; push local byte arena mark"},
+	{"L_SCOPE_LEAVE", EPA_OP_L_SCOPE_LEAVE, 0,0, 0,{0}, NULL, "L_SCOPE_LEAVE   ; restore local byte arena mark"},
+	{"L_SCOPE_ALLOC", EPA_OP_L_SCOPE_ALLOC, 0,0, 0,{0}, NULL, "L_SCOPE_ALLOC   ; r0=size_bytes -> r0=off,r1=size,r2=ok"},
 
 	{"FMT", EPA_OP_FMT, 1,1, 1,{AK_U8}, NULL, "FMT <argc:u8>"},
 	{"LOG", EPA_OP_LOG, 1,1, 0,{0}, NULL, "LOG   ; log string (r0,r1,r2)"},

@@ -16,10 +16,16 @@ static char *xstrdup_local(const char *s) {
   return p;
 }
 
+static const ETypeLayout *find_type_layout(const ESemanticModel *model, const char *name);
+
+#define E_TYPE_REF_ABI_WORDS 2u
+#define E_TYPE_REF_ABI_SIZE (E_TYPE_REF_ABI_WORDS * 4u)
+
 static int is_primitive_type(const char *name) {
   return strcmp(name, "int") == 0 ||
          strcmp(name, "long") == 0 ||
          strcmp(name, "short") == 0 ||
+         strcmp(name, "byte") == 0 ||
          strcmp(name, "char") == 0 ||
          strcmp(name, "float") == 0 ||
          strcmp(name, "double") == 0 ||
@@ -32,6 +38,7 @@ static int streq(const char *a, const char *b) {
 }
 
 static size_t primitive_size(const char *name) {
+  if (strcmp(name, "byte") == 0) return 1u;
   if (strcmp(name, "char") == 0) return 1u;
   if (strcmp(name, "short") == 0) return 2u;
   if (strcmp(name, "int") == 0) return 4u;
@@ -41,6 +48,22 @@ static size_t primitive_size(const char *name) {
   if (strcmp(name, "z") == 0) return 8u;
   if (strcmp(name, "void") == 0) return 0u;
   return 0u;
+}
+
+static size_t type_ref_size(const ESemanticModel *model, const ETypeRef *type, char err[256]) {
+  size_t elem_size = 0u;
+  size_t count = (type->array_len == 0u) ? 1u : (size_t)type->array_len;
+  if (is_primitive_type(type->name)) {
+    elem_size = primitive_size(type->name);
+  } else {
+    const ETypeLayout *layout = find_type_layout(model, type->name);
+    if (!layout) {
+      snprintf(err, 256, "missing GHS layout for type '%s'", type->name);
+      return 0u;
+    }
+    elem_size = layout->total_size;
+  }
+  return elem_size * count;
 }
 
 static unsigned int stable_validator_id(const char *name) {
@@ -99,8 +122,10 @@ static int push_validator(ESemanticModel *model, const ETypeDecl *decl) {
 }
 
 static int push_check(ESemanticModel *model, const EFunction *fn, size_t param_index,
-                      EParamValidationKind kind, unsigned int validator_id,
-                      size_t ghs_offset, size_t ghs_size) {
+                      EParamValidationKind kind, EParamAbiKind abi_kind,
+                      unsigned int validator_id, size_t ghs_offset,
+                      size_t ghs_size, size_t referent_size,
+                      unsigned int vm_local_slot, unsigned int vm_local_words) {
   EFunctionParamCheck *next;
   next = (EFunctionParamCheck*)realloc(model->checks, sizeof(EFunctionParamCheck) * (model->check_count + 1u));
   if (!next) {
@@ -111,9 +136,13 @@ static int push_check(ESemanticModel *model, const EFunction *fn, size_t param_i
   model->checks[model->check_count].function = fn;
   model->checks[model->check_count].param_index = param_index;
   model->checks[model->check_count].kind = kind;
+  model->checks[model->check_count].abi_kind = abi_kind;
   model->checks[model->check_count].validator_id = validator_id;
   model->checks[model->check_count].ghs_offset = ghs_offset;
   model->checks[model->check_count].ghs_size = ghs_size;
+  model->checks[model->check_count].referent_size = referent_size;
+  model->checks[model->check_count].vm_local_slot = vm_local_slot;
+  model->checks[model->check_count].vm_local_words = vm_local_words;
   model->check_count++;
   return 1;
 }
@@ -150,7 +179,37 @@ static int push_type_layout(ESemanticModel *model, const ETypeDecl *decl, size_t
   return 1;
 }
 
-static int push_frame(ESemanticModel *model, const EFunction *fn, size_t total_size) {
+static int push_local_binding(EFunctionFrame *frame, const EStmt *decl_stmt, const char *name,
+                              const ETypeRef *type, size_t byte_size,
+                              ELocalStorageKind storage, size_t stack_offset,
+                              unsigned int reg_index, unsigned int reg_words) {
+  ELocalBinding *next;
+  next = (ELocalBinding*)realloc(frame->locals, sizeof(ELocalBinding) * (frame->local_count + 1u));
+  if (!next) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  frame->locals = next;
+  memset(&frame->locals[frame->local_count], 0, sizeof(ELocalBinding));
+  frame->locals[frame->local_count].decl_stmt = decl_stmt;
+  frame->locals[frame->local_count].name = xstrdup_local(name);
+  frame->locals[frame->local_count].type_name = xstrdup_local(type->name);
+  frame->locals[frame->local_count].array_len = type->array_len;
+  frame->locals[frame->local_count].byte_size = byte_size;
+  frame->locals[frame->local_count].storage = storage;
+  frame->locals[frame->local_count].stack_offset = stack_offset;
+  frame->locals[frame->local_count].reg_index = reg_index;
+  frame->locals[frame->local_count].reg_words = reg_words;
+  frame->locals[frame->local_count].vm_local_slot = 0u;
+  frame->locals[frame->local_count].vm_local_words = 0u;
+  frame->local_count++;
+  return 1;
+}
+
+static int push_frame(ESemanticModel *model, const EFunction *fn,
+                      size_t param_size, size_t stack_local_size,
+                      unsigned int reserved_reg_words, ELocalBinding *locals,
+                      size_t local_count) {
   EFunctionFrame *next;
   next = (EFunctionFrame*)realloc(model->frames, sizeof(EFunctionFrame) * (model->frame_count + 1u));
   if (!next) {
@@ -159,7 +218,12 @@ static int push_frame(ESemanticModel *model, const EFunction *fn, size_t total_s
   }
   model->frames = next;
   model->frames[model->frame_count].function = fn;
-  model->frames[model->frame_count].total_size = total_size;
+  model->frames[model->frame_count].param_size = param_size;
+  model->frames[model->frame_count].stack_local_size = stack_local_size;
+  model->frames[model->frame_count].reserved_reg_words = reserved_reg_words;
+  model->frames[model->frame_count].total_size = param_size + stack_local_size;
+  model->frames[model->frame_count].locals = locals;
+  model->frames[model->frame_count].local_count = local_count;
   model->frame_count++;
   return 1;
 }
@@ -185,21 +249,6 @@ static int push_function_decl(ESemanticModel *model, const EFunction *fn) {
   }
   model->functions = next;
   model->functions[model->function_count++] = fn;
-  return 1;
-}
-
-static int type_span_for_name(const ESemanticModel *model, const char *name, size_t *out_size, char err[256]) {
-  const ETypeLayout *layout;
-  if (is_primitive_type(name)) {
-    *out_size = primitive_size(name);
-    return 1;
-  }
-  layout = find_type_layout(model, name);
-  if (!layout) {
-    snprintf(err, 256, "missing GHS layout for type '%s'", name);
-    return 0;
-  }
-  *out_size = layout->total_size;
   return 1;
 }
 
@@ -326,7 +375,10 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
 
     for (j = 0; j < top->as.tdecl.param_count; j++) {
       size_t field_size;
-      if (!type_span_for_name(model, top->as.tdecl.params[j].type.name, &field_size, err)) {
+      field_size = type_ref_size(model, &top->as.tdecl.params[j].type, err);
+      if (field_size == 0u && top->as.tdecl.params[j].type.array_len == 0u &&
+          primitive_size(top->as.tdecl.params[j].type.name) == 0u &&
+          !find_type_layout(model, top->as.tdecl.params[j].type.name)) {
         return 0;
       }
       next_offset += field_size;
@@ -338,9 +390,7 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
     next_offset = 0u;
     for (j = 0; j < top->as.tdecl.param_count; j++) {
       size_t field_size;
-      field_size = is_primitive_type(top->as.tdecl.params[j].type.name)
-        ? primitive_size(top->as.tdecl.params[j].type.name)
-        : find_type_layout(model, top->as.tdecl.params[j].type.name)->total_size;
+      field_size = type_ref_size(model, &top->as.tdecl.params[j].type, err);
       type_layout_push_field(layout,
                              top->as.tdecl.params[j].name,
                              top->as.tdecl.params[j].type.name,
@@ -355,38 +405,151 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
   return 1;
 }
 
-static int collect_function_checks(const EProgram *program, ESemanticModel *model) {
+static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *model,
+                                       EFunctionFrame *frame, char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!collect_local_decls_in_stmt(stmt->as.block.items[i], model, frame, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.then_branch, model, frame, err)) return 0;
+      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.else_branch, model, frame, err)) return 0;
+      return 1;
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!collect_local_decls_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, frame, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_DECL: {
+      size_t byte_size = type_ref_size(model, &stmt->as.decl.type, err);
+      if (byte_size == 0u && stmt->as.decl.type.array_len == 0u && primitive_size(stmt->as.decl.type.name) == 0u &&
+          !find_type_layout(model, stmt->as.decl.type.name)) {
+        return 0;
+      }
+      if (stmt->as.decl.is_reg) {
+        unsigned int reg_words;
+        if (stmt->as.decl.is_local) {
+          snprintf(err, 256, "decl '%s' cannot be both reg and local", stmt->as.decl.name);
+          return 0;
+        }
+        if (stmt->as.decl.type.array_len != 0u) {
+          snprintf(err, 256, "reg local '%s' cannot be an array", stmt->as.decl.name);
+          return 0;
+        }
+        if (strcmp(stmt->as.decl.type.name, "int") == 0) {
+          reg_words = 1u;
+        } else if (strcmp(stmt->as.decl.type.name, "long") == 0) {
+          reg_words = 2u;
+        } else {
+          snprintf(err, 256, "reg local '%s' must be int or long", stmt->as.decl.name);
+          return 0;
+        }
+        if (frame->reserved_reg_words + reg_words > 4u) {
+          snprintf(err, 256, "reg local '%s' exceeds 4 available register words", stmt->as.decl.name);
+          return 0;
+        }
+        push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
+                           E_LOCAL_REG, 0u, frame->reserved_reg_words, reg_words);
+        frame->reserved_reg_words += reg_words;
+      } else if (stmt->as.decl.is_local) {
+        if (strcmp(stmt->as.decl.type.name, "byte") == 0) {
+          if (stmt->as.decl.type.array_len == 0u) {
+            snprintf(err, 256, "local decl '%s' using byte must be byte[N]", stmt->as.decl.name);
+            return 0;
+          }
+        } else if (!find_type_layout(model, stmt->as.decl.type.name)) {
+          snprintf(err, 256, "local decl '%s' must be byte[N] or a declared type", stmt->as.decl.name);
+          return 0;
+        }
+        push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
+                           E_LOCAL_ARENA_SCOPED, 0u, 0u, 0u);
+      } else {
+        push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
+                           E_LOCAL_STACK, frame->stack_local_size, 0u, 0u);
+        if (frame->local_count > 0u) {
+          ELocalBinding *binding = &frame->locals[frame->local_count - 1u];
+          if (stmt->as.decl.type.array_len == 0u && byte_size > 0u && byte_size <= 4u) {
+            binding->vm_local_slot = (unsigned int)(frame->param_size / 4u + frame->stack_local_size / 4u);
+            binding->vm_local_words = 1u;
+          }
+        }
+        frame->stack_local_size += byte_size;
+      }
+      return 1;
+    }
+    case E_STMT_RETURN:
+    case E_STMT_EXPR:
+    case E_STMT_BREAK:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+      return 1;
+  }
+  return 1;
+}
+
+static int collect_function_checks(const EProgram *program, ESemanticModel *model, char err[256]) {
   size_t i;
   for (i = 0; i < program->count; i++) {
     const ETopDecl *top = &program->items[i];
     size_t j;
     size_t next_offset = 0u;
+    unsigned int next_vm_local_slot = 0u;
+    EFunctionFrame frame;
     if (top->kind != E_TOP_FUNCTION) continue;
+    memset(&frame, 0, sizeof(frame));
     for (j = 0; j < top->as.func.param_count; j++) {
       const EParam *param = &top->as.func.params[j];
-      size_t field_size = 0u;
+      size_t field_size = type_ref_size(model, &param->type, err);
+      size_t abi_size = field_size;
+      unsigned int vm_local_slot = 0u;
+      unsigned int vm_local_words = 0u;
 
-      if (is_primitive_type(param->type.name)) {
-        field_size = primitive_size(param->type.name);
-      } else {
-        const ETypeLayout *layout = find_type_layout(model, param->type.name);
-        if (layout) field_size = layout->total_size;
+      if (field_size == 0u && param->type.array_len == 0u && primitive_size(param->type.name) == 0u &&
+          !find_type_layout(model, param->type.name)) {
+        return 0;
       }
 
-      if (is_primitive_type(param->type.name)) {
-        push_check(model, &top->as.func, j, E_PARAM_PRIMITIVE, 0u, next_offset, field_size);
+      if (is_primitive_type(param->type.name) && param->type.array_len == 0u) {
+        if (field_size > 0u && field_size <= 4u) {
+          vm_local_slot = next_vm_local_slot;
+          vm_local_words = 1u;
+          next_vm_local_slot += 1u;
+        }
+        push_check(model, &top->as.func, j, E_PARAM_PRIMITIVE, E_PARAM_ABI_VALUE,
+                   0u, next_offset, abi_size, field_size,
+                   vm_local_slot, vm_local_words);
       } else {
         const EValidatorBinding *binding = find_validator(model, param->type.name);
+        if (!is_primitive_type(param->type.name)) {
+          abi_size = E_TYPE_REF_ABI_SIZE;
+        }
         if (binding) {
           push_check(model, &top->as.func, j, E_PARAM_CUSTOM_VALIDATED,
-                     binding->validator_id, next_offset, field_size);
+                     !is_primitive_type(param->type.name) ? E_PARAM_ABI_TYPE_REF : E_PARAM_ABI_VALUE,
+                     binding->validator_id, next_offset, abi_size, field_size,
+                     vm_local_slot, vm_local_words);
         } else {
-          push_check(model, &top->as.func, j, E_PARAM_CUSTOM_UNVALIDATED, 0u, next_offset, field_size);
+          push_check(model, &top->as.func, j, E_PARAM_CUSTOM_UNVALIDATED,
+                     !is_primitive_type(param->type.name) ? E_PARAM_ABI_TYPE_REF : E_PARAM_ABI_VALUE,
+                     0u, next_offset, abi_size, field_size,
+                     vm_local_slot, vm_local_words);
         }
       }
-      next_offset += field_size;
+      next_offset += abi_size;
     }
-    push_frame(model, &top->as.func, next_offset);
+    frame.param_size = next_offset;
+    if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, err)) {
+      return 0;
+    }
+    push_frame(model, &top->as.func, frame.param_size, frame.stack_local_size,
+               frame.reserved_reg_words, frame.locals, frame.local_count);
   }
   return 1;
 }
@@ -452,6 +615,44 @@ static int validate_worker_next_targets(const ESemanticModel *model, char err[25
   return 1;
 }
 
+static void free_temp_frame(EFunctionFrame *frame) {
+  size_t i;
+  for (i = 0; i < frame->local_count; i++) {
+    free(frame->locals[i].name);
+    free(frame->locals[i].type_name);
+  }
+  free(frame->locals);
+  memset(frame, 0, sizeof(*frame));
+}
+
+static int validate_non_function_local_decls(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    EFunctionFrame frame;
+    memset(&frame, 0, sizeof(frame));
+
+    switch (top->kind) {
+      case E_TOP_KERNEL: body = top->as.kernel.body; break;
+      case E_TOP_WORKER: body = top->as.worker.body; break;
+      case E_TOP_TYPE: body = top->as.tdecl.body; break;
+      case E_TOP_STRUCT:
+      case E_TOP_FUNCTION:
+      case E_TOP_DECLARE:
+        break;
+    }
+
+    if (!body) continue;
+    if (!collect_local_decls_in_stmt(body, model, &frame, err)) {
+      free_temp_frame(&frame);
+      return 0;
+    }
+    free_temp_frame(&frame);
+  }
+  return 1;
+}
+
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]) {
   memset(out_model, 0, sizeof(*out_model));
   if (err) err[0] = 0;
@@ -479,9 +680,13 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
     return 0;
   }
 
-  if (!collect_function_checks(program, out_model)) {
+  if (!collect_function_checks(program, out_model, err)) {
     e_semantic_model_free(out_model);
-    snprintf(err, 256, "failed to collect function parameter validation plan");
+    return 0;
+  }
+
+  if (!validate_non_function_local_decls(program, out_model, err)) {
+    e_semantic_model_free(out_model);
     return 0;
   }
 
@@ -511,6 +716,14 @@ void e_semantic_model_free(ESemanticModel *model) {
   }
   free(model->type_layouts);
   free(model->checks);
+  for (i = 0; i < model->frame_count; i++) {
+    size_t j;
+    for (j = 0; j < model->frames[i].local_count; j++) {
+      free(model->frames[i].locals[j].name);
+      free(model->frames[i].locals[j].type_name);
+    }
+    free(model->frames[i].locals);
+  }
   free(model->frames);
   free(model->workers);
   free(model->functions);
@@ -535,6 +748,14 @@ static const char *check_kind_name(EParamValidationKind kind) {
     case E_PARAM_PRIMITIVE: return "primitive-bypass";
     case E_PARAM_CUSTOM_VALIDATED: return "validator-worker-dispatch";
     case E_PARAM_CUSTOM_UNVALIDATED: return "warning-no-validator";
+  }
+  return "unknown";
+}
+
+static const char *param_abi_kind_name(EParamAbiKind kind) {
+  switch (kind) {
+    case E_PARAM_ABI_VALUE: return "value";
+    case E_PARAM_ABI_TYPE_REF: return "type-ref";
   }
   return "unknown";
 }
@@ -601,8 +822,29 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
     fputs("  none\n", out);
   }
   for (i = 0; i < model->frame_count; i++) {
-    fprintf(out, "  func %s total_size=%zu backing=single-ghs\n",
-            model->frames[i].function->name, model->frames[i].total_size);
+    size_t j;
+    fprintf(out, "  func %s total_size=%zu params=%zu stack_locals=%zu reserved_reg_words=%u\n",
+            model->frames[i].function->name,
+            model->frames[i].total_size,
+            model->frames[i].param_size,
+            model->frames[i].stack_local_size,
+            model->frames[i].reserved_reg_words);
+    for (j = 0; j < model->frames[i].local_count; j++) {
+      const ELocalBinding *local = &model->frames[i].locals[j];
+      fprintf(out, "    local %s %s", local->type_name, local->name);
+      if (local->array_len != 0u) fprintf(out, "[%u]", local->array_len);
+      fprintf(out, " size=%zu", local->byte_size);
+      if (local->storage == E_LOCAL_STACK) {
+        fprintf(out, " storage=stack offset=%zu", local->stack_offset);
+        if (local->vm_local_words != 0u) fprintf(out, " vm_local=%u", local->vm_local_slot);
+      } else if (local->storage == E_LOCAL_ARENA_SCOPED) {
+        fprintf(out, " storage=local-scope-arena");
+      } else {
+        fprintf(out, " storage=reg r%u", local->reg_index);
+        if (local->reg_words == 2u) fprintf(out, ":r%u", local->reg_index + 1u);
+      }
+      fputc('\n', out);
+    }
   }
 
   fputs("function-validation-plan\n", out);
@@ -617,8 +859,12 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
     if (check->validator_id != 0u) {
       fprintf(out, " validator_id=0x%08X", check->validator_id);
     }
-    fprintf(out, " ghs_offset=%zu ghs_size=%zu",
-            check->ghs_offset, check->ghs_size);
+    fprintf(out, " abi=%s frame_offset=%zu abi_size=%zu referent_size=%zu",
+            param_abi_kind_name(check->abi_kind),
+            check->ghs_offset, check->ghs_size, check->referent_size);
+    if (check->vm_local_words != 0u) {
+      fprintf(out, " vm_local=%u", check->vm_local_slot);
+    }
     fputc('\n', out);
 
     if (check->kind == E_PARAM_CUSTOM_VALIDATED) {
@@ -626,6 +872,10 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
       fputs("    note runtime step: validator worker roots into emitted EPA body\n", out);
     } else if (check->kind == E_PARAM_CUSTOM_UNVALIDATED) {
       fputs("    note warning: custom type currently falls through with validation disabled\n", out);
+    }
+    if (check->abi_kind == E_PARAM_ABI_TYPE_REF) {
+      fputs("    note ABI: declared type parameter is passed by reference descriptor, not copied bytes\n", out);
+      fputs("    note descriptor contract: identifies stack/frame-backed or local-arena-backed storage\n", out);
     }
   }
 }

@@ -15,6 +15,7 @@
 #define EPA_VM_REGS_MAX 4
 #define EPA_VM_STACK_MAX 256
 #define EPA_VM_LOCALS_MAX 32
+#define EPA_VM_LSCOPE_MAX 32
 
 #ifndef EPA_VM_LBYTES_DEFAULT_CAP
 #define EPA_VM_LBYTES_DEFAULT_CAP (16u * 1024u)
@@ -44,6 +45,8 @@ typedef struct {
   uint8_t  *lbytes;      // base pointer (owned by worker)
   uint32_t  lbytes_cap;  // capacity in bytes
   uint32_t  lbytes_top;  // bump allocator head in bytes
+  uint32_t  lscope_marks[EPA_VM_LSCOPE_MAX];
+  uint32_t  lscope_depth;
 
   uint8_t yielded;                   // set by YIELD opcode
   uint8_t yield_policy;              // SOFT / HARD

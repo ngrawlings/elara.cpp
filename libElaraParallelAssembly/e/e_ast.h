@@ -5,6 +5,7 @@
 
 typedef struct ETypeRef {
   char *name;
+  unsigned int array_len;
 } ETypeRef;
 
 typedef struct EParam {
@@ -84,6 +85,8 @@ typedef enum {
 typedef struct {
   ETypeRef type;
   char *name;
+  int is_reg;
+  int is_local;
   EExpr *init;
 } EDeclStmt;
 

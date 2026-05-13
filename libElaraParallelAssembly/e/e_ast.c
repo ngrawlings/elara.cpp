@@ -136,6 +136,13 @@ static void indent(FILE *out, int depth) {
   for (i = 0; i < depth; i++) fputs("  ", out);
 }
 
+static void dump_type_ref(FILE *out, const ETypeRef *type) {
+  fprintf(out, "%s", type->name);
+  if (type->array_len != 0u) {
+    fprintf(out, "[%u]", type->array_len);
+  }
+}
+
 static const char *bin_name(EBinaryOp op) {
   switch (op) {
     case E_BIN_ADD: return "+";
@@ -197,7 +204,11 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
   switch (s->kind) {
     case E_STMT_DECL:
       indent(out, depth);
-      fprintf(out, "decl %s %s\n", s->as.decl.type.name, s->as.decl.name);
+      fputs("decl ", out);
+      if (s->as.decl.is_reg) fputs("reg ", out);
+      if (s->as.decl.is_local) fputs("local ", out);
+      dump_type_ref(out, &s->as.decl.type);
+      fprintf(out, " %s\n", s->as.decl.name);
       if (s->as.decl.init) dump_expr(out, s->as.decl.init, depth + 1);
       break;
     case E_STMT_RETURN:
@@ -320,7 +331,8 @@ void e_program_dump(FILE *out, const EProgram *p) {
         fputs("kernel(", out);
         for (j = 0; j < d->as.kernel.param_count; j++) {
           if (j) fputs(", ", out);
-          fprintf(out, "%s %s", d->as.kernel.params[j].type.name, d->as.kernel.params[j].name);
+          dump_type_ref(out, &d->as.kernel.params[j].type);
+          fprintf(out, " %s", d->as.kernel.params[j].name);
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.kernel.body, 1);
@@ -335,16 +347,20 @@ void e_program_dump(FILE *out, const EProgram *p) {
         fprintf(out, "worker %s(", d->as.worker.name);
         for (j = 0; j < d->as.worker.param_count; j++) {
           if (j) fputs(", ", out);
-          fprintf(out, "%s %s", d->as.worker.params[j].type.name, d->as.worker.params[j].name);
+          dump_type_ref(out, &d->as.worker.params[j].type);
+          fprintf(out, " %s", d->as.worker.params[j].name);
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.worker.body, 1);
         break;
       case E_TOP_FUNCTION:
-        fprintf(out, "function %s %s(", d->as.func.return_type.name, d->as.func.name);
+        fputs("function ", out);
+        dump_type_ref(out, &d->as.func.return_type);
+        fprintf(out, " %s(", d->as.func.name);
         for (j = 0; j < d->as.func.param_count; j++) {
           if (j) fputs(", ", out);
-          fprintf(out, "%s %s", d->as.func.params[j].type.name, d->as.func.params[j].name);
+          dump_type_ref(out, &d->as.func.params[j].type);
+          fprintf(out, " %s", d->as.func.params[j].name);
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.func.body, 1);
@@ -353,7 +369,8 @@ void e_program_dump(FILE *out, const EProgram *p) {
         fprintf(out, "type %s(", d->as.tdecl.name);
         for (j = 0; j < d->as.tdecl.param_count; j++) {
           if (j) fputs(", ", out);
-          fprintf(out, "%s %s", d->as.tdecl.params[j].type.name, d->as.tdecl.params[j].name);
+          dump_type_ref(out, &d->as.tdecl.params[j].type);
+          fprintf(out, " %s", d->as.tdecl.params[j].name);
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.tdecl.body, 1);

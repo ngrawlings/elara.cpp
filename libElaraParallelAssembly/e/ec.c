@@ -84,6 +84,7 @@ static void dump_templates(FILE *out, const EProgram *prog) {
         name = top->as.tdecl.name;
         break;
       case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
         break;
     }
 

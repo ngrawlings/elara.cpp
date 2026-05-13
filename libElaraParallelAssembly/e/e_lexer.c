@@ -67,6 +67,8 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "break") == 0) return E_TOK_KW_BREAK;
   if (strcmp(text, "declare") == 0) return E_TOK_KW_DECLARE;
   if (strcmp(text, "next") == 0) return E_TOK_KW_NEXT;
+  if (strcmp(text, "reg") == 0) return E_TOK_KW_REG;
+  if (strcmp(text, "local") == 0) return E_TOK_KW_LOCAL;
   return E_TOK_IDENT;
 }
 
@@ -245,6 +247,8 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
         case ')': kind = E_TOK_RPAREN; break;
         case '{': kind = E_TOK_LBRACE; break;
         case '}': kind = E_TOK_RBRACE; break;
+        case '[': kind = E_TOK_LBRACKET; break;
+        case ']': kind = E_TOK_RBRACKET; break;
         case ',': kind = E_TOK_COMMA; break;
         case ';': kind = E_TOK_SEMI; break;
         case ':': kind = E_TOK_COLON; break;

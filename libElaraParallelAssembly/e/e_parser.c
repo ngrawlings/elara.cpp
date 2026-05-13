@@ -69,14 +69,32 @@ static int expect(Parser *p, ETokenKind kind, const char *what) {
   return 1;
 }
 
-static int is_type_start(const Parser *p) {
-  return peek(p)->kind == E_TOK_IDENT;
-}
-
 static int parse_type(Parser *p, ETypeRef *out) {
   if (!expect(p, E_TOK_IDENT, "expected type name")) return 0;
   out->name = xstrdup_local(p->tokens->items[p->pos - 1].text);
+  out->array_len = 0u;
+  if (match(p, E_TOK_LBRACKET)) {
+    if (peek(p)->kind != E_TOK_INT_LIT) return set_err(p, "expected integer array length", peek(p));
+    out->array_len = (unsigned int)strtoul(peek(p)->text, NULL, 10);
+    p->pos++;
+    if (!expect(p, E_TOK_RBRACKET, "expected ']' after array length")) return 0;
+  }
   return 1;
+}
+
+static int is_decl_start(const Parser *p) {
+  size_t pos = p->pos;
+  if (peek_n(p, 0)->kind == E_TOK_KW_REG || peek_n(p, 0)->kind == E_TOK_KW_LOCAL) pos++;
+  if (p->tokens->items[pos].kind != E_TOK_IDENT) return 0;
+  pos++;
+  if (p->tokens->items[pos].kind == E_TOK_LBRACKET) {
+    pos++;
+    if (p->tokens->items[pos].kind != E_TOK_INT_LIT) return 0;
+    pos++;
+    if (p->tokens->items[pos].kind != E_TOK_RBRACKET) return 0;
+    pos++;
+  }
+  return p->tokens->items[pos].kind == E_TOK_IDENT;
 }
 
 static int apply_entry_attribute(
@@ -280,6 +298,8 @@ static EStmt *parse_block(Parser *p) {
 
 static EStmt *parse_decl_stmt(Parser *p) {
   EStmt *s = new_stmt(E_STMT_DECL);
+  if (match(p, E_TOK_KW_REG)) s->as.decl.is_reg = 1;
+  else if (match(p, E_TOK_KW_LOCAL)) s->as.decl.is_local = 1;
   if (!parse_type(p, &s->as.decl.type)) return NULL;
   if (!expect(p, E_TOK_IDENT, "expected local name")) return NULL;
   s->as.decl.name = xstrdup_local(p->tokens->items[p->pos - 1].text);
@@ -391,7 +411,7 @@ static EStmt *parse_stmt(Parser *p) {
     return s;
   }
 
-  if (is_type_start(p) && peek_n(p, 1)->kind == E_TOK_IDENT) {
+  if (is_decl_start(p)) {
     return parse_decl_stmt(p);
   }
 

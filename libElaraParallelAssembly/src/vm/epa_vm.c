@@ -72,6 +72,8 @@ void epa_vm_reset(EpaVM *vm) {
 
   // Arena resets (memory remains allocated)
   vm->lbytes_top = 0;
+  vm->lscope_depth = 0;
+  memset(vm->lscope_marks, 0, sizeof(vm->lscope_marks));
 
   vm->yielded = 0;
   vm->yield_policy = 0;

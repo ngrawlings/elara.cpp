@@ -123,6 +123,9 @@ X(SIGNAL,  0x0403u, "SIGNAL", 0)
 // Local byte arena allocation (worker-local, byte-addressable)
 X(L_ALLOC, 0x0222u, "L_ALLOC", 0) // in: r0=size_bytes  out: r0=off, r1=size, r2=ok(1/0), r3=0
 X(L_RESET, 0x0223u, "L_RESET", 0) // reset worker local byte arena head to 0
+X(L_SCOPE_ENTER, 0x0224u, "L_SCOPE_ENTER", 0) // push current local byte arena head onto scope stack
+X(L_SCOPE_LEAVE, 0x0225u, "L_SCOPE_LEAVE", 0) // restore local byte arena head from scope stack
+X(L_SCOPE_ALLOC, 0x0226u, "L_SCOPE_ALLOC", 0) // like L_ALLOC, intended for scoped allocations
 
 X(FMT, 0x0745u, "FMT", 1) // u8 argc
 X(LOG, 0x0746u, "LOG", 0) // consumes (r0=off, r1=len, r2=kind)

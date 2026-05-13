@@ -1115,9 +1115,51 @@ case EPA_OP_LOAD_CONST: {
 case EPA_OP_L_RESET: {
   // Reset byte arena head (keep capacity).
   w->vm.lbytes_top = 0;
+  w->vm.lscope_depth = 0;
   w->vm.csc[0] = 0;
   w->vm.csc[1] = 0;
   w->vm.csc[2] = 1;   // ok
+  w->vm.csc[3] = 0;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_L_SCOPE_ENTER: {
+  if (w->vm.lscope_depth >= EPA_VM_LSCOPE_MAX) {
+    w->vm.csc[0] = 0;
+    w->vm.csc[1] = 0;
+    w->vm.csc[2] = 0;
+    w->vm.csc[3] = 0;
+    eip->rel_pc = (uint32_t)(pc + need);
+    return EPA_FLOW_YIELDED;
+  }
+
+  w->vm.lscope_marks[w->vm.lscope_depth++] = w->vm.lbytes_top;
+  w->vm.csc[0] = w->vm.lbytes_top;
+  w->vm.csc[1] = 0;
+  w->vm.csc[2] = 1;
+  w->vm.csc[3] = 0;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_L_SCOPE_LEAVE: {
+  if (w->vm.lscope_depth == 0) {
+    w->vm.csc[0] = w->vm.lbytes_top;
+    w->vm.csc[1] = 0;
+    w->vm.csc[2] = 0;
+    w->vm.csc[3] = 0;
+    eip->rel_pc = (uint32_t)(pc + need);
+    return EPA_FLOW_YIELDED;
+  }
+
+  w->vm.lscope_depth--;
+  w->vm.lbytes_top = w->vm.lscope_marks[w->vm.lscope_depth];
+  w->vm.csc[0] = w->vm.lbytes_top;
+  w->vm.csc[1] = 0;
+  w->vm.csc[2] = 1;
   w->vm.csc[3] = 0;
 
   eip->rel_pc = (uint32_t)(pc + need);
@@ -1162,6 +1204,44 @@ case EPA_OP_L_ALLOC: {
   w->vm.csc[1] = sz;          // size
   w->vm.csc[2] = 1;           // ok
   w->vm.csc[3] = 0;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_L_SCOPE_ALLOC: {
+  // Scoped allocation uses the same bump allocator semantics as L_ALLOC.
+  // Lifetime is bounded by the nearest active L_SCOPE_ENTER/L_SCOPE_LEAVE pair.
+  uint32_t sz = (uint32_t)w->vm.csc[0];
+
+  if (!w->vm.lbytes || w->vm.lbytes_cap == 0) {
+    w->vm.csc[0] = 0;
+    w->vm.csc[1] = 0;
+    w->vm.csc[2] = 0;
+    w->vm.csc[3] = 0;
+    eip->rel_pc = (uint32_t)(pc + need);
+    return EPA_FLOW_YIELDED;
+  }
+
+  {
+    uint32_t top = w->vm.lbytes_top;
+    const uint32_t align = 4;
+    uint32_t aligned_top = (top + (align - 1u)) & ~(align - 1u);
+    if (sz > w->vm.lbytes_cap || aligned_top > w->vm.lbytes_cap - sz) {
+      w->vm.csc[0] = 0;
+      w->vm.csc[1] = 0;
+      w->vm.csc[2] = 0;
+      w->vm.csc[3] = 0;
+      eip->rel_pc = (uint32_t)(pc + need);
+      return EPA_FLOW_YIELDED;
+    }
+
+    w->vm.lbytes_top = aligned_top + sz;
+    w->vm.csc[0] = aligned_top;
+    w->vm.csc[1] = sz;
+    w->vm.csc[2] = 1;
+    w->vm.csc[3] = 0;
+  }
 
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;

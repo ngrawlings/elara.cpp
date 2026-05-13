@@ -11,6 +11,11 @@ typedef enum {
   E_PARAM_CUSTOM_UNVALIDATED,
 } EParamValidationKind;
 
+typedef enum {
+  E_PARAM_ABI_VALUE = 1,
+  E_PARAM_ABI_TYPE_REF,
+} EParamAbiKind;
+
 typedef struct {
   char *type_name;
   unsigned int validator_id;
@@ -22,9 +27,13 @@ typedef struct {
   const EFunction *function;
   size_t param_index;
   EParamValidationKind kind;
+  EParamAbiKind abi_kind;
   unsigned int validator_id;
   size_t ghs_offset;
   size_t ghs_size;
+  size_t referent_size;
+  unsigned int vm_local_slot;
+  unsigned int vm_local_words;
 } EFunctionParamCheck;
 
 typedef struct {
@@ -44,7 +53,32 @@ typedef struct {
 typedef struct {
   const EFunction *function;
   size_t total_size;
+  size_t param_size;
+  size_t stack_local_size;
+  unsigned int reserved_reg_words;
+  struct ELocalBinding *locals;
+  size_t local_count;
 } EFunctionFrame;
+
+typedef enum {
+  E_LOCAL_STACK = 1,
+  E_LOCAL_REG,
+  E_LOCAL_ARENA_SCOPED,
+} ELocalStorageKind;
+
+typedef struct ELocalBinding {
+  const EStmt *decl_stmt;
+  char *name;
+  char *type_name;
+  unsigned int array_len;
+  size_t byte_size;
+  ELocalStorageKind storage;
+  size_t stack_offset;
+  unsigned int reg_index;
+  unsigned int reg_words;
+  unsigned int vm_local_slot;
+  unsigned int vm_local_words;
+} ELocalBinding;
 
 typedef struct {
   const EKernel *kernel;

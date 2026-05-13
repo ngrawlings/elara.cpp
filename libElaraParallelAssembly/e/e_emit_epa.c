@@ -6,11 +6,21 @@
 #include <string.h>
 
 typedef struct {
+  char *literal;
+  unsigned int id;
+} EmitStringConst;
+
+typedef struct {
   unsigned int next_label_id;
   unsigned int next_worker_id;
   unsigned int next_func_id;
+  unsigned int next_string_id;
   const EProgram *prog;
   const ESemanticModel *model;
+  const EFunction *current_function;
+  const EFunctionFrame *current_frame;
+  EmitStringConst *strings;
+  size_t string_count;
 } EmitCtx;
 
 static void emit_indent(FILE *out, int depth) {
@@ -22,6 +32,35 @@ static const EFunctionFrame *find_frame(const ESemanticModel *model, const char 
   size_t i;
   for (i = 0; i < model->frame_count; i++) {
     if (strcmp(model->frames[i].function->name, name) == 0) return &model->frames[i];
+  }
+  return NULL;
+}
+
+static const ELocalBinding *find_local_binding(const EFunctionFrame *frame, const EStmt *decl_stmt) {
+  size_t i;
+  if (!frame) return NULL;
+  for (i = 0; i < frame->local_count; i++) {
+    if (frame->locals[i].decl_stmt == decl_stmt) return &frame->locals[i];
+  }
+  return NULL;
+}
+
+static const ELocalBinding *find_local_binding_by_name(const EFunctionFrame *frame, const char *name) {
+  size_t i;
+  if (!frame) return NULL;
+  for (i = 0; i < frame->local_count; i++) {
+    if (strcmp(frame->locals[i].name, name) == 0) return &frame->locals[i];
+  }
+  return NULL;
+}
+
+static const EFunctionParamCheck *find_param_check_by_name(const EmitCtx *ctx, const char *name) {
+  size_t i;
+  if (!ctx->current_function) return NULL;
+  for (i = 0; i < ctx->model->check_count; i++) {
+    const EFunctionParamCheck *check = &ctx->model->checks[i];
+    if (check->function != ctx->current_function) continue;
+    if (strcmp(ctx->current_function->params[check->param_index].name, name) == 0) return check;
   }
   return NULL;
 }
@@ -44,7 +83,117 @@ static const EGhsField *find_field_layout(const ESemanticModel *model, const cha
   return NULL;
 }
 
-static void emit_expr(FILE *out, const EExpr *expr, const ESemanticModel *model, int depth);
+static char *xstrdup_local_emit(const char *s) {
+  size_t n = strlen(s);
+  char *p = (char*)malloc(n + 1u);
+  if (!p) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  memcpy(p, s, n + 1u);
+  return p;
+}
+
+static unsigned int intern_string_const(EmitCtx *ctx, const char *literal) {
+  size_t i;
+  for (i = 0; i < ctx->string_count; i++) {
+    if (strcmp(ctx->strings[i].literal, literal) == 0) return ctx->strings[i].id;
+  }
+  ctx->strings = (EmitStringConst*)realloc(ctx->strings, sizeof(EmitStringConst) * (ctx->string_count + 1u));
+  if (!ctx->strings) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  ctx->strings[ctx->string_count].literal = xstrdup_local_emit(literal);
+  ctx->strings[ctx->string_count].id = ctx->next_string_id++;
+  ctx->string_count++;
+  return ctx->strings[ctx->string_count - 1u].id;
+}
+
+static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr);
+
+static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
+  size_t i;
+  if (!stmt) return;
+  switch (stmt->kind) {
+    case E_STMT_DECL:
+      collect_strings_in_expr(ctx, stmt->as.decl.init);
+      break;
+    case E_STMT_RETURN:
+      collect_strings_in_expr(ctx, stmt->as.ret.value);
+      break;
+    case E_STMT_EXPR:
+      collect_strings_in_expr(ctx, stmt->as.expr);
+      break;
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) collect_strings_in_stmt(ctx, stmt->as.block.items[i]);
+      break;
+    case E_STMT_IF:
+      collect_strings_in_expr(ctx, stmt->as.if_stmt.cond);
+      collect_strings_in_stmt(ctx, stmt->as.if_stmt.then_branch);
+      collect_strings_in_stmt(ctx, stmt->as.if_stmt.else_branch);
+      break;
+    case E_STMT_SWITCH:
+      collect_strings_in_expr(ctx, stmt->as.switch_stmt.target);
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          collect_strings_in_stmt(ctx, stmt->as.switch_stmt.cases[i].body.items[j]);
+        }
+      }
+      break;
+    case E_STMT_BREAK:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+      break;
+  }
+}
+
+static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr) {
+  size_t i;
+  if (!expr) return;
+  switch (expr->kind) {
+    case E_EXPR_STRING:
+      intern_string_const(ctx, expr->as.string_lit);
+      break;
+    case E_EXPR_BINARY:
+      collect_strings_in_expr(ctx, expr->as.binary.lhs);
+      collect_strings_in_expr(ctx, expr->as.binary.rhs);
+      break;
+    case E_EXPR_ASSIGN:
+      collect_strings_in_expr(ctx, expr->as.assign.lhs);
+      collect_strings_in_expr(ctx, expr->as.assign.rhs);
+      break;
+    case E_EXPR_CALL:
+      for (i = 0; i < expr->as.call.arg_count; i++) collect_strings_in_expr(ctx, expr->as.call.args[i]);
+      break;
+    case E_EXPR_FIELD:
+      collect_strings_in_expr(ctx, expr->as.field.base);
+      break;
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+      break;
+  }
+}
+
+static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
+  size_t i;
+  for (i = 0; i < prog->count; i++) {
+    const ETopDecl *top = &prog->items[i];
+    switch (top->kind) {
+      case E_TOP_KERNEL: collect_strings_in_stmt(ctx, top->as.kernel.body); break;
+      case E_TOP_WORKER: collect_strings_in_stmt(ctx, top->as.worker.body); break;
+      case E_TOP_FUNCTION: collect_strings_in_stmt(ctx, top->as.func.body); break;
+      case E_TOP_TYPE: collect_strings_in_stmt(ctx, top->as.tdecl.body); break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+        break;
+    }
+  }
+}
+
+static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
   if (!expr) return;
@@ -85,7 +234,7 @@ static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *
   }
 }
 
-static void emit_expr(FILE *out, const EExpr *expr, const ESemanticModel *model, int depth) {
+static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   size_t i;
   emit_indent(out, depth);
   if (!expr) {
@@ -94,8 +243,18 @@ static void emit_expr(FILE *out, const EExpr *expr, const ESemanticModel *model,
   }
   switch (expr->kind) {
     case E_EXPR_IDENT:
-      fprintf(out, "; expr ident %s\n", expr->as.ident);
+    {
+      const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, expr->as.ident);
+      const EFunctionParamCheck *param = find_param_check_by_name(ctx, expr->as.ident);
+      if (local && local->vm_local_words == 1u) {
+        fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
+      } else if (param && param->vm_local_words == 1u) {
+        fprintf(out, "LOAD_L %u\n", param->vm_local_slot);
+      } else {
+        fprintf(out, "; expr ident %s\n", expr->as.ident);
+      }
       break;
+    }
     case E_EXPR_INT:
       fprintf(out, "PUSH %lld\n", expr->as.int_lit);
       break;
@@ -104,8 +263,8 @@ static void emit_expr(FILE *out, const EExpr *expr, const ESemanticModel *model,
       break;
     case E_EXPR_BINARY:
       fprintf(out, "; expr binary\n");
-      emit_expr(out, expr->as.binary.lhs, model, depth);
-      emit_expr(out, expr->as.binary.rhs, model, depth);
+      emit_expr(out, expr->as.binary.lhs, ctx, depth);
+      emit_expr(out, expr->as.binary.rhs, ctx, depth);
       emit_indent(out, depth);
       switch (expr->as.binary.op) {
         case E_BIN_ADD: fputs("ADD_I32\n", out); break;
@@ -116,19 +275,57 @@ static void emit_expr(FILE *out, const EExpr *expr, const ESemanticModel *model,
       break;
     case E_EXPR_ASSIGN:
       fprintf(out, "; assign pending lowering\n");
-      emit_expr(out, expr->as.assign.lhs, model, depth);
-      emit_expr(out, expr->as.assign.rhs, model, depth);
+      emit_expr(out, expr->as.assign.lhs, ctx, depth);
+      emit_expr(out, expr->as.assign.rhs, ctx, depth);
       break;
     case E_EXPR_CALL:
+      if (strcmp(expr->as.call.callee, "log") == 0) {
+        emit_log_builtin(out, expr, ctx, depth);
+        break;
+      }
       fprintf(out, "; call %s argc=%zu pending lowering\n", expr->as.call.callee, expr->as.call.arg_count);
-      for (i = 0; i < expr->as.call.arg_count; i++) emit_expr(out, expr->as.call.args[i], model, depth);
+      for (i = 0; i < expr->as.call.arg_count; i++) emit_expr(out, expr->as.call.args[i], ctx, depth);
       break;
     case E_EXPR_FIELD:
       fputs("; field ", out);
-      emit_field_path(out, expr, model);
+      emit_field_path(out, expr, ctx->model);
       fputc('\n', out);
       break;
   }
+}
+
+static unsigned int find_string_const_id(const EmitCtx *ctx, const char *literal) {
+  size_t i;
+  for (i = 0; i < ctx->string_count; i++) {
+    if (strcmp(ctx->strings[i].literal, literal) == 0) return ctx->strings[i].id;
+  }
+  return 0u;
+}
+
+static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  size_t i;
+  unsigned int string_id;
+  if (expr->as.call.arg_count < 1u) {
+    emit_indent(out, depth);
+    fputs("; log requires at least a format string\n", out);
+    return 1;
+  }
+  if (expr->as.call.args[0]->kind != E_EXPR_STRING) {
+    emit_indent(out, depth);
+    fputs("; log requires a string literal as the first argument\n", out);
+    return 1;
+  }
+  string_id = find_string_const_id(ctx, expr->as.call.args[0]->as.string_lit);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_CONST %u\n", string_id);
+  for (i = 1; i < expr->as.call.arg_count; i++) {
+    emit_expr(out, expr->as.call.args[i], ctx, depth);
+  }
+  emit_indent(out, depth);
+  fprintf(out, "FMT %zu\n", expr->as.call.arg_count - 1u);
+  emit_indent(out, depth);
+  fputs("LOG\n", out);
+  return 1;
 }
 
 static unsigned int next_label(EmitCtx *ctx) {
@@ -169,19 +366,39 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
   if (!stmt) return;
   switch (stmt->kind) {
     case E_STMT_DECL:
+    {
+      const ELocalBinding *binding = find_local_binding(ctx->current_frame, stmt);
       emit_indent(out, depth);
-      fprintf(out, "; decl %s %s\n", stmt->as.decl.type.name, stmt->as.decl.name);
-      if (stmt->as.decl.init) emit_expr(out, stmt->as.decl.init, ctx->model, depth);
+      fputs("; decl ", out);
+      if (stmt->as.decl.is_reg) fputs("reg ", out);
+      if (stmt->as.decl.is_local) fputs("local ", out);
+      fprintf(out, "%s", stmt->as.decl.type.name);
+      if (stmt->as.decl.type.array_len != 0u) fprintf(out, "[%u]", stmt->as.decl.type.array_len);
+      fprintf(out, " %s", stmt->as.decl.name);
+      if (binding) {
+        if (binding->storage == E_LOCAL_STACK) {
+          fprintf(out, " stack+%zu size=%zu", binding->stack_offset, binding->byte_size);
+        } else if (binding->storage == E_LOCAL_ARENA_SCOPED) {
+          fprintf(out, " local-scope-arena size=%zu", binding->byte_size);
+        } else {
+          fprintf(out, " r%u", binding->reg_index);
+          if (binding->reg_words == 2u) fprintf(out, ":r%u", binding->reg_index + 1u);
+          fprintf(out, " size=%zu", binding->byte_size);
+        }
+      }
+      fputc('\n', out);
+      if (stmt->as.decl.init) emit_expr(out, stmt->as.decl.init, ctx, depth);
       break;
+    }
     case E_STMT_RETURN:
       emit_indent(out, depth);
       fputs("; return\n", out);
-      if (stmt->as.ret.value) emit_expr(out, stmt->as.ret.value, ctx->model, depth);
+      if (stmt->as.ret.value) emit_expr(out, stmt->as.ret.value, ctx, depth);
       emit_indent(out, depth);
       fputs("RET\n", out);
       break;
     case E_STMT_EXPR:
-      emit_expr(out, stmt->as.expr, ctx->model, depth);
+      emit_expr(out, stmt->as.expr, ctx, depth);
       break;
     case E_STMT_BLOCK:
       for (i = 0; i < stmt->as.block.count; i++) {
@@ -193,7 +410,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       unsigned int join_id = next_label(ctx);
       emit_indent(out, depth);
       fputs("; if condition\n", out);
-      emit_expr(out, stmt->as.if_stmt.cond, ctx->model, depth);
+      emit_expr(out, stmt->as.if_stmt.cond, ctx, depth);
       emit_indent(out, depth);
       fprintf(out, "JZ E_IF_ELSE_%u\n", else_id);
       emit_stmt(out, stmt->as.if_stmt.then_branch, ctx, depth, break_label);
@@ -215,7 +432,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       unsigned int join_id = next_label(ctx);
       emit_indent(out, depth);
       fputs("; switch target\n", out);
-      emit_expr(out, stmt->as.switch_stmt.target, ctx->model, depth);
+      emit_expr(out, stmt->as.switch_stmt.target, ctx, depth);
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         unsigned int case_id = next_label(ctx);
         emit_indent(out, depth);
@@ -298,11 +515,17 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
   ctx.next_label_id = 1u;
   ctx.next_worker_id = 1u;
   ctx.next_func_id = 1u;
+  ctx.next_string_id = 1u;
   ctx.prog = prog;
   ctx.model = model;
+  collect_program_strings(&ctx, prog);
 
   fputs("; E -> EPA ASM skeleton emitter\n", out);
   fputs("; Generated for manual inspection. Some operations remain comments/placeholders.\n\n", out);
+  for (i = 0; i < ctx.string_count; i++) {
+    fprintf(out, ".SSTR %u %s\n", ctx.strings[i].id, ctx.strings[i].literal);
+  }
+  if (ctx.string_count > 0u) fputc('\n', out);
 
   for (i = 0; i < prog->count; i++) {
     const ETopDecl *top = &prog->items[i];
@@ -324,6 +547,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           }
         }
         fprintf(out, "FUNC_START %u 0\n", ctx.next_func_id++);
+        ctx.current_frame = NULL;
         emit_stmt(out, top->as.tdecl.body, &ctx, 1, NULL);
         fputs("FUNC_END\n\n", out);
         break;
@@ -336,6 +560,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                 resolved_in_words(model, &top->as.kernel.attrs),
                 resolved_out_words(model, &top->as.kernel.attrs),
                 resolved_signal_mail_box_size(model, &top->as.kernel.attrs));
+        ctx.current_frame = NULL;
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL);
         fputs("ENTRY_END\n\n", out);
         break;
@@ -368,6 +593,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           fputs("WORKER_TRX_IN_R 1\n", out);
           emit_indent(out, 1);
           fputs("; E worker body begins after ingress wake-up\n", out);
+          ctx.current_frame = NULL;
           emit_stmt(out, top->as.worker.body, &ctx, 1, NULL);
           emit_indent(out, 1);
           fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);
@@ -378,13 +604,19 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         int frame_words = frame_words_for_function(model, top->as.func.name);
         fprintf(out, "; function %s\n", top->as.func.name);
         fprintf(out, "FUNC_START %u %d\n", ctx.next_func_id++, frame_words);
+        ctx.current_function = &top->as.func;
+        ctx.current_frame = find_frame(model, top->as.func.name);
         emit_stmt(out, top->as.func.body, &ctx, 1, NULL);
         fputs("FUNC_END\n\n", out);
+        ctx.current_function = NULL;
+        ctx.current_frame = NULL;
         break;
       }
     }
   }
 
   fputs("END\n", out);
+  for (i = 0; i < ctx.string_count; i++) free(ctx.strings[i].literal);
+  free(ctx.strings);
   return 1;
 }
