@@ -75,6 +75,17 @@ public:
     double measureTextWidth(const String& text, double size) {
         return ctx->measureTextWidth(text, size);
     }
+
+    void drawBitmapRgba(
+        double x,
+        double y,
+        int width,
+        int height,
+        const unsigned char* rgba,
+        int stride
+    ) {
+        ctx->drawBitmapRgba(offset_x + x, offset_y + y, width, height, rgba, stride);
+    }
 };
 
 ElaraWidget::ElaraWidget() :

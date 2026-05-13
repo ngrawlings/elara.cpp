@@ -15,6 +15,7 @@
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
+#include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraToolBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
@@ -24,6 +25,7 @@
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTreeViewWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
+#include <libelaraui/frontend/widgets/ElaraOpenClSurfaceWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
 
@@ -607,9 +609,11 @@ public:
             type == String("elara.widgets.list_view") ||
             type == String("elara.widgets.tree_view") ||
             type == String("elara.widgets.surface_panel") ||
+            type == String("elara.widgets.opencl_surface") ||
             type == String("elara.widgets.density_map") ||
             type == String("elara.widgets.multi_axis_line_chart") ||
             type == String("elara.widgets.combo_box") ||
+            type == String("elara.widgets.chat_dialog") ||
             type == String("demo.widgets.button") ||
             type == String("demo.widgets.label") ||
             type == String("demo.widgets.text_input") ||
@@ -675,6 +679,8 @@ public:
             widget = new ElaraTextInputWidget(root, id);
         } else if(type == String("elara.widgets.surface_panel") || type == String("demo.widgets.surface_panel")) {
             widget = new ElaraJsonSurfacePanelWidget(root, id);
+        } else if(type == String("elara.widgets.opencl_surface")) {
+            widget = new ElaraOpenClSurfaceWidget(root, id);
         } else if(type == String("elara.widgets.density_map")) {
             widget = new ElaraDensityMapWidget(root, id);
             // TODO: apply styling attribgutes within the json spec
@@ -682,6 +688,8 @@ public:
             widget = new ElaraMultiAxisLineChartWidget(root, id);
         } else if(type == String("elara.widgets.combo_box")) {
             widget = new ElaraComboBoxWidget(root, id);
+        } else if(type == String("elara.widgets.chat_dialog")) {
+            widget = new ElaraChatDialogWidget(root, id);
         }
 
         applyProperties(widget, spec);
@@ -934,6 +942,71 @@ public:
             String sel_id = spec.getStringValue("properties.selected_id");
             if(sel_id.length() > 0) {
                 combo->setSelectedId(sel_id);
+            }
+        }
+
+        ElaraOpenClSurfaceWidget* opencl_surface = dynamic_cast<ElaraOpenClSurfaceWidget*>(widget);
+        if(opencl_surface) {
+            opencl_surface->setBackendId(
+                jsonString(spec, "properties.backend", String("opencl"))
+            );
+            opencl_surface->setKernelName(
+                jsonString(spec, "properties.kernel_name", String(""))
+            );
+            opencl_surface->setOverlayText(
+                jsonString(spec, "properties.overlay_text", String(""))
+            );
+            opencl_surface->setVirtualSize(
+                jsonDouble(spec, "properties.virtual_width", 1000.0),
+                jsonDouble(spec, "properties.virtual_height", 1000.0)
+            );
+
+            opencl_surface->clearCommands();
+            Array< Ref<JsonValue> > surface_commands = spec.getArray("commands");
+            if(surface_commands.length() <= 0) {
+                surface_commands = spec.getArray("sections.commands");
+            }
+            for(int i = 0; i < (int)surface_commands.length(); i++) {
+                Json command_json(surface_commands[i]->toString());
+                String op = command_json.getStringValue("op");
+
+                if(op == String("clear")) {
+                    opencl_surface->addClear(
+                        jsonValueDouble(command_json.getJsonValue("r"), 0.10),
+                        jsonValueDouble(command_json.getJsonValue("g"), 0.11),
+                        jsonValueDouble(command_json.getJsonValue("b"), 0.14)
+                    );
+                } else if(op == String("rect")) {
+                    opencl_surface->addRect(
+                        jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("h"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                } else if(op == String("line")) {
+                    opencl_surface->addLine(
+                        jsonValueDouble(command_json.getJsonValue("x0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("x1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                } else if(op == String("text")) {
+                    opencl_surface->addText(
+                        jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                        command_json.getStringValue("text"),
+                        jsonValueDouble(command_json.getJsonValue("size"), 24.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                }
             }
         }
 

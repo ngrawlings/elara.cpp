@@ -158,6 +158,8 @@ static void printUsage(const char *program_name) {
     printf("  --ui-client-language <cpp|python>\n");
     printf("  --ui-template <tabbed-control-panel|rich-editor>\n");
     printf("  --multi-cpu-python <yes|no>  Enable the Python multi-core worker template for Python UI clients\n");
+    printf("  --epa-vm-host <yes|no>      Enable the EPA VM host adapter scaffold for C++ UI clients\n");
+    printf("  --epa-debug-rpc <yes|no>    Enable the EPA debug JSON-RPC target for C++ UI clients\n");
     printf("  --repl <yes|no>             Enable or disable the REPL\n");
     printf("  --debug-harness <yes|no>    Enable or disable the debug artifact scaffold\n");
     printf("  --thread-pool <yes|no>      Enable or disable the thread pool\n");
@@ -195,6 +197,8 @@ int main(int argc, const char *argv[]) {
         bool saw_ui_client_language = false;
         bool saw_ui_template = false;
         bool saw_multi_cpu_python = false;
+        bool saw_epa_vm_host = false;
+        bool saw_epa_debug_rpc = false;
 
         builder.setExecutablePath(resolveExecutablePath(argv[0]));
         options = builder.defaultOptions();
@@ -297,6 +301,30 @@ int main(int argc, const char *argv[]) {
                 return 1;
             }
             saw_multi_cpu_python = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--epa-vm-host")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--epa-vm-host");
+            if (!value || !parseBoolValue(value, &options.include_epa_vm_host)) {
+                fprintf(stderr, "Invalid value for --epa-vm-host: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_epa_vm_host = true;
+            interactive = false;
+            saw_generation_option = true;
+            continue;
+        }
+
+        if (matchesOption(arg, "--epa-debug-rpc")) {
+            const char *value = optionValue(argc, argv, &i, arg, "--epa-debug-rpc");
+            if (!value || !parseBoolValue(value, &options.include_epa_debug_rpc)) {
+                fprintf(stderr, "Invalid value for --epa-debug-rpc: %s\n", value ? value : "");
+                return 1;
+            }
+            saw_epa_debug_rpc = true;
             interactive = false;
             saw_generation_option = true;
             continue;
@@ -497,6 +525,22 @@ int main(int argc, const char *argv[]) {
         }
         if (options.application_kind != ProjectOptions::APPLICATION_UI && (saw_ui_client_language || saw_ui_template)) {
             fprintf(stderr, "--ui-client-language and --ui-template require --app-kind ui\n");
+            return 1;
+        }
+        if (saw_epa_vm_host &&
+            (options.application_kind != ProjectOptions::APPLICATION_UI ||
+             options.ui_client_language != ProjectOptions::UI_CLIENT_CPP)) {
+            fprintf(stderr, "--epa-vm-host is only valid for C++ UI applications\n");
+            return 1;
+        }
+        if (saw_epa_debug_rpc &&
+            (options.application_kind != ProjectOptions::APPLICATION_UI ||
+             options.ui_client_language != ProjectOptions::UI_CLIENT_CPP)) {
+            fprintf(stderr, "--epa-debug-rpc is only valid for C++ UI applications\n");
+            return 1;
+        }
+        if (options.include_epa_debug_rpc && !options.include_epa_vm_host) {
+            fprintf(stderr, "--epa-debug-rpc requires --epa-vm-host yes\n");
             return 1;
         }
 

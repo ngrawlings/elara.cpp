@@ -23,6 +23,14 @@ public:
     void line(double x1, double y1, double x2, double y2, double width);
     void drawText(double x, double y, const String& text, double size);
     double measureTextWidth(const String& text, double size);
+    void drawBitmapRgba(
+        double x,
+        double y,
+        int width,
+        int height,
+        const unsigned char* rgba,
+        int stride
+    );
 
 };
 

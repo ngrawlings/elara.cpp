@@ -32,6 +32,14 @@ public:
     virtual void line(double x1, double y1, double x2, double y2, double width) = 0;
     virtual void drawText(double x, double y, const String& text, double size) = 0;
     virtual double measureTextWidth(const String& text, double size) = 0;
+    virtual void drawBitmapRgba(
+        double x,
+        double y,
+        int width,
+        int height,
+        const unsigned char* rgba,
+        int stride
+    ) = 0;
 
 };
 

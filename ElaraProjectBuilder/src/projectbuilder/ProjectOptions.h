@@ -44,6 +44,8 @@ namespace elara {
             include_debug_harness(true),
             include_thread_pool(false),
             include_threaded_worker(false),
+            include_epa_vm_host(false),
+            include_epa_debug_rpc(false),
             include_indexed_data_store(false),
             indexed_data_store_bank_map_redundancy(2),
             socket_port(4040) {
@@ -66,6 +68,8 @@ namespace elara {
         bool include_debug_harness;
         bool include_thread_pool;
         bool include_threaded_worker;
+        bool include_epa_vm_host;
+        bool include_epa_debug_rpc;
         bool include_indexed_data_store;
         int indexed_data_store_bank_map_redundancy;
         int socket_port;

@@ -1,6 +1,8 @@
 #include "GtkGuiBackend.h"
 #include "../../frontend/widgets/ElaraRootWidget.h"
 
+#include <stdlib.h>
+
 namespace elara {
 
 class GtkGuiBackend::WindowState {
@@ -177,6 +179,58 @@ double GtkDrawContext::measureTextWidth(const String& text, double size) {
 
     g_object_unref(layout);
     return width;
+}
+
+void GtkDrawContext::drawBitmapRgba(
+    double x,
+    double y,
+    int image_width,
+    int image_height,
+    const unsigned char* rgba,
+    int stride
+) {
+    if(!rgba || image_width <= 0 || image_height <= 0 || stride <= 0) {
+        return;
+    }
+
+    int cairo_stride = cairo_format_stride_for_width(CAIRO_FORMAT_ARGB32, image_width);
+    unsigned char* argb = (unsigned char*)malloc((size_t)cairo_stride * (size_t)image_height);
+    if(!argb) {
+        return;
+    }
+
+    for(int row = 0; row < image_height; row++) {
+        const unsigned char* src = rgba + (size_t)row * (size_t)stride;
+        unsigned char* dst = argb + (size_t)row * (size_t)cairo_stride;
+
+        for(int col = 0; col < image_width; col++) {
+            unsigned char r = src[col * 4 + 0];
+            unsigned char g = src[col * 4 + 1];
+            unsigned char b = src[col * 4 + 2];
+            unsigned char a = src[col * 4 + 3];
+
+            dst[col * 4 + 0] = b;
+            dst[col * 4 + 1] = g;
+            dst[col * 4 + 2] = r;
+            dst[col * 4 + 3] = a;
+        }
+    }
+
+    cairo_surface_t* surface = cairo_image_surface_create_for_data(
+        argb,
+        CAIRO_FORMAT_ARGB32,
+        image_width,
+        image_height,
+        cairo_stride
+    );
+
+    cairo_save(cr);
+    cairo_set_source_surface(cr, surface, x, y);
+    cairo_paint(cr);
+    cairo_restore(cr);
+
+    cairo_surface_destroy(surface);
+    free(argb);
 }
 
 GtkGuiBackend::GtkGuiBackend(const String& app_id)

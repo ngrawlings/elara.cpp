@@ -144,6 +144,9 @@ class UiDocumentBuilder:
         self.create_widget(widget_id, "elara.widgets.rich_text_edit")
         return self.set_property_string(widget_id, "text", text)
 
+    def create_chat_dialog(self, widget_id):
+        return self.create_widget(widget_id, "elara.widgets.chat_dialog")
+
     def create_toolbar(self, widget_id, orientation="vertical"):
         self.create_widget(widget_id, "elara.widgets.toolbar")
         self.set_property_string(widget_id, "orientation", orientation)
@@ -174,6 +177,15 @@ class UiDocumentBuilder:
 
     def create_surface_panel(self, widget_id):
         return self.create_widget(widget_id, "demo.widgets.surface_panel")
+
+    def create_opencl_surface(self, widget_id, commands=None, backend="opencl", kernel_name=None):
+        self.create_widget(widget_id, "elara.widgets.opencl_surface")
+        self.set_property_string(widget_id, "backend", backend)
+        if kernel_name:
+            self.set_property_string(widget_id, "kernel_name", kernel_name)
+        if commands is not None:
+            self.set_section_json(widget_id, "commands", commands)
+        return self
 
     def create_density_map(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.density_map")

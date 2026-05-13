@@ -8,6 +8,7 @@
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
+#include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>

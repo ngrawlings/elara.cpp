@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import re
 import subprocess
 import tempfile
@@ -14,6 +15,26 @@ from elara_ui.repl_client import ElaraUiRepl
 
 
 INITIAL_E_TABS = []
+
+AI_MODELS = [
+    {"id": "claude-sonnet-4-6",       "label": "Claude Sonnet 4.6"},
+    {"id": "claude-haiku-4-5-20251001","label": "Claude Haiku 4.5"},
+    {"id": "claude-opus-4-7",          "label": "Claude Opus 4.7"},
+]
+
+ANTHROPIC_SYSTEM_PROMPT = (
+    "You are the Elara Core AI assistant, embedded in the EPA-IDE development environment.\n\n"
+    "You specialise in:\n"
+    "- The **E language**: a parallel worker-based language that compiles to EPA bytecode.\n"
+    "- **EPA (Elara Parallel Assembly)**: isolated worker address spaces, typed ingress packets, "
+    "GHS (Global Heap State) memory transfer, and signal mailboxes.\n"
+    "- The **Elara kernel**: scheduling, worker lifecycle, ingress routing, and kernel/host/far signal paths.\n"
+    "- **C++ host integration**: bridging the EPA runtime with native host code.\n"
+    "- **Python tooling**: scripts and agents working with the EPA build system.\n\n"
+    "When analysing code focus on: worker definitions, ingress types, signal paths, kernel coordination, "
+    "GHS layout, type declarations, and local-arena vs register usage.\n\n"
+    "Be concise. Use fenced code blocks for all code examples. Prefer EPA/E terminology."
+)
 
 
 def _editor_ids(tab_id: str):
@@ -339,17 +360,84 @@ def build_document():
     for tab_id, title, source_text in INITIAL_E_TABS:
         _create_e_tab(ui, tab_id, title, source_text)
 
+    # ── AI dialogue panel ─────────────────────────────────────────────────
     ui.create_grid("ai.panel")
     ui.add_grid_column_fill("ai.panel")
-    ui.add_grid_row_weighted_fill("ai.panel", 2)
-    ui.add_grid_row_weighted_fill("ai.panel", 1)
-    ui.set_grid_row_border_resizable("ai.panel", 0, True)
-    ui.create_rich_text_edit("ai.context", "# AI Context\n\n- Build target: EPA desktop runtime\n- Current file: main.e\n- Focus: resizable grid splitters\n\nAssistant analysis and responses appear here.\n")
-    ui.set_property_number("ai.context", "font_size", 13)
-    ui.create_rich_text_edit("ai.prompt", "# Prompt Draft\n\nDescribe the gameplay loop and ask the agent to scaffold the next system here.\n")
-    ui.set_property_number("ai.prompt", "font_size", 13)
-    ui.place_grid_child("ai.panel", "ai.context", 0, 0)
-    ui.place_grid_child("ai.panel", "ai.prompt", 0, 1)
+    ui.add_grid_row_exact("ai.panel", 34)            # 0  header bar
+    ui.add_grid_row_weighted_fill("ai.panel", 1)     # 1  history  (resizable)
+    ui.add_grid_row_exact("ai.panel", 26)            # 2  context toggles
+    ui.add_grid_row_exact("ai.panel", 82)            # 3  message input
+    ui.add_grid_row_exact("ai.panel", 34)            # 4  action buttons
+    ui.set_grid_row_border_resizable("ai.panel", 1, True)
+
+    # Header: "Elara Core" label + model combo
+    ui.create_grid("ai.header")
+    ui.add_grid_column_exact("ai.header", 8)         # left pad
+    ui.add_grid_column_fill("ai.header")             # title
+    ui.add_grid_column_exact("ai.header", 148)       # model combo
+    ui.add_grid_column_exact("ai.header", 4)         # right pad
+    ui.add_grid_row_fill("ai.header")
+    ui.create_label("ai.title", "Elara Core", 13)
+    ui.create_combo_box("ai.model", AI_MODELS, selected_id="claude-sonnet-4-6")
+    ui.set_property_number("ai.model", "font_size", 12)
+    ui.place_grid_child("ai.header", "ai.title", 1, 0)
+    ui.place_grid_child("ai.header", "ai.model", 2, 0)
+
+    # History area
+    ui.create_chat_dialog("ai.history")
+
+    # Context toggle row
+    ui.create_grid("ai.ctx_row")
+    ui.add_grid_column_exact("ai.ctx_row", 8)        # left pad
+    ui.add_grid_column_exact("ai.ctx_row", 58)       # "Context:" label
+    ui.add_grid_column_weighted_fill("ai.ctx_row", 1)  # File
+    ui.add_grid_column_weighted_fill("ai.ctx_row", 1)  # Project
+    ui.add_grid_column_weighted_fill("ai.ctx_row", 1)  # Selection
+    ui.add_grid_column_exact("ai.ctx_row", 4)        # right pad
+    ui.add_grid_row_fill("ai.ctx_row")
+    ui.create_label("ai.ctx_label", "Context:", 11)
+    ui.create_checkbox("ai.ctx.file",      "File",      True)
+    ui.create_checkbox("ai.ctx.project",   "Project",   False)
+    ui.create_checkbox("ai.ctx.selection", "Selection", False)
+    ui.set_property_number("ai.ctx.file",      "font_size", 11)
+    ui.set_property_number("ai.ctx.project",   "font_size", 11)
+    ui.set_property_number("ai.ctx.selection", "font_size", 11)
+    ui.place_grid_child("ai.ctx_row", "ai.ctx_label",       1, 0)
+    ui.place_grid_child("ai.ctx_row", "ai.ctx.file",        2, 0)
+    ui.place_grid_child("ai.ctx_row", "ai.ctx.project",     3, 0)
+    ui.place_grid_child("ai.ctx_row", "ai.ctx.selection",   4, 0)
+
+    # Message input
+    ui.create_rich_text_edit("ai.input", "")
+    ui.set_property_number("ai.input", "font_size", 13)
+
+    # Action row: New Chat (left) | Stop (hidden) + Send (right)
+    ui.create_grid("ai.actions")
+    ui.add_grid_column_exact("ai.actions", 8)        # left pad
+    ui.add_grid_column_exact("ai.actions", 76)       # New Chat
+    ui.add_grid_column_fill("ai.actions")            # spacer
+    ui.add_grid_column_exact("ai.actions", 60)       # Stop (hidden)
+    ui.add_grid_column_exact("ai.actions", 6)        # gap
+    ui.add_grid_column_exact("ai.actions", 70)       # Send
+    ui.add_grid_column_exact("ai.actions", 8)        # right pad
+    ui.add_grid_row_fill("ai.actions")
+    ui.create_button("ai.new_chat", "New Chat", "ai.new_chat")
+    ui.create_button("ai.stop",     "■ Stop",   "ai.stop")
+    ui.create_button("ai.send",     "Send  →",  "ai.send")
+    ui.set_property_bool("ai.stop", "visible", False)
+    ui.set_property_number("ai.new_chat", "font_size", 12)
+    ui.set_property_number("ai.stop",     "font_size", 12)
+    ui.set_property_number("ai.send",     "font_size", 12)
+    ui.place_grid_child("ai.actions", "ai.new_chat", 1, 0)
+    ui.place_grid_child("ai.actions", "ai.stop",     3, 0)
+    ui.place_grid_child("ai.actions", "ai.send",     5, 0)
+
+    # Assemble panel
+    ui.place_grid_child("ai.panel", "ai.header",  0, 0)
+    ui.place_grid_child("ai.panel", "ai.history", 0, 1)
+    ui.place_grid_child("ai.panel", "ai.ctx_row", 0, 2)
+    ui.place_grid_child("ai.panel", "ai.input",   0, 3)
+    ui.place_grid_child("ai.panel", "ai.actions", 0, 4)
 
     ui.create_toolbar("app.toolbar", orientation="vertical")
     ui.set_property_number("app.toolbar", "font_size", 11)
@@ -572,7 +660,7 @@ def build_open_file_dialog():
 
 def build_new_project_wizard(initial_path: str):
     ui = UiDocumentBuilder()
-    ui.create_window("New Project", 500, 580, "org.elara.ui.epa-ide.new-project")
+    ui.create_window("New Project", 540, 760, "org.elara.ui.epa-ide.new-project")
     ui.set_theme_mode("dark")
 
     # Outer shell: left-pad(20) | content(fill) | right-pad(20)
@@ -590,11 +678,20 @@ def build_new_project_wizard(initial_path: str):
     ui.add_grid_row_exact("wizard.shell", 28)   # 7 cpp
     ui.add_grid_row_exact("wizard.shell", 28)   # 8 python
     ui.add_grid_row_exact("wizard.shell", 16)   # 9 gap
-    ui.add_grid_row_exact("wizard.shell", 20)   # 10 location label
-    ui.add_grid_row_exact("wizard.shell", 34)   # 11 path bar
-    ui.add_grid_row_fill("wizard.shell")        # 12 folder list
-    ui.add_grid_row_exact("wizard.shell", 24)   # 13 error/validation
-    ui.add_grid_row_exact("wizard.shell", 52)   # 14 footer
+    ui.add_grid_row_exact("wizard.shell", 20)   # 10 scaffold label
+    ui.add_grid_row_exact("wizard.shell", 34)   # 11 ui client row
+    ui.add_grid_row_exact("wizard.shell", 34)   # 12 ui template row
+    ui.add_grid_row_exact("wizard.shell", 28)   # 13 multi cpu row
+    ui.add_grid_row_exact("wizard.shell", 28)   # 14 epa vm host row
+    ui.add_grid_row_exact("wizard.shell", 28)   # 15 epa debug rpc row
+    ui.add_grid_row_exact("wizard.shell", 34)   # 16 rpc host row
+    ui.add_grid_row_exact("wizard.shell", 34)   # 17 rpc port row
+    ui.add_grid_row_exact("wizard.shell", 16)   # 18 gap
+    ui.add_grid_row_exact("wizard.shell", 20)   # 19 location label
+    ui.add_grid_row_exact("wizard.shell", 34)   # 20 path bar
+    ui.add_grid_row_fill("wizard.shell")        # 21 folder list
+    ui.add_grid_row_exact("wizard.shell", 24)   # 22 error/validation
+    ui.add_grid_row_exact("wizard.shell", 52)   # 23 footer
     ui.set_root_content("wizard.shell")
 
     # ── Title ──────────────────────────────────────────────────────────
@@ -623,9 +720,77 @@ def build_new_project_wizard(initial_path: str):
     ui.place_grid_child("wizard.shell", "wizard.tech.cpp", 1, 7)
     ui.place_grid_child("wizard.shell", "wizard.tech.python", 1, 8)
 
+    # ── UI scaffold options ────────────────────────────────────────────
+    ui.create_label("wizard.scaffold_label", "UI App Scaffold:", 13)
+    ui.place_grid_child("wizard.shell", "wizard.scaffold_label", 1, 10)
+
+    ui.create_grid("wizard.ui_client_row")
+    ui.add_grid_column_exact("wizard.ui_client_row", 140)
+    ui.add_grid_column_weighted_fill("wizard.ui_client_row", 1)
+    ui.add_grid_row_fill("wizard.ui_client_row")
+    ui.create_label("wizard.ui_client_label", "UI client language:", 13)
+    ui.create_combo_box(
+        "wizard.ui_client",
+        items=[
+            {"id": "both", "label": "C++ and Python"},
+            {"id": "cpp", "label": "C++ only"},
+            {"id": "python", "label": "Python only"},
+        ],
+        selected_id="both",
+    )
+    ui.place_grid_child("wizard.ui_client_row", "wizard.ui_client_label", 0, 0)
+    ui.place_grid_child("wizard.ui_client_row", "wizard.ui_client", 1, 0)
+    ui.place_grid_child("wizard.shell", "wizard.ui_client_row", 1, 11)
+
+    ui.create_grid("wizard.ui_template_row")
+    ui.add_grid_column_exact("wizard.ui_template_row", 140)
+    ui.add_grid_column_weighted_fill("wizard.ui_template_row", 1)
+    ui.add_grid_row_fill("wizard.ui_template_row")
+    ui.create_label("wizard.ui_template_label", "UI template:", 13)
+    ui.create_combo_box(
+        "wizard.ui_template",
+        items=[
+            {"id": "tabbed-control-panel", "label": "Tabbed Control Panel"},
+            {"id": "rich-editor", "label": "Rich Editor"},
+        ],
+        selected_id="tabbed-control-panel",
+    )
+    ui.place_grid_child("wizard.ui_template_row", "wizard.ui_template_label", 0, 0)
+    ui.place_grid_child("wizard.ui_template_row", "wizard.ui_template", 1, 0)
+    ui.place_grid_child("wizard.shell", "wizard.ui_template_row", 1, 12)
+
+    ui.create_checkbox("wizard.python.multi_cpu", "Python multi-core worker template", False)
+    ui.place_grid_child("wizard.shell", "wizard.python.multi_cpu", 1, 13)
+
+    ui.create_checkbox("wizard.cpp.epa_vm_host", "EPA VM Host adapter (C++ UI only)", False)
+    ui.place_grid_child("wizard.shell", "wizard.cpp.epa_vm_host", 1, 14)
+
+    ui.create_checkbox("wizard.cpp.epa_debug_rpc", "EPA debug JSON-RPC target", True)
+    ui.place_grid_child("wizard.shell", "wizard.cpp.epa_debug_rpc", 1, 15)
+
+    ui.create_grid("wizard.rpc_host_row")
+    ui.add_grid_column_exact("wizard.rpc_host_row", 140)
+    ui.add_grid_column_weighted_fill("wizard.rpc_host_row", 1)
+    ui.add_grid_row_fill("wizard.rpc_host_row")
+    ui.create_label("wizard.rpc_host_label", "UI RPC host:", 13)
+    ui.create_text_input("wizard.rpc_host", "127.0.0.1")
+    ui.place_grid_child("wizard.rpc_host_row", "wizard.rpc_host_label", 0, 0)
+    ui.place_grid_child("wizard.rpc_host_row", "wizard.rpc_host", 1, 0)
+    ui.place_grid_child("wizard.shell", "wizard.rpc_host_row", 1, 16)
+
+    ui.create_grid("wizard.rpc_port_row")
+    ui.add_grid_column_exact("wizard.rpc_port_row", 140)
+    ui.add_grid_column_weighted_fill("wizard.rpc_port_row", 1)
+    ui.add_grid_row_fill("wizard.rpc_port_row")
+    ui.create_label("wizard.rpc_port_label", "UI RPC port:", 13)
+    ui.create_text_input("wizard.rpc_port", "18777")
+    ui.place_grid_child("wizard.rpc_port_row", "wizard.rpc_port_label", 0, 0)
+    ui.place_grid_child("wizard.rpc_port_row", "wizard.rpc_port", 1, 0)
+    ui.place_grid_child("wizard.shell", "wizard.rpc_port_row", 1, 17)
+
     # ── Save location ──────────────────────────────────────────────────
     ui.create_label("wizard.loc_label", "Save location:", 13)
-    ui.place_grid_child("wizard.shell", "wizard.loc_label", 1, 10)
+    ui.place_grid_child("wizard.shell", "wizard.loc_label", 1, 19)
 
     # Path bar: current-path label (fill) + Up button (36px)
     ui.create_grid("wizard.path_bar")
@@ -639,18 +804,18 @@ def build_new_project_wizard(initial_path: str):
     ui.place_grid_child("wizard.path_bar", "wizard.path_display", 0, 0)
     ui.place_grid_child("wizard.path_bar", "wizard.nav.home", 1, 0)
     ui.place_grid_child("wizard.path_bar", "wizard.nav.up", 2, 0)
-    ui.place_grid_child("wizard.shell", "wizard.path_bar", 1, 11)
+    ui.place_grid_child("wizard.shell", "wizard.path_bar", 1, 20)
 
     # Folder list — populated with subdirs of initial_path
     ui.create_list_view("wizard.folder_list")
     ui.set_property_number("wizard.folder_list", "font_size", 13)
     ui.set_section_json("wizard.folder_list", "items",
                         _folder_items(initial_path))
-    ui.place_grid_child("wizard.shell", "wizard.folder_list", 1, 12)
+    ui.place_grid_child("wizard.shell", "wizard.folder_list", 1, 21)
 
     # ── Validation message ─────────────────────────────────────────────
     ui.create_label("wizard.error", "", 12)
-    ui.place_grid_child("wizard.shell", "wizard.error", 1, 13)
+    ui.place_grid_child("wizard.shell", "wizard.error", 1, 22)
 
     # ── Footer ─────────────────────────────────────────────────────────
     ui.create_grid("wizard.footer")
@@ -663,7 +828,7 @@ def build_new_project_wizard(initial_path: str):
     ui.create_button("wizard.create_btn", "Create Project", "wizard.create")
     ui.place_grid_child("wizard.footer", "wizard.cancel_btn", 1, 0)
     ui.place_grid_child("wizard.footer", "wizard.create_btn", 3, 0)
-    ui.place_grid_child("wizard.shell", "wizard.footer", 1, 14)
+    ui.place_grid_child("wizard.shell", "wizard.footer", 1, 23)
 
     return ui
 
@@ -1303,6 +1468,16 @@ def main():
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     tab_list = []                # [{"tab_id", "path", "index", "preview"}]
     tab_click_state = {}         # double-click detection: {"path", "time"}
+    ai_state = {
+        "messages":     [],      # [{"role": "user"|"assistant", "content": str}]
+        "model":        "claude-sonnet-4-6",
+        "ctx_file":     True,
+        "ctx_project":  False,
+        "ctx_selection": False,
+        "input_text":   "",
+        "generating":   False,
+        "cancel_event": None,
+    }
 
     def _compiler_root():
         return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
@@ -1312,6 +1487,26 @@ def main():
 
     def _semantic_binary():
         return _compiler_root() / ".." / "build" / "e" / "ec"
+
+    def _project_builder_root():
+        return Path(__file__).resolve().parent.parent / "ElaraProjectBuilder"
+
+    def _project_builder_binary():
+        return _project_builder_root() / "build" / "elara-project-builder"
+
+    def _ensure_project_builder():
+        builder = _project_builder_binary()
+        if builder.is_file():
+            return builder
+
+        subprocess.run(
+            ["make", "-C", str(_project_builder_root()), "-j2"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return builder
 
     def _ensure_e2epa():
         compiler = _compiler_binary()
@@ -1894,6 +2089,117 @@ def main():
         except Exception:
             pass
 
+    def _ai_format_history(extra_assistant_text=None) -> str:
+        """Return JSON-encoded messages for the chat dialog widget."""
+        if not ai_state["messages"] and extra_assistant_text is None:
+            return json.dumps({"messages": [{"role": "assistant", "display": (
+                "How can I help you build today?\n\n"
+                "I can help you with E language, EPA assembly, kernel design, "
+                "C++ host integration, and project structure.\n\n"
+                "Tip: toggle File below to include your open file as context."
+            )}]})
+        msgs = []
+        for msg in ai_state["messages"]:
+            if msg["role"] == "user":
+                display = msg["content"].split("\n\n---\n\n")[0]
+                msgs.append({"role": "user", "display": display})
+            else:
+                msgs.append({"role": "assistant", "display": msg["content"]})
+        if extra_assistant_text is not None:
+            msgs.append({"role": "assistant", "display": extra_assistant_text or "..."})
+        return json.dumps({"messages": msgs})
+
+    def _ai_build_context() -> str:
+        """Return a context block to append to the API user message."""
+        sections = []
+        if ai_state.get("ctx_file"):
+            tid = app_state.get("active_editor_tab", "")
+            if tid and tid in editor_state:
+                st = editor_state[tid]
+                title = st.get("title", "file")
+                src = st.get("source_text", "")
+                if src:
+                    ext = Path(title).suffix.lower()
+                    lang = {".e": "e", ".cpp": "cpp", ".h": "cpp", ".py": "python"}.get(ext, "")
+                    sections.append(f"Current file: `{title}`\n\n```{lang}\n{src}\n```")
+        if ai_state.get("ctx_project"):
+            name = app_state.get("project_name", "")
+            root = app_state.get("project_root", "")
+            if name:
+                sections.append(f"Project: **{name}**\nPath: `{root}`")
+        return "\n\n".join(sections)
+
+    def _ai_send():
+        """Background thread: send user message to the Anthropic API and stream response."""
+        message_text = ai_state.get("input_text", "").strip()
+        if not message_text:
+            return
+        c = client_ref.get("client")
+        if not c:
+            return
+
+        context = _ai_build_context()
+        api_content = f"{message_text}\n\n---\n\n{context}" if context else message_text
+        ai_state["messages"].append({"role": "user", "content": api_content})
+        ai_state["input_text"] = ""
+
+        cancel_event = threading.Event()
+        ai_state["cancel_event"] = cancel_event
+        ai_state["generating"] = True
+
+        try:
+            c.set_text("ai.history", _ai_format_history(extra_assistant_text=""))
+            c.set_text("ai.input", "")
+            c.call("ui.setVisible", {"target": "ai.stop", "visible": True})
+            c.call("ui.setVisible", {"target": "ai.send", "visible": False})
+        except Exception:
+            pass
+
+        response_text = ""
+        try:
+            import anthropic as _ant
+            aclient = _ant.Anthropic()
+            last_update = time.monotonic()
+            with aclient.messages.stream(
+                model=ai_state.get("model", "claude-sonnet-4-6"),
+                max_tokens=4096,
+                system=ANTHROPIC_SYSTEM_PROMPT,
+                messages=[{"role": m["role"], "content": m["content"]}
+                          for m in ai_state["messages"]],
+            ) as stream:
+                for chunk in stream.text_stream:
+                    if cancel_event.is_set():
+                        response_text += "\n\n[stopped]"
+                        break
+                    response_text += chunk
+                    now = time.monotonic()
+                    if now - last_update >= 0.08:
+                        try:
+                            c.set_text("ai.history",
+                                       _ai_format_history(extra_assistant_text=response_text))
+                        except Exception:
+                            break
+                        last_update = now
+        except ImportError:
+            response_text = (
+                "The `anthropic` library is not installed.\n\n"
+                "Run `pip install anthropic` and set the `ANTHROPIC_API_KEY` "
+                "environment variable, then restart the IDE."
+            )
+        except Exception as exc:
+            response_text = f"Error communicating with the API: {exc}"
+
+        ai_state["messages"].append({"role": "assistant", "content": response_text})
+        ai_state["generating"] = False
+        ai_state["cancel_event"] = None
+
+        try:
+            c.set_text("ai.history", _ai_format_history())
+            c.call("ui.setVisible", {"target": "ai.stop", "visible": False})
+            c.call("ui.setVisible", {"target": "ai.send", "visible": True})
+        except Exception:
+            pass
+
     def _deferred(fn):
         """Run fn on a thread so on_ui_event returns before any RPC calls are made."""
         threading.Thread(target=fn, daemon=True).start()
@@ -1944,6 +2250,39 @@ def main():
             key = "tech_" + target.rsplit(".", 1)[-1]
             wizard_state[key] = payload.get("value", 0) > 0.5
 
+        if action == "valueChanged" and target == "wizard.python.multi_cpu":
+            wizard_state["python_multi_cpu"] = payload.get("value", 0) > 0.5
+
+        if action == "valueChanged" and target == "wizard.cpp.epa_vm_host":
+            wizard_state["cpp_epa_vm_host"] = payload.get("value", 0) > 0.5
+
+        if action == "valueChanged" and target == "wizard.cpp.epa_debug_rpc":
+            wizard_state["cpp_epa_debug_rpc"] = payload.get("value", 0) > 0.5
+
+        if target in ("wizard.ui_client", "wizard.ui_template") and action in ("action", "valueChanged", "clicked"):
+            selected = payload.get("action") or payload.get("id") or payload.get("text") or ""
+            if target == "wizard.ui_client" and selected in ("both", "cpp", "python"):
+                wizard_state["ui_client"] = selected
+                if selected == "cpp":
+                    wizard_state["tech_cpp"] = True
+                    wizard_state["tech_python"] = False
+                elif selected == "python":
+                    wizard_state["tech_cpp"] = False
+                    wizard_state["tech_python"] = True
+                else:
+                    wizard_state["tech_cpp"] = True
+                    wizard_state["tech_python"] = True
+            if target == "wizard.ui_template" and selected in ("tabbed-control-panel", "rich-editor"):
+                wizard_state["ui_template"] = selected
+
+        if action == "textChanged" and target in ("wizard.project_name", "wizard.rpc_host", "wizard.rpc_port"):
+            key = {
+                "wizard.project_name": "project_name",
+                "wizard.rpc_host": "rpc_host",
+                "wizard.rpc_port": "rpc_port",
+            }[target]
+            wizard_state[key] = payload.get("text", "")
+
         # Track project name typed into the wizard text input.
         if action == "keysTyped" and target == "wizard.project_name":
             wizard_state["project_name"] = wizard_state.get("project_name", "") + payload.get("text", "")
@@ -1953,6 +2292,17 @@ def main():
                 name = wizard_state.get("project_name", "")
                 if name:
                     wizard_state["project_name"] = name[:-1]
+
+        if action == "keysTyped" and target in ("wizard.rpc_host", "wizard.rpc_port"):
+            key = "rpc_host" if target == "wizard.rpc_host" else "rpc_port"
+            wizard_state[key] = wizard_state.get(key, "") + payload.get("text", "")
+
+        if action == "keyDown" and target in ("wizard.rpc_host", "wizard.rpc_port"):
+            if payload.get("keyval", 0) == 0xff08:
+                key = "rpc_host" if target == "wizard.rpc_host" else "rpc_port"
+                value = wizard_state.get(key, "")
+                if value:
+                    wizard_state[key] = value[:-1]
 
         # Track filename typed into the new-file dialog.
         if action == "keysTyped" and target == "new_file.filename":
@@ -2130,12 +2480,21 @@ def main():
                 initial = str(Path.home())
                 wizard_state.clear()
                 wizard_state.update({
-                    "tech_epa": True, "tech_cpp": True, "tech_python": True,
+                    "tech_epa": True,
+                    "tech_cpp": True,
+                    "tech_python": True,
                     "project_name": "",
+                    "ui_client": "both",
+                    "ui_template": "tabbed-control-panel",
+                    "python_multi_cpu": False,
+                    "cpp_epa_vm_host": False,
+                    "cpp_epa_debug_rpc": True,
+                    "rpc_host": "127.0.0.1",
+                    "rpc_port": "18777",
                 })
                 nav_state["path"] = initial
                 _deferred(lambda: c.open_window(
-                    "new-project", "New Project", 500, 580,
+                    "new-project", "New Project", 540, 760,
                     build_new_project_wizard(initial)
                 ))
 
@@ -2307,6 +2666,12 @@ def main():
                 tech_cpp    = wizard_state.get("tech_cpp",    True)
                 tech_python = wizard_state.get("tech_python", True)
                 project_name = wizard_state.get("project_name", "").strip()
+                ui_template = wizard_state.get("ui_template", "tabbed-control-panel")
+                rpc_host = wizard_state.get("rpc_host", "127.0.0.1").strip() or "127.0.0.1"
+                rpc_port_text = wizard_state.get("rpc_port", "18777").strip() or "18777"
+                python_multi_cpu = bool(wizard_state.get("python_multi_cpu", False))
+                cpp_epa_vm_host = bool(wizard_state.get("cpp_epa_vm_host", False))
+                cpp_epa_debug_rpc = bool(wizard_state.get("cpp_epa_debug_rpc", True))
                 save_dir    = nav_state.get("path", str(Path.home()))
 
                 def _do_create():
@@ -2324,18 +2689,35 @@ def main():
                             pass
                         return
 
+                    if cpp_epa_debug_rpc and not cpp_epa_vm_host:
+                        try:
+                            c.set_text("wizard.error", "EPA debug JSON-RPC requires the EPA VM Host adapter.")
+                        except Exception:
+                            pass
+                        return
+
+                    try:
+                        rpc_port = int(rpc_port_text)
+                    except ValueError:
+                        try:
+                            c.set_text("wizard.error", "UI RPC port must be an integer.")
+                        except Exception:
+                            pass
+                        return
+
+                    if rpc_port <= 0 or rpc_port > 65535:
+                        try:
+                            c.set_text("wizard.error", "UI RPC port must be between 1 and 65535.")
+                        except Exception:
+                            pass
+                        return
+
                     project_root = Path(save_dir) / project_name
                     try:
                         (project_root / ".elaraproject").mkdir(parents=True, exist_ok=True)
                         if tech_epa:
                             (project_root / "epa").mkdir(exist_ok=True)
-                        if tech_cpp:
-                            (project_root / "cpp").mkdir(exist_ok=True)
-                        if tech_python:
-                            (project_root / "python").mkdir(exist_ok=True)
                         (project_root / "build").mkdir(exist_ok=True)
-                        if tech_cpp:
-                            (project_root / "build" / "cpp").mkdir(exist_ok=True)
                         if tech_epa:
                             (project_root / "build" / "epa").mkdir(exist_ok=True)
                         techs = [t for t, v in [("epa", tech_epa), ("cpp", tech_cpp), ("python", tech_python)] if v]
@@ -2343,15 +2725,79 @@ def main():
                             json.dumps({
                                 "name": project_name,
                                 "technologies": techs,
+                                "ui_template": ui_template,
+                                "rpc_host": rpc_host,
+                                "rpc_port": rpc_port,
+                                "python_multi_cpu": python_multi_cpu,
+                                "cpp_epa_vm_host": cpp_epa_vm_host,
+                                "cpp_epa_debug_rpc": cpp_epa_debug_rpc,
                                 "created": datetime.datetime.utcnow().isoformat() + "Z",
                             }, indent=2),
                             encoding="utf-8",
                         )
                         (project_root / ".elaraproject" / "bookmarks.json").write_text("[]", encoding="utf-8")
                         (project_root / ".elaraproject" / "breakpoints.json").write_text("[]", encoding="utf-8")
+
+                        if tech_cpp:
+                            builder = _ensure_project_builder()
+                            cpp_root = project_root / "cpp"
+                            env = os.environ.copy()
+                            env["LC_ALL"] = "C"
+                            subprocess.run(
+                                [
+                                    str(builder),
+                                    "--non-interactive",
+                                    "--app-kind", "ui",
+                                    "--ui-client-language", "cpp",
+                                    "--ui-template", ui_template,
+                                    "--epa-vm-host", "yes" if cpp_epa_vm_host else "no",
+                                    "--epa-debug-rpc", "yes" if (tech_epa and cpp_epa_vm_host and cpp_epa_debug_rpc) else "no",
+                                    "--address", rpc_host,
+                                    "--port", str(rpc_port),
+                                    "--name", project_name,
+                                    "--output", str(cpp_root),
+                                ],
+                                check=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                env=env,
+                            )
+
+                        if tech_python:
+                            builder = _ensure_project_builder()
+                            python_root = project_root / "python"
+                            env = os.environ.copy()
+                            env["LC_ALL"] = "C"
+                            subprocess.run(
+                                [
+                                    str(builder),
+                                    "--non-interactive",
+                                    "--app-kind", "ui",
+                                    "--ui-client-language", "python",
+                                    "--ui-template", ui_template,
+                                    "--multi-cpu-python", "yes" if python_multi_cpu else "no",
+                                    "--address", rpc_host,
+                                    "--port", str(rpc_port),
+                                    "--name", project_name,
+                                    "--output", str(python_root),
+                                ],
+                                check=True,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE,
+                                text=True,
+                                env=env,
+                            )
                     except OSError as exc:
                         try:
                             c.set_text("wizard.error", f"Could not create project: {exc}")
+                        except Exception:
+                            pass
+                        return
+                    except subprocess.CalledProcessError as exc:
+                        message = (exc.stderr or exc.stdout or str(exc)).strip()
+                        try:
+                            c.set_text("wizard.error", f"Could not generate project scaffold: {message}")
                         except Exception:
                             pass
                         return
@@ -2367,6 +2813,58 @@ def main():
             elif item_action and item_action.startswith("tab.close."):
                 tab_widget_id = item_action[len("tab.close."):]
                 print(json.dumps({"tab_closed": tab_widget_id}, indent=2), flush=True)
+
+            elif item_action == "ai.send":
+                if not ai_state.get("generating") and ai_state.get("input_text", "").strip():
+                    _deferred(_ai_send)
+                return {"received": True}
+
+            elif item_action == "ai.stop":
+                ev = ai_state.get("cancel_event")
+                if ev:
+                    ev.set()
+                return {"received": True}
+
+            elif item_action == "ai.new_chat":
+                ai_state["messages"].clear()
+                ai_state["input_text"] = ""
+                def _do_clear_chat():
+                    try:
+                        c.set_text("ai.history", _ai_format_history())
+                        c.set_text("ai.input", "")
+                    except Exception:
+                        pass
+                _deferred(_do_clear_chat)
+                return {"received": True}
+
+        # AI context checkbox toggles
+        if action == "valueChanged" and target in (
+            "ai.ctx.file", "ai.ctx.project", "ai.ctx.selection"
+        ):
+            key = "ctx_" + target.rsplit(".", 1)[-1]
+            ai_state[key] = payload.get("value", 0) > 0.5
+            return {"received": True}
+
+        # AI model selection (combo box fires action event with item id)
+        if target == "ai.model" and action in ("action", "valueChanged", "clicked"):
+            model_id = payload.get("action") or payload.get("id") or payload.get("text")
+            if model_id and any(m["id"] == model_id for m in AI_MODELS):
+                ai_state["model"] = model_id
+            return {"received": True}
+
+        # Track AI input text
+        if action == "textChanged" and target == "ai.input":
+            ai_state["input_text"] = payload.get("text", "")
+            return {"received": True}
+
+        # Ctrl+Enter in ai.input sends the message
+        if action == "keyDown" and target == "ai.input":
+            keyval = payload.get("keyval", 0)
+            modifiers = payload.get("modifiers", 0)
+            if keyval in (0xff0d, 0x0000ff0d) and (modifiers & 4):  # Ctrl+Enter
+                if not ai_state.get("generating") and ai_state.get("input_text", "").strip():
+                    _deferred(_ai_send)
+                return {"received": True}
 
         if action not in ("mouseMove", "mouseDown", "mouseUp"):
             print(json.dumps({"ui.event": params}, indent=2), flush=True)
@@ -2404,6 +2902,10 @@ def main():
                 _refresh_e_tab(client, tab_id)
             if app_state.get("active_editor_tab"):
                 _refresh_debug_sidebars(client, app_state["active_editor_tab"])
+            try:
+                client.set_text("ai.history", _ai_format_history())
+            except Exception:
+                pass
             snapshot_sections = builder.snapshot_client_sections() if hasattr(builder, "snapshot_client_sections") else {}
             dumper = UiSnapshotDumper(client, client_sections=snapshot_sections)
             if args.snapshot:
