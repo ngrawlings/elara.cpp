@@ -62,8 +62,20 @@ def _editor_ids(tab_id: str):
         "toolbar": f"{tab_id}.toolbar",
         "button_e": f"{tab_id}.view.e",
         "button_epa": f"{tab_id}.view.epa",
+        "button_debug": f"{tab_id}.view.debug",
         "source": f"{tab_id}.source",
         "epa": f"{tab_id}.epa",
+        "debug_panel": f"{tab_id}.debug.panel",
+        "debug_form": f"{tab_id}.debug.form",
+        "debug_ingress": f"{tab_id}.debug.ingress",
+        "debug_worker": f"{tab_id}.debug.worker",
+        "debug_start": f"{tab_id}.debug.start",
+        "debug_meta": f"{tab_id}.debug.meta",
+        "debug": f"{tab_id}.debug.trace",
+        "debug_tabs": f"{tab_id}.debug.tabs",
+        "debug_ghs": f"{tab_id}.debug.ghs",
+        "debug_stack": f"{tab_id}.debug.stack",
+        "debug_local": f"{tab_id}.debug.local",
     }
 
 
@@ -77,21 +89,66 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.create_grid(ids["toolbar"])
     ui.add_grid_column_exact(ids["toolbar"], 54)
     ui.add_grid_column_exact(ids["toolbar"], 64)
+    ui.add_grid_column_exact(ids["toolbar"], 78)
     ui.add_grid_column_fill(ids["toolbar"])
     ui.add_grid_row_fill(ids["toolbar"])
     ui.create_button(ids["button_e"], "E", f"{ids['button_e']}")
     ui.create_button(ids["button_epa"], "EPA", f"{ids['button_epa']}")
+    ui.create_button(ids["button_debug"], "Debug", f"{ids['button_debug']}")
     ui.set_property_bool(ids["button_e"], "enabled", False)
     ui.place_grid_child(ids["toolbar"], ids["button_e"], 0, 0)
     ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
+    ui.place_grid_child(ids["toolbar"], ids["button_debug"], 2, 0)
     ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
 
     ui.create_code_editor(ids["source"], source_text)
     ui.create_code_editor(ids["epa"], "")
+    ui.create_grid(ids["debug_panel"])
+    ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
+    ui.add_grid_column_exact(ids["debug_panel"], 320)
+    ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
+    ui.add_grid_row_fill(ids["debug_panel"])
+    ui.create_grid(ids["debug_form"])
+    ui.add_grid_column_fill(ids["debug_form"])
+    ui.add_grid_column_fill(ids["debug_form"])
+    ui.add_grid_column_exact(ids["debug_form"], 110)
+    ui.add_grid_row_exact(ids["debug_form"], 22)
+    ui.add_grid_row_exact(ids["debug_form"], 28)
+    ui.add_grid_row_fill(ids["debug_form"])
+    ui.create_label(f"{ids['debug_ingress']}.label", "Ingress Type", 12)
+    ui.create_label(f"{ids['debug_worker']}.label", "Worker", 12)
+    ui.create_text_input(ids["debug_ingress"], "Packet", "")
+    ui.create_text_input(ids["debug_worker"], "worker_ingest", "")
+    ui.create_button(ids["debug_start"], "Start", ids["debug_start"])
+    ui.create_code_editor(ids["debug_meta"], "", font_size=12)
+    ui.create_tabs(ids["debug_tabs"])
+    ui.create_code_editor(ids["debug"], "", font_size=13)
+    ui.create_tree_view(ids["debug_ghs"])
+    ui.create_tree_view(ids["debug_stack"])
+    ui.create_tree_view(ids["debug_local"])
+    ui.set_section_json(ids["debug_ghs"], "nodes", [{"id": f"{ids['debug_ghs']}.root", "label": "GHS Layout", "expanded": True}])
+    ui.set_section_json(ids["debug_stack"], "nodes", [{"id": f"{ids['debug_stack']}.root", "label": "Stack Interpretation", "expanded": True}])
+    ui.set_section_json(ids["debug_local"], "nodes", [{"id": f"{ids['debug_local']}.root", "label": "Local Arena", "expanded": True}])
+    ui.add_tab(ids["debug_tabs"], "Trace", ids["debug"])
+    ui.add_tab(ids["debug_tabs"], "GHS", ids["debug_ghs"])
+    ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
+    ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
+    ui.set_property_bool(ids["debug_meta"], "read_only", True)
     ui.set_property_bool(ids["epa"], "read_only", True)
+    ui.set_property_bool(ids["debug"], "read_only", True)
     ui.set_property_bool(ids["epa"], "visible", False)
+    ui.set_property_bool(ids["debug_panel"], "visible", False)
+    ui.place_grid_child(ids["debug_form"], f"{ids['debug_ingress']}.label", 0, 0)
+    ui.place_grid_child(ids["debug_form"], f"{ids['debug_worker']}.label", 1, 0)
+    ui.place_grid_child(ids["debug_form"], ids["debug_ingress"], 0, 1)
+    ui.place_grid_child(ids["debug_form"], ids["debug_worker"], 1, 1)
+    ui.place_grid_child(ids["debug_form"], ids["debug_start"], 2, 1)
+    ui.place_grid_child(ids["debug_form"], ids["debug_meta"], 0, 2, 3, 1)
+    ui.place_grid_child(ids["debug_panel"], ids["debug_form"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
     ui.place_grid_child(ids["container"], ids["source"], 0, 1)
     ui.place_grid_child(ids["container"], ids["epa"], 0, 1)
+    ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 1)
     ui.add_tab("editor.tabs", title, ids["container"],
                button_glyph="×", button_action=f"tab.close.{tab_id}")
 
@@ -876,12 +933,16 @@ def main():
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
     editor_state = {}
+    app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
 
     def _compiler_root():
         return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
 
     def _compiler_binary():
         return _compiler_root() / ".." / "build" / "e" / "e2epa"
+
+    def _semantic_binary():
+        return _compiler_root() / ".." / "build" / "e" / "ec"
 
     def _ensure_e2epa():
         compiler = _compiler_binary()
@@ -896,6 +957,143 @@ def main():
             text=True,
         )
         return compiler
+
+    def _ensure_ec():
+        semantic = _semantic_binary()
+        if semantic.is_file():
+            return semantic
+        _ensure_e2epa()
+        return semantic
+
+    def _extract_section_block(text: str, heading: str):
+        lines = text.splitlines()
+        start = None
+        for idx, line in enumerate(lines):
+            if line.strip() == heading:
+                start = idx
+                break
+        if start is None:
+            return ""
+        end = len(lines)
+        for idx in range(start + 1, len(lines)):
+            line = lines[idx]
+            if line and not line.startswith(" "):
+                end = idx
+                break
+        return "\n".join(lines[start:end]).strip()
+
+    def _replace_tree_nodes(client, target: str, nodes):
+        document = json.dumps({"nodes": nodes}, separators=(",", ":"))
+        client.call("ui.replaceChildren", {"target": target, "document": document})
+
+    def _parse_tree_lines(block: str, root_label: str, root_id: str):
+        root = {"id": root_id, "label": root_label, "expanded": True, "children": []}
+        if not block.strip():
+            root["children"].append({"id": f"{root_id}.empty", "label": "Unavailable"})
+            return [root]
+        stack = [(-1, root)]
+        for index, raw_line in enumerate(block.splitlines()):
+            if not raw_line.strip():
+                continue
+            indent = len(raw_line) - len(raw_line.lstrip(" "))
+            node = {
+                "id": f"{root_id}.{index}",
+                "label": raw_line.strip(),
+            }
+            while len(stack) > 1 and indent <= stack[-1][0]:
+                stack.pop()
+            parent = stack[-1][1]
+            parent.setdefault("children", []).append(node)
+            stack.append((indent, node))
+        return [root]
+
+    def _extract_debug_candidates(source_text: str):
+        type_names = re.findall(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", source_text, flags=re.MULTILINE)
+        worker_names = re.findall(r"^\s*worker\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", source_text, flags=re.MULTILINE)
+        seen = set()
+        ordered_types = []
+        for name in type_names:
+            if name not in seen:
+                seen.add(name)
+                ordered_types.append(name)
+        seen.clear()
+        ordered_workers = []
+        for name in worker_names:
+            if name not in seen:
+                seen.add(name)
+                ordered_workers.append(name)
+        return ordered_types, ordered_workers
+
+    def _first_marker_line(epa_text: str):
+        lines = epa_text.splitlines()
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("WAIT_FOR_DATA"):
+                return idx
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith("ENTRY_START") or stripped.startswith("FUNC_START"):
+                return idx
+        for idx, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped and not stripped.startswith(";"):
+                return idx
+        return 0
+
+    def _debug_preview_text(epa_text: str, marker_line: int | None = None, radius: int = 5):
+        if not epa_text.strip():
+            return "# Debug Trace\n\nNo EPA output available.\n"
+        lines = epa_text.splitlines()
+        marker = _first_marker_line(epa_text) if marker_line is None else max(0, min(marker_line, len(lines) - 1))
+        start = max(0, marker - radius)
+        end = min(len(lines), marker + radius + 1)
+        out = [f"# Debug Trace", "", f"marker_line={marker + 1}", ""]
+        width = len(str(end))
+        for idx in range(start, end):
+            prefix = ">>" if idx == marker else "  "
+            out.append(f"{prefix} {idx + 1:>{width}} | {lines[idx]}")
+        return "\n".join(out) + "\n"
+
+    def _analyze_e_source(source_text: str, ids: dict):
+        semantic = _ensure_ec()
+        with tempfile.TemporaryDirectory(prefix="epa-ide-ec-") as tmp:
+            tmp_path = Path(tmp)
+            source_path = tmp_path / "buffer.e"
+            source_path.write_text(source_text, encoding="utf-8")
+            proc = subprocess.run(
+                [str(semantic), str(source_path)],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if proc.returncode != 0:
+                message = (proc.stderr or proc.stdout or "semantic analysis failed").strip()
+                return {
+                    "ok": False,
+                    "message": message,
+                    "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
+                    "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
+                    "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                }
+
+            stdout = proc.stdout or ""
+            ghs_block = _extract_section_block(stdout, "type-ghs-layouts")
+            frame_block = _extract_section_block(stdout, "function-ghs-frames")
+            local_lines = []
+            stack_lines = []
+            for line in frame_block.splitlines():
+                stripped = line.strip()
+                if "storage=local-scope-arena" in stripped:
+                    local_lines.append(stripped)
+                elif stripped.startswith("local ") or stripped.startswith("func "):
+                    stack_lines.append(stripped)
+            return {
+                "ok": True,
+                "message": "",
+                "ghs_nodes": _parse_tree_lines(ghs_block or "No declared GHS layouts.", "GHS Layout", f"{ids['debug_ghs']}.root"),
+                "stack_nodes": _parse_tree_lines("\n".join(stack_lines).strip() or "No stack frame data.", "Stack Interpretation", f"{ids['debug_stack']}.root"),
+                "local_nodes": _parse_tree_lines("\n".join(local_lines).strip() or "No local arena allocations.", "Local Arena", f"{ids['debug_local']}.root"),
+            }
 
     def _diagnostic_from_error(message: str):
         match = re.search(r"\bat (\d+):(\d+)\b", message)
@@ -950,11 +1148,57 @@ def main():
         ids = _editor_ids(tab_id)
         view = state.get("view", "e")
         is_epa = view == "epa"
-        client.set_visible(ids["source"], not is_epa)
+        is_debug = view == "debug"
+        client.set_visible(ids["source"], not is_epa and not is_debug)
         client.set_visible(ids["epa"], is_epa)
-        client.set_enabled(ids["button_e"], is_epa)
-        client.set_enabled(ids["button_epa"], not is_epa)
+        client.set_visible(ids["debug_panel"], is_debug)
+        client.set_enabled(ids["button_e"], view != "e")
+        client.set_enabled(ids["button_epa"], view != "epa")
+        client.set_enabled(ids["button_debug"], view != "debug")
         client.set_read_only(ids["epa"], True)
+        client.set_read_only(ids["debug"], True)
+        client.set_read_only(ids["debug_meta"], True)
+
+    def _refresh_debug_controls(client, tab_id: str):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        ids = _editor_ids(tab_id)
+        meta_lines = [
+            "# Debug Setup",
+            "",
+            "Select the ingress type and the worker to inject after kernel startup.",
+            "",
+            "Available ingress types:",
+        ]
+        if state.get("available_types"):
+            meta_lines.extend(f"- {name}" for name in state["available_types"])
+        else:
+            meta_lines.append("- none discovered")
+        meta_lines.append("")
+        meta_lines.append("Available workers:")
+        if state.get("available_workers"):
+            meta_lines.extend(f"- {name}" for name in state["available_workers"])
+        else:
+            meta_lines.append("- none discovered")
+        if state.get("debug_started"):
+            meta_lines.extend([
+                "",
+                f"Prepared ingress type: {state.get('debug_ingress_type', '') or '(unset)'}",
+                f"Prepared worker: {state.get('debug_worker_name', '') or '(unset)'}",
+            ])
+        client.set_text(ids["debug_ingress"], state.get("debug_ingress_type", ""))
+        client.set_text(ids["debug_worker"], state.get("debug_worker_name", ""))
+        client.set_text(ids["debug_meta"], "\n".join(meta_lines) + "\n")
+
+    def _refresh_debug_sidebars(client, tab_id: str):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        ids = _editor_ids(tab_id)
+        _replace_tree_nodes(client, ids["debug_ghs"], state.get("ghs_nodes", _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root")))
+        _replace_tree_nodes(client, ids["debug_stack"], state.get("stack_nodes", _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root")))
+        _replace_tree_nodes(client, ids["debug_local"], state.get("local_nodes", _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root")))
 
     def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None):
         state = editor_state.get(tab_id)
@@ -977,13 +1221,51 @@ def main():
                 return
         state["epa_text"] = result["epa_text"]
         state["compile_error"] = result["message"]
+        state["available_types"], state["available_workers"] = _extract_debug_candidates(source_text)
+        if not state.get("debug_ingress_type") and state["available_types"]:
+            state["debug_ingress_type"] = state["available_types"][0]
+        if not state.get("debug_worker_name") and state["available_workers"]:
+            state["debug_worker_name"] = state["available_workers"][0]
+        state["debug_marker_line"] = _first_marker_line(result["epa_text"]) if result["ok"] else 0
+        state["debug_text"] = (
+            _debug_preview_text(result["epa_text"], state.get("debug_marker_line"))
+            if result["ok"] else
+            "# Debug Trace\n\nEPA view is blank because compilation failed.\n"
+        )
+        if result["ok"]:
+            try:
+                semantic = _analyze_e_source(source_text, ids)
+            except Exception as exc:
+                semantic = {
+                    "ok": False,
+                    "message": str(exc),
+                    "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
+                    "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
+                    "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                }
+        else:
+            semantic = {
+                "ok": False,
+                "message": result["message"],
+                "ghs_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "GHS Layout", f"{ids['debug_ghs']}.root"),
+                "stack_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "Stack Interpretation", f"{ids['debug_stack']}.root"),
+                "local_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "Local Arena", f"{ids['debug_local']}.root"),
+            }
+        state["ghs_nodes"] = semantic["ghs_nodes"]
+        state["stack_nodes"] = semantic["stack_nodes"]
+        state["local_nodes"] = semantic["local_nodes"]
         client.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
+        client.set_text(ids["debug"], state["debug_text"])
         client.set_code_editor_diagnostics(ids["source"], result["diagnostics"])
         _apply_editor_view(client, tab_id)
+        _refresh_debug_controls(client, tab_id)
+        if app_state.get("active_editor_tab") == tab_id:
+            _refresh_debug_sidebars(client, tab_id)
 
     def _init_editor_state():
         editor_state.clear()
         for tab_id, title, source_text in INITIAL_E_TABS:
+            ids = _editor_ids(tab_id)
             editor_state[tab_id] = {
                 "title": title,
                 "source_text": source_text,
@@ -991,6 +1273,16 @@ def main():
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
+                "debug_marker_line": 0,
+                "debug_text": "# Debug Trace\n\nNo EPA output available.\n",
+                "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
+                "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
+                "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                "available_types": [],
+                "available_workers": [],
+                "debug_ingress_type": "",
+                "debug_worker_name": "",
+                "debug_started": False,
             }
 
     def _wizard_navigate(client, path: str):
@@ -1133,6 +1425,7 @@ def main():
         for tab_id, state in editor_state.items():
             ids = _editor_ids(tab_id)
             if action == "textChanged" and target == ids["source"]:
+                app_state["active_editor_tab"] = tab_id
                 state["source_text"] = payload.get("text", "")
                 state["compile_seq"] = int(state.get("compile_seq", 0)) + 1
                 if client is not None:
@@ -1140,6 +1433,26 @@ def main():
                     current_tab = tab_id
                     seq = state["compile_seq"]
                     _deferred(lambda: _refresh_e_tab(c, current_tab, seq))
+                return {"received": True}
+            if action == "keysTyped" and target == ids["debug_ingress"]:
+                app_state["active_editor_tab"] = tab_id
+                state["debug_ingress_type"] = state.get("debug_ingress_type", "") + payload.get("text", "")
+                return {"received": True}
+            if action == "keysTyped" and target == ids["debug_worker"]:
+                app_state["active_editor_tab"] = tab_id
+                state["debug_worker_name"] = state.get("debug_worker_name", "") + payload.get("text", "")
+                return {"received": True}
+            if action == "keyDown" and target == ids["debug_ingress"] and payload.get("keyval", 0) == 0xff08:
+                app_state["active_editor_tab"] = tab_id
+                value = state.get("debug_ingress_type", "")
+                if value:
+                    state["debug_ingress_type"] = value[:-1]
+                return {"received": True}
+            if action == "keyDown" and target == ids["debug_worker"] and payload.get("keyval", 0) == 0xff08:
+                app_state["active_editor_tab"] = tab_id
+                value = state.get("debug_worker_name", "")
+                if value:
+                    state["debug_worker_name"] = value[:-1]
                 return {"received": True}
 
         # Track technology checkbox toggles from the wizard.
@@ -1228,14 +1541,41 @@ def main():
             for tab_id, state in editor_state.items():
                 ids = _editor_ids(tab_id)
                 if item_action == ids["button_e"]:
+                    app_state["active_editor_tab"] = tab_id
                     state["view"] = "e"
                     current_tab = tab_id
-                    _deferred(lambda: _apply_editor_view(c, current_tab))
+                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
                     return {"received": True}
                 if item_action == ids["button_epa"]:
+                    app_state["active_editor_tab"] = tab_id
                     state["view"] = "epa"
                     current_tab = tab_id
-                    _deferred(lambda: _apply_editor_view(c, current_tab))
+                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
+                    return {"received": True}
+                if item_action == ids["button_debug"]:
+                    app_state["active_editor_tab"] = tab_id
+                    state["view"] = "debug"
+                    current_tab = tab_id
+                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_controls(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
+                    return {"received": True}
+                if item_action == ids["debug_start"]:
+                    app_state["active_editor_tab"] = tab_id
+                    state["debug_started"] = True
+                    state["debug_text"] = (
+                        "# Debug Trace\n\n"
+                        "Debug startup prepared.\n\n"
+                        f"Ingress type: {state.get('debug_ingress_type', '') or '(unset)'}\n"
+                        f"Worker: {state.get('debug_worker_name', '') or '(unset)'}\n\n"
+                        "Kernel should run first, then the selected ingress payload can be injected into the selected worker.\n\n"
+                        "Runtime stepping/injection is not wired yet in this first pass."
+                    )
+                    current_tab = tab_id
+                    _deferred(lambda: (
+                        c.set_text(_editor_ids(current_tab)["debug"], editor_state[current_tab]["debug_text"]),
+                        _refresh_debug_controls(c, current_tab),
+                        _refresh_debug_sidebars(c, current_tab),
+                        _apply_editor_view(c, current_tab),
+                    ))
                     return {"received": True}
 
             if target == "app.menu" and item_action in (
@@ -1504,6 +1844,8 @@ def main():
             print(json.dumps(load_result, indent=2))
             for tab_id in editor_state:
                 _refresh_e_tab(client, tab_id)
+            if app_state.get("active_editor_tab"):
+                _refresh_debug_sidebars(client, app_state["active_editor_tab"])
             snapshot_sections = builder.snapshot_client_sections() if hasattr(builder, "snapshot_client_sections") else {}
             dumper = UiSnapshotDumper(client, client_sections=snapshot_sections)
             if args.snapshot:
