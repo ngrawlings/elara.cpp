@@ -51,6 +51,7 @@ typedef struct {
 } ETypeLayout;
 
 typedef struct {
+  char *owner_name;
   const EFunction *function;
   size_t total_size;
   size_t param_size;

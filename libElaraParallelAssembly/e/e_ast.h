@@ -76,6 +76,8 @@ typedef enum {
   E_STMT_EXPR,
   E_STMT_BLOCK,
   E_STMT_IF,
+  E_STMT_WHILE,
+  E_STMT_FOR,
   E_STMT_SWITCH,
   E_STMT_BREAK,
   E_STMT_NEXT,
@@ -115,6 +117,16 @@ struct EStmt {
       EStmt *then_branch;
       EStmt *else_branch;
     } if_stmt;
+    struct {
+      EExpr *cond;
+      EStmt *body;
+    } while_stmt;
+    struct {
+      EStmt *init;
+      EExpr *cond;
+      EExpr *step;
+      EStmt *body;
+    } for_stmt;
     struct {
       EExpr *target;
       ESwitchCase *cases;

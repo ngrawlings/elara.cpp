@@ -18,6 +18,7 @@ typedef struct {
   const EProgram *prog;
   const ESemanticModel *model;
   const EFunction *current_function;
+  const EWorker *current_worker;
   const EFunctionFrame *current_frame;
   EmitStringConst *strings;
   size_t string_count;
@@ -31,7 +32,7 @@ static void emit_indent(FILE *out, int depth) {
 static const EFunctionFrame *find_frame(const ESemanticModel *model, const char *name) {
   size_t i;
   for (i = 0; i < model->frame_count; i++) {
-    if (strcmp(model->frames[i].function->name, name) == 0) return &model->frames[i];
+    if (strcmp(model->frames[i].owner_name, name) == 0) return &model->frames[i];
   }
   return NULL;
 }
@@ -133,6 +134,16 @@ static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
       collect_strings_in_stmt(ctx, stmt->as.if_stmt.then_branch);
       collect_strings_in_stmt(ctx, stmt->as.if_stmt.else_branch);
       break;
+    case E_STMT_WHILE:
+      collect_strings_in_expr(ctx, stmt->as.while_stmt.cond);
+      collect_strings_in_stmt(ctx, stmt->as.while_stmt.body);
+      break;
+    case E_STMT_FOR:
+      collect_strings_in_stmt(ctx, stmt->as.for_stmt.init);
+      collect_strings_in_expr(ctx, stmt->as.for_stmt.cond);
+      collect_strings_in_expr(ctx, stmt->as.for_stmt.step);
+      collect_strings_in_stmt(ctx, stmt->as.for_stmt.body);
+      break;
     case E_STMT_SWITCH:
       collect_strings_in_expr(ctx, stmt->as.switch_stmt.target);
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
@@ -194,6 +205,8 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
 
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
+static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
   if (!expr) return;
@@ -274,9 +287,25 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       }
       break;
     case E_EXPR_ASSIGN:
-      fprintf(out, "; assign pending lowering\n");
-      emit_expr(out, expr->as.assign.lhs, ctx, depth);
       emit_expr(out, expr->as.assign.rhs, ctx, depth);
+      if (expr->as.assign.lhs && expr->as.assign.lhs->kind == E_EXPR_IDENT) {
+        emit_scalar_store(out, expr->as.assign.lhs->as.ident, ctx, depth);
+        emit_indent(out, depth);
+        {
+          const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, expr->as.assign.lhs->as.ident);
+          const EFunctionParamCheck *param = find_param_check_by_name(ctx, expr->as.assign.lhs->as.ident);
+          if (local && local->vm_local_words == 1u) {
+            fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
+          } else if (param && param->vm_local_words == 1u) {
+            fprintf(out, "LOAD_L %u\n", param->vm_local_slot);
+          } else {
+            fprintf(out, "; assign target %s unsupported\n", expr->as.assign.lhs->as.ident);
+          }
+        }
+      } else {
+        emit_indent(out, depth);
+        fputs("; assign pending lowering\n", out);
+      }
       break;
     case E_EXPR_CALL:
       if (strcmp(expr->as.call.callee, "log") == 0) {
@@ -287,11 +316,48 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       for (i = 0; i < expr->as.call.arg_count; i++) emit_expr(out, expr->as.call.args[i], ctx, depth);
       break;
     case E_EXPR_FIELD:
+      if (expr->as.field.base && expr->as.field.base->kind == E_EXPR_IDENT &&
+          emit_worker_field_load(out, expr->as.field.base->as.ident, expr->as.field.field, ctx, depth)) {
+        break;
+      }
       fputs("; field ", out);
       emit_field_path(out, expr, ctx->model);
       fputc('\n', out);
       break;
   }
+}
+
+static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth) {
+  const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, name);
+  const EFunctionParamCheck *param = find_param_check_by_name(ctx, name);
+  emit_indent(out, depth);
+  if (local && local->vm_local_words == 1u) {
+    fprintf(out, "STORE_L %u\n", local->vm_local_slot);
+    return 1;
+  }
+  if (param && param->vm_local_words == 1u) {
+    fprintf(out, "STORE_L %u\n", param->vm_local_slot);
+    return 1;
+  }
+  fprintf(out, "; store %s unsupported\n", name);
+  return 0;
+}
+
+static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth) {
+  const EWorker *worker = ctx->current_worker;
+  const EGhsField *field;
+  if (!worker) return 0;
+  if (worker->param_count != 1u) return 0;
+  if (strcmp(worker->params[0].name, base_name) != 0) return 0;
+  field = find_field_layout(ctx->model, worker->params[0].type.name, field_name);
+  if (!field || field->ghs_size != 4u) return 0;
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
+  emit_indent(out, depth);
+  fputs("GR_MOV4 0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
 }
 
 static unsigned int find_string_const_id(const EmitCtx *ctx, const char *literal) {
@@ -387,7 +453,13 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         }
       }
       fputc('\n', out);
-      if (stmt->as.decl.init) emit_expr(out, stmt->as.decl.init, ctx, depth);
+      if (stmt->as.decl.init) {
+        emit_expr(out, stmt->as.decl.init, ctx, depth);
+        if (binding && binding->vm_local_words == 1u) {
+          emit_indent(out, depth);
+          fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+        }
+      }
       break;
     }
     case E_STMT_RETURN:
@@ -412,6 +484,8 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       fputs("; if condition\n", out);
       emit_expr(out, stmt->as.if_stmt.cond, ctx, depth);
       emit_indent(out, depth);
+      fputs("POP 0\n", out);
+      emit_indent(out, depth);
       fprintf(out, "JZ E_IF_ELSE_%u\n", else_id);
       emit_stmt(out, stmt->as.if_stmt.then_branch, ctx, depth, break_label);
       emit_indent(out, depth);
@@ -426,6 +500,63 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       }
       emit_indent(out, depth);
       fprintf(out, "E_IF_JOIN_%u:\n", join_id);
+      break;
+    }
+    case E_STMT_WHILE: {
+      unsigned int head_id = next_label(ctx);
+      unsigned int exit_id = next_label(ctx);
+      char exit_label[64];
+      snprintf(exit_label, sizeof(exit_label), "E_WHILE_EXIT_%u", exit_id);
+      emit_indent(out, depth);
+      fprintf(out, "E_WHILE_HEAD_%u:\n", head_id);
+      emit_indent(out, depth);
+      fputs("; while condition\n", out);
+      emit_expr(out, stmt->as.while_stmt.cond, ctx, depth);
+      emit_indent(out, depth);
+      fputs("POP 0\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "JZ %s\n", exit_label);
+      emit_stmt(out, stmt->as.while_stmt.body, ctx, depth, exit_label);
+      emit_indent(out, depth);
+      fprintf(out, "JMP E_WHILE_HEAD_%u\n", head_id);
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", exit_label);
+      break;
+    }
+    case E_STMT_FOR: {
+      unsigned int head_id = next_label(ctx);
+      unsigned int step_id = next_label(ctx);
+      unsigned int exit_id = next_label(ctx);
+      char exit_label[64];
+      snprintf(exit_label, sizeof(exit_label), "E_FOR_EXIT_%u", exit_id);
+      if (stmt->as.for_stmt.init) {
+        emit_indent(out, depth);
+        fputs("; for init\n", out);
+        emit_stmt(out, stmt->as.for_stmt.init, ctx, depth, break_label);
+      }
+      emit_indent(out, depth);
+      fprintf(out, "E_FOR_HEAD_%u:\n", head_id);
+      if (stmt->as.for_stmt.cond) {
+        emit_indent(out, depth);
+        fputs("; for condition\n", out);
+        emit_expr(out, stmt->as.for_stmt.cond, ctx, depth);
+        emit_indent(out, depth);
+        fputs("POP 0\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "JZ %s\n", exit_label);
+      }
+      emit_stmt(out, stmt->as.for_stmt.body, ctx, depth, exit_label);
+      emit_indent(out, depth);
+      fprintf(out, "E_FOR_STEP_%u:\n", step_id);
+      if (stmt->as.for_stmt.step) {
+        emit_indent(out, depth);
+        fputs("; for step\n", out);
+        emit_expr(out, stmt->as.for_stmt.step, ctx, depth);
+      }
+      emit_indent(out, depth);
+      fprintf(out, "JMP E_FOR_HEAD_%u\n", head_id);
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", exit_label);
       break;
     }
     case E_STMT_SWITCH: {
@@ -579,6 +710,8 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                 resolved_signal_mail_box_size(model, &top->as.worker.attrs));
         {
           unsigned int loop_id = next_label(&ctx);
+          ctx.current_worker = &top->as.worker;
+          ctx.current_frame = find_frame(model, top->as.worker.name);
           emit_indent(out, 1);
           fprintf(out, "E_WORKER_WAIT_%u:\n", loop_id);
           emit_indent(out, 1);
@@ -593,10 +726,11 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           fputs("WORKER_TRX_IN_R 1\n", out);
           emit_indent(out, 1);
           fputs("; E worker body begins after ingress wake-up\n", out);
-          ctx.current_frame = NULL;
           emit_stmt(out, top->as.worker.body, &ctx, 1, NULL);
           emit_indent(out, 1);
           fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);
+          ctx.current_worker = NULL;
+          ctx.current_frame = NULL;
         }
         fputs("ENTRY_END\n\n", out);
         break;

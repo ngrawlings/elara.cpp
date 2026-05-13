@@ -206,7 +206,7 @@ static int push_local_binding(EFunctionFrame *frame, const EStmt *decl_stmt, con
   return 1;
 }
 
-static int push_frame(ESemanticModel *model, const EFunction *fn,
+static int push_frame(ESemanticModel *model, const char *owner_name, const EFunction *fn,
                       size_t param_size, size_t stack_local_size,
                       unsigned int reserved_reg_words, ELocalBinding *locals,
                       size_t local_count) {
@@ -217,6 +217,7 @@ static int push_frame(ESemanticModel *model, const EFunction *fn,
     exit(1);
   }
   model->frames = next;
+  model->frames[model->frame_count].owner_name = xstrdup_local(owner_name);
   model->frames[model->frame_count].function = fn;
   model->frames[model->frame_count].param_size = param_size;
   model->frames[model->frame_count].stack_local_size = stack_local_size;
@@ -419,6 +420,11 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
       if (!collect_local_decls_in_stmt(stmt->as.if_stmt.then_branch, model, frame, err)) return 0;
       if (!collect_local_decls_in_stmt(stmt->as.if_stmt.else_branch, model, frame, err)) return 0;
       return 1;
+    case E_STMT_WHILE:
+      return collect_local_decls_in_stmt(stmt->as.while_stmt.body, model, frame, err);
+    case E_STMT_FOR:
+      if (!collect_local_decls_in_stmt(stmt->as.for_stmt.init, model, frame, err)) return 0;
+      return collect_local_decls_in_stmt(stmt->as.for_stmt.body, model, frame, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -548,7 +554,7 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
     if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, err)) {
       return 0;
     }
-    push_frame(model, &top->as.func, frame.param_size, frame.stack_local_size,
+    push_frame(model, top->as.func.name, &top->as.func, frame.param_size, frame.stack_local_size,
                frame.reserved_reg_words, frame.locals, frame.local_count);
   }
   return 1;
@@ -580,6 +586,11 @@ static int validate_next_stmt_in_stmt(
       if (!validate_next_stmt_in_stmt(stmt->as.if_stmt.then_branch, model, current_worker, err)) return 0;
       if (!validate_next_stmt_in_stmt(stmt->as.if_stmt.else_branch, model, current_worker, err)) return 0;
       return 1;
+    case E_STMT_WHILE:
+      return validate_next_stmt_in_stmt(stmt->as.while_stmt.body, model, current_worker, err);
+    case E_STMT_FOR:
+      if (!validate_next_stmt_in_stmt(stmt->as.for_stmt.init, model, current_worker, err)) return 0;
+      return validate_next_stmt_in_stmt(stmt->as.for_stmt.body, model, current_worker, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -630,13 +641,23 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
   for (i = 0; i < program->count; i++) {
     const ETopDecl *top = &program->items[i];
     const EStmt *body = NULL;
+    const char *owner_name = NULL;
     EFunctionFrame frame;
     memset(&frame, 0, sizeof(frame));
 
     switch (top->kind) {
-      case E_TOP_KERNEL: body = top->as.kernel.body; break;
-      case E_TOP_WORKER: body = top->as.worker.body; break;
-      case E_TOP_TYPE: body = top->as.tdecl.body; break;
+      case E_TOP_KERNEL:
+        body = top->as.kernel.body;
+        owner_name = "kernel";
+        break;
+      case E_TOP_WORKER:
+        body = top->as.worker.body;
+        owner_name = top->as.worker.name;
+        break;
+      case E_TOP_TYPE:
+        body = top->as.tdecl.body;
+        owner_name = top->as.tdecl.name;
+        break;
       case E_TOP_STRUCT:
       case E_TOP_FUNCTION:
       case E_TOP_DECLARE:
@@ -648,6 +669,9 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
       free_temp_frame(&frame);
       return 0;
     }
+    push_frame((ESemanticModel*)model, owner_name, NULL, frame.param_size, frame.stack_local_size,
+               frame.reserved_reg_words, frame.locals, frame.local_count);
+    memset(&frame, 0, sizeof(frame));
     free_temp_frame(&frame);
   }
   return 1;
@@ -718,6 +742,7 @@ void e_semantic_model_free(ESemanticModel *model) {
   free(model->checks);
   for (i = 0; i < model->frame_count; i++) {
     size_t j;
+    free(model->frames[i].owner_name);
     for (j = 0; j < model->frames[i].local_count; j++) {
       free(model->frames[i].locals[j].name);
       free(model->frames[i].locals[j].type_name);
@@ -824,7 +849,7 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
   for (i = 0; i < model->frame_count; i++) {
     size_t j;
     fprintf(out, "  func %s total_size=%zu params=%zu stack_locals=%zu reserved_reg_words=%u\n",
-            model->frames[i].function->name,
+            model->frames[i].owner_name,
             model->frames[i].total_size,
             model->frames[i].param_size,
             model->frames[i].stack_local_size,

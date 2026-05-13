@@ -61,6 +61,8 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "function") == 0) return E_TOK_KW_FUNCTION;
   if (strcmp(text, "if") == 0) return E_TOK_KW_IF;
   if (strcmp(text, "else") == 0) return E_TOK_KW_ELSE;
+  if (strcmp(text, "while") == 0) return E_TOK_KW_WHILE;
+  if (strcmp(text, "for") == 0) return E_TOK_KW_FOR;
   if (strcmp(text, "switch") == 0) return E_TOK_KW_SWITCH;
   if (strcmp(text, "case") == 0) return E_TOK_KW_CASE;
   if (strcmp(text, "default") == 0) return E_TOK_KW_DEFAULT;

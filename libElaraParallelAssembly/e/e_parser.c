@@ -311,6 +311,21 @@ static EStmt *parse_decl_stmt(Parser *p) {
   return s;
 }
 
+static EStmt *parse_for_init_stmt(Parser *p) {
+  if (peek(p)->kind == E_TOK_SEMI) {
+    p->pos++;
+    return NULL;
+  }
+  if (is_decl_start(p)) return parse_decl_stmt(p);
+  {
+    EStmt *s = new_stmt(E_STMT_EXPR);
+    s->as.expr = parse_expr(p);
+    if (!s->as.expr) return NULL;
+    if (!expect(p, E_TOK_SEMI, "expected ';' after for init")) return NULL;
+    return s;
+  }
+}
+
 static EStmt *parse_if_stmt(Parser *p) {
   EStmt *s = new_stmt(E_STMT_IF);
   if (!expect(p, E_TOK_LPAREN, "expected '(' after if")) return NULL;
@@ -323,6 +338,36 @@ static EStmt *parse_if_stmt(Parser *p) {
     s->as.if_stmt.else_branch = parse_stmt(p);
     if (!s->as.if_stmt.else_branch) return NULL;
   }
+  return s;
+}
+
+static EStmt *parse_while_stmt(Parser *p) {
+  EStmt *s = new_stmt(E_STMT_WHILE);
+  if (!expect(p, E_TOK_LPAREN, "expected '(' after while")) return NULL;
+  s->as.while_stmt.cond = parse_expr(p);
+  if (!s->as.while_stmt.cond) return NULL;
+  if (!expect(p, E_TOK_RPAREN, "expected ')' after while condition")) return NULL;
+  s->as.while_stmt.body = parse_stmt(p);
+  if (!s->as.while_stmt.body) return NULL;
+  return s;
+}
+
+static EStmt *parse_for_stmt(Parser *p) {
+  EStmt *s = new_stmt(E_STMT_FOR);
+  if (!expect(p, E_TOK_LPAREN, "expected '(' after for")) return NULL;
+  s->as.for_stmt.init = parse_for_init_stmt(p);
+  if (peek(p)->kind != E_TOK_SEMI) {
+    s->as.for_stmt.cond = parse_expr(p);
+    if (!s->as.for_stmt.cond) return NULL;
+  }
+  if (!expect(p, E_TOK_SEMI, "expected ';' after for condition")) return NULL;
+  if (peek(p)->kind != E_TOK_RPAREN) {
+    s->as.for_stmt.step = parse_expr(p);
+    if (!s->as.for_stmt.step) return NULL;
+  }
+  if (!expect(p, E_TOK_RPAREN, "expected ')' after for clauses")) return NULL;
+  s->as.for_stmt.body = parse_stmt(p);
+  if (!s->as.for_stmt.body) return NULL;
   return s;
 }
 
@@ -388,6 +433,8 @@ static EStmt *parse_stmt(Parser *p) {
     return s;
   }
   if (match(p, E_TOK_KW_IF)) return parse_if_stmt(p);
+  if (match(p, E_TOK_KW_WHILE)) return parse_while_stmt(p);
+  if (match(p, E_TOK_KW_FOR)) return parse_for_stmt(p);
   if (match(p, E_TOK_KW_SWITCH)) return parse_switch_stmt(p);
   if (match(p, E_TOK_KW_RETURN)) {
     EStmt *s = new_stmt(E_STMT_RETURN);

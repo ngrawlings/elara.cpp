@@ -61,6 +61,16 @@ static void free_stmt(EStmt *s) {
       free_stmt(s->as.if_stmt.then_branch);
       free_stmt(s->as.if_stmt.else_branch);
       break;
+    case E_STMT_WHILE:
+      free_expr(s->as.while_stmt.cond);
+      free_stmt(s->as.while_stmt.body);
+      break;
+    case E_STMT_FOR:
+      free_stmt(s->as.for_stmt.init);
+      free_expr(s->as.for_stmt.cond);
+      free_expr(s->as.for_stmt.step);
+      free_stmt(s->as.for_stmt.body);
+      break;
     case E_STMT_SWITCH:
       free_expr(s->as.switch_stmt.target);
       for (i = 0; i < s->as.switch_stmt.case_count; i++) {
@@ -240,6 +250,38 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
         fputs("else\n", out);
         dump_stmt(out, s->as.if_stmt.else_branch, depth + 2);
       }
+      break;
+    case E_STMT_WHILE:
+      indent(out, depth);
+      fputs("while\n", out);
+      indent(out, depth + 1);
+      fputs("cond\n", out);
+      dump_expr(out, s->as.while_stmt.cond, depth + 2);
+      indent(out, depth + 1);
+      fputs("body\n", out);
+      dump_stmt(out, s->as.while_stmt.body, depth + 2);
+      break;
+    case E_STMT_FOR:
+      indent(out, depth);
+      fputs("for\n", out);
+      if (s->as.for_stmt.init) {
+        indent(out, depth + 1);
+        fputs("init\n", out);
+        dump_stmt(out, s->as.for_stmt.init, depth + 2);
+      }
+      if (s->as.for_stmt.cond) {
+        indent(out, depth + 1);
+        fputs("cond\n", out);
+        dump_expr(out, s->as.for_stmt.cond, depth + 2);
+      }
+      if (s->as.for_stmt.step) {
+        indent(out, depth + 1);
+        fputs("step\n", out);
+        dump_expr(out, s->as.for_stmt.step, depth + 2);
+      }
+      indent(out, depth + 1);
+      fputs("body\n", out);
+      dump_stmt(out, s->as.for_stmt.body, depth + 2);
       break;
     case E_STMT_SWITCH:
       indent(out, depth);
