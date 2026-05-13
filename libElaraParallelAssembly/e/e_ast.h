@@ -80,6 +80,7 @@ typedef enum {
   E_STMT_FOR,
   E_STMT_SWITCH,
   E_STMT_BREAK,
+  E_STMT_CONTINUE,
   E_STMT_NEXT,
   E_STMT_RAW_EPA,
 } EStmtKind;

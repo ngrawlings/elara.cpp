@@ -450,6 +450,11 @@ static EStmt *parse_stmt(Parser *p) {
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
     return s;
   }
+  if (match(p, E_TOK_KW_CONTINUE)) {
+    EStmt *s = new_stmt(E_STMT_CONTINUE);
+    if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
+    return s;
+  }
   if (match(p, E_TOK_KW_NEXT)) {
     EStmt *s = new_stmt(E_STMT_NEXT);
     if (!expect(p, E_TOK_IDENT, "expected worker name after next")) return NULL;

@@ -493,6 +493,7 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
     case E_STMT_RETURN:
     case E_STMT_EXPR:
     case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
       return 1;
@@ -609,8 +610,76 @@ static int validate_next_stmt_in_stmt(
     case E_STMT_RETURN:
     case E_STMT_EXPR:
     case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
     case E_STMT_RAW_EPA:
       return 1;
+  }
+  return 1;
+}
+
+static int validate_loop_control_in_stmt(const EStmt *stmt, int loop_depth, int switch_depth, char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_loop_control_in_stmt(stmt->as.block.items[i], loop_depth, switch_depth, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!validate_loop_control_in_stmt(stmt->as.if_stmt.then_branch, loop_depth, switch_depth, err)) return 0;
+      if (!validate_loop_control_in_stmt(stmt->as.if_stmt.else_branch, loop_depth, switch_depth, err)) return 0;
+      return 1;
+    case E_STMT_WHILE:
+      return validate_loop_control_in_stmt(stmt->as.while_stmt.body, loop_depth + 1, switch_depth, err);
+    case E_STMT_FOR:
+      if (!validate_loop_control_in_stmt(stmt->as.for_stmt.init, loop_depth, switch_depth, err)) return 0;
+      return validate_loop_control_in_stmt(stmt->as.for_stmt.body, loop_depth + 1, switch_depth, err);
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_loop_control_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], loop_depth, switch_depth + 1, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_BREAK:
+      if (loop_depth == 0 && switch_depth == 0) {
+        snprintf(err, 256, "break used outside loop or switch");
+        return 0;
+      }
+      return 1;
+    case E_STMT_CONTINUE:
+      if (loop_depth == 0) {
+        snprintf(err, 256, "continue used outside loop");
+        return 0;
+      }
+      return 1;
+    case E_STMT_DECL:
+    case E_STMT_RETURN:
+    case E_STMT_EXPR:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_loop_control_usage(const EProgram *program, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    switch (top->kind) {
+      case E_TOP_KERNEL: body = top->as.kernel.body; break;
+      case E_TOP_WORKER: body = top->as.worker.body; break;
+      case E_TOP_FUNCTION: body = top->as.func.body; break;
+      case E_TOP_TYPE: body = top->as.tdecl.body; break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+        break;
+    }
+    if (body && !validate_loop_control_in_stmt(body, 0, 0, err)) return 0;
   }
   return 1;
 }
@@ -715,6 +784,11 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_worker_next_targets(out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
+
+  if (!validate_loop_control_usage(program, err)) {
     e_semantic_model_free(out_model);
     return 0;
   }

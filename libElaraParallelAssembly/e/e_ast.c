@@ -83,6 +83,7 @@ static void free_stmt(EStmt *s) {
       free(s->as.switch_stmt.cases);
       break;
     case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
       break;
     case E_STMT_NEXT:
       free(s->as.next_stmt.worker_name);
@@ -305,6 +306,10 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
     case E_STMT_BREAK:
       indent(out, depth);
       fputs("break\n", out);
+      break;
+    case E_STMT_CONTINUE:
+      indent(out, depth);
+      fputs("continue\n", out);
       break;
     case E_STMT_NEXT:
       indent(out, depth);

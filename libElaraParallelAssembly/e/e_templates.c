@@ -11,6 +11,7 @@ typedef struct {
   ETemplateGraph *graph;
   uint32_t next_id;
   uint32_t break_target;
+  uint32_t continue_target;
 } GraphBuild;
 
 typedef struct {
@@ -150,11 +151,13 @@ static Region build_switch(GraphBuild *gb, const EStmt *stmt) {
   uint32_t prev_head = 0u;
   size_t i;
   uint32_t saved_break_target;
+  uint32_t saved_continue_target;
 
   eval_id = add_block(gb, E_TPL_EXPR_EVAL, "switch-target", 0);
   head_id = add_block(gb, E_TPL_SWITCH_HEAD, "switch-head", 1);
   join_id = add_block(gb, E_TPL_SWITCH_JOIN, "switch-join", 0);
   saved_break_target = gb->break_target;
+  saved_continue_target = gb->continue_target;
   gb->break_target = join_id;
 
   set_primary(gb->graph, eval_id, E_EDGE_FALLTHROUGH, head_id);
@@ -188,6 +191,7 @@ static Region build_switch(GraphBuild *gb, const EStmt *stmt) {
   }
 
   gb->break_target = saved_break_target;
+  gb->continue_target = saved_continue_target;
 
   out.entry_id = eval_id;
   out.exit_id = join_id;
@@ -201,12 +205,15 @@ static Region build_while(GraphBuild *gb, const EStmt *stmt) {
   uint32_t head_id;
   uint32_t join_id;
   uint32_t saved_break_target;
+  uint32_t saved_continue_target;
 
   eval_id = add_block(gb, E_TPL_EXPR_EVAL, "while-cond", 0);
   head_id = add_block(gb, E_TPL_WHILE_HEAD, "while-head", 1);
   join_id = add_block(gb, E_TPL_LOOP_JOIN, "while-join", 0);
   saved_break_target = gb->break_target;
+  saved_continue_target = gb->continue_target;
   gb->break_target = join_id;
+  gb->continue_target = eval_id;
   body_region = build_stmt(gb, stmt->as.while_stmt.body);
 
   set_primary(gb->graph, eval_id, E_EDGE_FALLTHROUGH, head_id);
@@ -217,6 +224,7 @@ static Region build_while(GraphBuild *gb, const EStmt *stmt) {
   }
 
   gb->break_target = saved_break_target;
+  gb->continue_target = saved_continue_target;
   out.entry_id = eval_id;
   out.exit_id = join_id;
   return out;
@@ -230,13 +238,16 @@ static Region build_for(GraphBuild *gb, const EStmt *stmt) {
   uint32_t step_id;
   uint32_t join_id;
   uint32_t saved_break_target;
+  uint32_t saved_continue_target;
 
   init_region = build_stmt(gb, stmt->as.for_stmt.init);
   head_id = add_block(gb, E_TPL_FOR_HEAD, "for-head", stmt->as.for_stmt.cond ? 1 : 0);
   step_id = add_block(gb, E_TPL_FOR_STEP, "for-step", 0);
   join_id = add_block(gb, E_TPL_LOOP_JOIN, "for-join", 0);
   saved_break_target = gb->break_target;
+  saved_continue_target = gb->continue_target;
   gb->break_target = join_id;
+  gb->continue_target = step_id;
   body_region = build_stmt(gb, stmt->as.for_stmt.body);
 
   if (find_block(gb->graph, init_region.exit_id)->primary_edge.kind == E_EDGE_NONE) {
@@ -254,6 +265,7 @@ static Region build_for(GraphBuild *gb, const EStmt *stmt) {
   set_primary(gb->graph, step_id, E_EDGE_JUMP, head_id);
 
   gb->break_target = saved_break_target;
+  gb->continue_target = saved_continue_target;
   out.entry_id = init_region.entry_id;
   out.exit_id = join_id;
   return out;
@@ -274,6 +286,15 @@ static Region build_stmt(GraphBuild *gb, const EStmt *stmt) {
       Region r = build_simple(gb, E_TPL_BREAK, "break", 0);
       if (gb->break_target != 0u) {
         set_primary(gb->graph, r.entry_id, E_EDGE_JUMP, gb->break_target);
+      } else {
+        set_primary(gb->graph, r.entry_id, E_EDGE_TERMINAL, 0u);
+      }
+      return r;
+    }
+    case E_STMT_CONTINUE: {
+      Region r = build_simple(gb, E_TPL_CONTINUE, "continue", 0);
+      if (gb->continue_target != 0u) {
+        set_primary(gb->graph, r.entry_id, E_EDGE_JUMP, gb->continue_target);
       } else {
         set_primary(gb->graph, r.entry_id, E_EDGE_TERMINAL, 0u);
       }
@@ -303,6 +324,7 @@ const char *e_template_kind_name(ETemplateKind kind) {
     case E_TPL_SWITCH_JOIN: return "switch-join";
     case E_TPL_RETURN: return "return";
     case E_TPL_BREAK: return "break";
+    case E_TPL_CONTINUE: return "continue";
     case E_TPL_SEQ: return "seq";
   }
   return "unknown";

@@ -154,6 +154,7 @@ static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
       }
       break;
     case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
       break;
@@ -427,7 +428,7 @@ static void emit_verbatim_epa(FILE *out, const char *text, int depth) {
   }
 }
 
-static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, const char *break_label) {
+static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, const char *break_label, const char *continue_label) {
   size_t i;
   if (!stmt) return;
   switch (stmt->kind) {
@@ -474,7 +475,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       break;
     case E_STMT_BLOCK:
       for (i = 0; i < stmt->as.block.count; i++) {
-        emit_stmt(out, stmt->as.block.items[i], ctx, depth, break_label);
+        emit_stmt(out, stmt->as.block.items[i], ctx, depth, break_label, continue_label);
       }
       break;
     case E_STMT_IF: {
@@ -487,13 +488,13 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       fputs("POP 0\n", out);
       emit_indent(out, depth);
       fprintf(out, "JZ E_IF_ELSE_%u\n", else_id);
-      emit_stmt(out, stmt->as.if_stmt.then_branch, ctx, depth, break_label);
+      emit_stmt(out, stmt->as.if_stmt.then_branch, ctx, depth, break_label, continue_label);
       emit_indent(out, depth);
       fprintf(out, "JMP E_IF_JOIN_%u\n", join_id);
       emit_indent(out, depth);
       fprintf(out, "E_IF_ELSE_%u:\n", else_id);
       if (stmt->as.if_stmt.else_branch) {
-        emit_stmt(out, stmt->as.if_stmt.else_branch, ctx, depth, break_label);
+        emit_stmt(out, stmt->as.if_stmt.else_branch, ctx, depth, break_label, continue_label);
       } else {
         emit_indent(out, depth);
         fputs("NOOP\n", out);
@@ -505,10 +506,12 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
     case E_STMT_WHILE: {
       unsigned int head_id = next_label(ctx);
       unsigned int exit_id = next_label(ctx);
+      char head_label[64];
       char exit_label[64];
+      snprintf(head_label, sizeof(head_label), "E_WHILE_HEAD_%u", head_id);
       snprintf(exit_label, sizeof(exit_label), "E_WHILE_EXIT_%u", exit_id);
       emit_indent(out, depth);
-      fprintf(out, "E_WHILE_HEAD_%u:\n", head_id);
+      fprintf(out, "%s:\n", head_label);
       emit_indent(out, depth);
       fputs("; while condition\n", out);
       emit_expr(out, stmt->as.while_stmt.cond, ctx, depth);
@@ -516,9 +519,9 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       fputs("POP 0\n", out);
       emit_indent(out, depth);
       fprintf(out, "JZ %s\n", exit_label);
-      emit_stmt(out, stmt->as.while_stmt.body, ctx, depth, exit_label);
+      emit_stmt(out, stmt->as.while_stmt.body, ctx, depth, exit_label, head_label);
       emit_indent(out, depth);
-      fprintf(out, "JMP E_WHILE_HEAD_%u\n", head_id);
+      fprintf(out, "JMP %s\n", head_label);
       emit_indent(out, depth);
       fprintf(out, "%s:\n", exit_label);
       break;
@@ -527,15 +530,19 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       unsigned int head_id = next_label(ctx);
       unsigned int step_id = next_label(ctx);
       unsigned int exit_id = next_label(ctx);
+      char head_label[64];
+      char step_label[64];
       char exit_label[64];
+      snprintf(head_label, sizeof(head_label), "E_FOR_HEAD_%u", head_id);
+      snprintf(step_label, sizeof(step_label), "E_FOR_STEP_%u", step_id);
       snprintf(exit_label, sizeof(exit_label), "E_FOR_EXIT_%u", exit_id);
       if (stmt->as.for_stmt.init) {
         emit_indent(out, depth);
         fputs("; for init\n", out);
-        emit_stmt(out, stmt->as.for_stmt.init, ctx, depth, break_label);
+        emit_stmt(out, stmt->as.for_stmt.init, ctx, depth, break_label, continue_label);
       }
       emit_indent(out, depth);
-      fprintf(out, "E_FOR_HEAD_%u:\n", head_id);
+      fprintf(out, "%s:\n", head_label);
       if (stmt->as.for_stmt.cond) {
         emit_indent(out, depth);
         fputs("; for condition\n", out);
@@ -545,16 +552,16 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         emit_indent(out, depth);
         fprintf(out, "JZ %s\n", exit_label);
       }
-      emit_stmt(out, stmt->as.for_stmt.body, ctx, depth, exit_label);
+      emit_stmt(out, stmt->as.for_stmt.body, ctx, depth, exit_label, step_label);
       emit_indent(out, depth);
-      fprintf(out, "E_FOR_STEP_%u:\n", step_id);
+      fprintf(out, "%s:\n", step_label);
       if (stmt->as.for_stmt.step) {
         emit_indent(out, depth);
         fputs("; for step\n", out);
         emit_expr(out, stmt->as.for_stmt.step, ctx, depth);
       }
       emit_indent(out, depth);
-      fprintf(out, "JMP E_FOR_HEAD_%u\n", head_id);
+      fprintf(out, "JMP %s\n", head_label);
       emit_indent(out, depth);
       fprintf(out, "%s:\n", exit_label);
       break;
@@ -580,7 +587,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
           char join_label[64];
           snprintf(join_label, sizeof(join_label), "E_SWITCH_JOIN_%u", join_id);
           for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
-            emit_stmt(out, stmt->as.switch_stmt.cases[i].body.items[j], ctx, depth, join_label);
+            emit_stmt(out, stmt->as.switch_stmt.cases[i].body.items[j], ctx, depth, join_label, continue_label);
           }
         }
       }
@@ -594,6 +601,14 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         fprintf(out, "JMP %s\n", break_label);
       } else {
         fputs("; break outside switch pending semantic error\n", out);
+      }
+      break;
+    case E_STMT_CONTINUE:
+      emit_indent(out, depth);
+      if (continue_label) {
+        fprintf(out, "JMP %s\n", continue_label);
+      } else {
+        fputs("; continue outside loop pending semantic error\n", out);
       }
       break;
     case E_STMT_NEXT: {
@@ -679,7 +694,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         }
         fprintf(out, "FUNC_START %u 0\n", ctx.next_func_id++);
         ctx.current_frame = NULL;
-        emit_stmt(out, top->as.tdecl.body, &ctx, 1, NULL);
+        emit_stmt(out, top->as.tdecl.body, &ctx, 1, NULL, NULL);
         fputs("FUNC_END\n\n", out);
         break;
       }
@@ -692,7 +707,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                 resolved_out_words(model, &top->as.kernel.attrs),
                 resolved_signal_mail_box_size(model, &top->as.kernel.attrs));
         ctx.current_frame = NULL;
-        emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL);
+        emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
         fputs("ENTRY_END\n\n", out);
         break;
       case E_TOP_WORKER:
@@ -726,7 +741,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           fputs("WORKER_TRX_IN_R 1\n", out);
           emit_indent(out, 1);
           fputs("; E worker body begins after ingress wake-up\n", out);
-          emit_stmt(out, top->as.worker.body, &ctx, 1, NULL);
+          emit_stmt(out, top->as.worker.body, &ctx, 1, NULL, NULL);
           emit_indent(out, 1);
           fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);
           ctx.current_worker = NULL;
@@ -740,7 +755,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         fprintf(out, "FUNC_START %u %d\n", ctx.next_func_id++, frame_words);
         ctx.current_function = &top->as.func;
         ctx.current_frame = find_frame(model, top->as.func.name);
-        emit_stmt(out, top->as.func.body, &ctx, 1, NULL);
+        emit_stmt(out, top->as.func.body, &ctx, 1, NULL, NULL);
         fputs("FUNC_END\n\n", out);
         ctx.current_function = NULL;
         ctx.current_frame = NULL;

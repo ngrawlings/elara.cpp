@@ -67,6 +67,7 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "case") == 0) return E_TOK_KW_CASE;
   if (strcmp(text, "default") == 0) return E_TOK_KW_DEFAULT;
   if (strcmp(text, "break") == 0) return E_TOK_KW_BREAK;
+  if (strcmp(text, "continue") == 0) return E_TOK_KW_CONTINUE;
   if (strcmp(text, "declare") == 0) return E_TOK_KW_DECLARE;
   if (strcmp(text, "next") == 0) return E_TOK_KW_NEXT;
   if (strcmp(text, "reg") == 0) return E_TOK_KW_REG;

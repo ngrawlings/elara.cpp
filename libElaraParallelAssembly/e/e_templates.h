@@ -22,6 +22,7 @@ typedef enum {
   E_TPL_SWITCH_JOIN,
   E_TPL_RETURN,
   E_TPL_BREAK,
+  E_TPL_CONTINUE,
   E_TPL_SEQ,
 } ETemplateKind;
 
