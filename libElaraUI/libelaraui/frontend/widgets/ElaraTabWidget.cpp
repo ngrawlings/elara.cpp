@@ -56,7 +56,6 @@ int ElaraTabWidget::addTab(
 ) {
     if(widget) {
         widget->setPalette(palette);
-        addChild(Ref<ElaraWidget>(widget));
     }
 
     Ref<ElaraTabPage> page(new ElaraTabPage(title, widget, button_glyph, button_action));
@@ -76,36 +75,20 @@ void ElaraTabWidget::removeTab(int index) {
         return;
     }
 
-    // Hide the widget immediately so eventPropagate skips it.
-    // Do NOT free or touch the children array here — we are mid-event-dispatch
-    // and the Ref in children is non-owning; the ElaraTabPage is the actual
-    // owner.  Move the page into orphaned_pages so the widget stays alive
-    // until draw() runs (outside event dispatch), at which point it is safe
-    // to release.
     if(pages[index] && pages[index]->getWidget()) {
         pages[index]->getWidget()->setVisible(false);
     }
-    orphaned_pages.push(pages[index]);
 
-    Array< Ref<ElaraTabPage> > new_pages;
-    for(int i = 0; i < (int)pages.length(); i++) {
-        if(i != index) {
-            new_pages.push(pages[i]);
-        }
-    }
-    pages = new_pages;
+    pages.remove(index);
 
-    // Adjust active_index after the array shrinks.
     if(active_index > index) {
         active_index--;
     } else if(active_index == index) {
-        if(active_index >= (int)pages.length()) {
-            active_index = (int)pages.length() - 1;
-        }
-        if(active_index >= 0) {
-            setActiveTab(active_index);
-        } else {
+        if((int)pages.length() == 0) {
             active_index = -1;
+        } else {
+            active_index = (index < (int)pages.length()) ? index : (int)pages.length() - 1;
+            setActiveTab(active_index);
         }
     }
 
@@ -115,7 +98,6 @@ void ElaraTabWidget::removeTab(int index) {
 }
 
 void ElaraTabWidget::clearChildren() {
-    orphaned_pages.clear();
     pages.clear();
     active_index = -1;
     hover_index = -1;
@@ -230,10 +212,6 @@ void ElaraTabWidget::applyColor(
 }
 
 void ElaraTabWidget::draw(ElaraDrawContext* ctx) {
-    // Safe point outside event dispatch — release any widgets removed since
-    // the last frame.
-    orphaned_pages.clear();
-
     ElaraPaletteTriplet bar_colors = colors("tabs", "bar");
     ElaraPaletteTriplet active_colors = colors("tabs", "active");
     ElaraPaletteTriplet hover_colors = colors("tabs", "hover");

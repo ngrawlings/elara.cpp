@@ -13,47 +13,7 @@ from elara_ui.snapshot_dumper import UiSnapshotDumper
 from elara_ui.repl_client import ElaraUiRepl
 
 
-INITIAL_E_TABS = [
-    (
-        "editor.main",
-        "main.e",
-        "declare default_in_words 256\n"
-        "declare default_out_words 256\n"
-        "declare default_signal_mail_box_size 128\n"
-        "\n"
-        "type Packet(int value) {\n"
-        "  return value;\n"
-        "}\n"
-        "\n"
-        "kernel(VM vm) {\n"
-        "  worker_ingest(vm);\n"
-        "}\n"
-        "\n"
-        "worker worker_ingest(Packet packet) {\n"
-        "  packet.value;\n"
-        "}\n",
-    ),
-    (
-        "editor.ai",
-        "assistant.e",
-        "declare default_in_words 256\n"
-        "declare default_out_words 256\n"
-        "declare default_signal_mail_box_size 128\n"
-        "\n"
-        "type Prompt(int code) {\n"
-        "  return code;\n"
-        "}\n"
-        "\n"
-        "kernel(VM vm) {\n"
-        "  prompt_agent(vm);\n"
-        "}\n"
-        "\n"
-        "@attributes in_words:64 out_words:64 signal_mail_box_size:32\n"
-        "worker prompt_agent(Prompt prompt) {\n"
-        "  prompt.code;\n"
-        "}\n",
-    ),
-]
+INITIAL_E_TABS = []
 
 
 def _editor_ids(tab_id: str):
@@ -355,6 +315,26 @@ def build_document():
         }
     ])
 
+    ui.create_grid("editor.welcome")
+    ui.add_grid_column_weighted_fill("editor.welcome", 1)
+    ui.add_grid_row_weighted_fill("editor.welcome", 1)
+    ui.add_grid_row_exact("editor.welcome", 280)
+    ui.add_grid_row_weighted_fill("editor.welcome", 1)
+    ui.create_rich_text_edit(
+        "editor.welcome.message",
+        "# The Elara Core\n\n"
+        "Welcome to the Elara Parallel Assembly IDE.\n\n"
+        "Open a project or create a new one to get started.\n\n"
+        "---\n\n"
+        "**Elara** is a parallel execution environment built around the EPA virtual machine. "
+        "Workers run in isolated address spaces, communicating through typed ingress packets "
+        "and signal mailboxes. The kernel coordinates scheduling and GHS memory transfer.\n\n"
+        "Use the **File** menu or the buttons in the sidebar to open or create a project.",
+    )
+    ui.set_property_number("editor.welcome.message", "font_size", 14)
+    ui.set_property_bool("editor.welcome.message", "read_only", True)
+    ui.place_grid_child("editor.welcome", "editor.welcome.message", 0, 1)
+
     ui.create_tabs("editor.tabs")
     for tab_id, title, source_text in INITIAL_E_TABS:
         _create_e_tab(ui, tab_id, title, source_text)
@@ -381,10 +361,22 @@ def build_document():
     ui.add_toolbar_item("app.toolbar", "toolbar.repo", "Repo")
     ui.add_toolbar_separator("app.toolbar")
     ui.add_toolbar_item("app.toolbar", "toolbar.debug", "Debug")
-
+    ui.create_grid("nav.no_project")
+    ui.add_grid_column_weighted_fill("nav.no_project", 1)
+    ui.add_grid_row_weighted_fill("nav.no_project", 1)
+    ui.add_grid_row_exact("nav.no_project", 40)
+    ui.add_grid_row_exact("nav.no_project", 12)
+    ui.add_grid_row_exact("nav.no_project", 40)
+    ui.add_grid_row_weighted_fill("nav.no_project", 1)
+    ui.create_button("nav.no_project.new", "New Project", "no_project.new_project")
+    ui.create_button("nav.no_project.open", "Open Project", "no_project.open_project")
+    ui.place_grid_child("nav.no_project", "nav.no_project.new", 0, 1)
+    ui.place_grid_child("nav.no_project", "nav.no_project.open", 0, 3)
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
     ui.place_grid_child("app.shell", "app.toolbar", 0, 1)
+    ui.place_grid_child("app.shell", "nav.no_project", 1, 1)
     ui.place_grid_child("app.shell", "nav.tree", 1, 1)
+    ui.place_grid_child("app.shell", "editor.welcome", 2, 1)
     ui.place_grid_child("app.shell", "editor.tabs", 2, 1)
     ui.place_grid_child("app.shell", "ai.panel", 3, 1)
     return ui
@@ -1304,11 +1296,13 @@ def main():
     wizard_state = {}            # live checkbox state for the new-project wizard
     nav_state = {}               # current browse path in the wizard file picker
     open_project_nav_state = {}  # current browse path in the open-project dialog
-    app_state = {}               # persistent project state set after successful creation
+    app_state = {}               # persistent project state set after universal creation
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
     editor_state = {}
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
+    tab_list = []                # [{"tab_id", "path", "index", "preview"}]
+    tab_click_state = {}         # double-click detection: {"path", "time"}
 
     def _compiler_root():
         return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
@@ -1742,28 +1736,33 @@ def main():
 
         tech_action_map = {"epa": "new_file.E", "cpp": "new_file.Cpp", "python": "new_file.Python"}
 
+        def _dir_node(path: Path) -> dict:
+            node = {"id": str(path), "label": path.name, "expanded": True, "children": []}
+            try:
+                entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+                for entry in entries:
+                    if entry.name.startswith("."):
+                        continue
+                    if entry.is_dir():
+                        node["children"].append(_dir_node(entry))
+                    else:
+                        node["children"].append({"id": str(entry), "label": entry.name})
+            except PermissionError:
+                pass
+            return node
+
         children = []
         for tech in technologies:
             tech_dir = project_path / tech
             if tech_dir.is_dir():
                 btn_action = tech_action_map.get(tech, f"new_file.{tech}")
-                children.append({
-                    "id": str(tech_dir),
-                    "label": tech,
-                    "buttons": [{"glyph": "+", "action": btn_action}],
-                })
+                node = _dir_node(tech_dir)
+                node["buttons"] = [{"glyph": "+", "action": btn_action}]
+                children.append(node)
 
         build_dir = project_path / "build"
         if build_dir.is_dir():
-            build_children = []
-            for sub in sorted(build_dir.iterdir()):
-                if sub.is_dir():
-                    build_children.append({"id": str(sub), "label": sub.name})
-            children.append({
-                "id": str(build_dir),
-                "label": "build",
-                "children": build_children,
-            })
+            children.append(_dir_node(build_dir))
 
         nodes = [{
             "id": str(project_path),
@@ -1785,7 +1784,115 @@ def main():
             "project_root": str(project_path),
             "project_name": project_name,
         })
+        try:
+            client.call("ui.setVisible", {"target": "nav.no_project", "visible": False})
+            client.call("ui.setVisible", {"target": "nav.tree", "visible": True})
+            client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+        except Exception:
+            pass
         _close_open_project_window(client)
+
+    def _tab_id_for_path(path: str) -> str:
+        import hashlib
+        return "tab." + hashlib.md5(path.encode()).hexdigest()[:8]
+
+    def _ext_for_path(path: str) -> str:
+        return Path(path).suffix.lower()
+
+    def _open_file_tab(client, file_path: str, make_permanent: bool = False):
+        tab_id = _tab_id_for_path(file_path)
+        ext = _ext_for_path(file_path)
+        title = Path(file_path).name
+
+        existing = next((t for t in tab_list if t["path"] == file_path), None)
+        if existing:
+            if make_permanent and existing["preview"]:
+                existing["preview"] = False
+            try:
+                client.call("ui.setActiveTab", {"target": "editor.tabs", "index": existing["index"]})
+                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
+                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+            except Exception:
+                pass
+            return
+
+        preview_entry = next((t for t in tab_list if t["preview"]), None)
+        if preview_entry and not make_permanent:
+            insert_index = preview_entry["index"]
+            try:
+                client.call("ui.removeTab", {"target": "editor.tabs", "index": insert_index})
+            except Exception:
+                pass
+            tab_list.remove(preview_entry)
+            if tab_id in editor_state:
+                del editor_state[tab_id]
+            for t in tab_list:
+                if t["index"] >= insert_index:
+                    t["index"] -= 1
+        else:
+            insert_index = len(tab_list)
+
+        try:
+            source_text = Path(file_path).read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            source_text = ""
+
+        is_preview = not make_permanent
+        close_action = f"tab.close.{tab_id}"
+
+        if ext == ".e":
+            tab_ui = UiDocumentBuilder()
+            tab_ui.create_tabs("editor.tabs")
+            _create_e_tab(tab_ui, tab_id, title, source_text)
+            child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
+            editor_state[tab_id] = {
+                "title": title,
+                "source_text": source_text,
+                "epa_text": "",
+                "view": "e",
+                "compile_error": "",
+                "compile_seq": 0,
+                "debug_marker_line": 0,
+                "debug_text": "# Debug Trace\n\nNo EPA output available.\n",
+                "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{tab_id}.debug_ghs.root"),
+                "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{tab_id}.debug_stack.root"),
+                "local_nodes": _parse_tree_lines("", "Local Arena", f"{tab_id}.debug_local.root"),
+                "available_types": [],
+                "available_workers": [],
+                "debug_ingress_type": "",
+                "debug_worker_name": "",
+                "debug_started": False,
+            }
+        else:
+            tab_ui = UiDocumentBuilder()
+            tab_ui.create_rich_text_edit(tab_id + ".container", source_text)
+            tab_ui.set_property_number(tab_id + ".container", "font_size", 13)
+            child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
+
+        try:
+            client.call("ui.addTab", {
+                "target": "editor.tabs",
+                "title": title,
+                "button_glyph": "x",
+                "button_action": close_action,
+                "child": child_json,
+            })
+            tab_list.insert(insert_index, {
+                "tab_id": tab_id,
+                "path": file_path,
+                "index": insert_index,
+                "preview": is_preview,
+            })
+            for t in tab_list:
+                if t is not tab_list[insert_index] and t["index"] >= insert_index:
+                    t["index"] += 1
+            client.call("ui.setActiveTab", {"target": "editor.tabs", "index": insert_index})
+            client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
+            client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+            if ext == ".e":
+                _refresh_e_tab(client, tab_id)
+        except Exception:
+            pass
 
     def _deferred(fn):
         """Run fn on a thread so on_ui_event returns before any RPC calls are made."""
@@ -1905,6 +2012,22 @@ def main():
                     _deferred(lambda: c.set_text("new_file.template_summary", summary))
             return {"received": True}
 
+        # Tree view file click — single click = preview tab, double click = permanent tab.
+        if action == "action" and target == "nav.tree" and client is not None:
+            node_path = payload.get("action", "")
+            if node_path and Path(node_path).is_file():
+                now = time.monotonic()
+                last = tab_click_state.get("path")
+                last_t = tab_click_state.get("time", 0.0)
+                is_double = (node_path == last and now - last_t < 0.5)
+                tab_click_state["path"] = node_path
+                tab_click_state["time"] = now
+                c = client
+                np = node_path
+                perm = is_double
+                _deferred(lambda: _open_file_tab(c, np, perm))
+            return {"received": True}
+
         # Double-click on a folder item navigates into it.
         if action == "action" and target == "wizard.folder_list" and client is not None:
             folder_path = payload.get("action", "")
@@ -1972,6 +2095,29 @@ def main():
                     ))
                     return {"received": True}
 
+            if item_action and item_action.startswith("tab.close."):
+                close_tab_id = item_action[len("tab.close."):]
+                entry = next((t for t in tab_list if t["tab_id"] == close_tab_id), None)
+                if entry:
+                    close_index = entry["index"]
+                    tab_list.remove(entry)
+                    if close_tab_id in editor_state:
+                        del editor_state[close_tab_id]
+                    for t in tab_list:
+                        if t["index"] > close_index:
+                            t["index"] -= 1
+                    ci = close_index
+                    def _do_close_tab():
+                        try:
+                            c.call("ui.removeTab", {"target": "editor.tabs", "index": ci})
+                            if not tab_list:
+                                c.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
+                                c.call("ui.setVisible", {"target": "editor.welcome", "visible": True})
+                        except Exception:
+                            pass
+                    _deferred(_do_close_tab)
+                return {"received": True}
+
             if target == "app.menu" and item_action in (
                 "edit.cut", "edit.copy", "edit.paste", "edit.select_all"
             ):
@@ -1980,7 +2126,7 @@ def main():
             if target == "app.menu" and item_action == "file.open":
                 _deferred(lambda: c.open_window("open-file", "Open File", 920, 640, build_open_file_dialog()))
 
-            elif target == "app.menu" and item_action == "file.new_project":
+            elif item_action in ("file.new_project", "no_project.new_project"):
                 initial = str(Path.home())
                 wizard_state.clear()
                 wizard_state.update({
@@ -1993,7 +2139,7 @@ def main():
                     build_new_project_wizard(initial)
                 ))
 
-            elif target == "app.menu" and item_action == "file.open_project":
+            elif item_action in ("file.open_project", "no_project.open_project"):
                 initial = str(Path.home())
                 open_project_nav_state["path"] = initial
                 _deferred(lambda: c.open_window(
@@ -2244,6 +2390,16 @@ def main():
             client.add_handler("ui.event", on_ui_event)
             load_result = client.load_document(builder)
             print(json.dumps(load_result, indent=2))
+            try:
+                client.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
+            except Exception:
+                pass
+            if not app_state.get("project_root"):
+                try:
+                    client.call("ui.setVisible", {"target": "nav.tree", "visible": False})
+                    client.call("ui.setVisible", {"target": "app.toolbar", "visible": False})
+                except Exception:
+                    pass
             for tab_id in editor_state:
                 _refresh_e_tab(client, tab_id)
             if app_state.get("active_editor_tab"):

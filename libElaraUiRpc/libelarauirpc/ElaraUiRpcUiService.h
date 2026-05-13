@@ -112,6 +112,24 @@ private:
         String& error_code,
         String& error_message
     );
+    bool addTab(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool removeTab(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setActiveTab(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool dispatchMouseMove(
         const Json& params,
         String& result_json

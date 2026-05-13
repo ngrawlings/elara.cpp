@@ -54,6 +54,9 @@ public:
     void registerFactory(Ref<ElaraJsonWidgetFactory> factory);
     bool clearChildren(ElaraWidgetHandle target_handle);
     bool replaceChildren(ElaraWidgetHandle target_handle, const String& json_text);
+    bool addTab(ElaraWidgetHandle target_handle, const String& json_text);
+    bool removeTab(ElaraWidgetHandle target_handle, int index);
+    bool setActiveTab(ElaraWidgetHandle target_handle, int index);
     bool load(const String& json_text);
     bool loadFile(const String& path);
 };

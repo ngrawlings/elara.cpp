@@ -382,6 +382,7 @@ void ElaraTreeViewWidget::onMouseUp(int button, double px, double py) {
         selected_text = node->getText();
         emitValueChanged(1.0);
         emitClicked(button, px, py);
+        emitAction(node->getId());
     }
 }
 

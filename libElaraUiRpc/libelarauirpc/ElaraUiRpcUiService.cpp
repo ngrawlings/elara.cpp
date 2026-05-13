@@ -440,6 +440,109 @@ bool ElaraUiRpcUiService::replaceChildren(
     return true;
 }
 
+bool ElaraUiRpcUiService::addTab(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    if(!protocol) {
+        error_code = "unsupported_operation";
+        error_message = "addTab requires a JSON UI protocol instance";
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    String child_json = params.getStringValue("child");
+
+    if(child_json.length() <= 0) {
+        error_code = "missing_child";
+        error_message = "addTab requires a child widget JSON string";
+        return false;
+    }
+
+    String title = params.getStringValue("title");
+    String btn_glyph = params.getStringValue("button_glyph");
+    String btn_action = params.getStringValue("button_action");
+
+    String spec_json = String("{\"title\":\"") + title
+        + String("\",\"button_glyph\":\"") + btn_glyph
+        + String("\",\"button_action\":\"") + btn_action
+        + String("\",\"child\":") + child_json
+        + String("}");
+
+    if(!protocol->addTab(widget->getHandle(), spec_json)) {
+        error_code = "add_tab_failed";
+        error_message = "Failed to add tab";
+        return false;
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::removeTab(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    if(!protocol) {
+        error_code = "unsupported_operation";
+        error_message = "removeTab requires a JSON UI protocol instance";
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    int index = params.getIntValue("index");
+
+    if(index < 0) {
+        error_code = "missing_index";
+        error_message = "removeTab requires a non-negative tab index";
+        return false;
+    }
+
+    protocol->removeTab(widget->getHandle(), index);
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setActiveTab(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(widget.getPtr());
+
+    if(!tabs) {
+        error_code = "unsupported_widget";
+        error_message = "setActiveTab target must be a tab widget";
+        return false;
+    }
+
+    int index = params.getIntValue("index");
+    tabs->setActiveTab(index);
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::dispatchMouseMove(
     const Json& params,
     String& result_json
@@ -719,6 +822,18 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("replaceChildren")) {
         return replaceChildren(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("addTab")) {
+        return addTab(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("removeTab")) {
+        return removeTab(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setActiveTab")) {
+        return setActiveTab(params, result_json, error_code, error_message);
     }
 
     if(method == String("dispatchMouseMove")) {

@@ -36,7 +36,6 @@ public:
 class ElaraTabWidget : public ElaraWidget {
 private:
     Array< Ref<ElaraTabPage> > pages;
-    Array< Ref<ElaraTabPage> > orphaned_pages;
 
     int active_index;
     int hover_index;

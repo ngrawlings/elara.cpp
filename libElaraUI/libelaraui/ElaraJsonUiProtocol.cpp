@@ -1013,6 +1013,87 @@ bool ElaraJsonUiProtocol::replaceChildren(
     return replaceChildren(widget, spec);
 }
 
+bool ElaraJsonUiProtocol::addTab(ElaraWidgetHandle target_handle, const String& json_text) {
+    if(!root) {
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root->getWidget(target_handle);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(widget.getPtr());
+
+    if(!tabs) {
+        return false;
+    }
+
+    Json spec(json_text);
+    String title = jsonString(spec, "title", String("Tab"));
+    String btn_glyph = spec.getStringValue("button_glyph");
+    String btn_action = spec.getStringValue("button_action");
+
+    Ref<JsonValue> child_value = spec.getJsonValue("child");
+
+    if(!child_value || child_value->getType() == JsonValue::INVALID) {
+        return false;
+    }
+
+    Json child_spec(child_value);
+    ElaraWidget* child = createWidget(child_spec);
+
+    if(!child) {
+        return false;
+    }
+
+    tabs->addTab(title, child, btn_glyph, btn_action);
+    return true;
+}
+
+bool ElaraJsonUiProtocol::removeTab(ElaraWidgetHandle target_handle, int index) {
+    if(!root) {
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root->getWidget(target_handle);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(widget.getPtr());
+
+    if(!tabs) {
+        return false;
+    }
+
+    tabs->removeTab(index);
+    return true;
+}
+
+bool ElaraJsonUiProtocol::setActiveTab(ElaraWidgetHandle target_handle, int index) {
+    if(!root) {
+        return false;
+    }
+
+    Ref<ElaraWidget> widget = root->getWidget(target_handle);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraTabWidget* tabs = dynamic_cast<ElaraTabWidget*>(widget.getPtr());
+
+    if(!tabs) {
+        return false;
+    }
+
+    tabs->setActiveTab(index);
+    return true;
+}
+
 Ref<ElaraJsonWidgetFactory> ElaraJsonUiProtocol::findFactory(const String& type) const {
     for(int i = 0; i < (int)factories.length(); i++) {
         Ref<ElaraJsonWidgetFactory> factory = factories[i];
