@@ -723,6 +723,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{ "WORKER_TRX_OUT_L",  EPA_OP_WORKER_TRX_OUT_L,  2, 2, 2, 	{ AK_U32, AK_U16 }, NULL, "" },         // laddr, len
 	{ "WORKER_TRX_IN_R",   EPA_OP_WORKER_TRX_IN_R,   1, 1, 1, 	{ AK_U8 }, NULL, "" },         // laddr, len
 	{ "WORKER_TRX_OUT_R",  EPA_OP_WORKER_TRX_OUT_R,  1, 1, 1, 	{ AK_U8 }, NULL, "" },         // laddr, len
+	{ "KERNEL_GHS_IN_R",   EPA_OP_KERNEL_GHS_IN_R,   1, 1, 1,   { AK_U32 }, NULL, "KERNEL_GHS_IN_R <wid_local:u32> (returns r0=idx, r1=gen, r2=ok, r3=0)" },
 
     // ---------------------------
     // Global Handle Space (GHS) - register convention, no immediates
@@ -734,6 +735,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"G_RESIZE",   EPA_OP_G_RESIZE,             0,0, 0,{0}, NULL, "G_RESIZE (uses r0=idx, r1=gen, r2=new_size)"},
     {"G_PTR",      EPA_OP_G_PTR,                0,0, 0,{0}, NULL, "G_PTR (uses r0=idx, r1=gen; returns r0=ptr_lo, r1=ptr_hi)"},
     {"G_META",     EPA_OP_G_META,               0,0, 0,{0}, NULL, "G_META (uses r0=idx, r1=gen; returns r0=owner,r1=type,r2=size,r3=cap)"},
+    {"G_TAG",      EPA_OP_G_TAG,                0,0, 0,{0}, NULL, "G_TAG (uses r0=idx, r1=gen; returns r0=tag)"},
 	{"GR_MOV4",     EPA_OP_GR_MOV4,               1,1, 1,{AK_U8}, NULL, "GR_MOV4 <rx:u8> (uses r0=idx, r1=gen; returns rx=value)"},
 
     // Debug / interrupts
@@ -741,6 +743,8 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"TRAP",       EPA_OP_TRAP,                  1,1, 1,{AK_U32}, NULL, "TRAP <code:u32>"},
     {"EXCEPT",     EPA_OP_EXCEPT,                1,1, 1,{AK_U32}, NULL, "EXCEPT <code:u32>"},
 	{"SIGNAL",     EPA_OP_SIGNAL,                0,0, 0,{0}, NULL, "SIGNAL"},
+	{"FAR_SIGNAL", EPA_OP_FAR_SIGNAL,            0,0, 0,{0}, NULL, "FAR_SIGNAL"},
+	{"HOST_SIGNAL",EPA_OP_HOST_SIGNAL,           0,0, 0,{0}, NULL, "HOST_SIGNAL"},
 
 	{"LOAD_CONST", EPA_OP_LOAD_CONST, 1,1, 1,{AK_U32}, NULL, "LOAD_CONST <id:u32>"},
 

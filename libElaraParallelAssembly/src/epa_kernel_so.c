@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #include "epa_asm_compiler.h"
 #include "log.h"
@@ -26,6 +27,58 @@ int epa_kernel_set_scheduler(EpaKernel *k,
                              EpaSchedProfile profile,
                              char err[EPA_MAX_ERR]);
 
+typedef struct KernelRegistryNode {
+  char *kernel_id;
+  EpaKernel *kernel;
+  struct KernelRegistryNode *next;
+} KernelRegistryNode;
+
+static pthread_mutex_t g_kernel_registry_mu = PTHREAD_MUTEX_INITIALIZER;
+static KernelRegistryNode *g_kernel_registry = NULL;
+
+static char *kernel_strdup(const char *s) {
+  size_t n;
+  char *p;
+  if (!s) return NULL;
+  n = strlen(s);
+  p = (char*)malloc(n + 1u);
+  if (!p) return NULL;
+  memcpy(p, s, n + 1u);
+  return p;
+}
+
+static void registry_remove_kernel_locked(EpaKernel *k) {
+  KernelRegistryNode **pp = &g_kernel_registry;
+  while (*pp) {
+    KernelRegistryNode *node = *pp;
+    if (node->kernel == k) {
+      *pp = node->next;
+      free(node->kernel_id);
+      free(node);
+      continue;
+    }
+    pp = &node->next;
+  }
+}
+
+static EpaKernel *registry_find_kernel_locked(const char *kernel_id) {
+  KernelRegistryNode *node = g_kernel_registry;
+  while (node) {
+    if (strcmp(node->kernel_id, kernel_id) == 0) return node->kernel;
+    node = node->next;
+  }
+  return NULL;
+}
+
+static uint32_t kernel_default_ingress_wid(const EpaKernel *k) {
+  uint32_t wid;
+  if (!k || !k->prog_loaded) return 0u;
+  for (wid = 1u; wid < EPA_MAX_WORKERS; wid++) {
+    if (k->prog.entry_present[wid]) return wid;
+  }
+  return 0u;
+}
+
 void epa_kernel_set_debug_callback(EpaKernel *k, EpaKernelDbgCallback cb, void *cb_user) {
   if (!k) return;
   k->dbg_cb = cb;
@@ -44,6 +97,7 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
     free(k);
     return NULL;
   }
+  pthread_mutex_init(&k->impl.syncq_mu, NULL);
 
   k->impl.ghs = epa_ghs_create(65536, NULL, NULL, NULL);
   if (!k->impl.ghs) {
@@ -74,6 +128,10 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
 void epa_kernel_destroy(EpaKernel *k) {
   if (!k) return;
 
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  registry_remove_kernel_locked(k);
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+
   // free workers
   for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) {
     if (k->impl.workers[i].inited) epa_worker_free(&k->impl.workers[i]);
@@ -92,12 +150,112 @@ void epa_kernel_destroy(EpaKernel *k) {
   }
 
   epa_ring_free(&k->impl.syncq);
+  pthread_mutex_destroy(&k->impl.syncq_mu);
 
   if (k->vp) vp_destroy(k->vp);
 
   if (k->prog_loaded) epa_program_free(&k->prog);
 
+  free(k->kernel_id);
+  k->kernel_id = NULL;
+
   free(k);
+}
+
+int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]) {
+  char *copy;
+  KernelRegistryNode *node;
+  if (err) err[0] = 0;
+  if (!k || !kernel_id || !kernel_id[0]) {
+    if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: bad args");
+    return 0;
+  }
+  copy = kernel_strdup(kernel_id);
+  if (!copy) {
+    if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: OOM");
+    return 0;
+  }
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  node = g_kernel_registry;
+  while (node) {
+    if (strcmp(node->kernel_id, kernel_id) == 0 && node->kernel != k) {
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+      free(copy);
+      if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: duplicate id '%s'", kernel_id);
+      return 0;
+    }
+    node = node->next;
+  }
+
+  registry_remove_kernel_locked(k);
+  node = (KernelRegistryNode*)calloc(1, sizeof(*node));
+  if (!node) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    free(copy);
+    if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: OOM");
+    return 0;
+  }
+  node->kernel_id = copy;
+  node->kernel = k;
+  node->next = g_kernel_registry;
+  g_kernel_registry = node;
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+
+  free(k->kernel_id);
+  k->kernel_id = kernel_strdup(kernel_id);
+  if (!k->kernel_id) {
+    if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: OOM");
+    return 0;
+  }
+  return 1;
+}
+
+const char* epa_kernel_get_id(const EpaKernel *k) {
+  return k ? k->kernel_id : NULL;
+}
+
+EpaKernel* epa_kernel_find_by_id(const char *kernel_id) {
+  EpaKernel *k = NULL;
+  if (!kernel_id || !kernel_id[0]) return NULL;
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  k = registry_find_kernel_locked(kernel_id);
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  return k;
+}
+
+int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
+                                const void *payload, uint32_t payload_len, uint32_t payload_tag,
+                                char err[EPA_MAX_ERR]) {
+  EpaKernel *target;
+  uint32_t target_wid;
+  if (err) err[0] = 0;
+  if (!sender || !target_kernel_id || !target_kernel_id[0] || !payload || payload_len == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad args");
+    return 0;
+  }
+  if (source_wid >= EPA_MAX_WORKERS || !sender->impl.workers[source_wid].inited) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad source wid %u", (unsigned)source_wid);
+    return 0;
+  }
+
+  target = epa_kernel_find_by_id(target_kernel_id);
+  if (!target) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' not found", target_kernel_id);
+    return 0;
+  }
+  target_wid = kernel_default_ingress_wid(target);
+  if (target_wid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' has no default ingress worker", target_kernel_id);
+    return 0;
+  }
+
+  if (!epa_kernel_ingress_push_tagged(target, target_wid, payload_tag, payload, payload_len)) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target ingress queue full for '%s'", target_kernel_id);
+    return 0;
+  }
+  epa_kernel_request_interrupt(target);
+  return 1;
 }
 
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {
@@ -176,6 +334,8 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->hooks.on_trap         = hook_trap;
   k->hooks.on_except       = hook_except;
   k->hooks.on_signal	   = hook_signal;
+  k->hooks.on_far_signal   = hook_far_signal;
+  k->hooks.on_host_signal  = hook_host_signal;
 
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
@@ -202,7 +362,7 @@ void epa_kernel_close_viewport(EpaKernel *k) {
 
 static uint32_t pad4(uint32_t n) { return (n + 3u) & ~3u; }
 
-int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len) {
+int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len) {
 	if (!k || wid >= EPA_MAX_WORKERS) return 0;
 
 	EpaIngressQ *q = &k->ingress.inq[wid];
@@ -220,16 +380,22 @@ int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32
 
 	q->q[q->tail].buf = b;
 	q->q[q->tail].len = plen;
+	q->q[q->tail].tag = tag;
 	q->tail = (q->tail + 1) % EPA_INGRESS_QMAX;
 	q->count++;
 
-	return 0;
+	return 1;
+}
+
+int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len) {
+  return epa_kernel_ingress_push_tagged(k, wid, 0u, data, len);
 }
 
 static void ingress_free_msg(EpaIngressMsg *m) {
   free(m->buf);
   m->buf = NULL;
   m->len = 0;
+  m->tag = 0u;
 }
 
 // Ring message kinds (keep tiny + fixed-size)
@@ -246,6 +412,7 @@ static void ingress_free_msg(EpaIngressMsg *m) {
 static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
                                          uint32_t dst_wid,
                                          const uint8_t *bytes,
+                                         uint32_t tag,
                                          uint32_t len_bytes,
                                          char err[EPA_MAX_ERR]) {
   if (!k || !bytes || len_bytes == 0) {
@@ -266,9 +433,9 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
 
   // 1) Allocate GHS object of type BYTES, owned by kernel (0)
   epa_ghs_handle_t h = 0;
-  epa_ghs_err_t ge = epa_ghs_alloc(ghs, EPA_GHS_T_BYTES, /*owner=*/0, len_bytes, &h);
+  epa_ghs_err_t ge = epa_ghs_alloc_tagged(ghs, EPA_GHS_T_BYTES, /*owner=*/0, len_bytes, tag, &h);
   if (ge != EPA_GHS_OK) {
-    snprintf(err, EPA_MAX_ERR, "ingress: epa_ghs_alloc failed (%d)", (int)ge);
+    snprintf(err, EPA_MAX_ERR, "ingress: epa_ghs_alloc_tagged failed (%d)", (int)ge);
     return 0;
   }
 
@@ -396,6 +563,7 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
       // Your msg fields might be (m->data, m->len_bytes). Adjust if needed.
       const uint8_t *buf = (const uint8_t*)m->buf;
       uint32_t len = (uint32_t)m->len;
+      uint32_t tag = m->tag;
 
       if (!buf || len == 0) {
         // consume malformed msg so we don't deadlock the queue
@@ -405,7 +573,7 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
         continue;
       }
 
-      if (!epa_kernel_deliver_ingress_msg(k, wid, buf, len, err)) {
+      if (!epa_kernel_deliver_ingress_msg(k, wid, buf, tag, len, err)) {
         // do NOT consume the message if delivery failed: keeps behavior deterministic
         // (host can retry / expand rings / etc)
         return 0;

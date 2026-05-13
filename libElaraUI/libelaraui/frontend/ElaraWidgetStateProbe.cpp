@@ -13,6 +13,7 @@
 #include "widgets/ElaraSpinnerWidget.h"
 #include "widgets/ElaraTabWidget.h"
 #include "widgets/ElaraTextInputWidget.h"
+#include "widgets/ElaraComboBoxWidget.h"
 #include "widgets/ElaraListViewWidget.h"
 #include "widgets/ElaraTreeViewWidget.h"
 #include "widgets/instruments/ElaraMultiAxisLineChartWidget.h"
@@ -120,6 +121,10 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
 
     if(dynamic_cast<ElaraSpinnerWidget*>(widget)) {
         return "ElaraSpinnerWidget";
+    }
+
+    if(dynamic_cast<ElaraComboBoxWidget*>(widget)) {
+        return "ElaraComboBoxWidget";
     }
 
     if(dynamic_cast<ElaraListViewWidget*>(widget)) {
@@ -253,6 +258,20 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
         state.has_step = true;
         state.has_enabled = true;
         state.has_font_size = true;
+        return state;
+    }
+
+    ElaraComboBoxWidget* combo = dynamic_cast<ElaraComboBoxWidget*>(widget.getPtr());
+    if(combo) {
+        state.kind = ELARA_WIDGET_STATE_COMBO_BOX;
+        state.text = combo->getSelectedText();
+        state.selected_id = combo->getSelectedId();
+        state.enabled = combo->isEnabled();
+        state.item_count = combo->getItemCount();
+        state.has_text = true;
+        state.has_selected_id = true;
+        state.has_enabled = true;
+        state.has_item_count = true;
         return state;
     }
 

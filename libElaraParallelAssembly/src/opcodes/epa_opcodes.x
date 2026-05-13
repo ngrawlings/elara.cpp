@@ -56,6 +56,7 @@ X(ADD_I32,    0x0210u, "ADD_I32",  0)   // Pop a,b → push (a+b)
 X(SUB_I32,    0x0211u, "SUB_I32",  0)   // Pop a,b → push (a-b)
 X(MUL_I32,    0x0212u, "MUL_I32",  0)   // Pop a,b → push (a*b)
 X(LT_I32,     0x0213u, "LT_I32",   0)   // Pop a,b → push (a<b ? 1 : 0)
+X(EQ_I32,     0x0214u, "EQ_I32",   0)   // Pop a,b → push (a==b ? 1 : 0)
 
 X(STORE_L,    0x0220u, "STORE_L",  1)   // Store top-of-stack into local slot (u8 idx)
 X(LOAD_L,     0x0221u, "LOAD_L",   1)   // Load local slot and push to stack (u8 idx)
@@ -94,6 +95,7 @@ X(WORKER_TRX_OUT_L,  0x0303u, "WORKER_TRX_OUT_L",  6)  // Worker pushes local �
 X(WORKER_TRX_IN_R,   0x0304u, "WORKER_TRX_IN_R",   1)  // Worker pulls kernel → register
 X(WORKER_TRX_OUT_R,  0x0305u, "WORKER_TRX_OUT_R",  1)  // Worker pushes register → kernel
 X(WORKER_TRX,        0x0306u, "WORKER_TRX",       10)  // Local-to-local transfer
+X(KERNEL_GHS_IN_R,   0x0307u, "KERNEL_GHS_IN_R",   4)  // Kernel pulls worker current GHS -> r0/r1, r2=ok
 
 //
 // ---------- COMMON: Global Handle Space ----------
@@ -105,6 +107,7 @@ X(G_XFERX, 			0x0313u, "G_XFERX", 	4) // new multi version
 X(G_RESIZE,  		0x0314u, "G_RESIZE",  	0) // Resize global handle
 X(G_PTR,     		0x0315u, "G_PTR",     	0) // Get host pointer for handle (host only)
 X(G_META,    		0x0316u, "G_META",    	0) // Query handle metadata
+X(G_TAG,            0x0318u, "G_TAG",       0) // Query handle tag -> r0=tag
 
 // Ingress ring helper: pop 4 u32 words from the worker INQ into r0..r3.
 // Intended for the standard payload routing: INGRESS -> GHS -> notify worker,
@@ -119,6 +122,8 @@ X(BREAK,   0x0400u, "BREAK",  4) // Debug break with code
 X(TRAP,    0x0401u, "TRAP",   4) // Fatal VM trap
 X(EXCEPT,  0x0402u, "EXCEPT", 4) // Raise exception (fatal by policy)
 X(SIGNAL,  0x0403u, "SIGNAL", 0)
+X(FAR_SIGNAL,  0x0404u, "FAR_SIGNAL", 0)
+X(HOST_SIGNAL, 0x0405u, "HOST_SIGNAL", 0)
 
 // Local byte arena allocation (worker-local, byte-addressable)
 X(L_ALLOC, 0x0222u, "L_ALLOC", 0) // in: r0=size_bytes  out: r0=off, r1=size, r2=ok(1/0), r3=0

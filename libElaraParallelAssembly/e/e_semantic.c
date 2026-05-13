@@ -21,6 +21,10 @@ static const ETypeLayout *find_type_layout(const ESemanticModel *model, const ch
 #define E_TYPE_REF_ABI_WORDS 2u
 #define E_TYPE_REF_ABI_SIZE (E_TYPE_REF_ABI_WORDS * 4u)
 
+static int type_ref_is_union(const ETypeRef *type) {
+  return type && type->union_count > 0u;
+}
+
 static int is_primitive_type(const char *name) {
   return strcmp(name, "int") == 0 ||
          strcmp(name, "long") == 0 ||
@@ -53,6 +57,10 @@ static size_t primitive_size(const char *name) {
 static size_t type_ref_size(const ESemanticModel *model, const ETypeRef *type, char err[256]) {
   size_t elem_size = 0u;
   size_t count = (type->array_len == 0u) ? 1u : (size_t)type->array_len;
+  if (type_ref_is_union(type)) {
+    snprintf(err, 256, "union type '%s|...' does not have a fixed inline size", type->name);
+    return 0u;
+  }
   if (is_primitive_type(type->name)) {
     elem_size = primitive_size(type->name);
   } else {
@@ -82,6 +90,46 @@ static const EValidatorBinding *find_validator(const ESemanticModel *model, cons
     if (strcmp(model->validators[i].type_name, name) == 0) return &model->validators[i];
   }
   return NULL;
+}
+
+static int validate_typeof_typeid_expr(const EExpr *expr, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  if (!expr) return 1;
+  switch (expr->kind) {
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+    case E_EXPR_STRING:
+      return 1;
+    case E_EXPR_FIELD:
+      return validate_typeof_typeid_expr(expr->as.field.base, model, err);
+    case E_EXPR_ASSIGN:
+      return validate_typeof_typeid_expr(expr->as.assign.lhs, model, err) &&
+             validate_typeof_typeid_expr(expr->as.assign.rhs, model, err);
+    case E_EXPR_BINARY:
+      return validate_typeof_typeid_expr(expr->as.binary.lhs, model, err) &&
+             validate_typeof_typeid_expr(expr->as.binary.rhs, model, err);
+    case E_EXPR_CALL:
+      if (strcmp(expr->as.call.callee, "typeid") == 0) {
+        if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+          snprintf(err, 256, "typeid expects exactly 1 declared type name");
+          return 0;
+        }
+        if (!find_validator(model, expr->as.call.args[0]->as.ident)) {
+          snprintf(err, 256, "typeid target '%s' is not a declared E type", expr->as.call.args[0]->as.ident);
+          return 0;
+        }
+      } else if (strcmp(expr->as.call.callee, "typeof") == 0) {
+        if (expr->as.call.arg_count != 1u) {
+          snprintf(err, 256, "typeof expects exactly 1 argument");
+          return 0;
+        }
+      }
+      for (i = 0; i < expr->as.call.arg_count; i++) {
+        if (!validate_typeof_typeid_expr(expr->as.call.args[i], model, err)) return 0;
+      }
+      return 1;
+  }
+  return 1;
 }
 
 static EValidatorBinding *find_validator_mut(ESemanticModel *model, const char *name) {
@@ -208,7 +256,8 @@ static int push_local_binding(EFunctionFrame *frame, const EStmt *decl_stmt, con
 
 static int push_frame(ESemanticModel *model, const char *owner_name, const EFunction *fn,
                       size_t param_size, size_t stack_local_size,
-                      unsigned int reserved_reg_words, ELocalBinding *locals,
+                      unsigned int reserved_reg_words, unsigned int vm_local_count,
+                      ELocalBinding *locals,
                       size_t local_count) {
   EFunctionFrame *next;
   next = (EFunctionFrame*)realloc(model->frames, sizeof(EFunctionFrame) * (model->frame_count + 1u));
@@ -222,11 +271,29 @@ static int push_frame(ESemanticModel *model, const char *owner_name, const EFunc
   model->frames[model->frame_count].param_size = param_size;
   model->frames[model->frame_count].stack_local_size = stack_local_size;
   model->frames[model->frame_count].reserved_reg_words = reserved_reg_words;
+  model->frames[model->frame_count].vm_local_count = vm_local_count;
   model->frames[model->frame_count].total_size = param_size + stack_local_size;
   model->frames[model->frame_count].locals = locals;
   model->frames[model->frame_count].local_count = local_count;
   model->frame_count++;
   return 1;
+}
+
+static const EFunctionFrame *find_frame(const ESemanticModel *model, const char *owner_name) {
+  size_t i;
+  for (i = 0; i < model->frame_count; i++) {
+    if (strcmp(model->frames[i].owner_name, owner_name) == 0) return &model->frames[i];
+  }
+  return NULL;
+}
+
+static const ELocalBinding *find_local_binding_by_name(const EFunctionFrame *frame, const char *name) {
+  size_t i;
+  if (!frame || !name) return NULL;
+  for (i = 0; i < frame->local_count; i++) {
+    if (strcmp(frame->locals[i].name, name) == 0) return &frame->locals[i];
+  }
+  return NULL;
 }
 
 static int push_worker(ESemanticModel *model, const EWorker *worker) {
@@ -334,7 +401,25 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
           snprintf(err, 256, "worker '%s' must take exactly one parameter", top->as.worker.name);
           return 0;
         }
-        if (!is_custom_type_with_layout(model, top->as.worker.params[0].type.name)) {
+        if (type_ref_is_union(&top->as.worker.params[0].type)) {
+          size_t ui;
+          if (top->as.worker.params[0].type.array_len != 0u) {
+            snprintf(err, 256, "worker '%s' union ingress parameter cannot be an array", top->as.worker.name);
+            return 0;
+          }
+          if (!is_custom_type_with_layout(model, top->as.worker.params[0].type.name)) {
+            snprintf(err, 256, "worker '%s' ingress option '%s' must be a custom type with a GHS layout",
+                     top->as.worker.name, top->as.worker.params[0].type.name);
+            return 0;
+          }
+          for (ui = 0; ui < top->as.worker.params[0].type.union_count; ui++) {
+            if (!is_custom_type_with_layout(model, top->as.worker.params[0].type.union_names[ui])) {
+              snprintf(err, 256, "worker '%s' ingress option '%s' must be a custom type with a GHS layout",
+                       top->as.worker.name, top->as.worker.params[0].type.union_names[ui]);
+              return 0;
+            }
+          }
+        } else if (!is_custom_type_with_layout(model, top->as.worker.params[0].type.name)) {
           snprintf(err, 256, "worker '%s' parameter must be a custom type with a GHS layout", top->as.worker.name);
           return 0;
         }
@@ -434,6 +519,11 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
       }
       return 1;
     case E_STMT_DECL: {
+      if (type_ref_is_union(&stmt->as.decl.type)) {
+        snprintf(err, 256, "decl '%s' cannot use union type '%s|...' outside a worker ingress parameter",
+                 stmt->as.decl.name, stmt->as.decl.type.name);
+        return 0;
+      }
       size_t byte_size = type_ref_size(model, &stmt->as.decl.type, err);
       if (byte_size == 0u && stmt->as.decl.type.array_len == 0u && primitive_size(stmt->as.decl.type.name) == 0u &&
           !find_type_layout(model, stmt->as.decl.type.name)) {
@@ -476,14 +566,25 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
         }
         push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
                            E_LOCAL_ARENA_SCOPED, 0u, 0u, 0u);
+        if (frame->local_count > 0u) {
+          ELocalBinding *binding = &frame->locals[frame->local_count - 1u];
+          binding->vm_local_slot = frame->vm_local_count;
+          binding->vm_local_words = E_TYPE_REF_ABI_WORDS;
+          frame->vm_local_count += E_TYPE_REF_ABI_WORDS;
+        }
       } else {
         push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
                            E_LOCAL_STACK, frame->stack_local_size, 0u, 0u);
         if (frame->local_count > 0u) {
           ELocalBinding *binding = &frame->locals[frame->local_count - 1u];
-          if (stmt->as.decl.type.array_len == 0u && byte_size > 0u && byte_size <= 4u) {
-            binding->vm_local_slot = (unsigned int)(frame->param_size / 4u + frame->stack_local_size / 4u);
+          if (stmt->as.decl.type.array_len == 0u && !is_primitive_type(stmt->as.decl.type.name)) {
+            binding->vm_local_slot = frame->vm_local_count;
+            binding->vm_local_words = E_TYPE_REF_ABI_WORDS;
+            frame->vm_local_count += E_TYPE_REF_ABI_WORDS;
+          } else if (stmt->as.decl.type.array_len == 0u && byte_size > 0u && byte_size <= 4u) {
+            binding->vm_local_slot = frame->vm_local_count;
             binding->vm_local_words = 1u;
+            frame->vm_local_count += 1u;
           }
         }
         frame->stack_local_size += byte_size;
@@ -513,6 +614,11 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
     memset(&frame, 0, sizeof(frame));
     for (j = 0; j < top->as.func.param_count; j++) {
       const EParam *param = &top->as.func.params[j];
+      if (type_ref_is_union(&param->type)) {
+        snprintf(err, 256, "function '%s' parameter '%s' cannot use a union ingress type",
+                 top->as.func.name, param->name);
+        return 0;
+      }
       size_t field_size = type_ref_size(model, &param->type, err);
       size_t abi_size = field_size;
       unsigned int vm_local_slot = 0u;
@@ -552,11 +658,12 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
       next_offset += abi_size;
     }
     frame.param_size = next_offset;
+    frame.vm_local_count = next_vm_local_slot;
     if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, err)) {
       return 0;
     }
     push_frame(model, top->as.func.name, &top->as.func, frame.param_size, frame.stack_local_size,
-               frame.reserved_reg_words, frame.locals, frame.local_count);
+               frame.reserved_reg_words, frame.vm_local_count, frame.locals, frame.local_count);
   }
   return 1;
 }
@@ -695,6 +802,321 @@ static int validate_worker_next_targets(const ESemanticModel *model, char err[25
   return 1;
 }
 
+static const char *worker_payload_type_by_entry_id(const ESemanticModel *model, unsigned int wid) {
+  if (wid == 0u || (size_t)wid > model->worker_count) return NULL;
+  return model->workers[wid - 1u]->params[0].type.name;
+}
+
+static const char *shared_worker_payload_type(const ESemanticModel *model) {
+  size_t i;
+  const char *type_name;
+  if (model->worker_count == 0u) return NULL;
+  type_name = model->workers[0]->params[0].type.name;
+  for (i = 1; i < model->worker_count; i++) {
+    if (strcmp(model->workers[i]->params[0].type.name, type_name) != 0) return NULL;
+  }
+  return type_name;
+}
+
+static const char *find_custom_param_type_by_name(const EFunction *function, const char *name) {
+  size_t i;
+  if (!function || !name) return NULL;
+  for (i = 0; i < function->param_count; i++) {
+    if (strcmp(function->params[i].name, name) != 0) continue;
+    if (!is_primitive_type(function->params[i].type.name)) return function->params[i].type.name;
+    return NULL;
+  }
+  return NULL;
+}
+
+static const char *find_expected_custom_lvalue_type(const EExpr *lhs,
+                                                    const EFunctionFrame *frame,
+                                                    const EFunction *function) {
+  const ELocalBinding *local;
+  const char *param_type;
+  if (!lhs || lhs->kind != E_EXPR_IDENT) return NULL;
+  local = find_local_binding_by_name(frame, lhs->as.ident);
+  if (local && !is_primitive_type(local->type_name)) return local->type_name;
+  param_type = find_custom_param_type_by_name(function, lhs->as.ident);
+  if (param_type) return param_type;
+  return NULL;
+}
+
+static int is_kernel_get_ghs_call(const EExpr *expr) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  return strcmp(expr->as.call.callee, "kernal_get_ghs") == 0 ||
+         strcmp(expr->as.call.callee, "kernel_get_ghs") == 0;
+}
+
+static const char *expr_source_name(const EExpr *expr) {
+  if (!expr) return "expression";
+  if (expr->kind == E_EXPR_CALL) return expr->as.call.callee;
+  if (expr->kind == E_EXPR_IDENT) return expr->as.ident;
+  return "expression";
+}
+
+static const char *infer_custom_expr_type(const EExpr *expr,
+                                          const ESemanticModel *model,
+                                          const EFunctionFrame *frame,
+                                          const EFunction *function,
+                                          const EWorker *worker,
+                                          int in_kernel,
+                                          char err[256]) {
+  const ELocalBinding *local;
+  const char *shared_type;
+  if (!expr) return NULL;
+  switch (expr->kind) {
+    case E_EXPR_IDENT:
+      local = find_local_binding_by_name(frame, expr->as.ident);
+      if (local && !is_primitive_type(local->type_name)) return local->type_name;
+      if (worker && worker->param_count == 1u && strcmp(worker->params[0].name, expr->as.ident) == 0) {
+        return worker->params[0].type.name;
+      }
+      return find_custom_param_type_by_name(function, expr->as.ident);
+    case E_EXPR_CALL:
+      if (!is_kernel_get_ghs_call(expr)) return NULL;
+      if (!in_kernel) {
+        snprintf(err, 256, "%s only valid in kernel", expr->as.call.callee);
+        return (const char*)-1;
+      }
+      if (expr->as.call.arg_count != 1u) {
+        snprintf(err, 256, "%s expects exactly 1 arg", expr->as.call.callee);
+        return (const char*)-1;
+      }
+      if (expr->as.call.args[0]->kind == E_EXPR_INT) {
+        const char *worker_type = worker_payload_type_by_entry_id(model, (unsigned int)expr->as.call.args[0]->as.int_lit);
+        if (!worker_type) {
+          snprintf(err, 256, "%s wid literal %lld does not map to a worker entry id",
+                   expr->as.call.callee, expr->as.call.args[0]->as.int_lit);
+          return (const char*)-1;
+        }
+        return worker_type;
+      }
+      shared_type = shared_worker_payload_type(model);
+      if (!shared_type) {
+        snprintf(err, 256, "%s with non-constant wid requires all workers to share the same declared payload type",
+                 expr->as.call.callee);
+        return (const char*)-1;
+      }
+      return shared_type;
+    case E_EXPR_FIELD:
+    case E_EXPR_STRING:
+    case E_EXPR_INT:
+    case E_EXPR_BINARY:
+    case E_EXPR_ASSIGN:
+      return NULL;
+  }
+  return NULL;
+}
+
+static int validate_kernel_get_ghs_usage_in_stmt(const EStmt *stmt,
+                                                 const ESemanticModel *model,
+                                                 const EFunctionFrame *frame,
+                                                 const EFunction *function,
+                                                 const EWorker *worker,
+                                                 int in_kernel,
+                                                 char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.block.items[i], model, frame, function, worker, in_kernel, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.if_stmt.then_branch, model, frame, function, worker, in_kernel, err)) return 0;
+      if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.if_stmt.else_branch, model, frame, function, worker, in_kernel, err)) return 0;
+      return 1;
+    case E_STMT_WHILE:
+      return validate_kernel_get_ghs_usage_in_stmt(stmt->as.while_stmt.body, model, frame, function, worker, in_kernel, err);
+    case E_STMT_FOR:
+      if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.for_stmt.init, model, frame, function, worker, in_kernel, err)) return 0;
+      return validate_kernel_get_ghs_usage_in_stmt(stmt->as.for_stmt.body, model, frame, function, worker, in_kernel, err);
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, frame, function, worker, in_kernel, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_DECL:
+      if (stmt->as.decl.init) {
+        const char *rhs_type = infer_custom_expr_type(stmt->as.decl.init, model, frame, function, worker, in_kernel, err);
+        if (rhs_type == (const char*)-1) return 0;
+        if (rhs_type) {
+          if (is_primitive_type(stmt->as.decl.type.name)) {
+            snprintf(err, 256, "decl '%s' cannot initialize primitive type '%s' from %s",
+                     stmt->as.decl.name, stmt->as.decl.type.name, expr_source_name(stmt->as.decl.init));
+            return 0;
+          }
+          if (strcmp(rhs_type, stmt->as.decl.type.name) != 0) {
+            snprintf(err, 256, "decl '%s' type '%s' does not match %s payload type '%s'",
+                     stmt->as.decl.name, stmt->as.decl.type.name,
+                     expr_source_name(stmt->as.decl.init), rhs_type);
+            return 0;
+          }
+        }
+      }
+      return 1;
+    case E_STMT_EXPR:
+      if (stmt->as.expr && stmt->as.expr->kind == E_EXPR_ASSIGN) {
+        const char *lhs_type = find_expected_custom_lvalue_type(stmt->as.expr->as.assign.lhs, frame, function);
+        const char *rhs_type = infer_custom_expr_type(stmt->as.expr->as.assign.rhs, model, frame, function, worker, in_kernel, err);
+        if (rhs_type == (const char*)-1) return 0;
+        if (rhs_type) {
+          if (!lhs_type) {
+            snprintf(err, 256, "%s result must be assigned to a declared custom type",
+                     expr_source_name(stmt->as.expr->as.assign.rhs));
+            return 0;
+          }
+          if (strcmp(lhs_type, rhs_type) != 0) {
+            snprintf(err, 256, "assignment target type '%s' does not match %s payload type '%s'",
+                     lhs_type, expr_source_name(stmt->as.expr->as.assign.rhs), rhs_type);
+            return 0;
+          }
+        }
+      } else if (is_kernel_get_ghs_call(stmt->as.expr)) {
+        snprintf(err, 256, "%s result must be assigned to a declared custom type", stmt->as.expr->as.call.callee);
+        return 0;
+      }
+      return 1;
+    case E_STMT_RETURN:
+      if (function && stmt->as.ret.value) {
+        const char *rhs_type = infer_custom_expr_type(stmt->as.ret.value, model, frame, function, worker, in_kernel, err);
+        if (rhs_type == (const char*)-1) return 0;
+        if (rhs_type) {
+          if (is_primitive_type(function->return_type.name)) {
+            snprintf(err, 256, "function '%s' cannot return primitive type '%s' from %s",
+                     function->name, function->return_type.name, expr_source_name(stmt->as.ret.value));
+            return 0;
+          }
+          if (strcmp(rhs_type, function->return_type.name) != 0) {
+            snprintf(err, 256, "function '%s' return type '%s' does not match %s payload type '%s'",
+                     function->name, function->return_type.name, expr_source_name(stmt->as.ret.value), rhs_type);
+            return 0;
+          }
+        }
+      }
+      return 1;
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_typeof_typeid_usage_in_stmt(const EStmt *stmt,
+                                                const ESemanticModel *model,
+                                                char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_DECL:
+      return validate_typeof_typeid_expr(stmt->as.decl.init, model, err);
+    case E_STMT_RETURN:
+      return validate_typeof_typeid_expr(stmt->as.ret.value, model, err);
+    case E_STMT_EXPR:
+      return validate_typeof_typeid_expr(stmt->as.expr, model, err);
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_typeof_typeid_usage_in_stmt(stmt->as.block.items[i], model, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      return validate_typeof_typeid_expr(stmt->as.if_stmt.cond, model, err) &&
+             validate_typeof_typeid_usage_in_stmt(stmt->as.if_stmt.then_branch, model, err) &&
+             validate_typeof_typeid_usage_in_stmt(stmt->as.if_stmt.else_branch, model, err);
+    case E_STMT_WHILE:
+      return validate_typeof_typeid_expr(stmt->as.while_stmt.cond, model, err) &&
+             validate_typeof_typeid_usage_in_stmt(stmt->as.while_stmt.body, model, err);
+    case E_STMT_FOR:
+      return validate_typeof_typeid_usage_in_stmt(stmt->as.for_stmt.init, model, err) &&
+             validate_typeof_typeid_expr(stmt->as.for_stmt.cond, model, err) &&
+             validate_typeof_typeid_expr(stmt->as.for_stmt.step, model, err) &&
+             validate_typeof_typeid_usage_in_stmt(stmt->as.for_stmt.body, model, err);
+    case E_STMT_SWITCH:
+      if (!validate_typeof_typeid_expr(stmt->as.switch_stmt.target, model, err)) return 0;
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_typeof_typeid_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_typeof_typeid_usage(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    switch (top->kind) {
+      case E_TOP_KERNEL: body = top->as.kernel.body; break;
+      case E_TOP_WORKER: body = top->as.worker.body; break;
+      case E_TOP_FUNCTION: body = top->as.func.body; break;
+      case E_TOP_TYPE: body = top->as.tdecl.body; break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+        break;
+    }
+    if (body && !validate_typeof_typeid_usage_in_stmt(body, model, err)) return 0;
+  }
+  return 1;
+}
+
+static int validate_kernel_get_ghs_usage(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    const EFunctionFrame *frame = NULL;
+    const EFunction *function = NULL;
+    const EWorker *worker = NULL;
+    int in_kernel = 0;
+
+    switch (top->kind) {
+      case E_TOP_KERNEL:
+        body = top->as.kernel.body;
+        frame = find_frame(model, "kernel");
+        in_kernel = 1;
+        break;
+      case E_TOP_WORKER:
+        body = top->as.worker.body;
+        frame = find_frame(model, top->as.worker.name);
+        worker = &top->as.worker;
+        break;
+      case E_TOP_FUNCTION:
+        body = top->as.func.body;
+        frame = find_frame(model, top->as.func.name);
+        function = &top->as.func;
+        break;
+      case E_TOP_TYPE:
+        body = top->as.tdecl.body;
+        frame = find_frame(model, top->as.tdecl.name);
+        break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+        break;
+    }
+
+    if (body && !validate_kernel_get_ghs_usage_in_stmt(body, model, frame, function, worker, in_kernel, err)) {
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static void free_temp_frame(EFunctionFrame *frame) {
   size_t i;
   for (i = 0; i < frame->local_count; i++) {
@@ -739,7 +1161,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
       return 0;
     }
     push_frame((ESemanticModel*)model, owner_name, NULL, frame.param_size, frame.stack_local_size,
-               frame.reserved_reg_words, frame.locals, frame.local_count);
+               frame.reserved_reg_words, frame.vm_local_count, frame.locals, frame.local_count);
     memset(&frame, 0, sizeof(frame));
     free_temp_frame(&frame);
   }
@@ -784,6 +1206,16 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_worker_next_targets(out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
+
+  if (!validate_kernel_get_ghs_usage(program, out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
+
+  if (!validate_typeof_typeid_usage(program, out_model, err)) {
     e_semantic_model_free(out_model);
     return 0;
   }
@@ -928,6 +1360,7 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
             model->frames[i].param_size,
             model->frames[i].stack_local_size,
             model->frames[i].reserved_reg_words);
+    fprintf(out, "    vm_locals=%u\n", model->frames[i].vm_local_count);
     for (j = 0; j < model->frames[i].local_count; j++) {
       const ELocalBinding *local = &model->frames[i].locals[j];
       fprintf(out, "    local %s %s", local->type_name, local->name);

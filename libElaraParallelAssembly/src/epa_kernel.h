@@ -13,6 +13,7 @@
 
 #include "epa_scheduler.h"
 #include "threads/epa_thread_pool.h"
+#include <pthread.h>
 
 #define EPA_INGRESS_QMAX  16
 
@@ -38,6 +39,7 @@ typedef struct {
   EpaThreadPool *tp;
 
   int interrupt_requested;
+  pthread_mutex_t syncq_mu;
 } KernelImpl;
 
 typedef void (*EpaKernelDbgCallback)(
@@ -58,6 +60,7 @@ typedef int (*EpaKernelSignal)(
 typedef struct {
   uint8_t *buf;     // owned heap buffer (malloc)
   uint32_t len;     // bytes (already padded to 4 if you want)
+  uint32_t tag;     // GHS tag/type id for runtime routing
 } EpaIngressMsg;
 
 typedef struct {
@@ -87,6 +90,7 @@ typedef struct EpaKernel {
   EpaNonFlowBackend nf;
 
   EpaKernelSignal signal_cb;
+  char *kernel_id;
 
   // Debug callback
   EpaKernelDbgCallback dbg_cb;

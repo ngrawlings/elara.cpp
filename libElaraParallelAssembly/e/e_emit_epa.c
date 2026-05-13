@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 200809L
 #include "e_emit_epa.h"
+#include "../src/epa_program_desc.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,6 +38,14 @@ static const EFunctionFrame *find_frame(const ESemanticModel *model, const char 
   return NULL;
 }
 
+static const EFunctionFrame *active_frame_for_ctx(const EmitCtx *ctx) {
+  if (ctx->current_frame) return ctx->current_frame;
+  if (!ctx->current_worker && !ctx->current_function) {
+    return find_frame(ctx->model, "kernel");
+  }
+  return NULL;
+}
+
 static const ELocalBinding *find_local_binding(const EFunctionFrame *frame, const EStmt *decl_stmt) {
   size_t i;
   if (!frame) return NULL;
@@ -64,6 +73,42 @@ static const EFunctionParamCheck *find_param_check_by_name(const EmitCtx *ctx, c
     if (strcmp(ctx->current_function->params[check->param_index].name, name) == 0) return check;
   }
   return NULL;
+}
+
+static const EValidatorBinding *find_validator_binding(const ESemanticModel *model, const char *name) {
+  size_t i;
+  for (i = 0; i < model->validator_count; i++) {
+    if (strcmp(model->validators[i].type_name, name) == 0) return &model->validators[i];
+  }
+  return NULL;
+}
+
+static int scalar_vm_local_slot_for_name(const EmitCtx *ctx, const char *name, unsigned int *out_slot) {
+  const ELocalBinding *local = find_local_binding_by_name(active_frame_for_ctx(ctx), name);
+  const EFunctionParamCheck *param = find_param_check_by_name(ctx, name);
+  if (local && local->vm_local_words == 1u) {
+    *out_slot = local->vm_local_slot;
+    return 1;
+  }
+  if (param && param->vm_local_words == 1u) {
+    *out_slot = param->vm_local_slot;
+    return 1;
+  }
+  return 0;
+}
+
+static int type_ref_vm_local_slot_for_name(const EmitCtx *ctx, const char *name, unsigned int *out_slot) {
+  const ELocalBinding *local = find_local_binding_by_name(active_frame_for_ctx(ctx), name);
+  const EFunctionParamCheck *param = find_param_check_by_name(ctx, name);
+  if (local && local->vm_local_words == 2u) {
+    *out_slot = local->vm_local_slot;
+    return 1;
+  }
+  if (param && param->vm_local_words == 2u) {
+    *out_slot = param->vm_local_slot;
+    return 1;
+  }
+  return 0;
 }
 
 static const ETypeLayout *find_type_layout(const ESemanticModel *model, const char *name) {
@@ -206,8 +251,16 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
 
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
+static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
   if (!expr) return;
@@ -258,12 +311,9 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   switch (expr->kind) {
     case E_EXPR_IDENT:
     {
-      const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, expr->as.ident);
-      const EFunctionParamCheck *param = find_param_check_by_name(ctx, expr->as.ident);
-      if (local && local->vm_local_words == 1u) {
-        fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
-      } else if (param && param->vm_local_words == 1u) {
-        fprintf(out, "LOAD_L %u\n", param->vm_local_slot);
+      unsigned int slot = 0u;
+      if (scalar_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
+        fprintf(out, "LOAD_L %u\n", slot);
       } else {
         fprintf(out, "; expr ident %s\n", expr->as.ident);
       }
@@ -285,20 +335,31 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         case E_BIN_SUB: fputs("SUB_I32\n", out); break;
         case E_BIN_MUL: fputs("MUL_I32\n", out); break;
         case E_BIN_DIV: fputs("; DIV pending lowering\n", out); break;
+        case E_BIN_EQ: fputs("EQ_I32\n", out); break;
       }
       break;
     case E_EXPR_ASSIGN:
       emit_expr(out, expr->as.assign.rhs, ctx, depth);
       if (expr->as.assign.lhs && expr->as.assign.lhs->kind == E_EXPR_IDENT) {
-        emit_scalar_store(out, expr->as.assign.lhs->as.ident, ctx, depth);
-        emit_indent(out, depth);
         {
-          const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, expr->as.assign.lhs->as.ident);
-          const EFunctionParamCheck *param = find_param_check_by_name(ctx, expr->as.assign.lhs->as.ident);
-          if (local && local->vm_local_words == 1u) {
-            fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
-          } else if (param && param->vm_local_words == 1u) {
-            fprintf(out, "LOAD_L %u\n", param->vm_local_slot);
+          unsigned int slot = 0u;
+          if (scalar_vm_local_slot_for_name(ctx, expr->as.assign.lhs->as.ident, &slot)) {
+            emit_scalar_store(out, expr->as.assign.lhs->as.ident, ctx, depth);
+            emit_indent(out, depth);
+            fprintf(out, "LOAD_L %u\n", slot);
+          } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.assign.lhs->as.ident, &slot)) {
+            emit_indent(out, depth);
+            fputs("POP R1\n", out);
+            emit_indent(out, depth);
+            fprintf(out, "STORE_L %u\n", slot + 1u);
+            emit_indent(out, depth);
+            fputs("POP R0\n", out);
+            emit_indent(out, depth);
+            fprintf(out, "STORE_L %u\n", slot);
+            emit_indent(out, depth);
+            fprintf(out, "LOAD_L %u\n", slot);
+            emit_indent(out, depth);
+            fprintf(out, "LOAD_L %u\n", slot + 1u);
           } else {
             fprintf(out, "; assign target %s unsupported\n", expr->as.assign.lhs->as.ident);
           }
@@ -311,6 +372,36 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
     case E_EXPR_CALL:
       if (strcmp(expr->as.call.callee, "log") == 0) {
         emit_log_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "kernel_wait_signal") == 0) {
+        emit_kernel_wait_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "signal") == 0 ||
+          strcmp(expr->as.call.callee, "kernel_signal") == 0) {
+        emit_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "host_signal") == 0) {
+        emit_host_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "far_signal") == 0) {
+        emit_far_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "kernal_get_ghs") == 0 ||
+          strcmp(expr->as.call.callee, "kernel_get_ghs") == 0) {
+        emit_kernel_get_ghs_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "typeof") == 0) {
+        emit_typeof_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "typeid") == 0) {
+        emit_typeid_builtin(out, expr, ctx, depth);
         break;
       }
       fprintf(out, "; call %s argc=%zu pending lowering\n", expr->as.call.callee, expr->as.call.arg_count);
@@ -329,15 +420,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
 }
 
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth) {
-  const ELocalBinding *local = find_local_binding_by_name(ctx->current_frame, name);
-  const EFunctionParamCheck *param = find_param_check_by_name(ctx, name);
+  unsigned int slot = 0u;
   emit_indent(out, depth);
-  if (local && local->vm_local_words == 1u) {
-    fprintf(out, "STORE_L %u\n", local->vm_local_slot);
-    return 1;
-  }
-  if (param && param->vm_local_words == 1u) {
-    fprintf(out, "STORE_L %u\n", param->vm_local_slot);
+  if (scalar_vm_local_slot_for_name(ctx, name, &slot)) {
+    fprintf(out, "STORE_L %u\n", slot);
     return 1;
   }
   fprintf(out, "; store %s unsupported\n", name);
@@ -395,6 +481,235 @@ static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dept
   return 1;
 }
 
+static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; kernel_wait_signal expects 0 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (ctx->current_worker || ctx->current_function) {
+    emit_indent(out, depth);
+    fputs("; kernel_wait_signal only valid in kernel\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fputs("WAIT_ON_SYNC\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
+}
+
+static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects 0 args, got %zu\n", expr->as.call.callee, expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid in workers\n", expr->as.call.callee);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fputs("SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; host_signal expects 0 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; host_signal only valid in workers\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fputs("HOST_SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ELocalBinding *binding;
+  const EValidatorBinding *validator;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; far_signal expects 2 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; far_signal only valid in workers\n", out);
+    return 0;
+  }
+  if (!emit_target_string_ref_to_regs(out, expr->as.call.args[0], ctx, depth)) {
+    emit_indent(out, depth);
+    fputs("; far_signal target_id must be a string literal or a local/string ref variable\n", out);
+    return 0;
+  }
+  if (expr->as.call.args[1]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; far_signal payload must be a local area variable identifier\n", out);
+    return 0;
+  }
+  binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.call.args[1]->as.ident);
+  if (!binding || binding->storage != E_LOCAL_ARENA_SCOPED || binding->vm_local_words != 2u) {
+    emit_indent(out, depth);
+    fputs("; far_signal payload must be a local area variable\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  validator = find_validator_binding(ctx->model, binding->type_name);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", validator ? validator->validator_id : 0u);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", binding->byte_size);
+  emit_indent(out, depth);
+  fputs("FAR_SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ELocalBinding *binding;
+  unsigned int string_id;
+  if (!expr) return 0;
+  if (expr->kind == E_EXPR_STRING) {
+    string_id = find_string_const_id(ctx, expr->as.string_lit);
+    emit_indent(out, depth);
+    fprintf(out, "LOAD_CONST %u\n", string_id);
+    return 1;
+  }
+  if (expr->kind == E_EXPR_IDENT) {
+    binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.ident);
+    if (binding && binding->vm_local_words == 2u) {
+      emit_indent(out, depth);
+      fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+      emit_indent(out, depth);
+      fputs("POP R0\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "LOAD_L %u\n", binding->vm_local_slot + 1u);
+      emit_indent(out, depth);
+      fputs("POP R1\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "SET_R 2 %u\n", EPA_CONST_TMP_STR);
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+  unsigned int wid_slot = 0u;
+  unsigned int temp_slot = 0u;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects 1 arg, got %zu\n", expr->as.call.callee, expr->as.call.arg_count);
+    return 0;
+  }
+  if (ctx->current_worker || ctx->current_function) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid in kernel\n", expr->as.call.callee);
+    return 0;
+  }
+  if (!frame) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s missing kernel frame\n", expr->as.call.callee);
+    return 0;
+  }
+  if (expr->as.call.args[0]->kind == E_EXPR_IDENT &&
+      scalar_vm_local_slot_for_name(ctx, expr->as.call.args[0]->as.ident, &wid_slot)) {
+    emit_indent(out, depth);
+    fprintf(out, "KERNEL_GHS_IN_R %u\n", wid_slot);
+  } else {
+    temp_slot = frame->vm_local_count;
+    emit_expr(out, expr->as.call.args[0], ctx, depth);
+    emit_indent(out, depth);
+    fputs("POP R0\n", out);
+    emit_indent(out, depth);
+    fprintf(out, "STORE_L %u\n", temp_slot);
+    emit_indent(out, depth);
+    fprintf(out, "KERNEL_GHS_IN_R %u\n", temp_slot);
+  }
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  return 1;
+}
+
+static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+  const ELocalBinding *local;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; typeof expects 1 arg, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (expr->as.call.args[0]->kind == E_EXPR_IDENT) {
+    const char *name = expr->as.call.args[0]->as.ident;
+    if (ctx->current_worker && ctx->current_worker->param_count == 1u &&
+        strcmp(ctx->current_worker->params[0].name, name) == 0) {
+      emit_indent(out, depth);
+      fputs("G_TAG\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      return 1;
+    }
+    local = find_local_binding_by_name(frame, name);
+    if (local && local->vm_local_words == 2u) {
+      emit_indent(out, depth);
+      fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
+      emit_indent(out, depth);
+      fputs("POP R0\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "LOAD_L %u\n", local->vm_local_slot + 1u);
+      emit_indent(out, depth);
+      fputs("POP R1\n", out);
+      emit_indent(out, depth);
+      fputs("G_TAG\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      return 1;
+    }
+  }
+  emit_indent(out, depth);
+  fputs("; typeof unsupported for this expression\n", out);
+  return 0;
+}
+
+static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EValidatorBinding *binding;
+  if (!expr || expr->kind != E_EXPR_CALL || strcmp(expr->as.call.callee, "typeid") != 0) return 0;
+  if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; typeid expects a declared type name\n", out);
+    return 0;
+  }
+  binding = find_validator_binding(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!binding) {
+    emit_indent(out, depth);
+    fprintf(out, "; unknown typeid target %s\n", expr->as.call.args[0]->as.ident);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", binding->validator_id);
+  return 1;
+}
+
 static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
 }
@@ -434,7 +749,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
   switch (stmt->kind) {
     case E_STMT_DECL:
     {
-      const ELocalBinding *binding = find_local_binding(ctx->current_frame, stmt);
+      const ELocalBinding *binding = find_local_binding(active_frame_for_ctx(ctx), stmt);
       emit_indent(out, depth);
       fputs("; decl ", out);
       if (stmt->as.decl.is_reg) fputs("reg ", out);
@@ -459,7 +774,29 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         if (binding && binding->vm_local_words == 1u) {
           emit_indent(out, depth);
           fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+        } else if (binding && binding->vm_local_words == 2u) {
+          emit_indent(out, depth);
+          fprintf(out, "POP R1\n");
+          emit_indent(out, depth);
+          fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
+          emit_indent(out, depth);
+          fprintf(out, "POP R0\n");
+          emit_indent(out, depth);
+          fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
         }
+      } else if (binding && binding->storage == E_LOCAL_ARENA_SCOPED && binding->vm_local_words == 2u) {
+        emit_indent(out, depth);
+        fprintf(out, "SET_R 0 %zu\n", binding->byte_size);
+        emit_indent(out, depth);
+        fputs("L_ALLOC\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("PUSH R1\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
       }
       break;
     }
@@ -706,16 +1043,28 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                 resolved_in_words(model, &top->as.kernel.attrs),
                 resolved_out_words(model, &top->as.kernel.attrs),
                 resolved_signal_mail_box_size(model, &top->as.kernel.attrs));
-        ctx.current_frame = NULL;
+        ctx.current_function = NULL;
+        ctx.current_worker = NULL;
+        ctx.current_frame = find_frame(model, "kernel");
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
+        ctx.current_frame = NULL;
         fputs("ENTRY_END\n\n", out);
         break;
       case E_TOP_WORKER:
         fprintf(out, "; worker %s\n", top->as.worker.name);
         if (top->as.worker.param_count == 1u) {
-          const ETypeLayout *layout = find_type_layout(model, top->as.worker.params[0].type.name);
-          if (layout) {
-            fprintf(out, "; typed GHS view %s span=%zu\n", layout->type_name, layout->total_size);
+          if (top->as.worker.params[0].type.union_count != 0u) {
+            size_t ui;
+            fprintf(out, "; accepted ingress types %s", top->as.worker.params[0].type.name);
+            for (ui = 0; ui < top->as.worker.params[0].type.union_count; ui++) {
+              fprintf(out, "|%s", top->as.worker.params[0].type.union_names[ui]);
+            }
+            fputc('\n', out);
+          } else {
+            const ETypeLayout *layout = find_type_layout(model, top->as.worker.params[0].type.name);
+            if (layout) {
+              fprintf(out, "; typed GHS view %s span=%zu\n", layout->type_name, layout->total_size);
+            }
           }
         }
         fprintf(out, "ENTRY_START %u %u %u %u\n",

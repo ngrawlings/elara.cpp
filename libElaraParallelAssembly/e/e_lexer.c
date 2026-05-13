@@ -245,6 +245,12 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
     {
       ETokenKind kind = E_TOK_EOF;
       int start_col = col;
+      if (p[0] == '=' && p[1] == '=') {
+        if (!push_tok(out_tokens, E_TOK_EQEQ, p, 2u, line, start_col)) return 0;
+        p += 2;
+        col += 2;
+        continue;
+      }
       switch (*p) {
         case '(': kind = E_TOK_LPAREN; break;
         case ')': kind = E_TOK_RPAREN; break;
@@ -261,6 +267,7 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
         case '-': kind = E_TOK_MINUS; break;
         case '*': kind = E_TOK_STAR; break;
         case '/': kind = E_TOK_SLASH; break;
+        case '|': kind = E_TOK_PIPE; break;
         case '@': kind = E_TOK_AT; break;
         default: break;
       }

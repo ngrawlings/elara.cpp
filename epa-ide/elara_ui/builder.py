@@ -128,6 +128,15 @@ class UiDocumentBuilder:
     def create_list_view(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.list_view")
 
+    def create_combo_box(self, widget_id, items=None, selected_id=None):
+        """items: list of {"id": ..., "label": ...} dicts"""
+        self.create_widget(widget_id, "elara.widgets.combo_box")
+        if items:
+            self.set_section_json(widget_id, "items", items)
+        if selected_id is not None:
+            self.set_property_string(widget_id, "selected_id", selected_id)
+        return self
+
     def create_tree_view(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.tree_view")
 

@@ -20,6 +20,12 @@ typedef struct Viewport Viewport;
 // Create/destroy kernel runtime instance
 EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]);
 void       epa_kernel_destroy(EpaKernel *k);
+int        epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]);
+const char* epa_kernel_get_id(const EpaKernel *k);
+EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
+int        epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
+                                       const void *payload, uint32_t payload_len, uint32_t payload_tag,
+                                       char err[EPA_MAX_ERR]);
 
 // Set debug callback (can be NULL to disable)
 void epa_kernel_set_debug_callback(EpaKernel *k, EpaKernelDbgCallback cb, void *cb_user);
@@ -31,6 +37,9 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
 // Viewport control (optional; if you want headless tests, allow vp=NULL and make backends handle it)
 int epa_kernel_open_viewport(EpaKernel *k, int w, int h, const char *title, int enable_cuda, char err[EPA_MAX_ERR]);
 void epa_kernel_close_viewport(EpaKernel *k);
+
+int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len);
+int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len);
 
 // Run scheduler loop until done, timeout, or viewport closes.
 // Returns 1 on clean halt, 0 on error (err filled).

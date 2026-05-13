@@ -24,6 +24,8 @@ int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_sync(void *user, char err[EPA_MAX_ERR]);
 int hook_wait_on_sync(void *user, char err[EPA_MAX_ERR]);
 EpaWorkerState* hook_get_worker(void *user, uint8_t wid);
+int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 
 typedef enum {
   EPA_FLOW_ERR      			= 0,
@@ -59,6 +61,8 @@ typedef struct {
   int (*on_trap)(void *user, uint8_t wid, uint32_t code, const EpaEip *at, char err[EPA_MAX_ERR]);
   int (*on_except)(void *user, uint8_t wid, uint32_t code, const EpaEip *at, char err[EPA_MAX_ERR]);
   int (*on_signal)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+  int (*on_far_signal)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+  int (*on_host_signal)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 } EpaFlowHooks;
 
 typedef struct {

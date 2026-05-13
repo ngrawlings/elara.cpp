@@ -164,6 +164,7 @@ bool ElaraUiRpcUiService::setText(
     ElaraLabelWidget* label = dynamic_cast<ElaraLabelWidget*>(widget.getPtr());
     ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget.getPtr());
     ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget.getPtr());
+    ElaraComboBoxWidget* combo = dynamic_cast<ElaraComboBoxWidget*>(widget.getPtr());
 
     if(button) {
         button->setText(value);
@@ -175,6 +176,8 @@ bool ElaraUiRpcUiService::setText(
         rich->setText(value);
     } else if(input) {
         input->setText(value);
+    } else if(combo) {
+        combo->setSelectedId(value);
     } else {
         error_code = "unsupported_widget";
         error_message = "The target widget does not support setText";

@@ -20,8 +20,10 @@
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSpinnerWidget.h>
 #include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
+#include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTreeViewWidget.h>
+#include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
 
@@ -121,31 +123,17 @@ static ElaraTreeViewNode parseTreeNodeSpec(const Json& spec) {
     return node;
 }
 
-class ElaraJsonLabelWidget : public ElaraWidget {
-private:
-    String value;
-    double font_size;
-
+class ElaraJsonLabelWidget : public ElaraLabelWidget {
 public:
     ElaraJsonLabelWidget(ElaraWidgetRegister* root, ElaraWidgetHandle handle)
-        : ElaraWidget(root, handle),
-          value("Label"),
-          font_size(16) {}
-
-    void setText(const String& label_text) {
-        value = label_text;
-    }
-
-    void setFontSize(double size) {
-        font_size = size;
-    }
+        : ElaraLabelWidget(root, handle) {}
 
     void draw(ElaraDrawContext* ctx) {
         ElaraPaletteTriplet c = colors("panel", "default");
         ctx->setColor(c.base.r, c.base.g, c.base.b);
         ctx->fillRect(0, 0, width, height);
         ctx->setColor(c.text.r, c.text.g, c.text.b);
-        ctx->drawText(12, (height / 2) + (font_size / 2) - 2, value, font_size);
+        ctx->drawText(12, (height / 2) + (getFontSize() / 2) - 2, getText(), getFontSize());
     }
 };
 
@@ -621,6 +609,7 @@ public:
             type == String("elara.widgets.surface_panel") ||
             type == String("elara.widgets.density_map") ||
             type == String("elara.widgets.multi_axis_line_chart") ||
+            type == String("elara.widgets.combo_box") ||
             type == String("demo.widgets.button") ||
             type == String("demo.widgets.label") ||
             type == String("demo.widgets.text_input") ||
@@ -691,6 +680,8 @@ public:
             // TODO: apply styling attribgutes within the json spec
         } else if(type == String("elara.widgets.multi_axis_line_chart")) {
             widget = new ElaraMultiAxisLineChartWidget(root, id);
+        } else if(type == String("elara.widgets.combo_box")) {
+            widget = new ElaraComboBoxWidget(root, id);
         }
 
         applyProperties(widget, spec);
@@ -923,6 +914,29 @@ public:
             applyLineChartDemoData(chart, spec);
         }
 
+        ElaraComboBoxWidget* combo = dynamic_cast<ElaraComboBoxWidget*>(widget);
+        if(combo) {
+            combo->setEnabled(
+                jsonString(spec, "properties.enabled", String("true")) != String("false")
+            );
+            combo->setFontSize((double)jsonInt(spec, "properties.font_size", 13));
+
+            combo->clearItems();
+            Array< Ref<JsonValue> > combo_items = spec.getArray("sections.items");
+            for(int i = 0; i < (int)combo_items.length(); i++) {
+                Json item_json(combo_items[i]->toString());
+                combo->addItem(
+                    item_json.getStringValue("id"),
+                    item_json.getStringValue("label")
+                );
+            }
+
+            String sel_id = spec.getStringValue("properties.selected_id");
+            if(sel_id.length() > 0) {
+                combo->setSelectedId(sel_id);
+            }
+        }
+
         ElaraMenuBarWidget* menu_bar = dynamic_cast<ElaraMenuBarWidget*>(widget);
         if(menu_bar) {
             menu_bar->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
@@ -1099,6 +1113,20 @@ bool ElaraJsonUiProtocol::replaceChildren(
                 item_json.getStringValue("id"),
                 item_json.getStringValue("label")
             ));
+        }
+        return true;
+    }
+
+    ElaraComboBoxWidget* combo_target = dynamic_cast<ElaraComboBoxWidget*>(target_widget.getPtr());
+    if(combo_target) {
+        combo_target->clearItems();
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            combo_target->addItem(
+                item_json.getStringValue("id"),
+                item_json.getStringValue("label")
+            );
         }
         return true;
     }

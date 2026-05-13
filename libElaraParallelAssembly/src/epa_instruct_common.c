@@ -282,6 +282,26 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_FAR_SIGNAL: {
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_far_signal) {
+        if (!ctx->hooks.on_far_signal(ctx->hooks_user, (uint8_t)w->id, err)) {
+          return EPA_FLOW_ERR;
+        }
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_HOST_SIGNAL: {
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_host_signal) {
+        if (!ctx->hooks.on_host_signal(ctx->hooks_user, (uint8_t)w->id, err)) {
+          return EPA_FLOW_ERR;
+        }
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
     case EPA_OP_TRAP: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
       EpaEip at = *eip;
@@ -321,6 +341,8 @@ EpaFlowRc epa_flow_step(
         return EPA_FLOW_ERR;
       }
 
+      w->has_current_ghs = 0;
+      w->current_ghs = 0;
       w->waiting_for_data = 1;
       w->blocked = 1;
 
@@ -600,6 +622,15 @@ case EPA_OP_LT_I32: {
   return EPA_FLOW_YIELDED;
 }
 
+case EPA_OP_EQ_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "EQ_I32: stack underflow"); return EPA_FLOW_ERR; }
+  int32_t a = (int32_t)ua, b = (int32_t)ub;
+  if (!epa_stack_push(st, (uint32_t)((a == b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "EQ_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
 case EPA_OP_STORE_L: {
   uint8_t idx = code[pc + 2];
   if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "STORE_L idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
@@ -724,6 +755,10 @@ case EPA_OP_WORKER_TRX_IN_R: {
   uint32_t v;
   if (!epa_ring_pop(&w->inq, &v)) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX_IN_L inq pop failed"); return EPA_FLOW_ERR; }
   w->vm.csc[r] = (int32_t)v;
+  if (r == 1u) {
+    w->current_ghs = epa_h_from_regs((uint32_t)w->vm.csc[0], (uint32_t)w->vm.csc[1]);
+    w->has_current_ghs = 1;
+  }
 
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
@@ -790,6 +825,40 @@ case EPA_OP_WORKER_TRX: {
     if (!epa_ring_push(&dst->inq, v, 0, err)) return EPA_FLOW_ERR;
   }
 
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_KERNEL_GHS_IN_R: {
+  if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R only valid in kernel"); return EPA_FLOW_ERR; }
+  if (!ctx->hooks.get_worker) { snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R: get_worker hook not installed"); return EPA_FLOW_ERR; }
+
+  uint32_t wid_laddr = EPA_READ_U32_LE(code, pc + 2);
+  if (wid_laddr >= EPA_VM_LOCALS_MAX) {
+    snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R local addr out of range wid_local=%u", (unsigned)wid_laddr);
+    return EPA_FLOW_ERR;
+  }
+
+  uint32_t wid = (uint32_t)w->vm.locals[wid_laddr];
+  if (wid > 255u) {
+    snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R invalid wid=%u", (unsigned)wid);
+    return EPA_FLOW_ERR;
+  }
+
+  EpaWorkerState *src = ctx->hooks.get_worker(ctx->hooks_user, (uint8_t)wid);
+  if (!src || !src->has_current_ghs) {
+    w->vm.csc[0] = 0;
+    w->vm.csc[1] = 0;
+    w->vm.csc[2] = 0;
+    w->vm.csc[3] = 0;
+    eip->rel_pc = (uint32_t)(pc + need);
+    return EPA_FLOW_YIELDED;
+  }
+
+  w->vm.csc[0] = (int32_t)epa_ghs_handle_index(src->current_ghs);
+  w->vm.csc[1] = (int32_t)epa_ghs_handle_gen(src->current_ghs);
+  w->vm.csc[2] = 1;
+  w->vm.csc[3] = 0;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
@@ -928,6 +997,10 @@ case EPA_OP_G_XFER: {
             snprintf(err, EPA_MAX_ERR, "G_XFER failed err=%d", ge);
             return 0;
         }
+        if (w->has_current_ghs && w->current_ghs == h) {
+            w->has_current_ghs = 0;
+            w->current_ghs = 0;
+        }
 
         msg[i] = h;
     }
@@ -1003,6 +1076,10 @@ case EPA_OP_G_XFERX: {
             snprintf(err, EPA_MAX_ERR, "G_XFERX failed err=%d", ge);
             return 0;
         }
+        if (w->has_current_ghs && w->current_ghs == h) {
+            w->has_current_ghs = 0;
+            w->current_ghs = 0;
+        }
 
         msg[i] = h;
     }
@@ -1074,6 +1151,24 @@ case EPA_OP_G_META: {
   w->vm.csc[1] = (uint32_t)m.type;
   w->vm.csc[2] = m.size_bytes;
   w->vm.csc[3] = m.capacity;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_G_TAG: {
+  epa_ghs_handle_t h = epa_h_from_regs(w->vm.csc[0], w->vm.csc[1]);
+  uint32_t tag = 0;
+  epa_ghs_err_t ge = epa_ghs_get_tag(k->impl.ghs, h, &tag);
+  if (ge != EPA_GHS_OK) {
+    snprintf(err, EPA_MAX_ERR, "G_TAG failed err=%d", ge);
+    return 0;
+  }
+
+  w->vm.csc[0] = (int32_t)tag;
+  w->vm.csc[1] = 0;
+  w->vm.csc[2] = 0;
+  w->vm.csc[3] = 0;
 
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;

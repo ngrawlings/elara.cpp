@@ -748,6 +748,24 @@ def _to_class_name(stem: str) -> str:
     return ''.join(p.capitalize() for p in parts if p) or stem.capitalize()
 
 
+def _to_symbol_name(stem: str) -> str:
+    chars = []
+    last_was_sep = False
+    for ch in stem:
+        if ch.isalnum():
+            chars.append(ch.lower())
+            last_was_sep = False
+        elif not last_was_sep:
+            chars.append('_')
+            last_was_sep = True
+    symbol = ''.join(chars).strip('_')
+    if not symbol:
+        return "module"
+    if symbol[0].isdigit():
+        symbol = f"e_{symbol}"
+    return symbol
+
+
 def _cpp_header_content(header_name: str) -> str:
     stem = Path(header_name).stem
     cls = _to_class_name(stem)
@@ -774,7 +792,345 @@ def _cpp_source_content(source_name: str) -> str:
     )
 
 
-def _file_content(tech: str, name: str) -> str:
+E_FILE_TEMPLATES = {
+    "root_node": {
+        "label": "Root Node",
+        "summary": "Top-level kernel coordinator with a primary worker and a child-kernel ingress worker.",
+    },
+    "specialised_worker": {
+        "label": "Specialised Worker",
+        "summary": "Focused worker with functions, local arena payload staging, kernel/host/far signal split, and loop logic.",
+    },
+    "child_kernel_router": {
+        "label": "Child Kernel Router",
+        "summary": "Union ingress worker for EPABlob and KeyInput routing into a child kernel.",
+    },
+    "pipeline_chain": {
+        "label": "Pipeline Chain",
+        "summary": "Multi-worker handoff example using @attributes and next for pipeline composition.",
+    },
+    "feature_showcase": {
+        "label": "Feature Showcase",
+        "summary": "Broad current-state E sample covering locals, functions, raw EPA, loops, branching, and signaling.",
+    },
+}
+
+
+def _e_template_items():
+    return [{"id": key, "label": meta["label"]} for key, meta in E_FILE_TEMPLATES.items()]
+
+
+def _e_template_summary(template_id: str) -> str:
+    meta = E_FILE_TEMPLATES.get(template_id) or E_FILE_TEMPLATES["root_node"]
+    return f"{meta['label']}\n\n{meta['summary']}"
+
+
+def _e_root_node_template(file_name: str) -> str:
+    stem = Path(file_name).stem
+    type_name = f"{_to_class_name(stem)}Payload"
+    worker_name = f"{_to_symbol_name(stem)}_worker"
+    child_worker_name = f"{_to_symbol_name(stem)}_child_kernel_worker"
+    payload_name = "payload"
+    return (
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        f"struct {type_name};\n"
+        "struct EPABlob;\n"
+        "struct KeyInput;\n"
+        "\n"
+        f"type {type_name}(int tag) {{\n"
+        "  return tag;\n"
+        "}\n"
+        "\n"
+        "type EPABlob(int blob_id) {\n"
+        "  return blob_id;\n"
+        "}\n"
+        "\n"
+        "type KeyInput(int key_code) {\n"
+        "  return key_code;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        f"  {worker_name}(vm);\n"
+        f"  {child_worker_name}(vm);\n"
+        "  int wid = 0;\n"
+        "  while (wid = kernel_wait_signal()) {\n"
+        "    if (wid == 1) {\n"
+        f"      {type_name} {payload_name} = kernal_get_ghs(1);\n"
+        "      // TODO: integrate the worker payload into kernel context/state here.\n"
+        "    } else if (wid == 2) {\n"
+        "      // TODO: integrate child-kernel coordination or artifact state here.\n"
+        "    } else {\n"
+        "      // TODO: handle additional worker signals here.\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        f"worker {worker_name}({type_name} {payload_name}) {{\n"
+        "  // TODO: add worker logic here.\n"
+        "  // TODO: call kernel_signal() after updating the worker payload for kernel integration.\n"
+        "  kernel_signal();\n"
+        "}\n"
+        "\n"
+        f"worker {child_worker_name}(EPABlob|KeyInput ingress) {{\n"
+        "  int ingress_kind = typeof(ingress);\n"
+        "  if (ingress_kind == typeid(EPABlob)) {\n"
+        "    // TODO: load or refresh a child kernel from the incoming EPA blob here.\n"
+        "  } else if (ingress_kind == typeid(KeyInput)) {\n"
+        "    // TODO: forward key input into the running child kernel here.\n"
+        "  } else {\n"
+        "    // TODO: handle additional child-kernel ingress payload types here.\n"
+        "  }\n"
+        "  // TODO: publish any child-kernel artifact needed by the parent kernel before kernel_signal().\n"
+        "  kernel_signal();\n"
+        "}\n"
+    )
+
+
+def _e_specialised_worker_template(file_name: str) -> str:
+    stem = Path(file_name).stem
+    type_name = f"{_to_class_name(stem)}Payload"
+    route_type = f"{_to_class_name(stem)}Route"
+    worker_name = f"{_to_symbol_name(stem)}_worker"
+    return (
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        f"struct {type_name};\n"
+        f"struct {route_type};\n"
+        "\n"
+        f"type {type_name}(int opcode, int counter) {{\n"
+        "  return opcode;\n"
+        "}\n"
+        "\n"
+        f"type {route_type}(int lane) {{\n"
+        "  return lane;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        f"  {worker_name}(vm);\n"
+        "  int wid = 0;\n"
+        "  while (wid = kernel_wait_signal()) {\n"
+        "    if (wid == 1) {\n"
+        f"      {type_name} payload = kernal_get_ghs(1);\n"
+        "      // TODO: consume the specialised worker update here.\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        "function int clamp_count(int count) {\n"
+        "  int result = count;\n"
+        "  if (result == 0) {\n"
+        "    result = 1;\n"
+        "  } else if (result == 1) {\n"
+        "    result = result + 1;\n"
+        "  } else {\n"
+        "    result = result + 2;\n"
+        "  }\n"
+        "  return result;\n"
+        "}\n"
+        "\n"
+        f"worker {worker_name}({type_name} payload) {{\n"
+        "  reg int loop_count;\n"
+        f"  local {route_type} outbound;\n"
+        "  local byte[64] target_kernel_id;\n"
+        "  int count = clamp_count(payload.counter);\n"
+        "  loop_count = count;\n"
+        "  while (loop_count) {\n"
+        "    loop_count = loop_count - 1;\n"
+        "  }\n"
+        "  // TODO: fill target_kernel_id with a kernel id string.\n"
+        "  // TODO: populate outbound from worker-local state before far_signal().\n"
+        "  far_signal(target_kernel_id, outbound);\n"
+        "  host_signal();\n"
+        "  kernel_signal();\n"
+        "}\n"
+    )
+
+
+def _e_child_kernel_router_template(file_name: str) -> str:
+    stem = Path(file_name).stem
+    root_type = f"{_to_class_name(stem)}Root"
+    router_name = f"{_to_symbol_name(stem)}_router"
+    return (
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        f"struct {root_type};\n"
+        "struct EPABlob;\n"
+        "struct KeyInput;\n"
+        "\n"
+        f"type {root_type}(int scene_id) {{\n"
+        "  return scene_id;\n"
+        "}\n"
+        "\n"
+        "type EPABlob(int blob_id) {\n"
+        "  return blob_id;\n"
+        "}\n"
+        "\n"
+        "type KeyInput(int key_code) {\n"
+        "  return key_code;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        f"  {router_name}(vm);\n"
+        "  int wid = 0;\n"
+        "  while (wid = kernel_wait_signal()) {\n"
+        "    if (wid == 1) {\n"
+        "      // TODO: merge the routed child-kernel result into root state here.\n"
+        "      // TODO: use a dedicated typed worker signal path once the child kernel publishes a stable result type.\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        f"worker {router_name}(EPABlob|KeyInput ingress) {{\n"
+        "  int ingress_kind = typeof(ingress);\n"
+        "  if (ingress_kind == typeid(EPABlob)) {\n"
+        "    // TODO: load or refresh a child kernel from the blob payload.\n"
+        "  } else if (ingress_kind == typeid(KeyInput)) {\n"
+        "    // TODO: route key input into the active child kernel.\n"
+        "  } else {\n"
+        "    // TODO: add more ingress variants here.\n"
+        "  }\n"
+        "  kernel_signal();\n"
+        "}\n"
+    )
+
+
+def _e_pipeline_chain_template(file_name: str) -> str:
+    stem = Path(file_name).stem
+    type_name = f"{_to_class_name(stem)}Packet"
+    base = _to_symbol_name(stem)
+    return (
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        f"struct {type_name};\n"
+        "\n"
+        f"type {type_name}(int tag, int amount) {{\n"
+        "  return tag;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        f"  {base}_ingress(vm);\n"
+        f"  {base}_transform(vm);\n"
+        f"  {base}_egress(vm);\n"
+        "  int wid = 0;\n"
+        "  while (wid = kernel_wait_signal()) {\n"
+        "    if (wid == 3) {\n"
+        f"      {type_name} packet = kernal_get_ghs(3);\n"
+        "      // TODO: consume completed pipeline output here.\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        f"@attributes in_words:128 out_words:128 signal_mail_box_size:64\n"
+        f"worker {base}_ingress({type_name} packet) {{\n"
+        "  // TODO: validate or normalize ingress here.\n"
+        f"  next {base}_transform;\n"
+        "}\n"
+        "\n"
+        f"worker {base}_transform({type_name} packet) {{\n"
+        "  // TODO: perform compute on packet here.\n"
+        f"  next {base}_egress;\n"
+        "}\n"
+        "\n"
+        f"@attributes in_words:64 out_words:64 signal_mail_box_size:32\n"
+        f"worker {base}_egress({type_name} packet) {{\n"
+        "  // TODO: prepare final packet state before returning to the kernel.\n"
+        "  kernel_signal();\n"
+        "}\n"
+    )
+
+
+def _e_feature_showcase_template(file_name: str) -> str:
+    stem = Path(file_name).stem
+    type_name = f"{_to_class_name(stem)}State"
+    outbound_type = f"{_to_class_name(stem)}Event"
+    worker_name = f"{_to_symbol_name(stem)}_worker"
+    return (
+        "declare default_in_words 256\n"
+        "declare default_out_words 256\n"
+        "declare default_signal_mail_box_size 128\n"
+        "\n"
+        f"struct {type_name};\n"
+        f"struct {outbound_type};\n"
+        "\n"
+        f"type {type_name}(int mode, int count) {{\n"
+        "  return mode;\n"
+        "}\n"
+        "\n"
+        f"type {outbound_type}(int event_code) {{\n"
+        "  return event_code;\n"
+        "}\n"
+        "\n"
+        "kernel(VM vm) {\n"
+        f"  {worker_name}(vm);\n"
+        "  int wid = 0;\n"
+        "  while (wid = kernel_wait_signal()) {\n"
+        "    if (wid == 1) {\n"
+        f"      {type_name} state = kernal_get_ghs(1);\n"
+        "      // TODO: integrate the showcase worker result here.\n"
+        "    }\n"
+        "  }\n"
+        "}\n"
+        "\n"
+        "function int accumulate(int start) {\n"
+        "  int sum = start;\n"
+        "  for (int i = 3; i; i = i - 1) {\n"
+        "    if (i == 2) {\n"
+        "      continue;\n"
+        "    }\n"
+        "    sum = sum + i;\n"
+        "  }\n"
+        "  return sum;\n"
+        "}\n"
+        "\n"
+        f"worker {worker_name}({type_name} state) {{\n"
+        "  reg int loop_count;\n"
+        "  local byte[96] target_kernel_id;\n"
+        f"  local {outbound_type} outbound;\n"
+        "  int total = accumulate(state.count);\n"
+        "  loop_count = total;\n"
+        "  while (loop_count) {\n"
+        "    if (loop_count == 2) {\n"
+        "      loop_count = loop_count - 1;\n"
+        "      continue;\n"
+        "    } else if (loop_count == 1) {\n"
+        "      break;\n"
+        "    }\n"
+        "    loop_count = loop_count - 1;\n"
+        "  }\n"
+        "  EPA {\n"
+        "    // TODO: insert raw EPA instructions for fine-grained tuning here.\n"
+        "  }\n"
+        "  // TODO: stage a target kernel id into target_kernel_id.\n"
+        "  // TODO: fill outbound as a staged local-area message.\n"
+        "  far_signal(target_kernel_id, outbound);\n"
+        "  host_signal();\n"
+        "  kernel_signal();\n"
+        "}\n"
+    )
+
+
+def _e_file_content(file_name: str, template_id: str = "root_node") -> str:
+    template_builders = {
+        "root_node": _e_root_node_template,
+        "specialised_worker": _e_specialised_worker_template,
+        "child_kernel_router": _e_child_kernel_router_template,
+        "pipeline_chain": _e_pipeline_chain_template,
+        "feature_showcase": _e_feature_showcase_template,
+    }
+    builder = template_builders.get(template_id, _e_root_node_template)
+    return builder(file_name)
+
+
+def _file_content(tech: str, name: str, template_id: str | None = None) -> str:
     stem = Path(name).stem
     ext  = Path(name).suffix.lower()
     cls  = _to_class_name(stem)
@@ -790,17 +1146,18 @@ def _file_content(tech: str, name: str) -> str:
             f'if __name__ == "__main__":\n    main()\n'
         )
     if ext == ".e":
-        return f'// {stem}\n\nfn main() {{\n}}\n'
+        return _e_file_content(name, template_id or "root_node")
     return ""
 
 
-def build_new_file_dialog(tech: str, initial_dir: str):
+def build_new_file_dialog(tech: str, initial_dir: str, selected_template: str | None = None):
     ph_map    = {"E": "my_module.e", "Cpp": "my_module.cpp", "Python": "my_module.py"}
     label_map = {"E": "E", "Cpp": "C++", "Python": "Python"}
     label     = label_map.get(tech, tech)
+    selected_template = selected_template or "root_node"
 
     ui = UiDocumentBuilder()
-    ui.create_window(f"New {label} File", 460, 520, "org.elara.ui.epa-ide.new-file")
+    ui.create_window(f"New {label} File", 460, 650 if tech == "E" else 520, "org.elara.ui.epa-ide.new-file")
     ui.set_theme_mode("dark")
 
     ui.create_grid("new_file.shell")
@@ -812,12 +1169,20 @@ def build_new_file_dialog(tech: str, initial_dir: str):
     ui.add_grid_row_exact("new_file.shell", 14)   # 2 gap
     ui.add_grid_row_exact("new_file.shell", 36)   # 3 name row
     ui.add_grid_row_exact("new_file.shell", 12)   # 4 gap
-    ui.add_grid_row_exact("new_file.shell", 20)   # 5 location label
-    ui.add_grid_row_exact("new_file.shell", 34)   # 6 path bar
-    ui.add_grid_row_exact("new_file.shell", 34)   # 7 new folder row
-    ui.add_grid_row_fill("new_file.shell")        # 8 folder list
-    ui.add_grid_row_exact("new_file.shell", 24)   # 9 error
-    ui.add_grid_row_exact("new_file.shell", 52)   # 10 footer
+    if tech == "E":
+        ui.add_grid_row_exact("new_file.shell", 20)   # 5 template label
+        ui.add_grid_row_exact("new_file.shell", 120)  # 6 template list
+        ui.add_grid_row_exact("new_file.shell", 52)   # 7 template summary
+        ui.add_grid_row_exact("new_file.shell", 12)   # 8 gap
+        base_row = 9
+    else:
+        base_row = 5
+    ui.add_grid_row_exact("new_file.shell", 20)   # base location label
+    ui.add_grid_row_exact("new_file.shell", 34)   # base+1 path bar
+    ui.add_grid_row_exact("new_file.shell", 34)   # base+2 new folder row
+    ui.add_grid_row_fill("new_file.shell")        # base+3 folder list
+    ui.add_grid_row_exact("new_file.shell", 24)   # base+4 error
+    ui.add_grid_row_exact("new_file.shell", 52)   # base+5 footer
     ui.set_root_content("new_file.shell")
 
     ui.create_label("new_file.title", f"New {label} File", 15)
@@ -833,8 +1198,18 @@ def build_new_file_dialog(tech: str, initial_dir: str):
     ui.place_grid_child("new_file.name_row", "new_file.filename", 1, 0)
     ui.place_grid_child("new_file.shell", "new_file.name_row", 1, 3)
 
+    if tech == "E":
+        ui.create_label("new_file.template_label", "Example template:", 13)
+        ui.place_grid_child("new_file.shell", "new_file.template_label", 1, 5)
+        ui.create_list_view("new_file.template_list")
+        ui.set_property_number("new_file.template_list", "font_size", 13)
+        ui.set_section_json("new_file.template_list", "items", _e_template_items())
+        ui.place_grid_child("new_file.shell", "new_file.template_list", 1, 6)
+        ui.create_label("new_file.template_summary", _e_template_summary(selected_template), 12)
+        ui.place_grid_child("new_file.shell", "new_file.template_summary", 1, 7)
+
     ui.create_label("new_file.loc_label", "Save location:", 13)
-    ui.place_grid_child("new_file.shell", "new_file.loc_label", 1, 5)
+    ui.place_grid_child("new_file.shell", "new_file.loc_label", 1, base_row)
 
     ui.create_grid("new_file.path_bar")
     ui.add_grid_column_weighted_fill("new_file.path_bar", 1)
@@ -847,7 +1222,7 @@ def build_new_file_dialog(tech: str, initial_dir: str):
     ui.place_grid_child("new_file.path_bar", "new_file.path_display", 0, 0)
     ui.place_grid_child("new_file.path_bar", "new_file.nav.home", 1, 0)
     ui.place_grid_child("new_file.path_bar", "new_file.nav.up", 2, 0)
-    ui.place_grid_child("new_file.shell", "new_file.path_bar", 1, 6)
+    ui.place_grid_child("new_file.shell", "new_file.path_bar", 1, base_row + 1)
 
     ui.create_grid("new_file.folder_row")
     ui.add_grid_column_weighted_fill("new_file.folder_row", 1)
@@ -857,15 +1232,15 @@ def build_new_file_dialog(tech: str, initial_dir: str):
     ui.create_button("new_file.make_folder_btn", "New Folder", "new_file.make_folder")
     ui.place_grid_child("new_file.folder_row", "new_file.new_folder_name", 0, 0)
     ui.place_grid_child("new_file.folder_row", "new_file.make_folder_btn", 1, 0)
-    ui.place_grid_child("new_file.shell", "new_file.folder_row", 1, 7)
+    ui.place_grid_child("new_file.shell", "new_file.folder_row", 1, base_row + 2)
 
     ui.create_list_view("new_file.folder_list")
     ui.set_property_number("new_file.folder_list", "font_size", 13)
     ui.set_section_json("new_file.folder_list", "items", _folder_items(initial_dir))
-    ui.place_grid_child("new_file.shell", "new_file.folder_list", 1, 8)
+    ui.place_grid_child("new_file.shell", "new_file.folder_list", 1, base_row + 3)
 
     ui.create_label("new_file.error", "", 12)
-    ui.place_grid_child("new_file.shell", "new_file.error", 1, 9)
+    ui.place_grid_child("new_file.shell", "new_file.error", 1, base_row + 4)
 
     ui.create_grid("new_file.footer")
     ui.add_grid_column_weighted_fill("new_file.footer", 1)
@@ -877,7 +1252,7 @@ def build_new_file_dialog(tech: str, initial_dir: str):
     ui.create_button("new_file.create_btn", "Create File", "new_file.create")
     ui.place_grid_child("new_file.footer", "new_file.cancel_btn", 1, 0)
     ui.place_grid_child("new_file.footer", "new_file.create_btn", 3, 0)
-    ui.place_grid_child("new_file.shell", "new_file.footer", 1, 10)
+    ui.place_grid_child("new_file.shell", "new_file.footer", 1, base_row + 5)
 
     return ui
 
@@ -1511,6 +1886,25 @@ def main():
                     _deferred(lambda: _new_file_navigate(c, p))
             return {"received": True}
 
+        if target == "new_file.template_list" and action in ("clicked", "action"):
+            template_items = _e_template_items()
+            template_id = ""
+            if action == "clicked":
+                row_height = 23
+                y = payload.get("y", -1.0)
+                row_index = int(y / row_height) if y >= 0 else -1
+                if 0 <= row_index < len(template_items):
+                    template_id = template_items[row_index]["id"]
+            else:
+                template_id = payload.get("action", "")
+            if template_id in E_FILE_TEMPLATES:
+                new_file_state["template"] = template_id
+                if client is not None:
+                    c = client
+                    summary = _e_template_summary(template_id)
+                    _deferred(lambda: c.set_text("new_file.template_summary", summary))
+            return {"received": True}
+
         # Double-click on a folder item navigates into it.
         if action == "action" and target == "wizard.folder_list" and client is not None:
             folder_path = payload.get("action", "")
@@ -1649,11 +2043,18 @@ def main():
                 else:
                     initial = project_root or str(Path.home())
                 new_file_state.clear()
-                new_file_state.update({"filename": "", "new_folder_name": "", "tech": tech, "dir": initial})
+                new_file_state.update({
+                    "filename": "",
+                    "new_folder_name": "",
+                    "tech": tech,
+                    "dir": initial,
+                    "template": "root_node" if tech == "E" else "",
+                })
                 new_file_nav_state["path"] = initial
+                dialog_height = 650 if tech == "E" else 520
                 _deferred(lambda: c.open_window(
-                    "new-file", "New File", 460, 520,
-                    build_new_file_dialog(tech, initial)
+                    "new-file", "New File", 460, dialog_height,
+                    build_new_file_dialog(tech, initial, new_file_state.get("template"))
                 ))
 
             elif item_action == "new_file.cancel":
@@ -1702,6 +2103,7 @@ def main():
                 filename    = new_file_state.get("filename", "").strip()
                 save_dir    = new_file_nav_state.get("path", new_file_state.get("dir", str(Path.home())))
                 tech        = new_file_state.get("tech", "")
+                template_id = new_file_state.get("template", "root_node")
                 ext_map     = {"E": ".e", "Cpp": ".cpp", "Python": ".py"}
                 default_ext = ext_map.get(tech, "")
 
@@ -1723,7 +2125,7 @@ def main():
                             dest.write_text(_cpp_source_content(dest.name), encoding="utf-8")
                             header.write_text(_cpp_header_content(header.name), encoding="utf-8")
                         else:
-                            dest.write_text(_file_content(tech, name), encoding="utf-8")
+                            dest.write_text(_file_content(tech, name, template_id), encoding="utf-8")
                     except OSError as exc:
                         try:
                             c.set_text("new_file.error", f"Could not create file: {exc}")

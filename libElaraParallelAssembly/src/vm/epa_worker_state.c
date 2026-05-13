@@ -38,6 +38,10 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   w->blocked = (block_id == 0) ? 0 : 1;
   w->faulted = 0;
   w->halted  = 0;
+  w->waiting_for_data = 0;
+  w->at_running = 0;
+  w->has_current_ghs = 0;
+  w->current_ghs = 0;
 
   if (!epa_ring_init(&w->inq, in_words ? in_words : 1)) {
     snprintf(err, EPA_MAX_ERR, "worker %u: in ring init failed", (unsigned)block_id);
@@ -96,6 +100,10 @@ void epa_worker_reset(EpaWorkerState *w) {
 
   w->faulted = 0;
   w->halted  = 0;
+  w->waiting_for_data = 0;
+  w->at_running = 0;
+  w->has_current_ghs = 0;
+  w->current_ghs = 0;
 
   // Keep blocked policy unchanged: kernel unblocked, others blocked
   w->blocked = (w->id == 0) ? 0 : 1;

@@ -6,6 +6,8 @@
 typedef struct ETypeRef {
   char *name;
   unsigned int array_len;
+  char **union_names;
+  size_t union_count;
 } ETypeRef;
 
 typedef struct EParam {
@@ -41,6 +43,7 @@ typedef enum {
   E_BIN_SUB,
   E_BIN_MUL,
   E_BIN_DIV,
+  E_BIN_EQ,
 } EBinaryOp;
 
 struct EExpr {

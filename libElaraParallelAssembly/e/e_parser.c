@@ -22,6 +22,15 @@ static char *xstrdup_local(const char *s) {
   return p;
 }
 
+static void type_ref_add_union_name(ETypeRef *out, const char *name) {
+  out->union_names = (char**)realloc(out->union_names, sizeof(char*) * (out->union_count + 1u));
+  if (!out->union_names) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  out->union_names[out->union_count++] = xstrdup_local(name);
+}
+
 static EExpr *new_expr(EExprKind kind) {
   EExpr *e = (EExpr*)calloc(1, sizeof(EExpr));
   if (!e) {
@@ -73,6 +82,12 @@ static int parse_type(Parser *p, ETypeRef *out) {
   if (!expect(p, E_TOK_IDENT, "expected type name")) return 0;
   out->name = xstrdup_local(p->tokens->items[p->pos - 1].text);
   out->array_len = 0u;
+  out->union_names = NULL;
+  out->union_count = 0u;
+  while (match(p, E_TOK_PIPE)) {
+    if (!expect(p, E_TOK_IDENT, "expected type name after '|'")) return 0;
+    type_ref_add_union_name(out, p->tokens->items[p->pos - 1].text);
+  }
   if (match(p, E_TOK_LBRACKET)) {
     if (peek(p)->kind != E_TOK_INT_LIT) return set_err(p, "expected integer array length", peek(p));
     out->array_len = (unsigned int)strtoul(peek(p)->text, NULL, 10);
@@ -239,8 +254,25 @@ static EExpr *parse_add(Parser *p) {
   return lhs;
 }
 
-static EExpr *parse_assign(Parser *p) {
+static EExpr *parse_eq(Parser *p) {
   EExpr *lhs = parse_add(p);
+  while (lhs && peek(p)->kind == E_TOK_EQEQ) {
+    EExpr *rhs;
+    EExpr *e;
+    p->pos++;
+    rhs = parse_add(p);
+    if (!rhs) return NULL;
+    e = new_expr(E_EXPR_BINARY);
+    e->as.binary.op = E_BIN_EQ;
+    e->as.binary.lhs = lhs;
+    e->as.binary.rhs = rhs;
+    lhs = e;
+  }
+  return lhs;
+}
+
+static EExpr *parse_assign(Parser *p) {
+  EExpr *lhs = parse_eq(p);
   if (!lhs) return NULL;
   if (match(p, E_TOK_ASSIGN)) {
     EExpr *rhs = parse_assign(p);

@@ -51,6 +51,7 @@ typedef struct {
 
   uint8_t waiting_for_data;
   uint8_t at_running;
+  uint8_t has_current_ghs;
 
   // Descriptor-debug metadata (not used for control flow)
   // abs_base = absolute byte offset into original blob where this descriptor begins
@@ -65,6 +66,7 @@ typedef struct {
   IdRing outq;
 
   uint8_t  *signal_mailbox;      // A block of memory for passing data directly to the container via a signal interupt
+  epa_ghs_handle_t current_ghs;  // Stable current ingress GHS for kernel-side inspection
 
 } EpaWorkerState;
 
@@ -77,4 +79,3 @@ int  epa_worker_init(EpaWorkerState *w, uint32_t block_id,
 
 void epa_worker_free(EpaWorkerState *w);
 void epa_worker_reset(EpaWorkerState *w);
-

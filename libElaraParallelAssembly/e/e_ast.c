@@ -4,6 +4,18 @@
 #include <stdlib.h>
 #include <string.h>
 
+static void free_type_ref(ETypeRef *type) {
+  size_t i;
+  if (!type) return;
+  free(type->name);
+  for (i = 0; i < type->union_count; i++) free(type->union_names[i]);
+  free(type->union_names);
+  type->name = NULL;
+  type->union_names = NULL;
+  type->union_count = 0;
+  type->array_len = 0u;
+}
+
 static void free_expr(EExpr *e) {
   size_t i;
   if (!e) return;
@@ -42,7 +54,7 @@ static void free_stmt(EStmt *s) {
   if (!s) return;
   switch (s->kind) {
     case E_STMT_DECL:
-      free(s->as.decl.type.name);
+      free_type_ref(&s->as.decl.type);
       free(s->as.decl.name);
       free_expr(s->as.decl.init);
       break;
@@ -98,7 +110,7 @@ static void free_stmt(EStmt *s) {
 static void free_params(EParam *params, size_t param_count) {
   size_t i;
   for (i = 0; i < param_count; i++) {
-    free(params[i].type.name);
+    free_type_ref(&params[i].type);
     free(params[i].name);
   }
   free(params);
@@ -123,7 +135,7 @@ void e_program_free(EProgram *p) {
         free_stmt(d->as.worker.body);
         break;
       case E_TOP_FUNCTION:
-        free(d->as.func.return_type.name);
+        free_type_ref(&d->as.func.return_type);
         free(d->as.func.name);
         free_params(d->as.func.params, d->as.func.param_count);
         free_stmt(d->as.func.body);
@@ -148,7 +160,11 @@ static void indent(FILE *out, int depth) {
 }
 
 static void dump_type_ref(FILE *out, const ETypeRef *type) {
+  size_t i;
   fprintf(out, "%s", type->name);
+  for (i = 0; i < type->union_count; i++) {
+    fprintf(out, "|%s", type->union_names[i]);
+  }
   if (type->array_len != 0u) {
     fprintf(out, "[%u]", type->array_len);
   }
@@ -160,6 +176,7 @@ static const char *bin_name(EBinaryOp op) {
     case E_BIN_SUB: return "-";
     case E_BIN_MUL: return "*";
     case E_BIN_DIV: return "/";
+    case E_BIN_EQ: return "==";
   }
   return "?";
 }

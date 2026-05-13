@@ -40,10 +40,12 @@ typedef enum {
   E_TOK_COLON,
   E_TOK_DOT,
   E_TOK_ASSIGN,
+  E_TOK_EQEQ,
   E_TOK_PLUS,
   E_TOK_MINUS,
   E_TOK_STAR,
   E_TOK_SLASH,
+  E_TOK_PIPE,
   E_TOK_AT,
 } ETokenKind;
 
