@@ -10,8 +10,6 @@ class UiDocumentBuilder:
         self.window_title = "Elara UI"
         self.window_width = 800
         self.window_height = 600
-        self.window_min_width = 0
-        self.window_min_height = 0
         self.window_backend_id = "org.elara.ui.app"
         self.theme_mode = "light"
         self.root_content = None
@@ -23,14 +21,7 @@ class UiDocumentBuilder:
         self.window_title = title
         self.window_width = int(width)
         self.window_height = int(height)
-        self.window_min_width = 0
-        self.window_min_height = 0
         self.window_backend_id = backend_id
-        return self
-
-    def set_minimum_window_size(self, w, h):
-        self.window_min_width = int(w)
-        self.window_min_height = int(h)
         return self
 
     def set_theme_mode(self, mode):
@@ -137,24 +128,12 @@ class UiDocumentBuilder:
     def create_list_view(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.list_view")
 
-    def create_combo_box(self, widget_id, items=None, selected_id=None):
-        """items: list of {"id": ..., "label": ...} dicts"""
-        self.create_widget(widget_id, "elara.widgets.combo_box")
-        if items:
-            self.set_section_json(widget_id, "items", items)
-        if selected_id is not None:
-            self.set_property_string(widget_id, "selected_id", selected_id)
-        return self
-
     def create_tree_view(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.tree_view")
 
     def create_rich_text_edit(self, widget_id, text):
         self.create_widget(widget_id, "elara.widgets.rich_text_edit")
         return self.set_property_string(widget_id, "text", text)
-
-    def create_chat_dialog(self, widget_id):
-        return self.create_widget(widget_id, "elara.widgets.chat_dialog")
 
     def create_toolbar(self, widget_id, orientation="vertical"):
         self.create_widget(widget_id, "elara.widgets.toolbar")
@@ -186,15 +165,6 @@ class UiDocumentBuilder:
 
     def create_surface_panel(self, widget_id):
         return self.create_widget(widget_id, "demo.widgets.surface_panel")
-
-    def create_opencl_surface(self, widget_id, commands=None, backend="opencl", kernel_name=None):
-        self.create_widget(widget_id, "elara.widgets.opencl_surface")
-        self.set_property_string(widget_id, "backend", backend)
-        if kernel_name:
-            self.set_property_string(widget_id, "kernel_name", kernel_name)
-        if commands is not None:
-            self.set_section_json(widget_id, "commands", commands)
-        return self
 
     def create_density_map(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.density_map")
@@ -435,8 +405,6 @@ class UiDocumentBuilder:
                 "title": self.window_title,
                 "width": self.window_width,
                 "height": self.window_height,
-                "min_width": self.window_min_width,
-                "min_height": self.window_min_height,
                 "backend_id": self.window_backend_id,
             },
             "theme": {"mode": self.theme_mode},
@@ -484,12 +452,8 @@ class UiDocumentBuilder:
         if widget["properties"]:
             result["properties"] = deepcopy(widget["properties"])
 
-        if widget["sections"]:
-            result["sections"] = deepcopy(widget["sections"])
-            # Keep legacy flattened section fields for existing widgets that
-            # still read arrays like `items`, `nodes`, or `menus` at top level.
-            for name, value in widget["sections"].items():
-                result[name] = deepcopy(value)
+        for name, value in widget["sections"].items():
+            result[name] = deepcopy(value)
 
         if widget["popup_items"]:
             result["items"] = deepcopy(widget["popup_items"])

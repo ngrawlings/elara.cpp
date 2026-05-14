@@ -60,6 +60,8 @@ private:
     String window_title;
     int window_width;
     int window_height;
+    int window_min_width;
+    int window_min_height;
     String window_backend_id;
     String theme_mode;
     String root_content;
@@ -89,6 +91,7 @@ public:
         int height,
         const String& backend_id
     );
+    void setMinimumWindowSize(int w, int h);
     void setThemeMode(const String& mode);
     void setRootContent(const String& widget_id);
     void clearRootPopups();

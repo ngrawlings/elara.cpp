@@ -67,6 +67,7 @@ ElaraTreeViewWidget::ElaraTreeViewWidget(
     enabled(true),
     hover_index(-1),
     hover_button_index(-1),
+    scroll_offset(0),
     font_size(14),
     row_height(24),
     indent_width(18),
@@ -112,7 +113,7 @@ int ElaraTreeViewWidget::rowAt(double py) const {
         return -1;
     }
 
-    int index = (int)(py / row_height);
+    int index = scroll_offset + (int)(py / row_height);
     Array<VisibleRow> rows = visibleRows();
 
     if(index < 0 || index >= (int)rows.length()) {
@@ -179,6 +180,7 @@ void ElaraTreeViewWidget::clearNodes() {
     selected_text = "";
     hover_index = -1;
     hover_button_index = -1;
+    scroll_offset = 0;
 }
 
 void ElaraTreeViewWidget::addRootNode(const ElaraTreeViewNode& node) {
@@ -248,8 +250,8 @@ void ElaraTreeViewWidget::draw(ElaraDrawContext* ctx) {
     static const double btn_gap =  2.0;
     static const double btn_fs  = 12.0;
 
-    for(int i = 0; i < (int)rows.length(); i++) {
-        double y = i * row_height;
+    for(int i = scroll_offset; i < (int)rows.length(); i++) {
+        double y = (i - scroll_offset) * row_height;
 
         if(y + row_height > height) {
             break;
@@ -384,6 +386,20 @@ void ElaraTreeViewWidget::onMouseUp(int button, double px, double py) {
         emitClicked(button, px, py);
         emitAction(node->getId());
     }
+}
+
+void ElaraTreeViewWidget::onMouseScroll(double dx, double dy) {
+    (void)dx;
+    int total = (int)visibleRows().length();
+    int visible = (int)(height / row_height);
+    int max_scroll = total - visible;
+    if(max_scroll <= 0) {
+        scroll_offset = 0;
+        return;
+    }
+    scroll_offset += (int)(dy + (dy > 0 ? 0.5 : -0.5));
+    if(scroll_offset < 0) scroll_offset = 0;
+    if(scroll_offset > max_scroll) scroll_offset = max_scroll;
 }
 
 }

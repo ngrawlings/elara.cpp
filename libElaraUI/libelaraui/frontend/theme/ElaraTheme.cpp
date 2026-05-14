@@ -178,6 +178,30 @@ void ElaraTheme::buildDark() {
             ElaraColor(1.00, 1.00, 1.00)
         )
     );
+
+    palette->set("input", "default",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),  // base: dark editor bg
+            ElaraColor(0.28, 0.40, 0.70),  // accent: selection / borders
+            ElaraColor(0.87, 0.87, 0.92)   // text: code text
+        )
+    );
+
+    palette->set("input", "disabled",
+        ElaraPaletteTriplet(
+            ElaraColor(0.09, 0.09, 0.11),
+            ElaraColor(0.20, 0.20, 0.25),
+            ElaraColor(0.50, 0.50, 0.56)
+        )
+    );
+
+    palette->set("input", "gutter",
+        ElaraPaletteTriplet(
+            ElaraColor(0.09, 0.10, 0.13),  // base: gutter bg (0.92 factor darkens further)
+            ElaraColor(0.25, 0.35, 0.62),  // accent: gutter border
+            ElaraColor(0.80, 0.82, 0.88)   // text: line numbers (bright enough at 0.55x dimming)
+        )
+    );
 }
 
 void ElaraTheme::buildLight() {
@@ -278,6 +302,30 @@ void ElaraTheme::buildLight() {
             ElaraColor(0.78, 0.84, 1.00),
             ElaraColor(0.45, 0.55, 0.85),
             ElaraColor(0.05, 0.05, 0.08)
+        )
+    );
+
+    palette->set("input", "default",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),  // base: near-white editor bg
+            ElaraColor(0.55, 0.62, 0.82),  // accent: selection / borders
+            ElaraColor(0.10, 0.10, 0.13)   // text: code text
+        )
+    );
+
+    palette->set("input", "disabled",
+        ElaraPaletteTriplet(
+            ElaraColor(0.94, 0.94, 0.96),
+            ElaraColor(0.72, 0.72, 0.78),
+            ElaraColor(0.50, 0.50, 0.56)
+        )
+    );
+
+    palette->set("input", "gutter",
+        ElaraPaletteTriplet(
+            ElaraColor(0.91, 0.91, 0.94),  // base: gutter bg (0.92 factor darkens to ~0.84)
+            ElaraColor(0.60, 0.64, 0.80),  // accent: gutter border
+            ElaraColor(0.44, 0.46, 0.55)   // text: line numbers (dimmed)
         )
     );
 }

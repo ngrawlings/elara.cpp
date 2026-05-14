@@ -693,6 +693,18 @@ void ElaraRootWidget::dispatchDoubleClick(int button, double px, double py) {
     eventPropagate(event);
 }
 
+void ElaraRootWidget::dispatchMouseScroll(double dx, double dy, double px, double py) {
+    ElaraUiEvent event;
+    event.root_widget = this;
+    event.type = ELARA_UI_MOUSE_SCROLL;
+    event.x = px;
+    event.y = py;
+    event.scroll_dx = dx;
+    event.scroll_dy = dy;
+
+    eventPropagate(event);
+}
+
 void ElaraRootWidget::dispatchKeyDown(unsigned int keyval) {
     dispatchKeyDown(keyval, 0);
 }

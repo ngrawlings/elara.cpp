@@ -18,6 +18,7 @@ enum ElaraUiEventType {
     ELARA_UI_MOUSE_DOWN,
     ELARA_UI_MOUSE_UP,
     ELARA_UI_MOUSE_DOUBLE_CLICK,
+    ELARA_UI_MOUSE_SCROLL,
     ELARA_UI_KEY_DOWN,
     ELARA_UI_KEY_UP,
     ELARA_UI_KEYS_TYPED
@@ -42,6 +43,8 @@ public:
     int button;
     unsigned int keyval;
     String text;
+    double scroll_dx;
+    double scroll_dy;
 
     ElaraUiEvent()
         : root_widget(0),
@@ -49,7 +52,9 @@ public:
           x(0),
           y(0),
           button(0),
-          keyval(0) {}
+          keyval(0),
+          scroll_dx(0),
+          scroll_dy(0) {}
 };
 
 class ElaraWidget : public ElaraDrawSurface {
@@ -187,6 +192,7 @@ public:
     virtual void onMouseDown(int button, double px, double py) {}
     virtual void onMouseUp(int button, double px, double py) {}
     virtual void onMouseDoubleClick(int button, double px, double py) {}
+    virtual void onMouseScroll(double dx, double dy) {}
     virtual void onKeyDown(unsigned int keyval) {}
     virtual void onKeyDown(unsigned int keyval, unsigned int modifiers) {
         (void)modifiers;

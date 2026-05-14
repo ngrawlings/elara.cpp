@@ -118,6 +118,7 @@ public:
     void onMouseDown(int button, double px, double py);
     void onMouseMove(double px, double py);
     void onMouseUp(int button, double px, double py);
+    void onMouseScroll(double dx, double dy);
     void onKeyDown(unsigned int keyval);
     void onKeyDown(unsigned int keyval, unsigned int modifiers);
     bool performAction(const String& action);

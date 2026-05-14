@@ -187,6 +187,11 @@ bool ElaraListViewWidget::eventPropagate(ElaraUiEvent event) {
         vscroll->setBounds(width - scrollbar_size, 0, scrollbar_size, height);
     }
 
+    if(event.type == ELARA_UI_MOUSE_SCROLL) {
+        onMouseScroll(event.scroll_dx, event.scroll_dy);
+        return true;
+    }
+
     bool handled = ElaraWidget::eventPropagate(event);
 
     if(vscroll->isVisible()) {
@@ -236,6 +241,21 @@ void ElaraListViewWidget::onMouseDoubleClick(int button, double px, double py) {
     }
 
     emitAction(items[row_index].getId());
+}
+
+void ElaraListViewWidget::onMouseScroll(double dx, double dy) {
+    (void)dx;
+    int visible_rows = (int)(height / row_height);
+    int max_scroll = (int)items.length() - visible_rows;
+    if(max_scroll <= 0) {
+        return;
+    }
+    scroll_offset += (int)(dy + (dy > 0 ? 0.5 : -0.5));
+    if(scroll_offset < 0) scroll_offset = 0;
+    if(scroll_offset > max_scroll) scroll_offset = max_scroll;
+    if(vscroll->isVisible()) {
+        vscroll->setValue(scroll_offset);
+    }
 }
 
 }

@@ -123,6 +123,8 @@ public:
         ElaraRootWidget* root = getRoot();
         if(root) {
             root->dismissAllPopups();
+        } else {
+            hide();
         }
 
         if(index < 0 || index >= (int)source_items->length()) {
@@ -260,10 +262,10 @@ void ElaraComboBoxWidget::openDropdown() {
         return;
     }
 
-    dropdown->syncFromCombo(width);
     dropdown->setPalette(getPalette());
     root->pushPopup(dropdown_handle);
     dropdown->showAt(getAbsoluteX(), getAbsoluteY() + height);
+    dropdown->syncFromCombo(width);
 }
 
 void ElaraComboBoxWidget::onDropdownItemSelected(const String& id) {

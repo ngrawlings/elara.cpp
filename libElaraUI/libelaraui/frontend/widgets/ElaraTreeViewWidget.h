@@ -69,6 +69,7 @@ private:
     bool enabled;
     int hover_index;
     int hover_button_index;
+    int scroll_offset;
     double font_size;
     double row_height;
     double indent_width;
@@ -114,6 +115,7 @@ public:
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);
     void onMouseUp(int button, double px, double py);
+    void onMouseScroll(double dx, double dy);
 };
 
 }

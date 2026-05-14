@@ -70,6 +70,7 @@ public:
     void onMouseDown(int button, double px, double py);
     void onMouseUp(int button, double px, double py);
     void onMouseDoubleClick(int button, double px, double py);
+    void onMouseScroll(double dx, double dy);
 };
 
 }

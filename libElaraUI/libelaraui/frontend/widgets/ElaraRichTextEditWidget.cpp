@@ -759,6 +759,12 @@ bool ElaraRichTextEditWidget::eventPropagate(ElaraUiEvent event) {
         horizontal_slider->setBounds(0, height - scrollbar_size, width - effectiveScrollbarW(), scrollbar_size);
     }
 
+    if(event.type == ELARA_UI_MOUSE_SCROLL) {
+        onMouseScroll(event.scroll_dx, event.scroll_dy);
+        clampScroll();
+        return true;
+    }
+
     bool handled = ElaraWidget::eventPropagate(event);
 
     if(vertical_slider->isVisible()) scroll_y = (int)vertical_slider->getValue();
@@ -822,6 +828,20 @@ void ElaraRichTextEditWidget::onMouseUp(int button, double px, double py) {
 
     if(button == 1) {
         selecting = false;
+    }
+}
+
+void ElaraRichTextEditWidget::onMouseScroll(double dx, double dy) {
+    (void)dx;
+    int max_scroll = lineCount() - visibleLineCount();
+    if(max_scroll <= 0) {
+        return;
+    }
+    scroll_y += (int)(dy + (dy > 0 ? 0.5 : -0.5));
+    if(scroll_y < 0) scroll_y = 0;
+    if(scroll_y > max_scroll) scroll_y = max_scroll;
+    if(vertical_slider->isVisible()) {
+        vertical_slider->setValue(scroll_y);
     }
 }
 

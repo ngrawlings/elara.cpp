@@ -1105,6 +1105,15 @@ bool ElaraCodeEditorWidget::eventPropagate(ElaraUiEvent event) {
         );
     }
 
+    // Scroll events are always handled by the editor itself regardless of
+    // where the cursor is — prevents the child scrollbars from consuming
+    // wheel events and silently dropping them.
+    if (event.type == ELARA_UI_MOUSE_SCROLL) {
+        onMouseScroll(event.scroll_dx, event.scroll_dy);
+        clampScroll();
+        return true;
+    }
+
     // While dragging the minimap, own all mouse move/up events so children
     // (scrollbars) cannot steal them even if the cursor drifts.
     if (minimap_dragging) {
@@ -1253,6 +1262,15 @@ void ElaraCodeEditorWidget::onMouseUp(int button, double px, double py) {
     if (button == 1) {
         minimap_dragging = false;
         selecting = false;
+    }
+}
+
+void ElaraCodeEditorWidget::onMouseScroll(double dx, double dy) {
+    (void)dx;
+    scroll_y += (int)(dy + (dy > 0 ? 0.5 : -0.5));
+    clampScroll();
+    if(vertical_slider && vertical_slider->isVisible()) {
+        vertical_slider->setValue(scroll_y);
     }
 }
 

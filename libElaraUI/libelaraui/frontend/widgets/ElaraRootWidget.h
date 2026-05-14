@@ -82,6 +82,7 @@ public:
     void dispatchMouseDown(int button, double px, double py);
     void dispatchMouseUp(int button, double px, double py);
     void dispatchDoubleClick(int button, double px, double py);
+    void dispatchMouseScroll(double dx, double dy, double px, double py);
 
     void dispatchKeyDown(unsigned int keyval);
     void dispatchKeyUp(unsigned int keyval);

@@ -53,6 +53,7 @@ public:
     virtual void dispatchMouseDown(int button, double x, double y) {}
     virtual void dispatchMouseUp(int button, double x, double y) {}
     virtual void dispatchDoubleClick(int button, double x, double y) {}
+    virtual void dispatchMouseScroll(double dx, double dy, double px, double py) {}
     virtual bool acceptsDoubleClickAt(double x, double y) const { return false; }
 
     virtual void dispatchKeyDown(unsigned int keyval) {}
@@ -102,7 +103,11 @@ public:
     virtual void show() = 0;
     virtual void invalidate() = 0;
     virtual int run(int argc, char** argv) = 0;
+    virtual void quit() {}
+    virtual void showSurface(Ref<ElaraDrawSurface> surface) { (void)surface; }
     virtual void setWindowTitle(const String& title) {}
+    virtual void setDefaultWindowSize(int w, int h) { (void)w; (void)h; }
+    virtual void setMinimumSize(int w, int h) { (void)w; (void)h; }
     virtual void setClipboardText(const String& text) { (void)text; }
     virtual String getClipboardText() { return String(); }
 };

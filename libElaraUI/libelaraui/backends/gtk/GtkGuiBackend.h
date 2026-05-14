@@ -90,6 +90,13 @@ private:
         gpointer user_data
     );
 
+    static gboolean onMouseScrolled(
+        GtkEventControllerScroll* controller,
+        double dx,
+        double dy,
+        gpointer user_data
+    );
+
 public:
     GtkGuiBackend(const String& app_id);
     virtual ~GtkGuiBackend();
@@ -101,11 +108,15 @@ public:
         Ref<ElaraDrawSurface> surface
     );
 
+    void quit();
     void show();
+    void showSurface(Ref<ElaraDrawSurface> surface);
     void invalidate();
     int run(int argc, char** argv);
     void destroyWindow(Ref<ElaraDrawSurface> surface);
     void setWindowTitle(const String& title);
+    void setDefaultWindowSize(int w, int h);
+    void setMinimumSize(int w, int h);
     void setClipboardText(const String& text);
     String getClipboardText();
 };

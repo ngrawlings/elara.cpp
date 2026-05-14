@@ -509,7 +509,7 @@ public:
 
         enableDefaultOutboundEvents(record->root);
         backend->createWindow(title, width, height, record->surface);
-        backend->show();
+        backend->showSurface(record->surface);
         backend->invalidate();
         windows.push(record);
 
@@ -673,6 +673,11 @@ private:
     Array< Ref<DeferredUiRequest> > queue;
     EventArtifactLogger* logger;
     bool layout_loaded;
+    String loaded_window_title;
+    int loaded_window_width;
+    int loaded_window_height;
+    int loaded_window_min_width;
+    int loaded_window_min_height;
 
     bool dispatchWidgetTargetedCall(
         const String& method,
@@ -766,12 +771,22 @@ public:
           window_manager(secondary_window_manager),
           queue_lock("main-thread-ui-service"),
           logger(event_logger),
-          layout_loaded(false) {
+          layout_loaded(false),
+          loaded_window_width(0),
+          loaded_window_height(0),
+          loaded_window_min_width(0),
+          loaded_window_min_height(0) {
     }
 
     bool hasLoadedLayout() const {
         return layout_loaded;
     }
+
+    String getLoadedWindowTitle() const { return loaded_window_title; }
+    int getLoadedWindowWidth() const { return loaded_window_width; }
+    int getLoadedWindowHeight() const { return loaded_window_height; }
+    int getLoadedWindowMinWidth() const { return loaded_window_min_width; }
+    int getLoadedWindowMinHeight() const { return loaded_window_min_height; }
 
     bool loadDocument(
         const String& params_json,
@@ -788,12 +803,24 @@ public:
             return false;
         }
 
+        Json doc_json(document);
+        String win_title = doc_json.getStringValue("window.title");
+        int win_width = doc_json.getIntValue("window.width");
+        int win_height = doc_json.getIntValue("window.height");
+        int win_min_w = doc_json.getIntValue("window.min_width");
+        int win_min_h = doc_json.getIntValue("window.min_height");
+
         if(!protocol || !protocol->load(document)) {
             error_code = "load_failed";
             error_message = "The UI document could not be loaded";
             return false;
         }
 
+        loaded_window_title = win_title;
+        loaded_window_width = win_width > 0 ? win_width : 800;
+        loaded_window_height = win_height > 0 ? win_height : 600;
+        loaded_window_min_width = win_min_w;
+        loaded_window_min_height = win_min_h;
         layout_loaded = true;
         result_json = "{\"loaded\":true}";
         return true;
@@ -1262,6 +1289,8 @@ private:
     Ref<WidgetListener> demo_logic_listener;
     Ref<WidgetListener> trace_listener;
     bool layout_attached;
+    bool persistent;
+    bool client_connected_once;
     DebugEventLog* debug_log;
 
     int listen_fd;
@@ -1286,10 +1315,16 @@ public:
           rpc_ui_service_ref(Ref<sockets::rpc::json::JsonRPCService>::borrow((sockets::rpc::json::JsonRPCService*)ui_service_ref.getPtr())),
           ui_service((MainThreadUiService*)ui_service_ref.getPtr()),
           layout_attached(false),
+          persistent(false),
+          client_connected_once(false),
           debug_log(0),
           listen_fd(0),
           running(false),
           accept_thread(0) {
+    }
+
+    void setPersistent(bool value) {
+        persistent = value;
     }
 
     ~UiRpcHost() {
@@ -1344,7 +1379,20 @@ public:
 
         layout_attached = true;
 
-        if(backend) {
+        if(backend && ui_service) {
+            String title = ui_service->getLoadedWindowTitle();
+            int w = ui_service->getLoadedWindowWidth();
+            int h = ui_service->getLoadedWindowHeight();
+            int min_w = ui_service->getLoadedWindowMinWidth();
+            int min_h = ui_service->getLoadedWindowMinHeight();
+            if(title.length() > 0) {
+                backend->setWindowTitle(title);
+            }
+            backend->setDefaultWindowSize(w, h);
+            if(min_w > 0 || min_h > 0) {
+                backend->setMinimumSize(min_w, min_h);
+            }
+            backend->showSurface(root_surface);
             backend->invalidate();
         }
 
@@ -1421,6 +1469,21 @@ public:
     }
 
     bool tick() {
+        if(client_connected_once && peer && !peer->isConnected()) {
+            if(!persistent) {
+                logger.log("rpc.connection", "client disconnected — exiting");
+                if(backend) {
+                    backend->quit();
+                }
+                return false;
+            }
+            peer->close();
+            peer = Ref<ElaraUiRpcPeer>(0);
+            ui_bridge = Ref<ElaraUiRpcUiBridge>(0);
+            client_connected_once = false;
+            logger.log("rpc.connection", "client disconnected — persistent mode, waiting for reconnect");
+        }
+
         bool dirty = false;
         if(ui_service) {
             dirty = ui_service->processPending();
@@ -1455,6 +1518,7 @@ private:
         peer->addService(rpc_ui_service_ref);
 
         if(peer->attach(fd)) {
+            client_connected_once = true;
             ui_bridge = Ref<ElaraUiRpcUiBridge>(new ElaraUiRpcUiBridge(root, peer));
             if(debug_log) {
                 ui_bridge->setEventSink(debug_log);
@@ -1566,6 +1630,7 @@ int main(int argc, char** argv) {
 #else
     unsigned short rpc_port = 18777;
     const char* event_log_path = 0;
+    bool persistent_mode = false;
 
     /* Parse and strip our custom args so GTK never sees them. */
     {
@@ -1575,6 +1640,8 @@ int main(int argc, char** argv) {
                 rpc_port = (unsigned short)atoi(argv[++i]);
             } else if(strcmp(argv[i], "--event-log") == 0 && i + 1 < argc) {
                 event_log_path = argv[++i];
+            } else if(strcmp(argv[i], "--persistent") == 0) {
+                persistent_mode = true;
             } else if(i == 1 && argv[i][0] != '-') {
                 rpc_port = (unsigned short)atoi(argv[i]);
             } else {
@@ -1603,6 +1670,10 @@ int main(int argc, char** argv) {
         host.setEventLogPath(event_log_path);
     }
 
+    if(persistent_mode) {
+        host.setPersistent(true);
+    }
+
     if(!host.listen("0.0.0.0", rpc_port)) {
         printf("failed to listen for RPC clients on port %d\n", (int)rpc_port);
         return 1;
@@ -1610,8 +1681,9 @@ int main(int argc, char** argv) {
 
     g_timeout_add(16, onHostTick, &host);
 
-    printf("libElaraUI RPC debug server listening on 0.0.0.0:%d and waiting for ui.loadDocument\n",
-           (int)rpc_port);
+    printf("libElaraUI RPC debug server listening on 0.0.0.0:%d and waiting for ui.loadDocument%s\n",
+           (int)rpc_port,
+           persistent_mode ? " (persistent)" : " (exits on disconnect)");
     printf("event trace artifact: %s\n", (const char*)host.getSessionDir());
 
     ElaraWindow window(backend);

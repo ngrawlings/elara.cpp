@@ -2060,7 +2060,7 @@ def main():
             }
         else:
             tab_ui = UiDocumentBuilder()
-            tab_ui.create_rich_text_edit(tab_id + ".container", source_text)
+            tab_ui.create_code_editor(tab_id + ".container", source_text)
             tab_ui.set_property_number(tab_id + ".container", "font_size", 13)
             child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
 
@@ -2376,7 +2376,7 @@ def main():
                 np = node_path
                 perm = is_double
                 _deferred(lambda: _open_file_tab(c, np, perm))
-            return {"received": True}
+                return {"received": True}
 
         # Double-click on a folder item navigates into it.
         if action == "action" and target == "wizard.folder_list" and client is not None:

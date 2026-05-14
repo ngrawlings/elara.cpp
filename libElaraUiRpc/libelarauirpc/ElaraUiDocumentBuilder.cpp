@@ -24,6 +24,8 @@ ElaraUiDocumentBuilder::ElaraUiDocumentBuilder()
     : window_title("Elara UI"),
       window_width(800),
       window_height(600),
+      window_min_width(0),
+      window_min_height(0),
       window_backend_id("org.elara.ui.app"),
       theme_mode("light") {
 }
@@ -34,6 +36,8 @@ void ElaraUiDocumentBuilder::clear() {
     window_title = "Elara UI";
     window_width = 800;
     window_height = 600;
+    window_min_width = 0;
+    window_min_height = 0;
     window_backend_id = "org.elara.ui.app";
     theme_mode = "light";
     root_content = String();
@@ -354,7 +358,14 @@ void ElaraUiDocumentBuilder::createWindow(
     window_title = title;
     window_width = width;
     window_height = height;
+    window_min_width = 0;
+    window_min_height = 0;
     window_backend_id = backend_id;
+}
+
+void ElaraUiDocumentBuilder::setMinimumWindowSize(int w, int h) {
+    window_min_width = w;
+    window_min_height = h;
 }
 
 void ElaraUiDocumentBuilder::setThemeMode(const String& mode) {
@@ -1073,6 +1084,10 @@ String ElaraUiDocumentBuilder::toJson() const {
     json += String(window_width);
     json += ",\"height\":";
     json += String(window_height);
+    json += ",\"min_width\":";
+    json += String(window_min_width);
+    json += ",\"min_height\":";
+    json += String(window_min_height);
     json += ",\"backend_id\":";
     json += jsonStringLiteral(window_backend_id);
     json += "}";

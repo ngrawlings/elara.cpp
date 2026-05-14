@@ -496,7 +496,8 @@ bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
         event.type == ELARA_UI_MOUSE_MOVE ||
         event.type == ELARA_UI_MOUSE_DOWN ||
         event.type == ELARA_UI_MOUSE_UP ||
-        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK;
+        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK ||
+        event.type == ELARA_UI_MOUSE_SCROLL;
 
     if(is_mouse) {
         int winner = -1;
@@ -545,6 +546,10 @@ bool ElaraWidget::handleEvent(const ElaraUiEvent& event) {
 
         case ELARA_UI_MOUSE_DOUBLE_CLICK:
             onMouseDoubleClick(event.button, event.x, event.y);
+            return true;
+
+        case ELARA_UI_MOUSE_SCROLL:
+            onMouseScroll(event.scroll_dx, event.scroll_dy);
             return true;
 
         case ELARA_UI_KEY_DOWN:

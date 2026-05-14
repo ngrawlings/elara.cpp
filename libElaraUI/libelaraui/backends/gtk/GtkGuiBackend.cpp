@@ -15,6 +15,9 @@ public:
     int width;
     int height;
 
+    bool visible;
+    double last_mouse_x;
+    double last_mouse_y;
     int pending_button;
     double pending_press_x;
     double pending_press_y;
@@ -35,6 +38,9 @@ public:
         title(window_title),
         width(window_width),
         height(window_height),
+        visible(false),
+        last_mouse_x(0),
+        last_mouse_y(0),
         pending_button(-1),
         pending_press_x(0),
         pending_press_y(0),
@@ -263,12 +269,6 @@ void GtkGuiBackend::createWindow(
 
     if(activated) {
         buildWindow(state);
-        if(state->window) {
-            gtk_window_present(state->window);
-        }
-        if(state->drawing_area) {
-            gtk_widget_grab_focus(state->drawing_area);
-        }
     }
 }
 
@@ -306,14 +306,24 @@ void GtkGuiBackend::buildWindow(WindowState* state) {
     g_signal_connect(key, "key-released", G_CALLBACK(GtkGuiBackend::onKeyReleased), state);
     gtk_widget_add_controller(state->drawing_area, key);
 
+    GtkEventController* scroll = gtk_event_controller_scroll_new(GTK_EVENT_CONTROLLER_SCROLL_VERTICAL);
+    g_signal_connect(scroll, "scroll", G_CALLBACK(GtkGuiBackend::onMouseScrolled), state);
+    gtk_widget_add_controller(state->drawing_area, scroll);
+
     g_signal_connect(state->window, "destroy", G_CALLBACK(GtkGuiBackend::onWindowDestroy), state);
     gtk_window_set_child(state->window, state->drawing_area);
+}
+
+void GtkGuiBackend::quit() {
+    if(app) {
+        g_application_quit(G_APPLICATION(app));
+    }
 }
 
 void GtkGuiBackend::show() {
     for(int i = 0; i < (int)windows.length(); i++) {
         WindowState* state = windows[i];
-        if(!state || !state->window) {
+        if(!state || !state->window || !state->visible) {
             continue;
         }
 
@@ -322,6 +332,23 @@ void GtkGuiBackend::show() {
         if(state->drawing_area) {
             gtk_widget_grab_focus(state->drawing_area);
         }
+    }
+}
+
+void GtkGuiBackend::showSurface(Ref<ElaraDrawSurface> surface) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(!state || !surface || state->surface.getPtr() != surface.getPtr()) {
+            continue;
+        }
+        state->visible = true;
+        if(state->window) {
+            gtk_window_present(state->window);
+            if(state->drawing_area) {
+                gtk_widget_grab_focus(state->drawing_area);
+            }
+        }
+        return;
     }
 }
 
@@ -338,6 +365,23 @@ int GtkGuiBackend::run(int argc, char** argv) {
     return g_application_run(G_APPLICATION(app), argc, argv);
 }
 
+gboolean GtkGuiBackend::onMouseScrolled(
+    GtkEventControllerScroll* controller,
+    double dx,
+    double dy,
+    gpointer user_data
+) {
+    (void)controller;
+    WindowState* state = (WindowState*)user_data;
+    if(state && state->surface) {
+        state->surface->dispatchMouseScroll(dx, dy, state->last_mouse_x, state->last_mouse_y);
+        if(state->backend) {
+            state->backend->invalidate();
+        }
+    }
+    return TRUE;
+}
+
 void GtkGuiBackend::onActivate(GtkApplication* app, gpointer user_data) {
     GtkGuiBackend* self = (GtkGuiBackend*)user_data;
     self->activated = true;
@@ -345,8 +389,6 @@ void GtkGuiBackend::onActivate(GtkApplication* app, gpointer user_data) {
     for(int i = 0; i < (int)self->windows.length(); i++) {
         self->buildWindow(self->windows[i]);
     }
-
-    self->show();
 }
 
 void GtkGuiBackend::onDraw(
@@ -382,6 +424,8 @@ void GtkGuiBackend::onMouseMotion(
     WindowState* state = (WindowState*)user_data;
 
     if(state && state->surface) {
+        state->last_mouse_x = x;
+        state->last_mouse_y = y;
         state->surface->dispatchMouseMove(x, y);
         gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
         if(state->backend) {
@@ -558,6 +602,26 @@ void GtkGuiBackend::setWindowTitle(const String& title) {
         WindowState* state = windows[i];
         if(state && state->window) {
             gtk_window_set_title(state->window, (const char*)title);
+            return;
+        }
+    }
+}
+
+void GtkGuiBackend::setDefaultWindowSize(int w, int h) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_window_set_default_size(state->window, w, h);
+            return;
+        }
+    }
+}
+
+void GtkGuiBackend::setMinimumSize(int w, int h) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_widget_set_size_request(GTK_WIDGET(state->window), w, h);
             return;
         }
     }
