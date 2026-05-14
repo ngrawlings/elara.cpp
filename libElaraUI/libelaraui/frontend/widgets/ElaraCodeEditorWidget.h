@@ -38,10 +38,31 @@ private:
         Diagnostic() : line(0), column(0), length(1) {}
     };
 
+    enum SyntaxStyle {
+        SYNTAX_DEFAULT,
+        SYNTAX_KEYWORD,
+        SYNTAX_TYPE,
+        SYNTAX_STRING,
+        SYNTAX_COMMENT,
+        SYNTAX_NUMBER,
+        SYNTAX_PREPROCESSOR,
+        SYNTAX_OPERATOR
+    };
+
+    struct SyntaxSpan {
+        int start_col;
+        int end_col;
+        SyntaxStyle style;
+        SyntaxSpan() : start_col(0), end_col(0), style(SYNTAX_DEFAULT) {}
+        SyntaxSpan(int start, int end, SyntaxStyle syntax_style)
+            : start_col(start), end_col(end), style(syntax_style) {}
+    };
+
     ElaraSliderWidget* vertical_slider;
     ElaraSliderWidget* horizontal_slider;
 
     String value;
+    String language;
     String palette_master;
 
     bool enabled;
@@ -112,6 +133,8 @@ private:
     void drawGutter(ElaraDrawContext* ctx);
     void drawEditor(ElaraDrawContext* ctx);
     void drawMinimap(ElaraDrawContext* ctx);
+    ElaraPaletteTriplet syntaxColors(SyntaxStyle style) const;
+    Array<SyntaxSpan> tokenizeLine(const String& line) const;
 
     bool minimap_dragging;
 
@@ -156,6 +179,9 @@ public:
 
     void setFontSize(double size);
     double getFontSize() const;
+
+    void setLanguage(const String& name);
+    String getLanguage() const;
 
     void setBreakpoint(int logical_line, bool v);
     bool hasBreakpoint(int logical_line) const;

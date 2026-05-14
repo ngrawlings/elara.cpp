@@ -854,12 +854,14 @@ public:
         ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget);
         if(code_editor) {
             String text = spec.getStringValue("properties.text");
+            String language = spec.getStringValue("properties.language");
             int font_size = jsonInt(spec, "properties.font_size", 14);
 
             if(text.length() > 0) {
                 code_editor->setText(text);
             }
 
+            code_editor->setLanguage(language.length() > 0 ? language : String("plain"));
             code_editor->setFontSize((double)font_size);
             code_editor->setEnabled(
                 jsonString(spec, "properties.enabled", String("true")) != String("false")

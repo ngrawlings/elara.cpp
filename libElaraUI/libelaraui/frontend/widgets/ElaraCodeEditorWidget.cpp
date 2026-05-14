@@ -24,6 +24,127 @@ static String intToStr(int n) {
     return String(buf);
 }
 
+static bool isAsciiLetter(char ch) {
+    return (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+}
+
+static bool isAsciiDigit(char ch) {
+    return ch >= '0' && ch <= '9';
+}
+
+static bool isIdentifierStart(char ch) {
+    return isAsciiLetter(ch) || ch == '_';
+}
+
+static bool isIdentifierPart(char ch) {
+    return isIdentifierStart(ch) || isAsciiDigit(ch);
+}
+
+static bool isOperatorChar(char ch) {
+    switch(ch) {
+        case '+': case '-': case '*': case '/': case '%':
+        case '=': case '!': case '<': case '>': case '&':
+        case '|': case '^': case '~': case '?': case ':':
+        case '.':
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool tokenEquals(const String& token, const char* literal) {
+    return token == String(literal);
+}
+
+static bool isKeywordForLanguage(const String& language, const String& token) {
+    if(language == String("cpp")) {
+        return tokenEquals(token, "if") || tokenEquals(token, "else") ||
+               tokenEquals(token, "for") || tokenEquals(token, "while") ||
+               tokenEquals(token, "do") || tokenEquals(token, "switch") ||
+               tokenEquals(token, "case") || tokenEquals(token, "default") ||
+               tokenEquals(token, "break") || tokenEquals(token, "continue") ||
+               tokenEquals(token, "return") || tokenEquals(token, "namespace") ||
+               tokenEquals(token, "class") || tokenEquals(token, "struct") ||
+               tokenEquals(token, "public") || tokenEquals(token, "private") ||
+               tokenEquals(token, "protected") || tokenEquals(token, "virtual") ||
+               tokenEquals(token, "override") || tokenEquals(token, "const") ||
+               tokenEquals(token, "constexpr") || tokenEquals(token, "static") ||
+               tokenEquals(token, "inline") || tokenEquals(token, "template") ||
+               tokenEquals(token, "typename") || tokenEquals(token, "using") ||
+               tokenEquals(token, "new") || tokenEquals(token, "delete") ||
+               tokenEquals(token, "try") || tokenEquals(token, "catch") ||
+               tokenEquals(token, "throw") || tokenEquals(token, "this") ||
+               tokenEquals(token, "nullptr") || tokenEquals(token, "true") ||
+               tokenEquals(token, "false");
+    }
+    if(language == String("python")) {
+        return tokenEquals(token, "if") || tokenEquals(token, "elif") ||
+               tokenEquals(token, "else") || tokenEquals(token, "for") ||
+               tokenEquals(token, "while") || tokenEquals(token, "break") ||
+               tokenEquals(token, "continue") || tokenEquals(token, "return") ||
+               tokenEquals(token, "def") || tokenEquals(token, "class") ||
+               tokenEquals(token, "import") || tokenEquals(token, "from") ||
+               tokenEquals(token, "as") || tokenEquals(token, "pass") ||
+               tokenEquals(token, "raise") || tokenEquals(token, "try") ||
+               tokenEquals(token, "except") || tokenEquals(token, "finally") ||
+               tokenEquals(token, "with") || tokenEquals(token, "yield") ||
+               tokenEquals(token, "lambda") || tokenEquals(token, "in") ||
+               tokenEquals(token, "is") || tokenEquals(token, "and") ||
+               tokenEquals(token, "or") || tokenEquals(token, "not") ||
+               tokenEquals(token, "None") || tokenEquals(token, "True") ||
+               tokenEquals(token, "False");
+    }
+    if(language == String("e")) {
+        return tokenEquals(token, "worker") || tokenEquals(token, "kernel") ||
+               tokenEquals(token, "function") || tokenEquals(token, "type") ||
+               tokenEquals(token, "declare") || tokenEquals(token, "local") ||
+               tokenEquals(token, "reg") || tokenEquals(token, "return") ||
+               tokenEquals(token, "if") || tokenEquals(token, "else") ||
+               tokenEquals(token, "for") || tokenEquals(token, "while") ||
+               tokenEquals(token, "break") || tokenEquals(token, "continue") ||
+               tokenEquals(token, "next") || tokenEquals(token, "EPA") ||
+               tokenEquals(token, "signal") || tokenEquals(token, "kernel_signal") ||
+               tokenEquals(token, "host_signal") || tokenEquals(token, "far_signal") ||
+               tokenEquals(token, "typeof") || tokenEquals(token, "typeid");
+    }
+    if(language == String("epa")) {
+        return tokenEquals(token, "ENTRY_START") || tokenEquals(token, "ENTRY_END") ||
+               tokenEquals(token, "WAIT_FOR_DATA") || tokenEquals(token, "WAIT_ON_SYNC") ||
+               tokenEquals(token, "SIGNAL") || tokenEquals(token, "HOST_SIGNAL") ||
+               tokenEquals(token, "FAR_SIGNAL") || tokenEquals(token, "KERNEL_GHS_IN_R") ||
+               tokenEquals(token, "WORKER_TRX_IN_R") || tokenEquals(token, "G_XFER") ||
+               tokenEquals(token, "LOAD_CONST") || tokenEquals(token, "LOAD_L") ||
+               tokenEquals(token, "STORE_L") || tokenEquals(token, "PUSH") ||
+               tokenEquals(token, "POP") || tokenEquals(token, "JMP") ||
+               tokenEquals(token, "JZ") || tokenEquals(token, "RET") ||
+               tokenEquals(token, "FMT") || tokenEquals(token, "LOG");
+    }
+    return false;
+}
+
+static bool isTypeForLanguage(const String& language, const String& token) {
+    if(language == String("cpp")) {
+        return tokenEquals(token, "void") || tokenEquals(token, "bool") ||
+               tokenEquals(token, "char") || tokenEquals(token, "short") ||
+               tokenEquals(token, "int") || tokenEquals(token, "long") ||
+               tokenEquals(token, "float") || tokenEquals(token, "double") ||
+               tokenEquals(token, "signed") || tokenEquals(token, "unsigned") ||
+               tokenEquals(token, "auto") || tokenEquals(token, "size_t") ||
+               tokenEquals(token, "String") || tokenEquals(token, "Ref");
+    }
+    if(language == String("python")) {
+        return tokenEquals(token, "str") || tokenEquals(token, "int") ||
+               tokenEquals(token, "float") || tokenEquals(token, "bool") ||
+               tokenEquals(token, "list") || tokenEquals(token, "dict") ||
+               tokenEquals(token, "tuple") || tokenEquals(token, "set");
+    }
+    if(language == String("e")) {
+        return tokenEquals(token, "byte") || tokenEquals(token, "int") ||
+               tokenEquals(token, "long");
+    }
+    return false;
+}
+
 // ---------------------------------------------------------------------------
 // Constructor / destructor
 // ---------------------------------------------------------------------------
@@ -47,6 +168,7 @@ ElaraCodeEditorWidget::ElaraCodeEditorWidget(
         )
     )),
     value(""),
+    language("plain"),
     palette_master("input"),
     enabled(true),
     focused(false),
@@ -512,7 +634,6 @@ void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
     }
 
     // Text lines
-    ctx->setColor(c.text.r, c.text.g, c.text.b);
     for (int i = 0; i < (int)viewport_metrics.length(); i++) {
         const VisibleLineMetrics& m = viewport_metrics[i];
         double ty = (double)i * line_height + font_size;
@@ -555,7 +676,45 @@ void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
         }
 
         if (display.length() > 0) {
-            ctx->drawText(ex + padding_x, ty, display, font_size);
+            String full_line = logicalLineText(m.logical_line);
+            Array<SyntaxSpan> spans = tokenizeLine(full_line);
+            int visible_start_col = scroll_x;
+            int visible_end_col = scroll_x + (int)m.visible_text.length();
+
+            if (spans.length() <= 0) {
+                ctx->setColor(c.text.r, c.text.g, c.text.b);
+                ctx->drawText(ex + padding_x, ty, display, font_size);
+            } else {
+                for (int s = 0; s < (int)spans.length(); s++) {
+                    const SyntaxSpan& span = spans[s];
+                    if (span.end_col <= visible_start_col || span.start_col >= visible_end_col) {
+                        continue;
+                    }
+
+                    int draw_start = span.start_col > visible_start_col ? span.start_col : visible_start_col;
+                    int draw_end = span.end_col < visible_end_col ? span.end_col : visible_end_col;
+                    if (draw_end <= draw_start) {
+                        continue;
+                    }
+
+                    int local_start = draw_start - visible_start_col;
+                    int local_end = draw_end - visible_start_col;
+                    if (local_start < 0) local_start = 0;
+                    if (local_end > (int)m.visible_text.length()) local_end = (int)m.visible_text.length();
+                    if (local_end <= local_start) {
+                        continue;
+                    }
+
+                    String segment = m.visible_text.substr(local_start, local_end - local_start);
+                    double seg_x = ex + padding_x;
+                    if (local_start >= 0 && local_start < (int)m.caret_positions.length()) {
+                        seg_x = ex + padding_x + m.caret_positions[local_start];
+                    }
+                    ElaraPaletteTriplet sc = syntaxColors(span.style);
+                    ctx->setColor(sc.text.r, sc.text.g, sc.text.b);
+                    ctx->drawText(seg_x, ty, segment, font_size);
+                }
+            }
         }
     }
 
@@ -715,6 +874,143 @@ void ElaraCodeEditorWidget::drawMinimap(ElaraDrawContext* ctx) {
     // Left border of minimap
     ctx->setColor(mc.accent.r, mc.accent.g, mc.accent.b);
     ctx->line(mx, 0, mx, mh, 1.0);
+}
+
+ElaraPaletteTriplet ElaraCodeEditorWidget::syntaxColors(SyntaxStyle style) const {
+    switch(style) {
+        case SYNTAX_KEYWORD:
+            return colors(palette_master, "syntax_keyword");
+        case SYNTAX_TYPE:
+            return colors(palette_master, "syntax_type");
+        case SYNTAX_STRING:
+            return colors(palette_master, "syntax_string");
+        case SYNTAX_COMMENT:
+            return colors(palette_master, "syntax_comment");
+        case SYNTAX_NUMBER:
+            return colors(palette_master, "syntax_number");
+        case SYNTAX_PREPROCESSOR:
+            return colors(palette_master, "syntax_preprocessor");
+        case SYNTAX_OPERATOR:
+            return colors(palette_master, "syntax_operator");
+        case SYNTAX_DEFAULT:
+        default:
+            return colors(palette_master, enabled ? String("default") : String("disabled"));
+    }
+}
+
+Array<ElaraCodeEditorWidget::SyntaxSpan> ElaraCodeEditorWidget::tokenizeLine(const String& line) const {
+    Array<SyntaxSpan> spans;
+    int len = (int)line.length();
+    if (len <= 0) {
+        return spans;
+    }
+
+    String lang = language.length() > 0 ? language : String("plain");
+    if (lang == String("plain")) {
+        spans.push(SyntaxSpan(0, len, SYNTAX_DEFAULT));
+        return spans;
+    }
+
+    int first_non_ws = 0;
+    while (first_non_ws < len) {
+        char ws = line.byteAt(first_non_ws);
+        if (ws != ' ' && ws != '\t') break;
+        first_non_ws++;
+    }
+    if (lang == String("cpp") && first_non_ws < len && line.byteAt(first_non_ws) == '#') {
+        spans.push(SyntaxSpan(0, len, SYNTAX_PREPROCESSOR));
+        return spans;
+    }
+
+    int i = 0;
+    while (i < len) {
+        char ch = line.byteAt(i);
+
+        if (lang != String("epa") && ch == '/' && i + 1 < len && line.byteAt(i + 1) == '/') {
+            spans.push(SyntaxSpan(i, len, SYNTAX_COMMENT));
+            break;
+        }
+        if ((lang == String("python") || lang == String("e")) && ch == '#') {
+            spans.push(SyntaxSpan(i, len, SYNTAX_COMMENT));
+            break;
+        }
+        if (lang == String("epa") && ch == ';') {
+            spans.push(SyntaxSpan(i, len, SYNTAX_COMMENT));
+            break;
+        }
+
+        if (ch == '"' || ch == '\'') {
+            char quote = ch;
+            int start = i++;
+            while (i < len) {
+                char inner = line.byteAt(i);
+                if (inner == '\\' && i + 1 < len) {
+                    i += 2;
+                    continue;
+                }
+                i++;
+                if (inner == quote) {
+                    break;
+                }
+            }
+            spans.push(SyntaxSpan(start, i, SYNTAX_STRING));
+            continue;
+        }
+
+        if (isAsciiDigit(ch)) {
+            int start = i++;
+            while (i < len) {
+                char inner = line.byteAt(i);
+                if (isAsciiDigit(inner) || inner == '.' ||
+                    (inner >= 'a' && inner <= 'f') || (inner >= 'A' && inner <= 'F') ||
+                    inner == 'x' || inner == 'X' || inner == '_') {
+                    i++;
+                    continue;
+                }
+                break;
+            }
+            spans.push(SyntaxSpan(start, i, SYNTAX_NUMBER));
+            continue;
+        }
+
+        if (isIdentifierStart(ch)) {
+            int start = i++;
+            while (i < len && isIdentifierPart(line.byteAt(i))) {
+                i++;
+            }
+            String token = line.substr(start, i - start);
+            SyntaxStyle style = SYNTAX_DEFAULT;
+            if (isKeywordForLanguage(lang, token)) {
+                style = SYNTAX_KEYWORD;
+            } else if (isTypeForLanguage(lang, token)) {
+                style = SYNTAX_TYPE;
+            }
+            spans.push(SyntaxSpan(start, i, style));
+            continue;
+        }
+
+        if (isOperatorChar(ch)) {
+            spans.push(SyntaxSpan(i, i + 1, SYNTAX_OPERATOR));
+            i++;
+            continue;
+        }
+
+        int start = i++;
+        while (i < len) {
+            char inner = line.byteAt(i);
+            if (isIdentifierStart(inner) || isAsciiDigit(inner) || isOperatorChar(inner) ||
+                inner == '"' || inner == '\'' ||
+                (lang != String("epa") && inner == '/' && i + 1 < len && line.byteAt(i + 1) == '/') ||
+                ((lang == String("python") || lang == String("e")) && inner == '#') ||
+                (lang == String("epa") && inner == ';')) {
+                break;
+            }
+            i++;
+        }
+        spans.push(SyntaxSpan(start, i, SYNTAX_DEFAULT));
+    }
+
+    return spans;
 }
 
 // ---------------------------------------------------------------------------
@@ -982,6 +1278,14 @@ void ElaraCodeEditorWidget::setFontSize(double size) {
 
 double ElaraCodeEditorWidget::getFontSize() const {
     return font_size;
+}
+
+void ElaraCodeEditorWidget::setLanguage(const String& name) {
+    language = name.length() > 0 ? name : String("plain");
+}
+
+String ElaraCodeEditorWidget::getLanguage() const {
+    return language;
 }
 
 void ElaraCodeEditorWidget::setBreakpoint(int logical_line, bool v) {

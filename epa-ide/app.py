@@ -60,6 +60,19 @@ def _editor_ids(tab_id: str):
     }
 
 
+def _editor_language_for_path(path: str) -> str:
+    ext = Path(path).suffix.lower()
+    if ext in (".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hh"):
+        return "cpp"
+    if ext == ".py":
+        return "python"
+    if ext == ".e":
+        return "e"
+    if ext in (".epa", ".epaasm"):
+        return "epa"
+    return "plain"
+
+
 def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: str):
     ids = _editor_ids(tab_id)
     ui.create_grid(ids["container"])
@@ -115,6 +128,10 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
     ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
     ui.set_property_bool(ids["debug_meta"], "read_only", True)
+    ui.set_property_string(ids["source"], "language", "e")
+    ui.set_property_string(ids["epa"], "language", "epa")
+    ui.set_property_string(ids["debug_meta"], "language", "plain")
+    ui.set_property_string(ids["debug"], "language", "plain")
     ui.set_property_bool(ids["epa"], "read_only", True)
     ui.set_property_bool(ids["debug"], "read_only", True)
     ui.set_property_bool(ids["epa"], "visible", False)
@@ -2121,6 +2138,7 @@ def main():
             tab_ui = UiDocumentBuilder()
             tab_ui.create_code_editor(tab_id + ".container", source_text)
             tab_ui.set_property_number(tab_id + ".container", "font_size", 13)
+            tab_ui.set_property_string(tab_id + ".container", "language", _editor_language_for_path(file_path))
             child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
 
         try:

@@ -202,6 +202,56 @@ void ElaraTheme::buildDark() {
             ElaraColor(0.80, 0.82, 0.88)   // text: line numbers (bright enough at 0.55x dimming)
         )
     );
+
+    palette->set("input", "syntax_keyword",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.55, 0.65, 0.96),
+            ElaraColor(0.55, 0.65, 0.96)
+        )
+    );
+    palette->set("input", "syntax_type",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.42, 0.82, 0.78),
+            ElaraColor(0.42, 0.82, 0.78)
+        )
+    );
+    palette->set("input", "syntax_string",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.86, 0.66, 0.42),
+            ElaraColor(0.86, 0.66, 0.42)
+        )
+    );
+    palette->set("input", "syntax_comment",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.47, 0.54, 0.60),
+            ElaraColor(0.47, 0.54, 0.60)
+        )
+    );
+    palette->set("input", "syntax_number",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.74, 0.52, 0.90),
+            ElaraColor(0.74, 0.52, 0.90)
+        )
+    );
+    palette->set("input", "syntax_preprocessor",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.92, 0.48, 0.58),
+            ElaraColor(0.92, 0.48, 0.58)
+        )
+    );
+    palette->set("input", "syntax_operator",
+        ElaraPaletteTriplet(
+            ElaraColor(0.12, 0.13, 0.16),
+            ElaraColor(0.86, 0.87, 0.92),
+            ElaraColor(0.86, 0.87, 0.92)
+        )
+    );
 }
 
 void ElaraTheme::buildLight() {
@@ -326,6 +376,56 @@ void ElaraTheme::buildLight() {
             ElaraColor(0.91, 0.91, 0.94),  // base: gutter bg (0.92 factor darkens to ~0.84)
             ElaraColor(0.60, 0.64, 0.80),  // accent: gutter border
             ElaraColor(0.44, 0.46, 0.55)   // text: line numbers (dimmed)
+        )
+    );
+
+    palette->set("input", "syntax_keyword",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.15, 0.33, 0.78),
+            ElaraColor(0.15, 0.33, 0.78)
+        )
+    );
+    palette->set("input", "syntax_type",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.00, 0.50, 0.54),
+            ElaraColor(0.00, 0.50, 0.54)
+        )
+    );
+    palette->set("input", "syntax_string",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.72, 0.38, 0.00),
+            ElaraColor(0.72, 0.38, 0.00)
+        )
+    );
+    palette->set("input", "syntax_comment",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.45, 0.50, 0.54),
+            ElaraColor(0.45, 0.50, 0.54)
+        )
+    );
+    palette->set("input", "syntax_number",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.52, 0.28, 0.74),
+            ElaraColor(0.52, 0.28, 0.74)
+        )
+    );
+    palette->set("input", "syntax_preprocessor",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.74, 0.10, 0.28),
+            ElaraColor(0.74, 0.10, 0.28)
+        )
+    );
+    palette->set("input", "syntax_operator",
+        ElaraPaletteTriplet(
+            ElaraColor(0.99, 0.99, 1.00),
+            ElaraColor(0.18, 0.20, 0.28),
+            ElaraColor(0.18, 0.20, 0.28)
         )
     );
 }
