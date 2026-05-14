@@ -470,12 +470,66 @@ def build_document():
     return ui
 
 
-def build_open_file_dialog():
+def _ide_state_path() -> Path:
+    return Path.home() / ".config" / "epa-ide" / "state.json"
+
+
+def _load_ide_state() -> dict:
+    p = _ide_state_path()
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_ide_state(updates: dict):
+    p = _ide_state_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        state = _load_ide_state()
+        state.update(updates)
+        p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _breadcrumb_for(path: str) -> str:
+    home = str(Path.home())
+    p = Path(path)
+    try:
+        rel = p.relative_to(home)
+        parts = ["Home"] + list(rel.parts)
+    except ValueError:
+        parts = list(p.parts)
+    return " › ".join(parts) if parts else path
+
+
+def _open_file_items(path: str) -> list:
+    """Return {id, label} dicts for entries (dirs + files) under path."""
+    entries = []
+    parent = str(Path(path).parent)
+    if parent != path:
+        entries.append({"id": parent, "label": ".."})
+    try:
+        names = sorted(os.listdir(path), key=str.lower)
+        for name in names:
+            if name.startswith("."):
+                continue
+            full = os.path.join(path, name)
+            if os.path.isdir(full):
+                entries.append({"id": full, "label": name + "/"})
+            else:
+                entries.append({"id": full, "label": name})
+    except OSError:
+        pass
+    return entries
+
+
+def build_open_file_dialog(initial_path: str):
     """Build a high-quality open-file dialog using the current Elara UI API.
 
     Current UI API limitations are represented as deliberate placeholders rather
     than fake controls:
-    - no native file-system model yet, so lists are sample data
     - no table/header/list columns yet, so the file browser is a rich list label
     - no combo box yet, so file type is represented by a text input
     - no checkbox yet in this dialog flow, so option toggles are label placeholders
@@ -550,7 +604,7 @@ def build_open_file_dialog():
     ui.create_button("dialog.nav.back", "‹", "dialog.nav.back")
     ui.create_button("dialog.nav.forward", "›", "dialog.nav.forward")
     ui.create_button("dialog.nav.up", "↑", "dialog.nav.up")
-    ui.create_text_input("dialog.location", "Location", "/home/user/Projects/E")
+    ui.create_text_input("dialog.location", "Location", initial_path)
     ui.create_text_input("dialog.search", "Search current folder", "")
     ui.place_grid_child("dialog.navbar", "dialog.nav.back", 0, 0)
     ui.place_grid_child("dialog.navbar", "dialog.nav.forward", 1, 0)
@@ -563,7 +617,7 @@ def build_open_file_dialog():
     ui.add_grid_column_exact("dialog.breadcrumb_bar", 88)
     ui.add_grid_column_exact("dialog.breadcrumb_bar", 88)
     ui.add_grid_row_fill("dialog.breadcrumb_bar")
-    ui.create_label("dialog.breadcrumb", "Home › Projects › E", 13)
+    ui.create_label("dialog.breadcrumb", _breadcrumb_for(initial_path), 13)
     ui.create_button("dialog.new_folder", "New Folder", "dialog.folder.new")
     ui.create_button("dialog.refresh", "Refresh", "dialog.folder.refresh")
     ui.place_grid_child("dialog.breadcrumb_bar", "dialog.breadcrumb", 0, 0)
@@ -572,20 +626,11 @@ def build_open_file_dialog():
 
     ui.create_list_view("dialog.files")
     ui.set_property_number("dialog.files", "font_size", 14)
-    ui.set_section_json("dialog.files", "items", [
-        {"id": "file.parent", "label": "..                                      Folder        —             —"},
-        {"id": "file.runtime", "label": "runtime/                                Folder        Today         —"},
-        {"id": "file.samples", "label": "samples/                                Folder        Yesterday      —"},
-        {"id": "file.main", "label": "main.e                                  E source      Today         4 KB"},
-        {"id": "file.assistant", "label": "assistant.e                             E source      Today         7 KB"},
-        {"id": "file.renderer", "label": "renderer.e                              E source      Yesterday      12 KB"},
-        {"id": "file.runtime_host", "label": "runtime_host.cpp                       C++ source    Monday         18 KB"},
-        {"id": "file.editor_logic", "label": "editor_logic.py                         Python       Monday         9 KB"},
-        {"id": "file.game_project", "label": "game.eproj                              Project       Last week      2 KB"}
-    ])
+    ui.set_section_json("dialog.files", "items", _open_file_items(initial_path))
 
-    ui.create_label("dialog.file_header", "Name                                    Type          Modified       Size", 12)
-    ui.create_label("dialog.file_status", "9 items     Placeholder: list_view has no native columns, sort headers, multi-select, or filesystem binding yet", 11)
+    ui.create_label("dialog.file_header", "Name", 12)
+    _initial_items = _open_file_items(initial_path)
+    ui.create_label("dialog.file_status", f"{len(_initial_items)} items", 11)
     ui.place_grid_child("dialog.browser_panel", "dialog.navbar", 0, 0)
     ui.place_grid_child("dialog.browser_panel", "dialog.breadcrumb_bar", 0, 1)
     ui.place_grid_child("dialog.browser_panel", "dialog.file_header", 0, 2)
@@ -1461,6 +1506,7 @@ def main():
     wizard_state = {}            # live checkbox state for the new-project wizard
     nav_state = {}               # current browse path in the wizard file picker
     open_project_nav_state = {}  # current browse path in the open-project dialog
+    open_file_nav_state = {}     # current browse path in the open-file dialog
     app_state = {}               # persistent project state set after universal creation
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
@@ -1893,6 +1939,18 @@ def main():
             except Exception as snap_e:
                 print(f"[navigate error] snapshot failed: {snap_e}", flush=True)
 
+    def _open_file_navigate(client, path: str):
+        """Navigate the open-file dialog to path and refresh the list."""
+        open_file_nav_state["path"] = path
+        items = _open_file_items(path)
+        try:
+            client.replace_list_items("dialog.files", items)
+            client.set_text("dialog.location", path)
+            client.set_text("dialog.breadcrumb", _breadcrumb_for(path))
+            client.set_text("dialog.file_status", f"{len(items)} items")
+        except Exception:
+            pass
+
     def _open_project_navigate(client, path: str):
         """Navigate the open-project dialog to path and refresh the list."""
         open_project_nav_state["path"] = path
@@ -1921,6 +1979,7 @@ def main():
     def _open_project(client, project_path):
         """Populate nav.tree with the structure of an open project."""
         project_path = Path(project_path)
+        _save_ide_state({"last_project": str(project_path)})
         meta_path = project_path / ".elaraproject" / "project.json"
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
@@ -2323,6 +2382,21 @@ def main():
                 if name:
                     new_file_state["new_folder_name"] = name[:-1]
 
+        # Open-file dialog: double-click a directory to navigate into it.
+        if target == "dialog.files" and action == "action":
+            entry_path = payload.get("action", "")
+            if entry_path and Path(entry_path).is_dir() and client is not None:
+                c = client
+                p = entry_path
+                _deferred(lambda: _open_file_navigate(c, p))
+            return {"received": True}
+
+        # Open-file dialog: track typed location bar changes.
+        if action == "textChanged" and target == "dialog.location":
+            typed = payload.get("text", "")
+            if typed and Path(typed).is_dir():
+                open_file_nav_state["path"] = typed
+
         # New-file dialog: double-click a folder to navigate into it.
         if target == "new_file.folder_list" and action in ("clicked", "action"):
             row_height = 23
@@ -2474,7 +2548,10 @@ def main():
                 _deferred(lambda: c.perform_focused_action(item_action))
 
             if target == "app.menu" and item_action == "file.open":
-                _deferred(lambda: c.open_window("open-file", "Open File", 920, 640, build_open_file_dialog()))
+                saved = _load_ide_state().get("last_open_dir", "")
+                initial = saved if saved and Path(saved).is_dir() else str(Path.home())
+                open_file_nav_state["path"] = initial
+                _deferred(lambda: c.open_window("open-file", "Open File", 920, 640, build_open_file_dialog(initial)))
 
             elif item_action in ("file.new_project", "no_project.new_project"):
                 initial = str(Path.home())
@@ -2499,7 +2576,8 @@ def main():
                 ))
 
             elif item_action in ("file.open_project", "no_project.open_project"):
-                initial = str(Path.home())
+                last = _load_ide_state().get("last_project", "")
+                initial = str(Path(last).parent) if last and Path(last).parent.is_dir() else str(Path.home())
                 open_project_nav_state["path"] = initial
                 _deferred(lambda: c.open_window(
                     "open-project", "Open Project", 500, 500,
@@ -2644,8 +2722,31 @@ def main():
 
                 _deferred(_do_create_file)
 
-            elif item_action in ("dialog.file.cancel", "dialog.file.confirm"):
+            elif item_action == "dialog.file.confirm":
+                current_dir = open_file_nav_state.get("path", "")
+                if current_dir:
+                    _save_ide_state({"last_open_dir": current_dir})
                 _deferred(lambda: c.close_window("open-file"))
+
+            elif item_action == "dialog.file.cancel":
+                _deferred(lambda: c.close_window("open-file"))
+
+            elif item_action == "dialog.nav.up":
+                current = open_file_nav_state.get("path", str(Path.home()))
+                parent = str(Path(current).parent)
+                if parent != current:
+                    p = parent
+                    _deferred(lambda: _open_file_navigate(c, p))
+
+            elif item_action == "dialog.nav.back":
+                pass  # history not yet tracked
+
+            elif item_action == "dialog.nav.forward":
+                pass  # history not yet tracked
+
+            elif item_action == "dialog.folder.refresh":
+                current = open_file_nav_state.get("path", str(Path.home()))
+                _deferred(lambda: _open_file_navigate(c, current))
 
             elif item_action == "wizard.cancel":
                 _deferred(lambda: c.close_window("new-project"))
