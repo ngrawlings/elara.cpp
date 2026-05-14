@@ -38,3 +38,9 @@ typedef struct EpaSchedState {
   int interrupt_requested;
   void *opaque;
 } EpaSchedState;
+
+int epa_sched_cpu_thread_add_threads(struct EpaKernel *k,
+                                     struct EpaSchedState *s,
+                                     uint32_t add_count,
+                                     char err[EPA_MAX_ERR]);
+uint32_t epa_sched_cpu_thread_thread_count(struct EpaSchedState *s);

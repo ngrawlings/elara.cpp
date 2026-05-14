@@ -197,6 +197,9 @@ class ElaraUiRpcClient:
     def set_window_decorated(self, decorated: bool, timeout: float = 5.0):
         return self.call("ui.setWindowDecorated", {"decorated": bool(decorated)}, timeout=timeout)
 
+    def set_theme_mode(self, mode: str, timeout: float = 5.0):
+        return self.call("ui.setThemeMode", {"mode": mode}, timeout=timeout)
+
     def configure_menu_bar_chrome(
         self,
         target: str,

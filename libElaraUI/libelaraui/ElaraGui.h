@@ -29,6 +29,8 @@ public:
     virtual void setColor(double r, double g, double b) = 0;
     virtual void fillCircle(double x, double y, double radius) = 0;
     virtual void fillRect(double x, double y, double w, double h) = 0;
+    virtual void fillRoundRect(double x, double y, double w, double h, double radius) = 0;
+    virtual void strokeRoundRect(double x, double y, double w, double h, double radius, double line_width) = 0;
     virtual void line(double x1, double y1, double x2, double y2, double width) = 0;
     virtual void drawText(double x, double y, const String& text, double size) = 0;
     virtual double measureTextWidth(const String& text, double size) = 0;

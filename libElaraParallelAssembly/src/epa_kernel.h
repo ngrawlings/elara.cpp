@@ -91,6 +91,8 @@ typedef struct EpaKernel {
 
   EpaKernelSignal signal_cb;
   char *kernel_id;
+  uint8_t *owned_blob;
+  size_t owned_blob_len;
 
   // Debug callback
   EpaKernelDbgCallback dbg_cb;
@@ -99,4 +101,7 @@ typedef struct EpaKernel {
   EpaSchedProfile sched_profile;
   const EpaSchedulerVt *sched_vt;
   EpaSchedState sched_state;
+  pthread_mutex_t state_mu;
+  int runtime_status;
+  char last_error[EPA_MAX_ERR];
 } EpaKernel;

@@ -17,12 +17,10 @@ private:
     bool enabled;
 
     double font_size;
-    double padding_x;
-    double padding_y;
-
-    double estimateTextWidth() const;
-    double textX() const;
-    double textY() const;
+    double padding_left;
+    double padding_right;
+    double padding_top;
+    double padding_bottom;
 
 public:
     ElaraButtonWidget(
@@ -42,7 +40,12 @@ public:
     bool isEnabled() const;
 
     void setFontSize(double size);
+    void setPadding(double all);
     void setPadding(double px, double py);
+    void setPaddingLeft(double value);
+    void setPaddingRight(double value);
+    void setPaddingTop(double value);
+    void setPaddingBottom(double value);
 
     virtual void onClicked();
 

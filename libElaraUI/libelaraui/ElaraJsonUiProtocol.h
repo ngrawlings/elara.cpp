@@ -59,6 +59,7 @@ public:
     bool setActiveTab(ElaraWidgetHandle target_handle, int index);
     bool load(const String& json_text);
     bool loadFile(const String& path);
+    bool setThemeMode(const String& mode);
 };
 
 }

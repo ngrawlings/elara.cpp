@@ -13,8 +13,10 @@ ElaraButtonWidget::ElaraButtonWidget(
     hovered(false),
     enabled(true),
     font_size(14),
-    padding_x(10),
-    padding_y(6) {}
+    padding_left(10),
+    padding_right(10),
+    padding_top(6),
+    padding_bottom(6) {}
 
 ElaraButtonWidget::~ElaraButtonWidget() {}
 
@@ -51,22 +53,19 @@ void ElaraButtonWidget::setFontSize(double size) {
     font_size = size;
 }
 
+void ElaraButtonWidget::setPadding(double all) {
+    padding_left = padding_right = padding_top = padding_bottom = all;
+}
+
 void ElaraButtonWidget::setPadding(double px, double py) {
-    padding_x = px;
-    padding_y = py;
+    padding_left = padding_right = px;
+    padding_top = padding_bottom = py;
 }
 
-double ElaraButtonWidget::estimateTextWidth() const {
-    return text.length() * font_size * 0.58;
-}
-
-double ElaraButtonWidget::textX() const {
-    return (width - estimateTextWidth()) / 2;
-}
-
-double ElaraButtonWidget::textY() const {
-    return (height / 2) + (font_size / 2) - 2;
-}
+void ElaraButtonWidget::setPaddingLeft(double value)   { padding_left   = value; }
+void ElaraButtonWidget::setPaddingRight(double value)  { padding_right  = value; }
+void ElaraButtonWidget::setPaddingTop(double value)    { padding_top    = value; }
+void ElaraButtonWidget::setPaddingBottom(double value) { padding_bottom = value; }
 
 void ElaraButtonWidget::onClicked() {
     if(action.length() > 0) {
@@ -88,30 +87,31 @@ void ElaraButtonWidget::draw(ElaraDrawContext* ctx) {
     }
 
     ElaraPaletteTriplet c = colors(palette_master, sub);
+    double r = c.corner_radius;
+    double bw = c.border_width;
 
     ctx->setColor(c.base.r, c.base.g, c.base.b);
-    ctx->fillRect(0, 0, width, height);
+    ctx->fillRoundRect(0, 0, width, height, r);
 
     ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
-    if(pressed) {
-        ctx->line(0, 0, width, 0, 2);
-        ctx->line(0, 0, 0, height, 2);
-        ctx->line(0, height - 1, width, height - 1, 1);
-        ctx->line(width - 1, 0, width - 1, height, 1);
-        ctx->fillRect(2, 2, width - 4, 2);
-    } else {
-        ctx->line(0, 0, width, 0, 1);
-        ctx->line(0, height - 1, width, height - 1, 1);
-        ctx->line(0, 0, 0, height, 1);
-        ctx->line(width - 1, 0, width - 1, height, 1);
+    ctx->strokeRoundRect(0, 0, width, height, r, bw);
 
-        if(hovered && enabled) {
-            ctx->fillRect(2, height - 4, width - 4, 2);
-        }
+    if(hovered && enabled && !pressed) {
+        double inset = bw + 1.0;
+        ctx->fillRoundRect(inset, height - 4.0 - inset, width - inset * 2.0, 3.0, r > 0 ? r - 1.0 : 0.0);
     }
 
+    double text_w = ctx->measureTextWidth(text, font_size);
+    double text_x = (width - text_w) / 2.0;
+    if(text_x < padding_left) text_x = padding_left;
+    if(text_x + text_w > width - padding_right) text_x = width - padding_right - text_w;
+
+    double text_y = (height / 2.0) + (font_size / 2.0) - 2.0;
+    if(text_y - font_size < padding_top) text_y = padding_top + font_size;
+    if(text_y > height - padding_bottom) text_y = height - padding_bottom;
+
     ctx->setColor(c.text.r, c.text.g, c.text.b);
-    ctx->drawText(textX() + content_offset, textY() + content_offset, text, font_size);
+    ctx->drawText(text_x + content_offset, text_y + content_offset, text, font_size);
 }
 
 ElaraMouseCursor ElaraButtonWidget::cursor() const {

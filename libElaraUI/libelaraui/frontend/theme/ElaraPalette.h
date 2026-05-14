@@ -22,6 +22,8 @@ public:
     ElaraColor base;
     ElaraColor accent;
     ElaraColor text;
+    double border_width;
+    double corner_radius;
 
     ElaraPaletteTriplet();
     ElaraPaletteTriplet(

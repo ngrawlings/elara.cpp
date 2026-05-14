@@ -412,6 +412,23 @@ private:
         }
     }
 
+    void applyMenuBarButtons(ElaraMenuBarWidget* menu_bar, const Json& spec) {
+        if(!menu_bar) {
+            return;
+        }
+
+        Array< Ref<JsonValue> > btn_specs = spec.getArray("buttons");
+        for(int i = 0; i < (int)btn_specs.length(); i++) {
+            Json btn(btn_specs[i]->toString());
+            String id     = btn.getStringValue("id");
+            String glyph  = btn.getStringValue("glyph");
+            String action = btn.getStringValue("action");
+            if(id.length() > 0) {
+                menu_bar->addButton(id, glyph, action);
+            }
+        }
+    }
+
     void applyMenuBarMenus(ElaraMenuBarWidget* menu_bar, const Json& spec) {
         if(!menu_bar) {
             return;
@@ -725,6 +742,25 @@ public:
                     ? false
                     : true
             );
+
+            double font_size = jsonDouble(spec, "properties.font_size", -1.0);
+            if(font_size > 0) button->setFontSize(font_size);
+
+            double pad_all   = jsonDouble(spec, "properties.padding",        -1.0);
+            double pad_x     = jsonDouble(spec, "properties.padding_x",      -1.0);
+            double pad_y     = jsonDouble(spec, "properties.padding_y",      -1.0);
+            double pad_left  = jsonDouble(spec, "properties.padding_left",   -1.0);
+            double pad_right = jsonDouble(spec, "properties.padding_right",  -1.0);
+            double pad_top   = jsonDouble(spec, "properties.padding_top",    -1.0);
+            double pad_bot   = jsonDouble(spec, "properties.padding_bottom", -1.0);
+
+            if(pad_all   >= 0) button->setPadding(pad_all);
+            if(pad_x     >= 0) button->setPadding(pad_x, pad_y >= 0 ? pad_y : pad_x);
+            if(pad_y     >= 0 && pad_x < 0) button->setPadding(pad_y, pad_y);
+            if(pad_left  >= 0) button->setPaddingLeft(pad_left);
+            if(pad_right >= 0) button->setPaddingRight(pad_right);
+            if(pad_top   >= 0) button->setPaddingTop(pad_top);
+            if(pad_bot   >= 0) button->setPaddingBottom(pad_bot);
         }
 
         ElaraCheckboxWidget* checkbox = dynamic_cast<ElaraCheckboxWidget*>(widget);
@@ -1017,6 +1053,7 @@ public:
             menu_bar->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
             menu_bar->setCustomChrome(jsonBool(spec, "properties.custom_chrome", false));
             menu_bar->setWindowTitle(spec.getStringValue("properties.window_title"));
+            applyMenuBarButtons(menu_bar, spec);
             applyMenuBarMenus(menu_bar, spec);
         }
     }
@@ -1555,6 +1592,20 @@ bool ElaraJsonUiProtocol::loadFile(const String& path) {
     Memory data = file.getMemory();
     String json_text((const char*)data.getPtr(), data.length());
     return load(json_text);
+}
+
+bool ElaraJsonUiProtocol::setThemeMode(const String& mode) {
+    if(!theme || mode.length() == 0) {
+        return false;
+    }
+
+    bool ok = theme->setMode(mode);
+
+    if(ok && root) {
+        root->setPalette(theme->getPalette());
+    }
+
+    return ok;
 }
 
 }

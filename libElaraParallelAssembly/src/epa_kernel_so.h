@@ -17,6 +17,18 @@ extern "C" {
 // Forward types from your runtime headers (keep includes minimal in public API)
 typedef struct Viewport Viewport;
 
+typedef enum {
+  EPA_KERNEL_STATUS_UNLOADED = 0,
+  EPA_KERNEL_STATUS_LOADED   = 1,
+  EPA_KERNEL_STATUS_RUNNING  = 2,
+  EPA_KERNEL_STATUS_STOPPED  = 3,
+  EPA_KERNEL_STATUS_HALTED   = 4,
+  EPA_KERNEL_STATUS_FAULTED  = 5,
+  EPA_KERNEL_STATUS_ERROR    = 6
+} EpaKernelStatus;
+
+typedef struct EpaKernelModule EpaKernelModule;
+
 // Create/destroy kernel runtime instance
 EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]);
 void       epa_kernel_destroy(EpaKernel *k);
@@ -33,6 +45,13 @@ void epa_kernel_set_debug_callback(EpaKernel *k, EpaKernelDbgCallback cb, void *
 // Load program (either compile asm or accept blob)
 int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR]);
 int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]);
+int epa_kernel_set_scheduler(EpaKernel *k, EpaSchedProfile profile, char err[EPA_MAX_ERR]);
+EpaSchedProfile epa_kernel_get_scheduler(const EpaKernel *k);
+int epa_kernel_add_threads(EpaKernel *k, uint32_t add_count, char err[EPA_MAX_ERR]);
+uint32_t epa_kernel_thread_count(const EpaKernel *k);
+EpaKernelStatus epa_kernel_get_status(const EpaKernel *k);
+const char* epa_kernel_get_last_error(const EpaKernel *k);
+const char* epa_kernel_status_name(EpaKernelStatus status);
 
 // Viewport control (optional; if you want headless tests, allow vp=NULL and make backends handle it)
 int epa_kernel_open_viewport(EpaKernel *k, int w, int h, const char *title, int enable_cuda, char err[EPA_MAX_ERR]);
@@ -67,6 +86,22 @@ typedef struct {
 void epa_kernel_set_debug_hooks(EpaKernel *k, const EpaKernelDbgHooks *hooks);
 
 int epa_kernel_deliver_ghs_handles(EpaKernel *k, uint32_t dst_wid, const uint64_t *ghs_handles, uint32_t ghs_handle_count, char err[EPA_MAX_ERR]);
+
+EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err[EPA_MAX_ERR]);
+void epa_kernel_module_destroy(EpaKernelModule *module);
+size_t epa_kernel_module_count(const EpaKernelModule *module);
+const char* epa_kernel_module_path_id(const EpaKernelModule *module, size_t index);
+uint32_t epa_kernel_module_flags(const EpaKernelModule *module, size_t index);
+EpaKernel* epa_kernel_module_kernel(const EpaKernelModule *module, size_t index);
+int epa_kernel_module_find_kernel(const EpaKernelModule *module, const char *path_id);
+EpaKernelStatus epa_kernel_module_kernel_status(const EpaKernelModule *module, size_t index);
+const char* epa_kernel_module_kernel_error(const EpaKernelModule *module, size_t index);
+int epa_kernel_module_start_kernel(EpaKernelModule *module, size_t index, char err[EPA_MAX_ERR]);
+int epa_kernel_module_stop_kernel(EpaKernelModule *module, size_t index, char err[EPA_MAX_ERR]);
+int epa_kernel_module_add_kernel_threads(EpaKernelModule *module, size_t index, uint32_t add_count, char err[EPA_MAX_ERR]);
+uint32_t epa_kernel_module_kernel_thread_count(const EpaKernelModule *module, size_t index);
+int epa_kernel_module_start_all_kernels(EpaKernelModule *module, char err[EPA_MAX_ERR]);
+int epa_kernel_module_stop_all_kernels(EpaKernelModule *module, char err[EPA_MAX_ERR]);
 
 #ifdef __cplusplus
 }

@@ -755,7 +755,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"L_SCOPE_ALLOC", EPA_OP_L_SCOPE_ALLOC, 0,0, 0,{0}, NULL, "L_SCOPE_ALLOC   ; r0=size_bytes -> r0=off,r1=size,r2=ok"},
 
 	{"FMT", EPA_OP_FMT, 1,1, 1,{AK_U8}, NULL, "FMT <argc:u8>"},
-	{"LOG", EPA_OP_LOG, 1,1, 0,{0}, NULL, "LOG   ; log string (r0,r1,r2)"},
+	{"LOG", EPA_OP_LOG, 0,0, 0,{0}, NULL, "LOG   ; log string (r0,r1,r2)"},
 
 	{"SM_PUT", EPA_OP_SM_PUT, 0, 0, 0, {0}, NULL, "SM_PUT: write u32 from r0 to signal mailbox at r3; r3 += 4"},
 

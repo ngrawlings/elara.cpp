@@ -35,6 +35,12 @@ private:
         double width;
     };
 
+    struct CustomButton {
+        String id;
+        String glyph;
+        String action;
+    };
+
     enum ChromeButton {
         CHROME_BUTTON_NONE = 0,
         CHROME_BUTTON_MINIMIZE,
@@ -46,6 +52,7 @@ private:
     Array<PopupRef> popup_refs;
     Array<AcceleratorBinding> accelerators;
     Array<MenuLayoutMetric> layout_metrics;
+    Array<CustomButton> custom_buttons;
     ElaraWidgetRegister* widget_register;
 
     String palette_master;
@@ -55,6 +62,7 @@ private:
     int hover_index;
     int active_index;
     int hover_button;
+    int hover_custom_button;
     bool custom_chrome;
     String window_title;
     double menu_start_x;
@@ -75,6 +83,9 @@ private:
     double titleAreaWidth(ElaraDrawContext* ctx = 0) const;
     ChromeButton buttonAt(double px, double py) const;
     double buttonLeft(ChromeButton button) const;
+    double customButtonsWidth() const;
+    double customButtonLeft(int index) const;
+    int customButtonAt(double px, double py) const;
     double itemWidth(int index, ElaraDrawContext* ctx = 0) const;
     double itemOffsetX(int index, ElaraDrawContext* ctx = 0) const;
     int itemAt(double px, ElaraDrawContext* ctx = 0) const;
@@ -90,6 +101,7 @@ public:
     virtual ~ElaraMenuBarWidget();
 
     void clearMenus();
+    void addButton(const String& id, const String& glyph, const String& action);
     void addMenu(const String& menu_id, const String& label);
     void addMenuItem(
         const String& menu_id,

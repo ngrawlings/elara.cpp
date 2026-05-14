@@ -233,6 +233,7 @@ ElaraMenuBarWidget::ElaraMenuBarWidget(
     hover_index(-1),
     active_index(-1),
     hover_button(CHROME_BUTTON_NONE),
+    hover_custom_button(-1),
     custom_chrome(false),
     window_title(""),
     menu_start_x(0),
@@ -414,6 +415,30 @@ double ElaraMenuBarWidget::buttonLeft(ChromeButton button) const {
     return width;
 }
 
+double ElaraMenuBarWidget::customButtonsWidth() const {
+    int count = (int)custom_buttons.length();
+    if(count == 0) return 0.0;
+    return count * control_button_width + (count - 1) * control_gap;
+}
+
+double ElaraMenuBarWidget::customButtonLeft(int index) const {
+    double base_x = custom_chrome
+        ? width - controlAreaWidth() - customButtonsWidth()
+        : width - customButtonsWidth();
+    return base_x + index * (control_button_width + control_gap);
+}
+
+int ElaraMenuBarWidget::customButtonAt(double px, double py) const {
+    if(py < 0 || py > height) return -1;
+    for(int i = 0; i < (int)custom_buttons.length(); i++) {
+        double left = customButtonLeft(i);
+        if(px >= left && px < left + control_button_width) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 double ElaraMenuBarWidget::itemWidth(int index, ElaraDrawContext* ctx) const {
     if(index < 0 || index >= (int)menus.length()) {
         return 0;
@@ -546,6 +571,15 @@ void ElaraMenuBarWidget::clearMenus() {
     invalidateLayout();
     hover_index = -1;
     active_index = -1;
+}
+
+void ElaraMenuBarWidget::addButton(const String& id, const String& glyph, const String& action) {
+    CustomButton btn;
+    btn.id = id;
+    btn.glyph = glyph;
+    btn.action = action;
+    custom_buttons.push(btn);
+    invalidateLayout();
 }
 
 void ElaraMenuBarWidget::addMenu(const String& menu_id, const String& label) {
@@ -817,6 +851,22 @@ void ElaraMenuBarWidget::draw(ElaraDrawContext* ctx) {
             ctx->drawText(glyph_x, (height / 2.0) + (font_size / 2.0) - 2, glyph, font_size);
         }
     }
+
+    for(int i = 0; i < (int)custom_buttons.length(); i++) {
+        double bx = customButtonLeft(i);
+        bool hover = hover_custom_button == i;
+        ElaraPaletteTriplet button_colors = hover ? hover_colors : default_colors;
+
+        if(hover) {
+            ctx->setColor(button_colors.base.r, button_colors.base.g, button_colors.base.b);
+            ctx->fillRect(bx, 0, control_button_width, height - 1);
+        }
+
+        ctx->setColor(button_colors.text.r, button_colors.text.g, button_colors.text.b);
+        const String& glyph = custom_buttons[i].glyph;
+        double glyph_x = bx + (control_button_width / 2.0) - (ctx->measureTextWidth(glyph, font_size) / 2.0);
+        ctx->drawText(glyph_x, (height / 2.0) + (font_size / 2.0) - 2, glyph, font_size);
+    }
 }
 
 void ElaraMenuBarWidget::onMouseMove(double px, double py) {
@@ -825,10 +875,17 @@ void ElaraMenuBarWidget::onMouseMove(double px, double py) {
 
     int previous_hover = hover_index;
     int previous_button = hover_button;
-    hover_button = custom_chrome ? buttonAt(px, py) : CHROME_BUTTON_NONE;
-    hover_index = containsLocal(px, py) && hover_button == CHROME_BUTTON_NONE ? itemAt(px) : -1;
+    int previous_custom = hover_custom_button;
 
-    if(previous_hover != hover_index || previous_button != hover_button) {
+    hover_button = custom_chrome ? buttonAt(px, py) : CHROME_BUTTON_NONE;
+    hover_custom_button = (hover_button == CHROME_BUTTON_NONE && containsLocal(px, py))
+        ? customButtonAt(px, py)
+        : -1;
+    hover_index = (containsLocal(px, py) && hover_button == CHROME_BUTTON_NONE && hover_custom_button < 0)
+        ? itemAt(px)
+        : -1;
+
+    if(previous_hover != hover_index || previous_button != hover_button || previous_custom != hover_custom_button) {
         emitHoverChanged(hover_index >= 0);
     }
 
@@ -870,6 +927,15 @@ void ElaraMenuBarWidget::onMouseDown(int button, double px, double py) {
             }
             return;
         }
+    }
+
+    int custom_index = containsLocal(px, py) ? customButtonAt(px, py) : -1;
+    if(custom_index >= 0) {
+        const String& action = custom_buttons[custom_index].action;
+        if(action.length() > 0) {
+            emitAction(action);
+        }
+        return;
     }
 
     int index = containsLocal(px, py) ? itemAt(px) : -1;

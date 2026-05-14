@@ -231,6 +231,13 @@ class UiDocumentBuilder:
         popup["popup_items"].append({"id": item_id, "label": label})
         return self
 
+    def add_menu_bar_button(self, menu_bar_id, button_id, glyph, action):
+        menu_bar = self._get_widget(menu_bar_id)
+        buttons = list(menu_bar["sections"].get("buttons", []))
+        buttons.append({"id": button_id, "glyph": glyph, "action": action})
+        menu_bar["sections"]["buttons"] = buttons
+        return self
+
     def add_menu_bar_menu(self, menu_bar_id, menu_id, label):
         menu_bar = self._get_widget(menu_bar_id)
         menus = list(menu_bar["sections"].get("menus", []))

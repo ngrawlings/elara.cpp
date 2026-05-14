@@ -3,55 +3,11 @@
 #include "e_parser.h"
 #include "e_semantic.h"
 #include "e_emit_epa.h"
+#include "e_preprocess.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-static char *read_file(const char *path, char err[256]) {
-  FILE *f;
-  long n;
-  size_t got;
-  char *buf;
-
-  if (err) err[0] = 0;
-  f = fopen(path, "rb");
-  if (!f) {
-    if (err) snprintf(err, 256, "open failed: %s", path);
-    return NULL;
-  }
-  if (fseek(f, 0, SEEK_END) != 0) {
-    fclose(f);
-    if (err) snprintf(err, 256, "seek failed: %s", path);
-    return NULL;
-  }
-  n = ftell(f);
-  if (n < 0) {
-    fclose(f);
-    if (err) snprintf(err, 256, "ftell failed: %s", path);
-    return NULL;
-  }
-  if (fseek(f, 0, SEEK_SET) != 0) {
-    fclose(f);
-    if (err) snprintf(err, 256, "seek reset failed: %s", path);
-    return NULL;
-  }
-  buf = (char*)malloc((size_t)n + 1u);
-  if (!buf) {
-    fclose(f);
-    if (err) snprintf(err, 256, "OOM");
-    return NULL;
-  }
-  got = fread(buf, 1, (size_t)n, f);
-  fclose(f);
-  if (got != (size_t)n) {
-    free(buf);
-    if (err) snprintf(err, 256, "read failed: %s", path);
-    return NULL;
-  }
-  buf[n] = 0;
-  return buf;
-}
 
 static void usage(const char *argv0) {
   fprintf(stderr, "Usage: %s <input.e> <output.epaasm>\n", argv0);
@@ -70,7 +26,7 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  src = read_file(argv[1], err);
+  src = e_load_translation_unit(argv[1], err);
   if (!src) {
     fprintf(stderr, "%s\n", err);
     return 1;

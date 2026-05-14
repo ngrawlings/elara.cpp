@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -196,6 +197,7 @@ def build_document():
     ui.set_property_number("app.menu", "font_size", 14)
     ui.set_property_bool("app.menu", "custom_chrome", not use_system_window_header)
     ui.set_property_string("app.menu", "window_title", "EPA-IDE")
+    ui.add_menu_bar_button("app.menu", "theme_toggle", "◑", "app.toggle_theme")
     ui.set_menu_bar_menus("app.menu", [
         {"id": "file", "label": "&File", "items": [
             {"id": "file.new_file", "label": "&New File", "shortcut": "Ctrl+N"},
@@ -1631,6 +1633,7 @@ def main():
     new_file_nav_state = {}      # current browse path in the new-file dialog
     editor_state = {}
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
+    app_state["theme"] = "dark"
     tab_list = []                # [{"tab_id", "path", "index", "preview"}]
     tab_click_state = {}         # double-click detection: {"path", "time"}
     ai_state = {
@@ -1652,6 +1655,9 @@ def main():
 
     def _semantic_binary():
         return _compiler_root() / ".." / "build" / "e" / "ec"
+
+    def _bundle_binary():
+        return _compiler_root() / ".." / "build" / "e" / "e2epabin"
 
     def _project_builder_root():
         return Path(__file__).resolve().parent.parent / "ElaraProjectBuilder"
@@ -1693,6 +1699,165 @@ def main():
             return semantic
         _ensure_e2epa()
         return semantic
+
+    def _ensure_e2epabin():
+        bundle = _bundle_binary()
+        if bundle.is_file():
+            return bundle
+        subprocess.run(
+            ["make", "-C", str(_compiler_root()), "-j2"],
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return bundle
+
+    def _project_meta(project_root: Path) -> dict:
+        meta_path = project_root / ".elaraproject" / "project.json"
+        try:
+            return json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _project_e_compile_units(project_root: Path) -> list[Path]:
+        epa_root = project_root / "epa"
+        if not epa_root.is_dir():
+            return []
+        entry = epa_root / "entry.e"
+        if not entry.is_file():
+            raise RuntimeError(f"Missing root kernel compile unit: {entry}")
+        others = sorted(
+            p for p in epa_root.rglob("*.e")
+            if p.is_file() and p.name != "entry.e"
+        )
+        return [entry] + others
+
+    def _run_subprocess(cmd: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            check=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+
+    def _build_project(client, rebuild: bool = False):
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            print(json.dumps({"build": "skipped", "reason": "no_project_open"}, indent=2), flush=True)
+            return
+
+        project_root = Path(project_root_text)
+        meta = _project_meta(project_root)
+        technologies = set(meta.get("technologies", []))
+        build_steps = []
+
+        try:
+            if "epa" in technologies:
+                bundle = _ensure_e2epabin()
+                build_dir = project_root / "build"
+                build_dir.mkdir(parents=True, exist_ok=True)
+                units = _project_e_compile_units(project_root)
+                cmd = [str(bundle), "--out", str(build_dir / "epa.bin")] + [str(p) for p in units]
+                result = _run_subprocess(cmd, cwd=project_root)
+                build_steps.append({
+                    "step": "epa_bundle",
+                    "command": cmd,
+                    "stdout": result.stdout.strip(),
+                    "stderr": result.stderr.strip(),
+                    "outputs": {
+                        "bundle": str(build_dir / "epa.bin"),
+                        "epaasm_dir": str(build_dir / "epaasm"),
+                        "blobs_dir": str(build_dir / "blobs"),
+                    },
+                })
+
+            if "cpp" in technologies:
+                cpp_root = project_root / "cpp"
+                build_script = cpp_root / "build.sh"
+                if not build_script.is_file():
+                    raise RuntimeError(f"Missing C++ build script: {build_script}")
+                if rebuild:
+                    clean_script = cpp_root / "clean.sh"
+                    if clean_script.is_file():
+                        clean_result = _run_subprocess([str(clean_script)], cwd=cpp_root)
+                        build_steps.append({
+                            "step": "cpp_clean",
+                            "command": [str(clean_script)],
+                            "stdout": clean_result.stdout.strip(),
+                            "stderr": clean_result.stderr.strip(),
+                        })
+                cpp_result = _run_subprocess([str(build_script)], cwd=cpp_root)
+                build_steps.append({
+                    "step": "cpp_build",
+                    "command": [str(build_script)],
+                    "stdout": cpp_result.stdout.strip(),
+                    "stderr": cpp_result.stderr.strip(),
+                })
+
+            print(json.dumps({
+                "build": "ok",
+                "project": str(project_root),
+                "steps": build_steps,
+            }, indent=2), flush=True)
+            _open_project(client, project_root)
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            message = ""
+            command = None
+            if isinstance(exc, subprocess.CalledProcessError):
+                message = (exc.stderr or exc.stdout or str(exc)).strip()
+                command = exc.cmd
+            else:
+                message = str(exc)
+            print(json.dumps({
+                "build": "failed",
+                "project": str(project_root),
+                "command": command,
+                "message": message,
+            }, indent=2), flush=True)
+
+    def _clean_project():
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            print(json.dumps({"clean": "skipped", "reason": "no_project_open"}, indent=2), flush=True)
+            return
+        project_root = Path(project_root_text)
+        removed = []
+        build_dir = project_root / "build"
+        if build_dir.exists():
+            shutil.rmtree(build_dir)
+            removed.append(str(build_dir))
+        cpp_root = project_root / "cpp"
+        clean_script = cpp_root / "clean.sh"
+        if clean_script.is_file():
+            try:
+                result = _run_subprocess([str(clean_script)], cwd=cpp_root)
+                print(json.dumps({
+                    "clean": "ok",
+                    "project": str(project_root),
+                    "removed": removed,
+                    "cpp_clean": {
+                        "stdout": result.stdout.strip(),
+                        "stderr": result.stderr.strip(),
+                    },
+                }, indent=2), flush=True)
+                return
+            except subprocess.CalledProcessError as exc:
+                print(json.dumps({
+                    "clean": "failed",
+                    "project": str(project_root),
+                    "command": exc.cmd,
+                    "message": (exc.stderr or exc.stdout or str(exc)).strip(),
+                }, indent=2), flush=True)
+                return
+        print(json.dumps({
+            "clean": "ok",
+            "project": str(project_root),
+            "removed": removed,
+        }, indent=2), flush=True)
 
     def _extract_section_block(text: str, heading: str):
         lines = text.splitlines()
@@ -2677,6 +2842,13 @@ def main():
             ):
                 _deferred(lambda: c.perform_focused_action(item_action))
 
+            if item_action == "app.toggle_theme":
+                current_theme = app_state.get("theme", "dark")
+                next_theme = "light" if current_theme == "dark" else "dark"
+                app_state["theme"] = next_theme
+                _deferred(lambda t=next_theme: c.set_theme_mode(t))
+                return {"received": True}
+
             if target == "app.menu" and item_action == "view.appearance.toggle_window_header":
                 next_use_system = not _use_system_window_header()
                 _save_ide_state({
@@ -2740,6 +2912,15 @@ def main():
                 project_root = app_state.get("project_root", "")
                 if project_root and client is not None:
                     _deferred(lambda: _open_project(c, project_root))
+
+            elif item_action == "build.build_project":
+                _deferred(lambda: _build_project(c, rebuild=False))
+
+            elif item_action == "build.rebuild_project":
+                _deferred(lambda: _build_project(c, rebuild=True))
+
+            elif item_action == "build.clean":
+                _deferred(_clean_project)
 
             elif item_action == "open_project.cancel":
                 _deferred(lambda: _close_open_project_window(c))

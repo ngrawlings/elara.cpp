@@ -37,6 +37,7 @@ typedef struct CpuThreadState {
   pthread_cond_t  cv;
 
   uint32_t n_threads;
+  uint32_t cap_threads;
   pthread_t *threads;
 
   // tid->wid binding; -1 means idle thread
@@ -54,6 +55,27 @@ typedef struct CpuThreadState {
   _Atomic int interrupt;
 
 } CpuThreadState;
+
+static void* cpu_worker_thread_main(void *argp);
+
+static int cpu_spawn_thread(EpaKernel *k, CpuThreadState *st, uint32_t tid, char err[EPA_MAX_ERR]) {
+  CpuThreadArg *a = (CpuThreadArg*)calloc(1, sizeof(CpuThreadArg));
+  if (!a) {
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM (arg)");
+    return 0;
+  }
+
+  a->k = k;
+  a->st = st;
+  a->tid = (int32_t)tid;
+
+  if (pthread_create(&st->threads[tid], NULL, cpu_worker_thread_main, a) != 0) {
+    free(a);
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: pthread_create failed");
+    return 0;
+  }
+  return 1;
+}
 
 static inline int worker_runnable(const EpaWorkerState *w) {
   return w && w->inited && !w->halted && !w->faulted && !w->blocked;
@@ -225,12 +247,11 @@ static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
-  // First draft: one thread per potential worker, capped by EPA_MAX_WORKERS.
-  // Later you can make this configurable (k->impl, env, profile config, etc).
-  st->n_threads = EPA_MAX_WORKERS;
+  st->n_threads = 1u;
+  st->cap_threads = EPA_MAX_WORKERS;
 
-  st->threads = (pthread_t*)calloc(st->n_threads, sizeof(pthread_t));
-  st->tid_to_wid = (int32_t*)malloc(sizeof(int32_t) * st->n_threads);
+  st->threads = (pthread_t*)calloc(st->cap_threads, sizeof(pthread_t));
+  st->tid_to_wid = (int32_t*)malloc(sizeof(int32_t) * st->cap_threads);
   if (!st->threads || !st->tid_to_wid) {
     if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM (threads/map)");
     free(st->threads);
@@ -239,7 +260,7 @@ static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
-  for (uint32_t i = 0; i < st->n_threads; i++) st->tid_to_wid[i] = -1;
+  for (uint32_t i = 0; i < st->cap_threads; i++) st->tid_to_wid[i] = -1;
   for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) st->wid_to_tid[i] = -1;
 
   pthread_mutex_init(&st->mu, NULL);
@@ -249,26 +270,7 @@ static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
   st->stop = 0;
 
   for (uint32_t i = 0; i < st->n_threads; i++) {
-    CpuThreadArg *a = (CpuThreadArg*)calloc(1, sizeof(CpuThreadArg));
-    if (!a) {
-      if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: OOM (arg)");
-      st->stop = 1;
-      pthread_cond_broadcast(&st->cv);
-      for (uint32_t j = 0; j < i; j++) pthread_join(st->threads[j], NULL);
-      pthread_cond_destroy(&st->cv);
-      pthread_mutex_destroy(&st->mu);
-      free(st->threads);
-      free(st->tid_to_wid);
-      free(st);
-      return 0;
-    }
-
-    a->k = k;
-    a->st = st;
-    a->tid = (int32_t)i;
-
-    if (pthread_create(&st->threads[i], NULL, cpu_worker_thread_main, a) != 0) {
-      free(a);
+    if (!cpu_spawn_thread(k, st, i, err)) {
       if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: pthread_create failed");
       st->stop = 1;
       pthread_cond_broadcast(&st->cv);
@@ -284,6 +286,58 @@ static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
 
   s->opaque = st;
   return 1;
+}
+
+int epa_sched_cpu_thread_add_threads(EpaKernel *k,
+                                     EpaSchedState *s,
+                                     uint32_t add_count,
+                                     char err[EPA_MAX_ERR]) {
+  CpuThreadState *st;
+  uint32_t start_tid;
+  uint32_t tid;
+
+  if (err) err[0] = 0;
+  if (!k || !s || !s->opaque) {
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: scheduler not initialised");
+    return 0;
+  }
+  if (add_count == 0u) return 1;
+
+  st = (CpuThreadState*)s->opaque;
+  pthread_mutex_lock(&st->mu);
+  if (st->n_threads + add_count > st->cap_threads) {
+    pthread_mutex_unlock(&st->mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: thread budget exceeds max %u", (unsigned)st->cap_threads);
+    return 0;
+  }
+  start_tid = st->n_threads;
+  st->n_threads += add_count;
+  pthread_mutex_unlock(&st->mu);
+
+  for (tid = start_tid; tid < start_tid + add_count; tid++) {
+    if (!cpu_spawn_thread(k, st, tid, err)) {
+      pthread_mutex_lock(&st->mu);
+      st->n_threads = tid;
+      pthread_mutex_unlock(&st->mu);
+      return 0;
+    }
+  }
+
+  pthread_mutex_lock(&st->mu);
+  pthread_cond_broadcast(&st->cv);
+  pthread_mutex_unlock(&st->mu);
+  return 1;
+}
+
+uint32_t epa_sched_cpu_thread_thread_count(EpaSchedState *s) {
+  CpuThreadState *st;
+  uint32_t n;
+  if (!s || !s->opaque) return 0u;
+  st = (CpuThreadState*)s->opaque;
+  pthread_mutex_lock(&st->mu);
+  n = st->n_threads;
+  pthread_mutex_unlock(&st->mu);
+  return n;
 }
 
 static void cpu_destroy(EpaKernel *k, EpaSchedState *s) {

@@ -58,6 +58,14 @@ public:
         ctx->fillRect(offset_x + x, offset_y + y, w, h);
     }
 
+    void fillRoundRect(double x, double y, double w, double h, double radius) {
+        ctx->fillRoundRect(offset_x + x, offset_y + y, w, h, radius);
+    }
+
+    void strokeRoundRect(double x, double y, double w, double h, double radius, double line_width) {
+        ctx->strokeRoundRect(offset_x + x, offset_y + y, w, h, radius, line_width);
+    }
+
     void line(double x1, double y1, double x2, double y2, double line_width) {
         ctx->line(
             offset_x + x1,

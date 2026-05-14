@@ -20,6 +20,8 @@ public:
     void setColor(double r, double g, double b);
     void fillCircle(double x, double y, double radius);
     void fillRect(double x, double y, double w, double h);
+    void fillRoundRect(double x, double y, double w, double h, double radius);
+    void strokeRoundRect(double x, double y, double w, double h, double radius, double line_width);
     void line(double x1, double y1, double x2, double y2, double width);
     void drawText(double x, double y, const String& text, double size);
     double measureTextWidth(const String& text, double size);

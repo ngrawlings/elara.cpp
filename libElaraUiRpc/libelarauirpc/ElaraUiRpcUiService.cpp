@@ -919,6 +919,35 @@ bool ElaraUiRpcUiService::configureMenuBarChrome(
     return true;
 }
 
+bool ElaraUiRpcUiService::setThemeMode(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    if(!protocol) {
+        error_code = "no_protocol";
+        error_message = "UI protocol not available";
+        return false;
+    }
+
+    String mode = params.getStringValue("mode");
+    if(mode.length() == 0) {
+        error_code = "invalid_params";
+        error_message = "setThemeMode requires a 'mode' parameter";
+        return false;
+    }
+
+    if(!protocol->setThemeMode(mode)) {
+        error_code = "invalid_mode";
+        error_message = "Unknown theme mode";
+        return false;
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::call(
     const String& method,
     const String& params_json,
@@ -1048,6 +1077,10 @@ bool ElaraUiRpcUiService::call(
     }
     if(method == String("configureMenuBarChrome")) {
         return configureMenuBarChrome(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setThemeMode")) {
+        return setThemeMode(params, result_json, error_code, error_message);
     }
 
     error_code = "method_not_found";

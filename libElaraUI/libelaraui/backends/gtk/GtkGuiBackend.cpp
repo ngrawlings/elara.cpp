@@ -1,6 +1,7 @@
 #include "GtkGuiBackend.h"
 #include "../../frontend/widgets/ElaraRootWidget.h"
 
+#include <math.h>
 #include <stdlib.h>
 
 namespace elara {
@@ -152,6 +153,32 @@ void GtkDrawContext::fillCircle(double x, double y, double radius) {
 void GtkDrawContext::fillRect(double x, double y, double w, double h) {
     cairo_rectangle(cr, x, y, w, h);
     cairo_fill(cr);
+}
+
+static void cairo_rounded_rect_path(cairo_t* cr, double x, double y, double w, double h, double r) {
+    if(r <= 0.0) {
+        cairo_rectangle(cr, x, y, w, h);
+        return;
+    }
+    double max_r = (w < h ? w : h) / 2.0;
+    if(r > max_r) r = max_r;
+    cairo_new_path(cr);
+    cairo_arc(cr, x + r,     y + r,     r, M_PI,         3.0 * M_PI / 2.0);
+    cairo_arc(cr, x + w - r, y + r,     r, 3.0 * M_PI / 2.0, 0.0);
+    cairo_arc(cr, x + w - r, y + h - r, r, 0.0,          M_PI / 2.0);
+    cairo_arc(cr, x + r,     y + h - r, r, M_PI / 2.0,   M_PI);
+    cairo_close_path(cr);
+}
+
+void GtkDrawContext::fillRoundRect(double x, double y, double w, double h, double radius) {
+    cairo_rounded_rect_path(cr, x, y, w, h, radius);
+    cairo_fill(cr);
+}
+
+void GtkDrawContext::strokeRoundRect(double x, double y, double w, double h, double radius, double line_width) {
+    cairo_set_line_width(cr, line_width);
+    cairo_rounded_rect_path(cr, x, y, w, h, radius);
+    cairo_stroke(cr);
 }
 
 void GtkDrawContext::line(double x1, double y1, double x2, double y2, double width) {

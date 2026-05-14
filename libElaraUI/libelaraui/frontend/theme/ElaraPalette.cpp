@@ -17,7 +17,9 @@ ElaraColor::ElaraColor(double red, double green, double blue, double alpha)
 ElaraPaletteTriplet::ElaraPaletteTriplet()
     : base(ElaraColor(0.08, 0.08, 0.10)),
       accent(ElaraColor(0.22, 0.22, 0.28)),
-      text(ElaraColor(0.88, 0.88, 0.92)) {}
+      text(ElaraColor(0.88, 0.88, 0.92)),
+      border_width(1.0),
+      corner_radius(0.0) {}
 
 ElaraPaletteTriplet::ElaraPaletteTriplet(
     const ElaraColor& base_color,
@@ -25,7 +27,9 @@ ElaraPaletteTriplet::ElaraPaletteTriplet(
     const ElaraColor& text_color
 ) : base(base_color),
     accent(accent_color),
-    text(text_color) {}
+    text(text_color),
+    border_width(1.0),
+    corner_radius(0.0) {}
 
 ElaraPaletteEntry::ElaraPaletteEntry() {}
 

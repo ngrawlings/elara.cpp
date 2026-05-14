@@ -123,37 +123,26 @@ void ElaraTheme::buildDark() {
         )
     );
 
-    palette->set("button", "default",
-        ElaraPaletteTriplet(
-            ElaraColor(0.18, 0.20, 0.26),
-            ElaraColor(0.42, 0.48, 0.62),
-            ElaraColor(0.96, 0.97, 1.00)
-        )
-    );
-
-    palette->set("button", "hover",
-        ElaraPaletteTriplet(
-            ElaraColor(0.24, 0.27, 0.36),
-            ElaraColor(0.56, 0.64, 0.86),
-            ElaraColor(1.00, 1.00, 1.00)
-        )
-    );
-
-    palette->set("button", "pressed",
-        ElaraPaletteTriplet(
-            ElaraColor(0.10, 0.38, 0.78),
-            ElaraColor(0.72, 0.84, 1.00),
-            ElaraColor(1.00, 1.00, 1.00)
-        )
-    );
-
-    palette->set("button", "disabled",
-        ElaraPaletteTriplet(
-            ElaraColor(0.16, 0.16, 0.18),
-            ElaraColor(0.26, 0.26, 0.30),
-            ElaraColor(0.56, 0.56, 0.60)
-        )
-    );
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.18, 0.20, 0.26), ElaraColor(0.42, 0.48, 0.62), ElaraColor(0.96, 0.97, 1.00));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "default", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.24, 0.27, 0.36), ElaraColor(0.56, 0.64, 0.86), ElaraColor(1.00, 1.00, 1.00));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "hover", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.10, 0.38, 0.78), ElaraColor(0.72, 0.84, 1.00), ElaraColor(1.00, 1.00, 1.00));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "pressed", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.16, 0.16, 0.18), ElaraColor(0.26, 0.26, 0.30), ElaraColor(0.56, 0.56, 0.60));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "disabled", t);
+    }
 
     palette->set("graph", "line",
         ElaraPaletteTriplet(
@@ -299,37 +288,26 @@ void ElaraTheme::buildLight() {
         )
     );
 
-    palette->set("button", "default",
-        ElaraPaletteTriplet(
-            ElaraColor(0.86, 0.89, 0.96),
-            ElaraColor(0.56, 0.63, 0.82),
-            ElaraColor(0.10, 0.12, 0.18)
-        )
-    );
-
-    palette->set("button", "hover",
-        ElaraPaletteTriplet(
-            ElaraColor(0.78, 0.84, 0.98),
-            ElaraColor(0.40, 0.52, 0.84),
-            ElaraColor(0.08, 0.10, 0.16)
-        )
-    );
-
-    palette->set("button", "pressed",
-        ElaraPaletteTriplet(
-            ElaraColor(0.28, 0.50, 0.94),
-            ElaraColor(0.14, 0.32, 0.74),
-            ElaraColor(1.00, 1.00, 1.00)
-        )
-    );
-
-    palette->set("button", "disabled",
-        ElaraPaletteTriplet(
-            ElaraColor(0.92, 0.92, 0.94),
-            ElaraColor(0.80, 0.80, 0.84),
-            ElaraColor(0.56, 0.56, 0.60)
-        )
-    );
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.86, 0.89, 0.96), ElaraColor(0.56, 0.63, 0.82), ElaraColor(0.10, 0.12, 0.18));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "default", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.78, 0.84, 0.98), ElaraColor(0.40, 0.52, 0.84), ElaraColor(0.08, 0.10, 0.16));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "hover", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.28, 0.50, 0.94), ElaraColor(0.14, 0.32, 0.74), ElaraColor(1.00, 1.00, 1.00));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "pressed", t);
+    }
+    {
+        ElaraPaletteTriplet t(ElaraColor(0.92, 0.92, 0.94), ElaraColor(0.80, 0.80, 0.84), ElaraColor(0.56, 0.56, 0.60));
+        t.corner_radius = 5.0; t.border_width = 1.0;
+        palette->set("button", "disabled", t);
+    }
 
     palette->set("graph", "line",
         ElaraPaletteTriplet(
