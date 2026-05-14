@@ -359,6 +359,26 @@ double ElaraGridLayout::trackSpanSize(
     return result;
 }
 
+static bool cellCrossesColumnDivider(const ElaraGridCell& cell, int divider_index, int row_index) {
+    if(cell.column < 0 || cell.row < 0) {
+        return false;
+    }
+    if(row_index < cell.row || row_index >= cell.row + cell.row_span) {
+        return false;
+    }
+    return cell.column <= divider_index && divider_index < (cell.column + cell.column_span - 1);
+}
+
+static bool cellCrossesRowDivider(const ElaraGridCell& cell, int divider_index, int column_index) {
+    if(cell.column < 0 || cell.row < 0) {
+        return false;
+    }
+    if(column_index < cell.column || column_index >= cell.column + cell.column_span) {
+        return false;
+    }
+    return cell.row <= divider_index && divider_index < (cell.row + cell.row_span - 1);
+}
+
 void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
     computeTracks(&columns, width);
     computeTracks(&rows, height);
@@ -411,7 +431,26 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
         }
 
         double divider = columns[i].computed_offset + columns[i].computed_size;
-        ctx->line(divider, 0, divider, height, 1);
+        for(int row_index = 0; row_index < (int)rows.length(); row_index++) {
+            bool blocked = false;
+            for(int cell_index = 0; cell_index < (int)cells.length(); cell_index++) {
+                Ref<ElaraWidget> widget = getChild(cell_index);
+                if(!widget || !widget->isVisible()) {
+                    continue;
+                }
+                if(cellCrossesColumnDivider(cells[cell_index], i, row_index)) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if(blocked) {
+                continue;
+            }
+
+            double y0 = rows[row_index].computed_offset;
+            double y1 = y0 + rows[row_index].computed_size;
+            ctx->line(divider, y0, divider, y1, 1);
+        }
     }
 
     for(int i = 0; i + 1 < (int)rows.length(); i++) {
@@ -420,7 +459,26 @@ void ElaraGridLayout::draw(ElaraDrawContext* ctx) {
         }
 
         double divider = rows[i].computed_offset + rows[i].computed_size;
-        ctx->line(0, divider, width, divider, 1);
+        for(int column_index = 0; column_index < (int)columns.length(); column_index++) {
+            bool blocked = false;
+            for(int cell_index = 0; cell_index < (int)cells.length(); cell_index++) {
+                Ref<ElaraWidget> widget = getChild(cell_index);
+                if(!widget || !widget->isVisible()) {
+                    continue;
+                }
+                if(cellCrossesRowDivider(cells[cell_index], i, column_index)) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if(blocked) {
+                continue;
+            }
+
+            double x0 = columns[column_index].computed_offset;
+            double x1 = x0 + columns[column_index].computed_size;
+            ctx->line(x0, divider, x1, divider, 1);
+        }
     }
 }
 

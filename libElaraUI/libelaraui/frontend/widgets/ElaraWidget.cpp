@@ -100,6 +100,7 @@ ElaraWidget::ElaraWidget() :
     visible(true),
     hovered(false),
     mouse_down(false),
+    hovered_child_index(-1),
     x(0),
     y(0),
     width(0),
@@ -121,6 +122,7 @@ ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle
       visible(true),
       hovered(false),
       mouse_down(false),
+      hovered_child_index(-1),
       x(0),
       y(0),
       width(0),
@@ -526,12 +528,32 @@ bool ElaraWidget::eventPropagate(ElaraUiEvent event) {
             }
         }
 
+        if(event.type == ELARA_UI_MOUSE_MOVE && hovered_child_index >= 0 && hovered_child_index != winner) {
+            if(hovered_child_index < (int)children.length()) {
+                Ref<ElaraWidget> previous_child = children[hovered_child_index];
+                if(previous_child && previous_child->isVisible()) {
+                    ElaraUiEvent leave_event = event;
+                    leave_event.x = -1.0;
+                    leave_event.y = -1.0;
+                    previous_child->eventPropagate(leave_event);
+                }
+            }
+            hovered_child_index = -1;
+        }
+
         if(winner >= 0) {
             ElaraUiEvent child_event = event;
             child_event.x = event.x - children[winner]->getX() - children[winner]->getMarginLeft();
             child_event.y = event.y - children[winner]->getY() - children[winner]->getMarginTop();
+            if(event.type == ELARA_UI_MOUSE_MOVE) {
+                hovered_child_index = winner;
+            }
 
             return children[winner]->eventPropagate(child_event);
+        }
+
+        if(event.type == ELARA_UI_MOUSE_MOVE) {
+            hovered_child_index = -1;
         }
     }
 

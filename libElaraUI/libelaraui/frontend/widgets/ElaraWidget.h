@@ -64,6 +64,7 @@ protected:
     bool visible;
     bool hovered;
     bool mouse_down;
+    int hovered_child_index;
 
     double x;
     double y;
