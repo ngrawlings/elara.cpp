@@ -473,8 +473,12 @@ class UiDocumentBuilder:
         if widget["properties"]:
             result["properties"] = deepcopy(widget["properties"])
 
-        for name, value in widget["sections"].items():
-            result[name] = deepcopy(value)
+        if widget["sections"]:
+            result["sections"] = deepcopy(widget["sections"])
+            # Keep legacy flattened section fields for existing widgets that
+            # still read arrays like `items`, `nodes`, or `menus` at top level.
+            for name, value in widget["sections"].items():
+                result[name] = deepcopy(value)
 
         if widget["popup_items"]:
             result["items"] = deepcopy(widget["popup_items"])
