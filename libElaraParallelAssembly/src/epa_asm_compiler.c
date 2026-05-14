@@ -745,6 +745,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"SIGNAL",     EPA_OP_SIGNAL,                0,0, 0,{0}, NULL, "SIGNAL"},
 	{"FAR_SIGNAL", EPA_OP_FAR_SIGNAL,            0,0, 0,{0}, NULL, "FAR_SIGNAL"},
 	{"HOST_SIGNAL",EPA_OP_HOST_SIGNAL,           0,0, 0,{0}, NULL, "HOST_SIGNAL"},
+	{"REQUEST_THREADS",EPA_OP_REQUEST_THREADS,   0,0, 0,{0}, NULL, "REQUEST_THREADS   ; kernel-only, r0=desired_total_threads"},
 
 	{"LOAD_CONST", EPA_OP_LOAD_CONST, 1,1, 1,{AK_U32}, NULL, "LOAD_CONST <id:u32>"},
 

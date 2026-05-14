@@ -124,6 +124,7 @@ X(EXCEPT,  0x0402u, "EXCEPT", 4) // Raise exception (fatal by policy)
 X(SIGNAL,  0x0403u, "SIGNAL", 0)
 X(FAR_SIGNAL,  0x0404u, "FAR_SIGNAL", 0)
 X(HOST_SIGNAL, 0x0405u, "HOST_SIGNAL", 0)
+X(REQUEST_THREADS, 0x0406u, "REQUEST_THREADS", 0) // kernel-only, uses r0=desired_total_threads
 
 // Local byte arena allocation (worker-local, byte-addressable)
 X(L_ALLOC, 0x0222u, "L_ALLOC", 0) // in: r0=size_bytes  out: r0=off, r1=size, r2=ok(1/0), r3=0

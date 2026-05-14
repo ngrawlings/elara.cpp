@@ -409,6 +409,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->hooks.on_signal	   = hook_signal;
   k->hooks.on_far_signal   = hook_far_signal;
   k->hooks.on_host_signal  = hook_host_signal;
+  k->hooks.on_request_threads = hook_request_threads;
 
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
@@ -471,6 +472,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->hooks.on_signal       = hook_signal;
   k->hooks.on_far_signal   = hook_far_signal;
   k->hooks.on_host_signal  = hook_host_signal;
+  k->hooks.on_request_threads = hook_request_threads;
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
   extern EpaNonFlowBackend epa_opengl_nonflow_backend(void *impl);
   k->nf = epa_opengl_nonflow_backend(&k->impl);

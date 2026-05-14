@@ -18,3 +18,4 @@ int hook_except(void *user, uint8_t wid, uint32_t code, const EpaEip *at, char e
 int hook_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char err[EPA_MAX_ERR]);

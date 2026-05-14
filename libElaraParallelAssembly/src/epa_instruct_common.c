@@ -302,6 +302,16 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_REQUEST_THREADS: {
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_request_threads) {
+        if (!ctx->hooks.on_request_threads(ctx->hooks_user, (uint8_t)w->id, (uint32_t)w->vm.csc[0], err)) {
+          return EPA_FLOW_ERR;
+        }
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
     case EPA_OP_TRAP: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
       EpaEip at = *eip;

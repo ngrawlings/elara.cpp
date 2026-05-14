@@ -256,6 +256,7 @@ static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
 static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
@@ -389,6 +390,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       }
       if (strcmp(expr->as.call.callee, "far_signal") == 0) {
         emit_far_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "request_threads") == 0) {
+        emit_request_threads_builtin(out, expr, ctx, depth);
         break;
       }
       if (strcmp(expr->as.call.callee, "kernal_get_ghs") == 0 ||
@@ -577,6 +582,26 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   fprintf(out, "PUSH %zu\n", binding->byte_size);
   emit_indent(out, depth);
   fputs("FAR_SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; request_threads expects 1 arg, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (ctx->current_worker || ctx->current_function) {
+    emit_indent(out, depth);
+    fputs("; request_threads only valid in kernel\n", out);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("REQUEST_THREADS\n", out);
   return 1;
 }
 

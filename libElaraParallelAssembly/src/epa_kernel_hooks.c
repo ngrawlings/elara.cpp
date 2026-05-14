@@ -154,6 +154,26 @@ int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   return hook_signal(user, wid, err);
 }
 
+int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  uint32_t current;
+  uint32_t add_count;
+  if (!k) { snprintf(err, EPA_MAX_ERR, "hook_request_threads: kernel null"); return 0; }
+  if (wid != 0u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_threads: only valid in kernel");
+    return 0;
+  }
+  if (desired_total <= 1u) {
+    return 1;
+  }
+  current = epa_kernel_thread_count(k);
+  if (current >= desired_total) {
+    return 1;
+  }
+  add_count = desired_total - current;
+  return epa_kernel_add_threads(k, add_count, err);
+}
+
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   EpaKernel *k = (EpaKernel*)user;
   EpaWorkerState *w;
