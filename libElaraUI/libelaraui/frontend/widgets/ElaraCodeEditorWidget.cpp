@@ -1288,6 +1288,14 @@ String ElaraCodeEditorWidget::getLanguage() const {
     return language;
 }
 
+int ElaraCodeEditorWidget::getScrollX() const {
+    return scroll_x;
+}
+
+int ElaraCodeEditorWidget::getScrollY() const {
+    return scroll_y;
+}
+
 void ElaraCodeEditorWidget::setBreakpoint(int logical_line, bool v) {
     ensureDecorations(logical_line);
     decorations[logical_line].breakpoint = v;

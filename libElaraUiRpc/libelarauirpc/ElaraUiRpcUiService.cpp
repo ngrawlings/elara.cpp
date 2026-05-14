@@ -584,6 +584,20 @@ bool ElaraUiRpcUiService::dispatchMouseUp(
     return true;
 }
 
+bool ElaraUiRpcUiService::dispatchMouseScroll(
+    const Json& params,
+    String& result_json
+) {
+    root->dispatchMouseScroll(
+        jsonNumber(params, "dx", 0),
+        jsonNumber(params, "dy", 0),
+        jsonNumber(params, "x", 0),
+        jsonNumber(params, "y", 0)
+    );
+    result_json = "{\"dispatched\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::clickWidget(
     const Json& params,
     String& result_json,
@@ -774,6 +788,137 @@ bool ElaraUiRpcUiService::snapshotWidget(
     return true;
 }
 
+bool ElaraUiRpcUiService::getGridLayoutState(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraGridLayout* grid = dynamic_cast<ElaraGridLayout*>(widget.getPtr());
+    if(!grid) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget is not a grid layout";
+        return false;
+    }
+
+    String json = "{\"columns\":[";
+    for(int i = 0; i < grid->columnCount(); i++) {
+        if(i > 0) {
+            json += ",";
+        }
+        ElaraGridTrack track = grid->columnTrack(i);
+        json += String("{\"mode\":\"") +
+            (track.mode == ELARA_GRID_SIZE_FILL ? String("fill") : String("exact")) +
+            String("\",\"size\":") + String(track.size) +
+            String(",\"weight\":") + String(track.weight) +
+            String(",\"computed_size\":") + String(track.computed_size) +
+            String(",\"computed_offset\":") + String(track.computed_offset) +
+            String(",\"resizable_after\":") + jsonBoolean(track.resizable_after) +
+            String("}");
+    }
+    json += "],\"rows\":[";
+    for(int i = 0; i < grid->rowCount(); i++) {
+        if(i > 0) {
+            json += ",";
+        }
+        ElaraGridTrack track = grid->rowTrack(i);
+        json += String("{\"mode\":\"") +
+            (track.mode == ELARA_GRID_SIZE_FILL ? String("fill") : String("exact")) +
+            String("\",\"size\":") + String(track.size) +
+            String(",\"weight\":") + String(track.weight) +
+            String(",\"computed_size\":") + String(track.computed_size) +
+            String(",\"computed_offset\":") + String(track.computed_offset) +
+            String(",\"resizable_after\":") + jsonBoolean(track.resizable_after) +
+            String("}");
+    }
+    json += "]}";
+    result_json = json;
+    return true;
+}
+
+bool ElaraUiRpcUiService::getWindowState(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)params;
+    (void)error_code;
+    (void)error_message;
+
+    bool maximized = false;
+    if(root && root->getGuiBackend()) {
+        maximized = root->getGuiBackend()->isWindowMaximized();
+    }
+
+    result_json = String("{\"maximized\":") + jsonBoolean(maximized) + String("}");
+    return true;
+}
+
+bool ElaraUiRpcUiService::setWindowMaximized(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)error_code;
+    (void)error_message;
+
+    if(root && root->getGuiBackend()) {
+        root->getGuiBackend()->setWindowMaximized(jsonBool(params, "maximized", false));
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setWindowDecorated(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)error_code;
+    (void)error_message;
+
+    if(root && root->getGuiBackend()) {
+        root->getGuiBackend()->setWindowDecorated(jsonBool(params, "decorated", true));
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::configureMenuBarChrome(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if(!widget) {
+        return false;
+    }
+
+    ElaraMenuBarWidget* menu_bar = dynamic_cast<ElaraMenuBarWidget*>(widget.getPtr());
+    if(!menu_bar) {
+        error_code = "unsupported_widget";
+        error_message = "configureMenuBarChrome target must be a menu bar widget";
+        return false;
+    }
+
+    menu_bar->setCustomChrome(jsonBool(params, "custom_chrome", false));
+    menu_bar->setWindowTitle(params.getStringValue("window_title"));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::call(
     const String& method,
     const String& params_json,
@@ -851,6 +996,10 @@ bool ElaraUiRpcUiService::call(
         return dispatchMouseUp(params, result_json);
     }
 
+    if(method == String("dispatchMouseScroll")) {
+        return dispatchMouseScroll(params, result_json);
+    }
+
     if(method == String("clickWidget")) {
         return clickWidget(params, result_json, error_code, error_message);
     }
@@ -881,6 +1030,24 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("snapshotWidget")) {
         return snapshotWidget(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("getGridLayoutState")) {
+        return getGridLayoutState(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("getWindowState")) {
+        return getWindowState(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setWindowMaximized")) {
+        return setWindowMaximized(params, result_json, error_code, error_message);
+    }
+    if(method == String("setWindowDecorated")) {
+        return setWindowDecorated(params, result_json, error_code, error_message);
+    }
+    if(method == String("configureMenuBarChrome")) {
+        return configureMenuBarChrome(params, result_json, error_code, error_message);
     }
 
     error_code = "method_not_found";

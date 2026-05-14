@@ -11,6 +11,7 @@
 #include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
+#include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
@@ -143,6 +144,10 @@ private:
         const Json& params,
         String& result_json
     );
+    bool dispatchMouseScroll(
+        const Json& params,
+        String& result_json
+    );
     bool clickWidget(
         const Json& params,
         String& result_json,
@@ -182,6 +187,36 @@ private:
         String& error_message
     );
     bool snapshotWidget(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool getGridLayoutState(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool getWindowState(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setWindowMaximized(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setWindowDecorated(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool configureMenuBarChrome(
         const Json& params,
         String& result_json,
         String& error_code,

@@ -85,6 +85,10 @@ public:
     int addFillRow();
     int addWeightedFillRow(double weight);
     void setRowBorderResizable(int index, bool enabled);
+    int columnCount() const;
+    int rowCount() const;
+    ElaraGridTrack columnTrack(int index) const;
+    ElaraGridTrack rowTrack(int index) const;
 
     void addWidget(
         ElaraWidgetHandle widget_handle,

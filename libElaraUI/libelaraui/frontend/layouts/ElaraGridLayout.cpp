@@ -99,6 +99,28 @@ void ElaraGridLayout::setRowBorderResizable(int index, bool enabled) {
     }
 }
 
+int ElaraGridLayout::columnCount() const {
+    return (int)columns.length();
+}
+
+int ElaraGridLayout::rowCount() const {
+    return (int)rows.length();
+}
+
+ElaraGridTrack ElaraGridLayout::columnTrack(int index) const {
+    if(index < 0 || index >= (int)columns.length()) {
+        return ElaraGridTrack();
+    }
+    return columns[index];
+}
+
+ElaraGridTrack ElaraGridLayout::rowTrack(int index) const {
+    if(index < 0 || index >= (int)rows.length()) {
+        return ElaraGridTrack();
+    }
+    return rows[index];
+}
+
 void ElaraGridLayout::addWidget(
     ElaraWidgetHandle widget_handle,
     int column,

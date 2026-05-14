@@ -76,6 +76,7 @@ public:
 
     ElaraMouseCursor cursor() const;
     void draw(ElaraDrawContext* ctx);
+    bool eventPropagate(ElaraUiEvent event);
 
     void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);

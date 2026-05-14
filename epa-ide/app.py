@@ -73,6 +73,23 @@ def _editor_language_for_path(path: str) -> str:
     return "plain"
 
 
+def _focus_editor_widget(client, tab_id: str):
+    state = editor_state.get(tab_id, {})
+    ids = _editor_ids(tab_id)
+    view = state.get("view", "e")
+    target = tab_id + ".container"
+    if tab_id in editor_state:
+        target = ids["source"]
+        if view == "epa":
+            target = ids["epa"]
+        elif view == "debug":
+            target = ids["debug"]
+    try:
+        client.set_focus(target)
+    except Exception:
+        pass
+
+
 def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: str):
     ids = _editor_ids(tab_id)
     ui.create_grid(ids["container"])
@@ -152,14 +169,24 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
 
 
 def build_document():
+    ide_state = _current_layout_state()
+    layout_state = ide_state.get("layout", {}) if isinstance(ide_state, dict) else {}
+    window_state = ide_state.get("window", {}) if isinstance(ide_state, dict) else {}
+    use_system_window_header = _use_system_window_header(ide_state)
+    nav_width = _layout_value(layout_state.get("nav_width"), 220)
+    ai_width = _layout_value(layout_state.get("ai_width"), 320)
+    window_width = _window_value(window_state.get("width"), 1080)
+    window_height = _window_value(window_state.get("height"), 760, minimum=480)
+
     ui = UiDocumentBuilder()
-    ui.create_window("EpaIde", 1080, 760, "org.elara.ui.epa-ide")
+    ui.create_window("EpaIde", window_width, window_height, "org.elara.ui.epa-ide")
+    ui.set_window_property("use_system_header", use_system_window_header)
     ui.set_theme_mode("dark")
     ui.create_grid("app.shell")
     ui.add_grid_column_exact("app.shell", 56)
-    ui.add_grid_column_exact("app.shell", 220)
+    ui.add_grid_column_exact("app.shell", nav_width)
     ui.add_grid_column_weighted_fill("app.shell", 3)
-    ui.add_grid_column_exact("app.shell", 320)
+    ui.add_grid_column_exact("app.shell", ai_width)
     ui.set_grid_column_border_resizable("app.shell", 1, True)
     ui.set_grid_column_border_resizable("app.shell", 2, True)
     ui.add_grid_row_exact("app.shell", 32)
@@ -167,6 +194,8 @@ def build_document():
     ui.set_root_content("app.shell")
     ui.create_menu_bar("app.menu")
     ui.set_property_number("app.menu", "font_size", 14)
+    ui.set_property_bool("app.menu", "custom_chrome", not use_system_window_header)
+    ui.set_property_string("app.menu", "window_title", "EPA-IDE")
     ui.set_menu_bar_menus("app.menu", [
         {"id": "file", "label": "&File", "items": [
             {"id": "file.new_file", "label": "&New File", "shortcut": "Ctrl+N"},
@@ -211,7 +240,8 @@ def build_document():
                 {"id": "view.appearance.zen", "label": "Zen &Mode"},
                 {"id": "view.appearance.full_screen", "label": "Full &Screen", "shortcut": "F11"},
                 {"separator": True},
-                {"id": "view.appearance.sidebar", "label": "Toggle &Sidebar", "shortcut": "Ctrl+B"}
+                {"id": "view.appearance.sidebar", "label": "Toggle &Sidebar", "shortcut": "Ctrl+B"},
+                {"id": "view.appearance.toggle_window_header", "label": "Toggle Custom Window &Header"}
             ]},
             {"id": "view.panels", "label": "&Panels", "items": [
                 {"id": "view.panels.problems", "label": "&Problems"},
@@ -506,6 +536,63 @@ def _save_ide_state(updates: dict):
         state = _load_ide_state()
         state.update(updates)
         p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _layout_value(value, fallback: int, minimum: int = 120) -> int:
+    try:
+        parsed = int(round(float(value)))
+    except Exception:
+        return fallback
+    return parsed if parsed >= minimum else fallback
+
+
+def _window_value(value, fallback: int, minimum: int = 640) -> int:
+    try:
+        parsed = int(round(float(value)))
+    except Exception:
+        return fallback
+    return parsed if parsed >= minimum else fallback
+
+
+def _current_layout_state() -> dict:
+    return _load_ide_state()
+
+
+def _use_system_window_header(ide_state: dict | None = None) -> bool:
+    state = ide_state if isinstance(ide_state, dict) else _load_ide_state()
+    ui_state = state.get("ui", {}) if isinstance(state, dict) else {}
+    if isinstance(ui_state, dict):
+        return bool(ui_state.get("use_system_window_header", False))
+    return False
+
+
+def _persist_runtime_layout_state(client):
+    try:
+        shell = client.get_grid_layout_state("app.shell")
+        shell_snapshot = client.snapshot_widget("app.shell")
+        window_state = client.get_window_state()
+        columns = shell.get("columns") or []
+        nav_width = None
+        ai_width = None
+        if len(columns) > 1:
+            nav_width = _layout_value(columns[1].get("computed_size"), 220)
+        if len(columns) > 3:
+            ai_width = _layout_value(columns[3].get("computed_size"), 320)
+        bounds = (shell_snapshot or {}).get("bounds") or {}
+        updates = {
+            "window": {
+                "width": _window_value(bounds.get("width"), 1080),
+                "height": _window_value(bounds.get("height"), 760, minimum=480),
+                "maximized": bool((window_state or {}).get("maximized", False)),
+            },
+            "layout": {
+                "nav_width": nav_width if nav_width is not None else 220,
+                "ai_width": ai_width if ai_width is not None else 320,
+            },
+        }
+        _save_ide_state(updates)
     except Exception:
         pass
 
@@ -1785,6 +1872,7 @@ def main():
         client.set_read_only(ids["epa"], True)
         client.set_read_only(ids["debug"], True)
         client.set_read_only(ids["debug_meta"], True)
+        _focus_editor_widget(client, tab_id)
 
     def _refresh_debug_controls(client, tab_id: str):
         state = editor_state.get(tab_id)
@@ -2050,6 +2138,14 @@ def main():
             client.set_window_title(f"EPA-IDE : {project_name}")
         except Exception:
             pass
+        try:
+            client.configure_menu_bar_chrome(
+                "app.menu",
+                custom_chrome=not _use_system_window_header(),
+                window_title=f"EPA-IDE : {project_name}",
+            )
+        except Exception:
+            pass
 
         app_state.update({
             "project_root": str(project_path),
@@ -2163,6 +2259,7 @@ def main():
             client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
             if ext == ".e":
                 _refresh_e_tab(client, tab_id)
+            _focus_editor_widget(client, tab_id)
         except Exception:
             pass
 
@@ -2564,6 +2661,28 @@ def main():
                 "edit.cut", "edit.copy", "edit.paste", "edit.select_all"
             ):
                 _deferred(lambda: c.perform_focused_action(item_action))
+
+            if target == "app.menu" and item_action == "view.appearance.toggle_window_header":
+                next_use_system = not _use_system_window_header()
+                _save_ide_state({
+                    "ui": {
+                        "use_system_window_header": next_use_system,
+                    }
+                })
+                current_title = app_state.get("project_name")
+                if current_title:
+                    current_title = f"EPA-IDE : {current_title}"
+                else:
+                    current_title = "EPA-IDE"
+                _deferred(lambda: (
+                    c.set_window_decorated(next_use_system),
+                    c.configure_menu_bar_chrome(
+                        "app.menu",
+                        custom_chrome=not next_use_system,
+                        window_title=current_title,
+                    ),
+                ))
+                return {"received": True}
 
             if target == "app.menu" and item_action == "file.open":
                 saved = _load_ide_state().get("last_open_dir", "")
@@ -2989,6 +3108,7 @@ def main():
             print(json.dumps({"ui.event": params}, indent=2), flush=True)
         return {"received": True}
 
+    initial_ide_state = _current_layout_state()
     builder = build_document()
     _init_editor_state()
     document_json = builder.to_json(indent=2)
@@ -3007,6 +3127,11 @@ def main():
             client.add_handler("ui.event", on_ui_event)
             load_result = client.load_document(builder)
             print(json.dumps(load_result, indent=2))
+            if bool((initial_ide_state.get("window", {}) if isinstance(initial_ide_state, dict) else {}).get("maximized", False)):
+                try:
+                    client.set_window_maximized(True)
+                except Exception:
+                    pass
             try:
                 client.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
             except Exception:
@@ -3060,7 +3185,12 @@ def main():
                     repl.execute_line(line)
                 return
             print("Connected to Elara UI RPC head. Press Ctrl+C to exit.", flush=True)
+            next_layout_persist = 0.0
             while True:
+                now = time.monotonic()
+                if now >= next_layout_persist:
+                    _persist_runtime_layout_state(client)
+                    next_layout_persist = now + 1.0
                 time.sleep(0.25)
     except KeyboardInterrupt:
         if worker is not None:
@@ -3075,6 +3205,13 @@ def main():
 
 
     finally:
+        try:
+            if "client_ref" in locals():
+                client = client_ref.get("client")
+                if client is not None:
+                    _persist_runtime_layout_state(client)
+        except Exception:
+            pass
         if worker is not None:
             try:
                 worker.stop()

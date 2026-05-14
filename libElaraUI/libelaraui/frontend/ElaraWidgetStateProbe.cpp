@@ -14,6 +14,7 @@
 #include "widgets/ElaraTabWidget.h"
 #include "widgets/ElaraTextInputWidget.h"
 #include "widgets/ElaraComboBoxWidget.h"
+#include "widgets/ElaraCodeEditorWidget.h"
 #include "widgets/ElaraListViewWidget.h"
 #include "widgets/ElaraTreeViewWidget.h"
 #include "widgets/instruments/ElaraMultiAxisLineChartWidget.h"
@@ -133,6 +134,10 @@ String ElaraWidgetStateProbe::widgetTypeName(ElaraWidget* widget) {
 
     if(dynamic_cast<ElaraTreeViewWidget*>(widget)) {
         return "ElaraTreeViewWidget";
+    }
+
+    if(dynamic_cast<ElaraCodeEditorWidget*>(widget)) {
+        return "ElaraCodeEditorWidget";
     }
 
     if(dynamic_cast<ElaraRichTextEditWidget*>(widget)) {
@@ -306,6 +311,24 @@ ElaraWidgetState ElaraWidgetStateProbe::widgetState(Ref<ElaraWidget> widget) {
         state.has_font_size = true;
         state.has_item_count = true;
         state.has_expanded_count = true;
+        return state;
+    }
+
+    ElaraCodeEditorWidget* editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if(editor) {
+        state.kind = ELARA_WIDGET_STATE_CODE_EDITOR;
+        state.text = editor->getText();
+        state.font_size = editor->getFontSize();
+        state.enabled = editor->isEnabled();
+        state.placeholder = editor->getLanguage();
+        state.has_text = true;
+        state.has_font_size = true;
+        state.has_enabled = true;
+        state.has_placeholder = true;
+        state.minimum = editor->getScrollX();
+        state.maximum = editor->getScrollY();
+        state.has_scroll_x = true;
+        state.has_scroll_y = true;
         return state;
     }
 

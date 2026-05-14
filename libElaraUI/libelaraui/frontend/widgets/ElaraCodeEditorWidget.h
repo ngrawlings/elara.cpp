@@ -182,6 +182,8 @@ public:
 
     void setLanguage(const String& name);
     String getLanguage() const;
+    int getScrollX() const;
+    int getScrollY() const;
 
     void setBreakpoint(int logical_line, bool v);
     bool hasBreakpoint(int logical_line) const;

@@ -13,6 +13,7 @@ class UiDocumentBuilder:
         self.window_min_width = 0
         self.window_min_height = 0
         self.window_backend_id = "org.elara.ui.app"
+        self.window_properties = {}
         self.theme_mode = "light"
         self.root_content = None
         self.root_popups = []
@@ -35,6 +36,10 @@ class UiDocumentBuilder:
 
     def set_theme_mode(self, mode):
         self.theme_mode = mode
+        return self
+
+    def set_window_property(self, name, value):
+        self.window_properties[str(name)] = value
         return self
 
     def set_root_content(self, widget_id):
@@ -438,6 +443,7 @@ class UiDocumentBuilder:
                 "min_width": self.window_min_width,
                 "min_height": self.window_min_height,
                 "backend_id": self.window_backend_id,
+                **deepcopy(self.window_properties),
             },
             "theme": {"mode": self.theme_mode},
             "root": root,

@@ -1,6 +1,7 @@
 #include "ElaraRootWidget.h"
 #include <assert.h>
 #include "ElaraTextInputWidget.h"
+#include "ElaraCodeEditorWidget.h"
 #include "../ElaraWidgetStateProbe.h"
 
 #include <libelaracore/memory/LinkedList.h>
@@ -590,7 +591,8 @@ bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
         event.type == ELARA_UI_MOUSE_MOVE ||
         event.type == ELARA_UI_MOUSE_DOWN ||
         event.type == ELARA_UI_MOUSE_UP ||
-        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK;
+        event.type == ELARA_UI_MOUSE_DOUBLE_CLICK ||
+        event.type == ELARA_UI_MOUSE_SCROLL;
 
     if(!is_mouse) {
         return ElaraWidget::eventPropagate(event);
@@ -702,7 +704,17 @@ void ElaraRootWidget::dispatchMouseScroll(double dx, double dy, double px, doubl
     event.scroll_dx = dx;
     event.scroll_dy = dy;
 
-    eventPropagate(event);
+    bool handled = eventPropagate(event);
+
+    if(!handled) {
+        Ref<ElaraWidget> focused_widget = getWidget(focus);
+        ElaraCodeEditorWidget* code_editor = focused_widget
+            ? dynamic_cast<ElaraCodeEditorWidget*>(focused_widget.getPtr())
+            : 0;
+        if(code_editor && code_editor->isVisible()) {
+            code_editor->onMouseScroll(dx, dy);
+        }
+    }
 }
 
 void ElaraRootWidget::dispatchKeyDown(unsigned int keyval) {

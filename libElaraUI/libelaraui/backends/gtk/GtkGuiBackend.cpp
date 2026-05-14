@@ -14,6 +14,7 @@ public:
     String title;
     int width;
     int height;
+    bool decorated;
 
     bool visible;
     double last_mouse_x;
@@ -38,6 +39,7 @@ public:
         title(window_title),
         width(window_width),
         height(window_height),
+        decorated(true),
         visible(false),
         last_mouse_x(0),
         last_mouse_y(0),
@@ -280,6 +282,7 @@ void GtkGuiBackend::buildWindow(WindowState* state) {
     state->window = GTK_WINDOW(gtk_application_window_new(app));
     gtk_window_set_title(state->window, (const char*)state->title);
     gtk_window_set_default_size(state->window, state->width, state->height);
+    gtk_window_set_decorated(state->window, state->decorated ? TRUE : FALSE);
 
     state->drawing_area = gtk_drawing_area_new();
     gtk_widget_set_focusable(state->drawing_area, true);
@@ -371,10 +374,22 @@ gboolean GtkGuiBackend::onMouseScrolled(
     double dy,
     gpointer user_data
 ) {
-    (void)controller;
     WindowState* state = (WindowState*)user_data;
     if(state && state->surface) {
-        state->surface->dispatchMouseScroll(dx, dy, state->last_mouse_x, state->last_mouse_y);
+        double event_x = state->last_mouse_x;
+        double event_y = state->last_mouse_y;
+        GdkEvent* current = gtk_event_controller_get_current_event(GTK_EVENT_CONTROLLER(controller));
+        if(current) {
+            double x = 0.0;
+            double y = 0.0;
+            if(gdk_event_get_position(current, &x, &y)) {
+                event_x = x;
+                event_y = y;
+                state->last_mouse_x = x;
+                state->last_mouse_y = y;
+            }
+        }
+        state->surface->dispatchMouseScroll(dx, dy, event_x, event_y);
         if(state->backend) {
             state->backend->invalidate();
         }
@@ -462,6 +477,8 @@ void GtkGuiBackend::onMousePressed(
     WindowState* state = (WindowState*)user_data;
 
     if(state && state->surface) {
+        state->last_mouse_x = x;
+        state->last_mouse_y = y;
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
         bool is_double = (n_press == 2) || (state->pending_timer_id != 0);
 
@@ -504,6 +521,8 @@ void GtkGuiBackend::onMouseReleased(
     WindowState* state = (WindowState*)user_data;
 
     if(state && state->surface) {
+        state->last_mouse_x = x;
+        state->last_mouse_y = y;
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
 
         if(n_press == 2 && state->pending_button >= 0) {
@@ -622,6 +641,104 @@ void GtkGuiBackend::setMinimumSize(int w, int h) {
         WindowState* state = windows[i];
         if(state && state->window) {
             gtk_widget_set_size_request(GTK_WIDGET(state->window), w, h);
+            return;
+        }
+    }
+}
+
+void GtkGuiBackend::setWindowDecorated(bool decorated) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(!state) {
+            continue;
+        }
+
+        state->decorated = decorated;
+        if(state->window) {
+            gtk_window_set_decorated(state->window, decorated ? TRUE : FALSE);
+        }
+        return;
+    }
+}
+
+void GtkGuiBackend::minimizeWindow() {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_window_minimize(state->window);
+            return;
+        }
+    }
+}
+
+void GtkGuiBackend::closeWindow() {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_window_destroy(state->window);
+            return;
+        }
+    }
+}
+
+void GtkGuiBackend::beginWindowMove(int button, double x, double y) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(!state || !state->window) {
+            continue;
+        }
+
+        GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(state->window));
+        if(!surface) {
+            return;
+        }
+
+        GdkDisplay* display = gdk_surface_get_display(surface);
+        if(!display) {
+            return;
+        }
+
+        GdkSeat* seat = gdk_display_get_default_seat(display);
+        if(!seat) {
+            return;
+        }
+
+        GdkDevice* device = gdk_seat_get_pointer(seat);
+        if(!device) {
+            return;
+        }
+
+        gdk_toplevel_begin_move(
+            GDK_TOPLEVEL(surface),
+            device,
+            button > 0 ? button : 1,
+            x,
+            y,
+            GDK_CURRENT_TIME
+        );
+        return;
+    }
+}
+
+bool GtkGuiBackend::isWindowMaximized() const {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            return gtk_window_is_maximized(state->window);
+        }
+    }
+    return false;
+}
+
+void GtkGuiBackend::setWindowMaximized(bool maximized) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            if(maximized) {
+                gtk_window_maximize(state->window);
+            } else {
+                gtk_window_unmaximize(state->window);
+            }
             return;
         }
     }

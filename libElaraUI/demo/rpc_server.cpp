@@ -11,6 +11,7 @@
 #include <unistd.h>
 
 #include <libelaraformat/json/types/JsonString.h>
+#include <libelaraformat/json/types/JsonValue.h>
 
 #include <libelaravector/elara_vector.h>
 #include <libelaravectorcpp/ElaraVectorDocument.h>
@@ -35,6 +36,26 @@ using namespace elara;
 using namespace elara::ui::rpc;
 
 namespace {
+
+static bool jsonBoolValue(const Json& json, const String& path, bool fallback) {
+    Ref<JsonValue> value = json.getJsonValue(path);
+
+    if(!value || value->getType() == JsonValue::INVALID) {
+        return fallback;
+    }
+
+    String text = value->toString().trim();
+
+    if(text == String("true") || text == String("\"true\"")) {
+        return true;
+    }
+
+    if(text == String("false") || text == String("\"false\"")) {
+        return false;
+    }
+
+    return fallback;
+}
 
 static EvDocument *buildDemoOverlay() {
     const float w = 200.0f;
@@ -678,6 +699,7 @@ private:
     int loaded_window_height;
     int loaded_window_min_width;
     int loaded_window_min_height;
+    bool loaded_window_use_system_header;
 
     bool dispatchWidgetTargetedCall(
         const String& method,
@@ -775,7 +797,8 @@ public:
           loaded_window_width(0),
           loaded_window_height(0),
           loaded_window_min_width(0),
-          loaded_window_min_height(0) {
+          loaded_window_min_height(0),
+          loaded_window_use_system_header(true) {
     }
 
     bool hasLoadedLayout() const {
@@ -787,6 +810,7 @@ public:
     int getLoadedWindowHeight() const { return loaded_window_height; }
     int getLoadedWindowMinWidth() const { return loaded_window_min_width; }
     int getLoadedWindowMinHeight() const { return loaded_window_min_height; }
+    bool getLoadedWindowUseSystemHeader() const { return loaded_window_use_system_header; }
 
     bool loadDocument(
         const String& params_json,
@@ -809,6 +833,7 @@ public:
         int win_height = doc_json.getIntValue("window.height");
         int win_min_w = doc_json.getIntValue("window.min_width");
         int win_min_h = doc_json.getIntValue("window.min_height");
+        bool win_use_system_header = jsonBoolValue(doc_json, "window.use_system_header", true);
 
         if(!protocol || !protocol->load(document)) {
             error_code = "load_failed";
@@ -821,6 +846,7 @@ public:
         loaded_window_height = win_height > 0 ? win_height : 600;
         loaded_window_min_width = win_min_w;
         loaded_window_min_height = win_min_h;
+        loaded_window_use_system_header = win_use_system_header;
         layout_loaded = true;
         result_json = "{\"loaded\":true}";
         return true;
@@ -1388,6 +1414,7 @@ public:
             if(title.length() > 0) {
                 backend->setWindowTitle(title);
             }
+            backend->setWindowDecorated(ui_service->getLoadedWindowUseSystemHeader());
             backend->setDefaultWindowSize(w, h);
             if(min_w > 0 || min_h > 0) {
                 backend->setMinimumSize(min_w, min_h);

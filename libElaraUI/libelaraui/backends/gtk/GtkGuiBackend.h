@@ -117,6 +117,12 @@ public:
     void setWindowTitle(const String& title);
     void setDefaultWindowSize(int w, int h);
     void setMinimumSize(int w, int h);
+    void setWindowDecorated(bool decorated);
+    void minimizeWindow();
+    void closeWindow();
+    void beginWindowMove(int button, double x, double y);
+    bool isWindowMaximized() const;
+    void setWindowMaximized(bool maximized);
     void setClipboardText(const String& text);
     String getClipboardText();
 };

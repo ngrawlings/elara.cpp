@@ -1015,6 +1015,8 @@ public:
         ElaraMenuBarWidget* menu_bar = dynamic_cast<ElaraMenuBarWidget*>(widget);
         if(menu_bar) {
             menu_bar->setFontSize((double)jsonInt(spec, "properties.font_size", 14));
+            menu_bar->setCustomChrome(jsonBool(spec, "properties.custom_chrome", false));
+            menu_bar->setWindowTitle(spec.getStringValue("properties.window_title"));
             applyMenuBarMenus(menu_bar, spec);
         }
     }

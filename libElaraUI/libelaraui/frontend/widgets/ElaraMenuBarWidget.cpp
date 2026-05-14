@@ -231,6 +231,13 @@ ElaraMenuBarWidget::ElaraMenuBarWidget(
     item_padding_y(7),
     hover_index(-1),
     active_index(-1),
+    hover_button(CHROME_BUTTON_NONE),
+    custom_chrome(false),
+    window_title(""),
+    menu_start_x(0),
+    control_button_width(42),
+    control_gap(2),
+    title_gap(24),
     layout_valid(false) {
 }
 
@@ -341,7 +348,8 @@ void ElaraMenuBarWidget::invalidateLayout() {
 void ElaraMenuBarWidget::rebuildLayout(ElaraDrawContext* ctx) {
     invalidateLayout();
 
-    double cursor = 0;
+    menu_start_x = custom_chrome ? titleAreaWidth(ctx) : 0;
+    double cursor = menu_start_x;
 
     for(int i = 0; i < (int)menus.length(); i++) {
         double text_width = ctx
@@ -356,6 +364,53 @@ void ElaraMenuBarWidget::rebuildLayout(ElaraDrawContext* ctx) {
     }
 
     layout_valid = true;
+}
+
+double ElaraMenuBarWidget::controlAreaWidth() const {
+    return custom_chrome ? ((control_button_width * 3.0) + (control_gap * 2.0) + 8.0) : 0.0;
+}
+
+double ElaraMenuBarWidget::titleAreaWidth(ElaraDrawContext* ctx) const {
+    if(!custom_chrome) {
+        return 0.0;
+    }
+
+    double title_width = window_title.length() > 0
+        ? (ctx ? ctx->measureTextWidth(window_title, font_size) : window_title.length() * font_size * 0.62)
+        : 0.0;
+
+    double width_with_padding = title_width + item_padding_x * 2.0;
+    return width_with_padding + title_gap;
+}
+
+ElaraMenuBarWidget::ChromeButton ElaraMenuBarWidget::buttonAt(double px, double py) const {
+    if(!custom_chrome || py < 0 || py > height) {
+        return CHROME_BUTTON_NONE;
+    }
+
+    for(int id = CHROME_BUTTON_MINIMIZE; id <= CHROME_BUTTON_CLOSE; id++) {
+        ChromeButton button = (ChromeButton)id;
+        double left = buttonLeft(button);
+        if(px >= left && px <= left + control_button_width) {
+            return button;
+        }
+    }
+
+    return CHROME_BUTTON_NONE;
+}
+
+double ElaraMenuBarWidget::buttonLeft(ChromeButton button) const {
+    double base_x = width - controlAreaWidth();
+    if(button == CHROME_BUTTON_MINIMIZE) {
+        return base_x;
+    }
+    if(button == CHROME_BUTTON_MAXIMIZE) {
+        return base_x + control_button_width + control_gap;
+    }
+    if(button == CHROME_BUTTON_CLOSE) {
+        return base_x + (control_button_width + control_gap) * 2.0;
+    }
+    return width;
 }
 
 double ElaraMenuBarWidget::itemWidth(int index, ElaraDrawContext* ctx) const {
@@ -419,7 +474,7 @@ int ElaraMenuBarWidget::itemAt(double px, ElaraDrawContext* ctx) const {
         return -1;
     }
 
-    double cursor = 0;
+    double cursor = menu_start_x;
 
     for(int i = 0; i < (int)menus.length(); i++) {
         double w = itemWidth(i, ctx);
@@ -619,6 +674,25 @@ double ElaraMenuBarWidget::getFontSize() const {
     return font_size;
 }
 
+void ElaraMenuBarWidget::setCustomChrome(bool enabled) {
+    custom_chrome = enabled;
+    hover_button = CHROME_BUTTON_NONE;
+    invalidateLayout();
+}
+
+bool ElaraMenuBarWidget::isCustomChrome() const {
+    return custom_chrome;
+}
+
+void ElaraMenuBarWidget::setWindowTitle(const String& title) {
+    window_title = title;
+    invalidateLayout();
+}
+
+String ElaraMenuBarWidget::getWindowTitle() const {
+    return window_title;
+}
+
 void ElaraMenuBarWidget::onMenuAction(const String& menu_id, const String& item_id) {
     (void)menu_id;
     emitAction(item_id);
@@ -652,6 +726,16 @@ void ElaraMenuBarWidget::draw(ElaraDrawContext* ctx) {
 
     ctx->setColor(default_colors.accent.r, default_colors.accent.g, default_colors.accent.b);
     ctx->line(0, height - 1, width, height - 1, 1);
+
+    if(custom_chrome) {
+        ctx->setColor(default_colors.text.r, default_colors.text.g, default_colors.text.b);
+        ctx->drawText(
+            item_padding_x,
+            (height / 2.0) + (font_size / 2.0) - 2,
+            window_title,
+            font_size
+        );
+    }
 
     for(int i = 0; i < (int)menus.length(); i++) {
         double item_x = itemOffsetX(i, ctx);
@@ -700,6 +784,38 @@ void ElaraMenuBarWidget::draw(ElaraDrawContext* ctx) {
             ctx->line(underline_x, underline_y, underline_x + underline_w, underline_y, 1);
         }
     }
+
+    if(custom_chrome) {
+        for(int id = CHROME_BUTTON_MINIMIZE; id <= CHROME_BUTTON_CLOSE; id++) {
+            ChromeButton button = (ChromeButton)id;
+            double bx = buttonLeft(button);
+            bool hover = hover_button == button;
+            ElaraPaletteTriplet button_colors = hover ? hover_colors : default_colors;
+
+            if(hover) {
+                ctx->setColor(button_colors.base.r, button_colors.base.g, button_colors.base.b);
+                ctx->fillRect(bx, 0, control_button_width, height - 1);
+            }
+
+            if(button == CHROME_BUTTON_CLOSE && hover) {
+                ctx->setColor(0.78, 0.22, 0.22);
+                ctx->fillRect(bx, 0, control_button_width, height - 1);
+                ctx->setColor(1.0, 1.0, 1.0);
+            } else {
+                ctx->setColor(button_colors.text.r, button_colors.text.g, button_colors.text.b);
+            }
+
+            String glyph("-");
+            if(button == CHROME_BUTTON_MAXIMIZE) {
+                glyph = String("+");
+            } else if(button == CHROME_BUTTON_CLOSE) {
+                glyph = String("x");
+            }
+
+            double glyph_x = bx + (control_button_width / 2.0) - (ctx->measureTextWidth(glyph, font_size) / 2.0);
+            ctx->drawText(glyph_x, (height / 2.0) + (font_size / 2.0) - 2, glyph, font_size);
+        }
+    }
 }
 
 void ElaraMenuBarWidget::onMouseMove(double px, double py) {
@@ -707,9 +823,11 @@ void ElaraMenuBarWidget::onMouseMove(double px, double py) {
     emitMouseMove(px, py);
 
     int previous_hover = hover_index;
-    hover_index = containsLocal(px, py) ? itemAt(px) : -1;
+    int previous_button = hover_button;
+    hover_button = custom_chrome ? buttonAt(px, py) : CHROME_BUTTON_NONE;
+    hover_index = containsLocal(px, py) && hover_button == CHROME_BUTTON_NONE ? itemAt(px) : -1;
 
-    if(previous_hover != hover_index) {
+    if(previous_hover != hover_index || previous_button != hover_button) {
         emitHoverChanged(hover_index >= 0);
     }
 
@@ -726,9 +844,44 @@ void ElaraMenuBarWidget::onMouseDown(int button, double px, double py) {
         return;
     }
 
+    if(custom_chrome) {
+        ChromeButton chrome_button = buttonAt(px, py);
+        ElaraRootWidget* root = rootWidget();
+        ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
+
+        if(chrome_button == CHROME_BUTTON_MINIMIZE) {
+            if(backend) {
+                backend->minimizeWindow();
+            }
+            return;
+        }
+
+        if(chrome_button == CHROME_BUTTON_MAXIMIZE) {
+            if(backend) {
+                backend->setWindowMaximized(!backend->isWindowMaximized());
+            }
+            return;
+        }
+
+        if(chrome_button == CHROME_BUTTON_CLOSE) {
+            if(backend) {
+                backend->closeWindow();
+            }
+            return;
+        }
+    }
+
     int index = containsLocal(px, py) ? itemAt(px) : -1;
 
     if(index < 0) {
+        if(custom_chrome) {
+            ElaraRootWidget* root = rootWidget();
+            ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
+            if(backend) {
+                backend->beginWindowMove(button, px, py);
+                return;
+            }
+        }
         closeMenus();
         return;
     }

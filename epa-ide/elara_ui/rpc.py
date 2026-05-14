@@ -185,6 +185,35 @@ class ElaraUiRpcClient:
     def snapshot_widget(self, target: str, timeout: float = 5.0):
         return self.call("ui.snapshotWidget", {"target": target}, timeout=timeout)
 
+    def get_grid_layout_state(self, target: str, timeout: float = 5.0):
+        return self.call("ui.getGridLayoutState", {"target": target}, timeout=timeout)
+
+    def get_window_state(self, timeout: float = 5.0):
+        return self.call("ui.getWindowState", {}, timeout=timeout)
+
+    def set_window_maximized(self, maximized: bool, timeout: float = 5.0):
+        return self.call("ui.setWindowMaximized", {"maximized": bool(maximized)}, timeout=timeout)
+
+    def set_window_decorated(self, decorated: bool, timeout: float = 5.0):
+        return self.call("ui.setWindowDecorated", {"decorated": bool(decorated)}, timeout=timeout)
+
+    def configure_menu_bar_chrome(
+        self,
+        target: str,
+        custom_chrome: bool,
+        window_title: str,
+        timeout: float = 5.0,
+    ):
+        return self.call(
+            "ui.configureMenuBarChrome",
+            {
+                "target": target,
+                "custom_chrome": bool(custom_chrome),
+                "window_title": window_title,
+            },
+            timeout=timeout,
+        )
+
     def replace_list_items(self, target: str, items: list, timeout: float = 5.0):
         document = json.dumps({"items": items}, separators=(",", ":"))
         return self.call("ui.replaceChildren", {"target": target, "document": document}, timeout=timeout)
@@ -228,6 +257,9 @@ class ElaraUiRpcClient:
 
     def dispatch_mouse_up(self, button: int, x: float, y: float, timeout: float = 5.0):
         return self.call("ui.dispatchMouseUp", {"button": button, "x": x, "y": y}, timeout=timeout)
+
+    def dispatch_mouse_scroll(self, dx: float, dy: float, x: float, y: float, timeout: float = 5.0):
+        return self.call("ui.dispatchMouseScroll", {"dx": dx, "dy": dy, "x": x, "y": y}, timeout=timeout)
 
     def dispatch_key_down(self, keyval: int, timeout: float = 5.0):
         return self.call("ui.dispatchKeyDown", {"keyval": keyval}, timeout=timeout)

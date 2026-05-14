@@ -35,6 +35,13 @@ private:
         double width;
     };
 
+    enum ChromeButton {
+        CHROME_BUTTON_NONE = 0,
+        CHROME_BUTTON_MINIMIZE,
+        CHROME_BUTTON_MAXIMIZE,
+        CHROME_BUTTON_CLOSE
+    };
+
     Array<MenuBarItem> menus;
     Array<PopupRef> popup_refs;
     Array<AcceleratorBinding> accelerators;
@@ -47,6 +54,13 @@ private:
     double item_padding_y;
     int hover_index;
     int active_index;
+    int hover_button;
+    bool custom_chrome;
+    String window_title;
+    double menu_start_x;
+    double control_button_width;
+    double control_gap;
+    double title_gap;
     bool layout_valid;
 
     ElaraRootWidget* rootWidget() const;
@@ -57,6 +71,10 @@ private:
     void syncActiveMenu();
     void invalidateLayout();
     void rebuildLayout(ElaraDrawContext* ctx);
+    double controlAreaWidth() const;
+    double titleAreaWidth(ElaraDrawContext* ctx = 0) const;
+    ChromeButton buttonAt(double px, double py) const;
+    double buttonLeft(ChromeButton button) const;
     double itemWidth(int index, ElaraDrawContext* ctx = 0) const;
     double itemOffsetX(int index, ElaraDrawContext* ctx = 0) const;
     int itemAt(double px, ElaraDrawContext* ctx = 0) const;
@@ -98,6 +116,10 @@ public:
 
     void setFontSize(double size);
     double getFontSize() const;
+    void setCustomChrome(bool enabled);
+    bool isCustomChrome() const;
+    void setWindowTitle(const String& title);
+    String getWindowTitle() const;
 
     void onMenuAction(const String& menu_id, const String& item_id);
     void setPalette(ElaraPalette* widget_palette);

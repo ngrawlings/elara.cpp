@@ -296,6 +296,24 @@ void ElaraTabWidget::draw(ElaraDrawContext* ctx) {
     }
 }
 
+bool ElaraTabWidget::eventPropagate(ElaraUiEvent event) {
+    if(!visible) {
+        return false;
+    }
+
+    if(event.type == ELARA_UI_MOUSE_SCROLL) {
+        Ref<ElaraTabPage> page = activePage();
+        if(page && page->getWidget() && event.y > tab_height) {
+            ElaraUiEvent child_event = event;
+            child_event.y = event.y - tab_height;
+            return page->getWidget()->eventPropagate(child_event);
+        }
+        return true;
+    }
+
+    return ElaraWidget::eventPropagate(event);
+}
+
 void ElaraTabWidget::onMouseMove(double px, double py) {
     hover_index = tabAt(px, py);
     hover_button_index = tabButtonAt(px, py);

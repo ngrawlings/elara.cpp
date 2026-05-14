@@ -108,6 +108,16 @@ public:
     virtual void setWindowTitle(const String& title) {}
     virtual void setDefaultWindowSize(int w, int h) { (void)w; (void)h; }
     virtual void setMinimumSize(int w, int h) { (void)w; (void)h; }
+    virtual void setWindowDecorated(bool decorated) { (void)decorated; }
+    virtual void minimizeWindow() {}
+    virtual void closeWindow() {}
+    virtual void beginWindowMove(int button, double x, double y) {
+        (void)button;
+        (void)x;
+        (void)y;
+    }
+    virtual bool isWindowMaximized() const { return false; }
+    virtual void setWindowMaximized(bool maximized) { (void)maximized; }
     virtual void setClipboardText(const String& text) { (void)text; }
     virtual String getClipboardText() { return String(); }
 };
