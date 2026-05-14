@@ -507,10 +507,25 @@ def build_document():
     ui.create_button("nav.no_project.open", "Open Project", "no_project.open_project")
     ui.place_grid_child("nav.no_project", "nav.no_project.new", 0, 1)
     ui.place_grid_child("nav.no_project", "nav.no_project.open", 0, 3)
+    ui.create_grid("nav.panel")
+    ui.add_grid_column_fill("nav.panel")
+    ui.add_grid_row_exact("nav.panel", 28)
+    ui.add_grid_row_fill("nav.panel")
+
+    ui.create_grid("nav.tree_toolbar")
+    ui.add_grid_column_fill("nav.tree_toolbar")
+    ui.add_grid_column_exact("nav.tree_toolbar", 28)
+    ui.add_grid_row_fill("nav.tree_toolbar")
+    ui.create_button("nav.refresh", "↺", "nav.refresh")
+    ui.place_grid_child("nav.tree_toolbar", "nav.refresh", 1, 0)
+
+    ui.place_grid_child("nav.panel", "nav.tree_toolbar", 0, 0)
+    ui.place_grid_child("nav.panel", "nav.no_project", 0, 1)
+    ui.place_grid_child("nav.panel", "nav.tree", 0, 1)
+
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
     ui.place_grid_child("app.shell", "app.toolbar", 0, 1)
-    ui.place_grid_child("app.shell", "nav.no_project", 1, 1)
-    ui.place_grid_child("app.shell", "nav.tree", 1, 1)
+    ui.place_grid_child("app.shell", "nav.panel", 1, 1)
     ui.place_grid_child("app.shell", "editor.welcome", 2, 1)
     ui.place_grid_child("app.shell", "editor.tabs", 2, 1)
     ui.place_grid_child("app.shell", "ai.panel", 3, 1)
@@ -2721,6 +2736,11 @@ def main():
                     build_open_project_dialog(initial)
                 ))
 
+            elif item_action == "nav.refresh":
+                project_root = app_state.get("project_root", "")
+                if project_root and client is not None:
+                    _deferred(lambda: _open_project(c, project_root))
+
             elif item_action == "open_project.cancel":
                 _deferred(lambda: _close_open_project_window(c))
 
@@ -2856,6 +2876,9 @@ def main():
                         c.close_window("new-file")
                     except Exception:
                         pass
+                    project_root = app_state.get("project_root", "")
+                    if project_root:
+                        _open_project(c, project_root)
 
                 _deferred(_do_create_file)
 

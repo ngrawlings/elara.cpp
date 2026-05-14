@@ -123,18 +123,23 @@ namespace elara {
         }
         
         Array<T> &operator =(const Array<T> &a) {
+            if (this == &a) return *this;
+
             if (_size)
                 delete [] array;
-            
+
+            _size = 0;
+            len = 0;
+            array = 0;
+
             if (a._size) {
                 this->len = a.len;
                 this->_size = a._size;
-                
                 array = new T[a._size];
                 for (int i=0; i<a.len; i++)
                     array[i] = a.array[i];
             }
-            
+
             return *this;
         }
         
