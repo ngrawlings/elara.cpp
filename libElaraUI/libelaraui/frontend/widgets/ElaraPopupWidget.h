@@ -43,6 +43,8 @@ private:
 
     double item_height;
     double padding;
+    bool fit_to_content;
+    double min_width;
 
     int itemAt(double px, double py) const;
     double itemTop(int index) const;
@@ -59,6 +61,9 @@ public:
     void showAt(double px, double py);
     void hide();
     bool isVisible() const;
+
+    void setFitToContent(bool value);
+    void setMinWidth(double value);
 
     void clearItems();
     void addItem(

@@ -129,13 +129,23 @@ void ElaraPopupItem::setSubmenu(const String& handle, Ref<ElaraWidget> widget) {
 }
 
 ElaraPopupWidget::ElaraPopupWidget(ElaraWidgetRegister* root_widget, ElaraWidgetHandle widget_handle)
-    : ElaraWidget(root_widget, widget_handle), 
+    : ElaraWidget(root_widget, widget_handle),
       visible(false),
       hover_index(-1),
       item_height(28),
-      padding(8) {
+      padding(8),
+      fit_to_content(false),
+      min_width(180) {
     width = 180;
     height = 0;
+}
+
+void ElaraPopupWidget::setFitToContent(bool value) {
+    fit_to_content = value;
+}
+
+void ElaraPopupWidget::setMinWidth(double value) {
+    min_width = value;
 }
 
 void ElaraPopupWidget::showAt(double px, double py) {
@@ -343,6 +353,21 @@ void ElaraPopupWidget::clearSelection() {
 void ElaraPopupWidget::draw(ElaraDrawContext* ctx) {
     if(!visible) {
         return;
+    }
+
+    if(fit_to_content) {
+        double required = min_width;
+        for(int i = 0; i < (int)items.length(); i++) {
+            if(items[i].isSeparator()) continue;
+            String display = displayTextForMnemonic(items[i].getText(), 0);
+            double item_w = 12.0 + ctx->measureTextWidth(display, 13);
+            if(items[i].getShortcut().length() > 0) {
+                item_w += 16.0 + ctx->measureTextWidth(items[i].getShortcut(), 12);
+            }
+            item_w += items[i].hasSubmenu() ? 30.0 : 14.0;
+            if(item_w > required) required = item_w;
+        }
+        width = required;
     }
 
     ElaraPaletteTriplet popup_colors = colors("popup", "default");

@@ -211,6 +211,7 @@ public:
     ) : ElaraPopupWidget(root_widget, widget_handle),
         owner(owner_widget),
         menu_id(owner_menu_id) {
+        setFitToContent(true);
     }
 
     void onItemSelected(const String& id) {
