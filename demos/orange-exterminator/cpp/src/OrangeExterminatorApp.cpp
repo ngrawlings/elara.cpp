@@ -152,6 +152,17 @@ void OrangeExterminatorApp::armUiInputFocus() {
     traceLine(String("{\"event\":\"ui_input_focus_armed\",\"target\":\"app.surface\"}"));
 }
 
+void OrangeExterminatorApp::armMouseCapture() {
+    String result_json;
+    String error_code;
+    String error_message;
+
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseMove\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.setMouseCaptured"), String("{\"captured\":true}"), result_json, error_code, error_message, 5000);
+
+    traceLine(String("{\"event\":\"mouse_captured\"}"));
+}
+
 void OrangeExterminatorApp::traceLine(const String &json_line) {
     time_t now;
     struct tm tm_now;
@@ -829,6 +840,7 @@ int OrangeExterminatorApp::run() {
         return 1;
     }
     armUiInputFocus();
+    armMouseCapture();
 
     int loop_count = 0;
     while (true) {

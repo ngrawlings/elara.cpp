@@ -127,6 +127,7 @@ public:
     void setWindowMaximized(bool maximized);
     void setClipboardText(const String& text);
     String getClipboardText();
+    void setMouseCaptured(bool captured);
 };
 
 }

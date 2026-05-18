@@ -1081,6 +1081,23 @@ bool ElaraUiRpcUiService::setWindowDecorated(
     return true;
 }
 
+bool ElaraUiRpcUiService::setMouseCaptured(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)error_code;
+    (void)error_message;
+
+    if(root && root->getGuiBackend()) {
+        root->getGuiBackend()->setMouseCaptured(jsonBool(params, "captured", false));
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::configureMenuBarChrome(
     const Json& params,
     String& result_json,
@@ -1271,6 +1288,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setThemeMode")) {
         return setThemeMode(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setMouseCaptured")) {
+        return setMouseCaptured(params, result_json, error_code, error_message);
     }
 
     error_code = "method_not_found";

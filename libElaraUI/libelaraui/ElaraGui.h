@@ -122,6 +122,7 @@ public:
     virtual void setWindowMaximized(bool maximized) { (void)maximized; }
     virtual void setClipboardText(const String& text) { (void)text; }
     virtual String getClipboardText() { return String(); }
+    virtual void setMouseCaptured(bool captured) { (void)captured; }
 };
 
 class ElaraWindow {

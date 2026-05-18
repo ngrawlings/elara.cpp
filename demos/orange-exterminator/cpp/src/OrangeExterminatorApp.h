@@ -47,6 +47,7 @@ private:
     bool pushUiState();
     bool printSnapshot();
     void armUiInputFocus();
+    void armMouseCapture();
     void refreshProjectState();
     void refreshEpaState();
     void stimulateEpa();

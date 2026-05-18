@@ -18,8 +18,12 @@ public:
     bool decorated;
 
     bool visible;
+    bool mouse_captured;
+    bool capture_on_click;
     double last_mouse_x;
     double last_mouse_y;
+    double capture_ref_x;
+    double capture_ref_y;
     int pending_button;
     double pending_press_x;
     double pending_press_y;
@@ -42,8 +46,12 @@ public:
         height(window_height),
         decorated(true),
         visible(false),
+        mouse_captured(false),
+        capture_on_click(false),
         last_mouse_x(0),
         last_mouse_y(0),
+        capture_ref_x(0),
+        capture_ref_y(0),
         pending_button(-1),
         pending_press_x(0),
         pending_press_y(0),
@@ -468,8 +476,16 @@ void GtkGuiBackend::onMouseMotion(
     if(state && state->surface) {
         state->last_mouse_x = x;
         state->last_mouse_y = y;
-        state->surface->dispatchMouseMove(x, y);
-        gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
+        if(state->mouse_captured) {
+            double dx = x - state->capture_ref_x;
+            double dy = y - state->capture_ref_y;
+            state->capture_ref_x = x;
+            state->capture_ref_y = y;
+            state->surface->dispatchMouseMove(dx, dy);
+        } else {
+            state->surface->dispatchMouseMove(x, y);
+            gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
+        }
         if(state->backend) {
             state->backend->invalidate();
         }
@@ -533,6 +549,10 @@ void GtkGuiBackend::onMousePressed(
         gtk_widget_grab_focus(state->drawing_area);
     }
 
+    if(state && state->capture_on_click && !state->mouse_captured) {
+        state->backend->setMouseCaptured(true);
+    }
+
     if(state && state->backend) {
         state->backend->invalidate();
     }
@@ -581,6 +601,11 @@ gboolean GtkGuiBackend::onKeyPressed(
     gpointer user_data
 ) {
     WindowState* window_state = (WindowState*)user_data;
+
+    if(window_state && window_state->mouse_captured && keyval == GDK_KEY_Escape) {
+        window_state->mouse_captured = false;
+        gtk_widget_set_cursor_from_name(window_state->drawing_area, "default");
+    }
 
     if(window_state && window_state->surface) {
         window_state->surface->dispatchKeyDown(keyval, translateModifiers(state));
@@ -768,6 +793,25 @@ void GtkGuiBackend::setWindowMaximized(bool maximized) {
             }
             return;
         }
+    }
+}
+
+void GtkGuiBackend::setMouseCaptured(bool captured) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(!state || !state->drawing_area) {
+            continue;
+        }
+        state->mouse_captured = captured;
+        state->capture_on_click = captured;
+        if(captured) {
+            state->capture_ref_x = state->last_mouse_x;
+            state->capture_ref_y = state->last_mouse_y;
+            gtk_widget_set_cursor_from_name(state->drawing_area, "none");
+        } else {
+            gtk_widget_set_cursor_from_name(state->drawing_area, "default");
+        }
+        return;
     }
 }
 
