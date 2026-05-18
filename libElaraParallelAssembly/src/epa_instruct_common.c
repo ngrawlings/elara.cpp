@@ -236,8 +236,12 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
 
     case EPA_OP_WAIT_ON_SYNC:
-      eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_wait_on_sync && !ctx->hooks.on_wait_on_sync(ctx->hooks_user, err)) return EPA_FLOW_ERR;
+      if (w && w->blocked) {
+        eip->rel_pc = (uint32_t)pc;
+      } else {
+        eip->rel_pc = (uint32_t)(pc + need);
+      }
       return EPA_FLOW_YIELDED;
 
     case EPA_OP_ENTRY_EXEC: {

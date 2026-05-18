@@ -808,14 +808,9 @@ static EpaNonFlowRc opengl_exec_one(
     }
 
     case EPA_OP_GPU_PRESENT: {
-      vp_present_gl(vp);
-      if (!vp_pump(vp)) {
-        // treat as "halt"
-        eip->rel_pc = (uint32_t)(pc + need);
-        vm->stack.sp = sp;
-        return EPA_NF_EXEC_HALT;
-      }
-      break;
+      (void)vp;
+      snprintf(err, EPA_MAX_ERR, "GPU_PRESENT is deprecated; emit a render artifact for the host surface instead");
+      return EPA_NF_EXEC_ERR;
     }
 
     case EPA_OP_GPU_RES_DELETE: {

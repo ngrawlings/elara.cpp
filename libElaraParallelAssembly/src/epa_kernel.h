@@ -6,7 +6,6 @@
 #include "epa_flow_glue.h"
 #include "epa_backend_nonflow.h"
 #include "epa_instruct_common.h"
-#include "gui/viewport.h"
 
 #include "memory/epa_ring_buffer.h"
 #include "vm/epa_worker_state.h"
@@ -73,6 +72,8 @@ typedef struct {
 typedef struct {
   EpaIngressQ inq[EPA_MAX_WORKERS]; // one queue per worker/entry id
 } EpaIngress;
+
+typedef struct Viewport Viewport;
 
 typedef struct EpaKernel {
   KernelImpl impl;

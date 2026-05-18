@@ -118,12 +118,7 @@ static int wave_run(EpaKernel *k,
         continue;
       }
 
-      if (k->vp) {
-        vp_present_gl(k->vp);
-        if (!vp_pump(k->vp)) return 1;
-      } else {
-        return 1;
-      }
+      return 1;
     }
   }
 }

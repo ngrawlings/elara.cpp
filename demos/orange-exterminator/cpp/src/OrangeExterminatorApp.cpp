@@ -26,10 +26,9 @@ static uint32_t read_le_u32(const unsigned char *p) {
          | ((uint32_t)p[3] << 24);
 }
 
-struct PlayerViewState {
-    int x;
-    int y;
-    int size;
+struct SceneViewState {
+    int lane;
+    int depth;
 };
 
 class UiEventSinkService : public sockets::rpc::json::JsonRPCService {
@@ -69,11 +68,11 @@ private:
     OrangeExterminatorApp *app;
 };
 
-PlayerViewState readPlayerViewState(const OrangeExterminatorEpaVmHost &epa) {
-    PlayerViewState state = { 640, 360, 48 };
-    int player_kernel = epa.findKernelIndex(String("player_avatar"));
-    if (player_kernel >= 0) {
-        EpaKernel *kernel = epa.rawKernelAt((size_t)player_kernel);
+SceneViewState readSceneViewState(const OrangeExterminatorEpaVmHost &epa) {
+    SceneViewState state = { 0, 0 };
+    int scene_kernel = epa.findKernelIndex(String("scene"));
+    if (scene_kernel >= 0) {
+        EpaKernel *kernel = epa.rawKernelAt((size_t)scene_kernel);
         if (kernel) {
             OrangeExterminatorEpaDebugWorkerSnapshot workers[ORANGEEXTERMINATOR_EPA_DEBUG_MAX_WORKERS];
             size_t count = OrangeExterminator_epa_debug_capture_workers(kernel, workers, ORANGEEXTERMINATOR_EPA_DEBUG_MAX_WORKERS);
@@ -81,9 +80,8 @@ PlayerViewState readPlayerViewState(const OrangeExterminatorEpaVmHost &epa) {
                 if (workers[i].wid != 1u) {
                     continue;
                 }
-                if (workers[i].locals[1] != 0) state.x = workers[i].locals[1];
-                if (workers[i].locals[2] != 0) state.y = workers[i].locals[2];
-                if (workers[i].locals[3] > 0) state.size = workers[i].locals[3];
+                state.lane = workers[i].locals[1];
+                state.depth = workers[i].locals[2];
                 break;
             }
         }
@@ -107,6 +105,7 @@ OrangeExterminatorApp::OrangeExterminatorApp(const String &value_host, int value
       bundle_exists(false),
       epa_loaded(false),
       epa_started(false),
+      incremental_ui_supported(true),
       input_lock("orange-exterminator-input"),
       render_lock("orange-exterminator-render"),
       latest_surface_valid(false),
@@ -139,6 +138,18 @@ void OrangeExterminatorApp::closeTraceArtifact() {
     traceLine(String("{\"event\":\"trace_close\"}"));
     fclose(trace_file);
     trace_file = NULL;
+}
+
+void OrangeExterminatorApp::armUiInputFocus() {
+    String result_json;
+    String error_code;
+    String error_message;
+
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"keyDown\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"keyUp\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.setFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
+
+    traceLine(String("{\"event\":\"ui_input_focus_armed\",\"target\":\"app.surface\"}"));
 }
 
 void OrangeExterminatorApp::traceLine(const String &json_line) {
@@ -330,11 +341,17 @@ void OrangeExterminatorApp::stimulateEpa() {
     idx = epa.findKernelIndex(String("player_avatar"));
     if (idx >= 0) {
         int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input)) ? 1 : 0;
-        int ok2 = epa.ingressPushToKernel((size_t)idx, 2u, &world, sizeof(world)) ? 1 : 0;
-        int ok3 = epa.ingressPushToKernel((size_t)idx, 3u, &weapon, sizeof(weapon)) ? 1 : 0;
-        printf("stimulate player_avatar worker1=%d worker2=%d worker3=%d\n", ok1, ok2, ok3);
+        printf("stimulate player_avatar worker1=%d\n", ok1);
         traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"player_avatar\",\"wid1\":")
-            + String(ok1) + String(",\"wid2\":") + String(ok2) + String(",\"wid3\":") + String(ok3) + String("}"));
+            + String(ok1) + String(",\"wid2\":0,\"wid3\":0}"));
+    }
+
+    idx = epa.findKernelIndex(String("scene"));
+    if (idx >= 0) {
+        int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input)) ? 1 : 0;
+        printf("stimulate scene worker1=%d\n", ok1);
+        traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"scene\",\"wid1\":")
+            + String(ok1) + String(",\"wid2\":0,\"wid3\":0}"));
     }
 
     idx = epa.findKernelIndex(String("player_machinegun"));
@@ -389,7 +406,7 @@ void OrangeExterminatorApp::drainKeyEvents() {
         return;
     }
 
-    idx = epa.findKernelIndex(String("player_avatar"));
+    idx = epa.findKernelIndex(String("scene"));
     if (idx < 0) {
         return;
     }
@@ -402,7 +419,7 @@ void OrangeExterminatorApp::drainKeyEvents() {
         KeyInputPayload input = { keyval, 1u, 0u };
         {
             bool ok = epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input));
-            traceLine(String("{\"event\":\"key_ingress\",\"kernel\":\"player_avatar\",\"wid\":1,\"keyval\":")
+            traceLine(String("{\"event\":\"key_ingress\",\"kernel\":\"scene\",\"wid\":1,\"keyval\":")
                 + String((int)keyval) + String(",\"ok\":") + String(ok ? "true" : "false") + String("}"));
         }
     }
@@ -410,20 +427,20 @@ void OrangeExterminatorApp::drainKeyEvents() {
 }
 
 void OrangeExterminatorApp::installSurfaceCallback() {
-    int idx = epa.findKernelIndex(String("player_avatar"));
+    int idx = epa.findKernelIndex(String("scene"));
     if (idx >= 0) {
         EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
         if (kernel) {
             g_orange_exterminator_app = this;
             epa_kernel_set_signal_callback(kernel, on_surface_host_signal);
-            printf("Installed surface callback on kernel player_avatar idx=%d\n", idx);
-            traceLine(String("{\"event\":\"surface_callback_installed\",\"kernel\":\"player_avatar\",\"index\":") + String(idx) + String("}"));
+            printf("Installed surface callback on kernel scene idx=%d\n", idx);
+            traceLine(String("{\"event\":\"surface_callback_installed\",\"kernel\":\"scene\",\"index\":") + String(idx) + String("}"));
         } else {
-            printf("Surface callback install failed: player_avatar kernel pointer null\n");
+            printf("Surface callback install failed: scene kernel pointer null\n");
             traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"null_kernel\"}"));
         }
     } else {
-        printf("Surface callback install failed: player_avatar kernel not found\n");
+        printf("Surface callback install failed: scene kernel not found\n");
         traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"kernel_not_found\"}"));
     }
 }
@@ -494,19 +511,19 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
         }
         if (opcode == 2u) {
             if (offset + 32u > (size_t)msg_len) break;
+            uint32_t x0 = read_le_u32(bytes + offset); offset += 4;
+            uint32_t y0 = read_le_u32(bytes + offset); offset += 4;
             uint32_t x1 = read_le_u32(bytes + offset); offset += 4;
             uint32_t y1 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t x2 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t y2 = read_le_u32(bytes + offset); offset += 4;
             uint32_t line_width = read_le_u32(bytes + offset); offset += 4;
             uint32_t r = read_le_u32(bytes + offset); offset += 4;
             uint32_t g = read_le_u32(bytes + offset); offset += 4;
             uint32_t b = read_le_u32(bytes + offset); offset += 4;
             if (emitted) json += String(",");
-            json += String("{\"op\":\"line\",\"x1\":") + String((int)x1)
+            json += String("{\"op\":\"line\",\"x0\":") + String((int)x0)
+                 + String(",\"y0\":") + String((int)y0)
+                 + String(",\"x1\":") + String((int)x1)
                  + String(",\"y1\":") + String((int)y1)
-                 + String(",\"x2\":") + String((int)x2)
-                 + String(",\"y2\":") + String((int)y2)
                  + String(",\"line_width\":") + String((int)line_width)
                  + String(",\"r\":") + String(((double)r) / 255.0)
                  + String(",\"g\":") + String(((double)g) / 255.0)
@@ -518,6 +535,17 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
         break;
     }
 
+    {
+        SceneViewState scene = readSceneViewState(epa);
+        if (emitted) {
+            json += String(",");
+        }
+        json += String("{\"op\":\"text\",\"x\":56,\"y\":52,\"text\":\"Orange Exterminator\",\"size\":32,\"r\":1.0,\"g\":0.95,\"b\":0.90},");
+        json += String("{\"op\":\"text\",\"x\":56,\"y\":82,\"text\":\"EPA artifact active\",\"size\":17,\"r\":0.84,\"g\":0.90,\"b\":0.76},");
+        json += String("{\"op\":\"text\",\"x\":56,\"y\":110,\"text\":")
+             + JsonString(String("lane=") + String(scene.lane) + String(" depth=") + String(scene.depth), true).toString()
+             + String(",\"size\":17,\"r\":0.82,\"g\":0.86,\"b\":0.90}");
+    }
     json += String("]");
     {
         Mutex::Lock lock(render_lock);
@@ -535,41 +563,74 @@ String OrangeExterminatorApp::buildSurfaceCommandsJson() const {
         return latest_surface_commands;
     }
     {
-        PlayerViewState player = readPlayerViewState(epa);
-        int player_screen_x = 640 + ((player.x - 640) * 2);
-        int player_screen_y = 470 + ((player.y - 360) * 1);
-        int player_size = player.size;
-
-        if (player_screen_x < 120) player_screen_x = 120;
-        if (player_screen_x > 1120) player_screen_x = 1120;
-        if (player_screen_y < 220) player_screen_y = 220;
-        if (player_screen_y > 620) player_screen_y = 620;
+        SceneViewState scene = readSceneViewState(epa);
+        int lane = scene.lane;
+        int depth = scene.depth;
+        int spread = depth * 90;
+        int inner = depth * 54;
+        int center_x = 640 + lane;
+        int dead_x = 535 + lane - (spread / 2);
+        int dead_y = 210 - (depth * 26);
+        int dead_w = 210 + (depth * 150);
+        int dead_h = 170 + (depth * 58);
+        int glow_x = 590 + lane - (depth * 40);
+        int glow_y = 248 - (depth * 22);
+        int glow_w = 100 + (depth * 78);
+        int glow_h = 72 + (depth * 36);
+        int wall_outer = 210 + (depth * 18);
+        int wall_inner = 340 + (depth * 24);
+        int far_y = 330 - (depth * 18);
+        int mid_y = 410 - (depth * 12);
 
         return String("[")
-            + String("{\"op\":\"clear\",\"r\":0.09,\"g\":0.11,\"b\":0.15},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":0,\"w\":1280,\"h\":380,\"r\":0.18,\"g\":0.26,\"b\":0.34},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":380,\"w\":1280,\"h\":340,\"r\":0.23,\"g\":0.25,\"b\":0.20},")
+            + String("{\"op\":\"clear\",\"r\":0.05,\"g\":0.05,\"b\":0.07},")
+            + String("{\"op\":\"rect\",\"x\":0,\"y\":0,\"w\":1280,\"h\":250,\"r\":0.09,\"g\":0.11,\"b\":0.13},")
+            + String("{\"op\":\"rect\",\"x\":0,\"y\":250,\"w\":1280,\"h\":120,\"r\":0.20,\"g\":0.22,\"b\":0.24},")
+            + String("{\"op\":\"rect\",\"x\":0,\"y\":370,\"w\":1280,\"h\":350,\"r\":0.36,\"g\":0.28,\"b\":0.18},")
+            + String("{\"op\":\"rect\",\"x\":0,\"y\":250,\"w\":210,\"h\":470,\"r\":0.10,\"g\":0.11,\"b\":0.13},")
+            + String("{\"op\":\"rect\",\"x\":1070,\"y\":250,\"w\":210,\"h\":470,\"r\":0.10,\"g\":0.11,\"b\":0.13},")
+            + String("{\"op\":\"rect\",\"x\":") + String(dead_x)
+            + String(",\"y\":") + String(dead_y)
+            + String(",\"w\":") + String(dead_w)
+            + String(",\"h\":") + String(dead_h)
+            + String(",\"r\":0.27,\"g\":0.29,\"b\":0.31},")
+            + String("{\"op\":\"rect\",\"x\":") + String(glow_x)
+            + String(",\"y\":") + String(glow_y)
+            + String(",\"w\":") + String(glow_w)
+            + String(",\"h\":") + String(glow_h)
+            + String(",\"r\":0.67,\"g\":0.57,\"b\":0.42},")
             + String("{\"op\":\"text\",\"x\":54,\"y\":52,\"text\":\"Orange Exterminator\",\"size\":32,\"r\":1.0,\"g\":0.95,\"b\":0.90},")
-            + String("{\"op\":\"text\",\"x\":56,\"y\":82,\"text\":\"EPA frame artifact pending, using live debug-state fallback.\",\"size\":17,\"r\":0.95,\"g\":0.90,\"b\":0.82},")
-            + String("{\"op\":\"line\",\"x1\":160,\"y1\":620,\"x2\":1120,\"y2\":620,\"line_width\":2,\"r\":0.52,\"g\":0.52,\"b\":0.46},")
-            + String("{\"op\":\"line\",\"x1\":220,\"y1\":560,\"x2\":1060,\"y2\":560,\"line_width\":1,\"r\":0.38,\"g\":0.40,\"b\":0.36},")
-            + String("{\"op\":\"line\",\"x1\":280,\"y1\":500,\"x2\":1000,\"y2\":500,\"line_width\":1,\"r\":0.34,\"g\":0.36,\"b\":0.33},")
-            + String("{\"op\":\"line\",\"x1\":340,\"y1\":440,\"x2\":940,\"y2\":440,\"line_width\":1,\"r\":0.30,\"g\":0.32,\"b\":0.30},")
-            + String("{\"op\":\"line\",\"x1\":400,\"y1\":380,\"x2\":880,\"y2\":380,\"line_width\":1,\"r\":0.28,\"g\":0.30,\"b\":0.29},")
-            + String("{\"op\":\"rect\",\"x\":") + String(player_screen_x + 8)
-            + String(",\"y\":") + String(player_screen_y + player_size - 8)
-            + String(",\"w\":") + String(player_size - 8)
-            + String(",\"h\":16,\"r\":0.08,\"g\":0.08,\"b\":0.08},")
-            + String("{\"op\":\"rect\",\"x\":") + String(player_screen_x)
-            + String(",\"y\":") + String(player_screen_y)
-            + String(",\"w\":") + String(player_size)
-            + String(",\"h\":") + String(player_size)
-            + String(",\"r\":0.94,\"g\":0.46,\"b\":0.10},")
-            + String("{\"op\":\"rect\",\"x\":") + String(player_screen_x + 8)
-            + String(",\"y\":") + String(player_screen_y + 8)
-            + String(",\"w\":") + String(player_size - 16)
-            + String(",\"h\":") + String(player_size - 16)
-            + String(",\"r\":0.99,\"g\":0.69,\"b\":0.30},")
+            + String("{\"op\":\"text\",\"x\":56,\"y\":82,\"text\":\"Waiting for first committed EPA frame artifact. Live fallback scene active.\",\"size\":17,\"r\":0.95,\"g\":0.90,\"b\":0.82},")
+            + String("{\"op\":\"text\",\"x\":56,\"y\":110,\"text\":") + JsonString(String("lane=") + String(lane) + String(" depth=") + String(depth), true).toString() + String(",\"size\":17,\"r\":0.82,\"g\":0.86,\"b\":0.90},")
+            + String("{\"op\":\"line\",\"x0\":") + String(wall_outer + lane)
+            + String(",\"y0\":720,\"x1\":") + String(560 + lane - spread)
+            + String(",\"y1\":") + String(far_y)
+            + String(",\"line_width\":3,\"r\":0.46,\"g\":0.40,\"b\":0.31},")
+            + String("{\"op\":\"line\",\"x0\":") + String(1280 - wall_outer + lane)
+            + String(",\"y0\":720,\"x1\":") + String(720 + lane + spread)
+            + String(",\"y1\":") + String(far_y)
+            + String(",\"line_width\":3,\"r\":0.46,\"g\":0.40,\"b\":0.31},")
+            + String("{\"op\":\"line\",\"x0\":") + String(wall_inner + lane)
+            + String(",\"y0\":720,\"x1\":") + String(595 + lane - inner)
+            + String(",\"y1\":370,\"line_width\":2,\"r\":0.59,\"g\":0.53,\"b\":0.41},")
+            + String("{\"op\":\"line\",\"x0\":") + String(1280 - wall_inner + lane)
+            + String(",\"y0\":720,\"x1\":") + String(685 + lane + inner)
+            + String(",\"y1\":370,\"line_width\":2,\"r\":0.59,\"g\":0.53,\"b\":0.41},")
+            + String("{\"op\":\"line\",\"x0\":") + String(470 + lane)
+            + String(",\"y0\":720,\"x1\":") + String(625 + lane - inner)
+            + String(",\"y1\":") + String(mid_y)
+            + String(",\"line_width\":2,\"r\":0.73,\"g\":0.67,\"b\":0.54},")
+            + String("{\"op\":\"line\",\"x0\":") + String(810 + lane)
+            + String(",\"y0\":720,\"x1\":") + String(655 + lane + inner)
+            + String(",\"y1\":") + String(mid_y)
+            + String(",\"line_width\":2,\"r\":0.73,\"g\":0.67,\"b\":0.54},")
+            + String("{\"op\":\"line\",\"x0\":") + String(center_x)
+            + String(",\"y0\":200,\"x1\":") + String(center_x)
+            + String(",\"y1\":650,\"line_width\":1,\"r\":0.49,\"g\":0.51,\"b\":0.53},")
+            + String("{\"op\":\"line\",\"x0\":0,\"y0\":370,\"x1\":1280,\"y1\":370,\"line_width\":2,\"r\":0.52,\"g\":0.45,\"b\":0.33},")
+            + String("{\"op\":\"line\",\"x0\":0,\"y0\":250,\"x1\":1280,\"y1\":250,\"line_width\":1,\"r\":0.34,\"g\":0.35,\"b\":0.38},")
+            + String("{\"op\":\"rect\",\"x\":592,\"y\":654,\"w\":96,\"h\":28,\"r\":0.14,\"g\":0.15,\"b\":0.16},")
+            + String("{\"op\":\"rect\",\"x\":610,\"y\":662,\"w\":60,\"h\":12,\"r\":0.46,\"g\":0.48,\"b\":0.49},")
             + String("]");
     }
 }
@@ -592,20 +653,19 @@ String OrangeExterminatorApp::buildStatusItemsJson() const {
         : String("EPA kernels not started");
 
     String kernel_count_label = String("Kernel count: ") + String((int)epa.kernelCount());
-    PlayerViewState player = readPlayerViewState(epa);
-    String player_label = String("Player locals: x=") + String(player.x)
-        + String(" y=") + String(player.y)
-        + String(" size=") + String(player.size);
+    SceneViewState scene = readSceneViewState(epa);
+    String scene_label = String("Scene locals: lane=") + String(scene.lane)
+        + String(" depth=") + String(scene.depth);
 
     return String("[")
-        + String("{\"id\":\"ui\",\"label\":\"OpenCL widget shell online\"},")
+        + String("{\"id\":\"ui\",\"label\":\"Vulkan surface shell online\"},")
         + String("{\"id\":\"bundle_state\",\"label\":") + JsonString(bundle_state, true).toString() + String("},")
         + String("{\"id\":\"bundle_path\",\"label\":") + JsonString(bundle_label, true).toString() + String("},")
         + String("{\"id\":\"module_state\",\"label\":") + JsonString(module_state, true).toString() + String("},")
         + String("{\"id\":\"started_state\",\"label\":") + JsonString(started_state, true).toString() + String("},")
         + String("{\"id\":\"kernel_count\",\"label\":") + JsonString(kernel_count_label, true).toString() + String("},")
-        + String("{\"id\":\"player\",\"label\":") + JsonString(player_label, true).toString() + String("},")
-        + String("{\"id\":\"next\",\"label\":\"Next gap: emit real render artifacts from EPA instead of host-side debug drawing\"}")
+        + String("{\"id\":\"scene\",\"label\":") + JsonString(scene_label, true).toString() + String("},")
+        + String("{\"id\":\"next\",\"label\":\"Next gap: tighten the first native EPA frame artifact flow and remove fallback rendering\"}")
         + String("]");
 }
 
@@ -623,8 +683,8 @@ void OrangeExterminatorApp::buildDocument(ElaraUiDocumentBuilder &ui) {
     ui.setGridColumnBorderResizable(String("app.shell"), 0, true);
     ui.addGridRowFill(String("app.shell"));
 
-    ui.createWidget(String("app.surface"), String("elara.widgets.opencl_surface"));
-    ui.setPropertyString(String("app.surface"), String("backend"), String("opencl"));
+    ui.createWidget(String("app.surface"), String("elara.widgets.vulkan_surface"));
+    ui.setPropertyString(String("app.surface"), String("backend"), String("vulkan"));
     ui.setPropertyString(String("app.surface"), String("kernel_name"), String("orange.root.compose"));
     ui.setPropertyString(String("app.surface"), String("overlay_text"), String("Orange Exterminator"));
     ui.setPropertyNumber(String("app.surface"), String("virtual_width"), 1280);
@@ -643,9 +703,10 @@ void OrangeExterminatorApp::buildDocument(ElaraUiDocumentBuilder &ui) {
     ui.createRichTextEdit(
         String("app.notes"),
         String("Movement slice online.\n")
-        + String("The OpenCL surface is showing a simple third-person test scene.\n")
-        + String("Arrow keys are routed into the EPA player_avatar kernel.\n")
-        + String("The player block is drawn from live worker locals captured through the EPA debug shim.")
+        + String("The Vulkan surface is showing a simple third-person test scene.\n")
+        + String("Arrow keys are routed into the EPA scene kernel.\n")
+        + String("Up/down moves the camera toward the corridor dead end.\n")
+        + String("Left/right shifts the corridor framing from the live scene worker locals.")
     );
     ui.setPropertyBool(String("app.notes"), String("read_only"), true);
 
@@ -679,6 +740,49 @@ bool OrangeExterminatorApp::loadDocument(const String &document_json) {
     return true;
 }
 
+bool OrangeExterminatorApp::setSectionJson(const String &target, const String &section, const String &value_json) {
+    String params = String("{\"target\":")
+        + JsonString(target, true).toString()
+        + String(",\"section\":")
+        + JsonString(section, true).toString()
+        + String(",\"value\":")
+        + value_json
+        + String("}");
+    String result_json;
+    String error_code;
+    String error_message;
+    if(!peer->call(String("ui.setSectionJson"), params, result_json, error_code, error_message, 5000)) {
+        String target_copy(target);
+        String section_copy(section);
+        printf("ui.setSectionJson failed [%s] target=%s section=%s: %s\n",
+               error_code.operator char *(),
+               target_copy.operator char *(),
+               section_copy.operator char *(),
+               error_message.operator char *());
+        return false;
+    }
+    return true;
+}
+
+bool OrangeExterminatorApp::pushUiState() {
+    if(incremental_ui_supported) {
+        if(setSectionJson(String("app.surface"), String("commands"), buildSurfaceCommandsJson())) {
+            if(setSectionJson(String("app.status"), String("items"), buildStatusItemsJson())) {
+                return true;
+            }
+        }
+        incremental_ui_supported = false;
+        traceLine(String("{\"event\":\"ui_incremental_disabled\"}"));
+    }
+
+    ElaraUiDocumentBuilder ui;
+    buildDocument(ui);
+    if(!loadDocument(ui.toJson())) {
+        return false;
+    }
+    return true;
+}
+
 bool OrangeExterminatorApp::printSnapshot() {
     String result_json;
     String error_code;
@@ -693,14 +797,11 @@ bool OrangeExterminatorApp::printSnapshot() {
 
 int OrangeExterminatorApp::run() {
     openTraceArtifact();
-    refreshEpaState();
-    stimulateEpa();
 
     peer->addService(Ref<sockets::rpc::json::JsonRPCService>(new UiEventSinkService(this)));
 
     if (!peer->connect(host, (unsigned short)port)) {
         printf("Failed to connect to %s:%d\n", host.operator char *(), port);
-        epa.stopAllKernels();
         closeTraceArtifact();
         return 1;
     }
@@ -713,16 +814,21 @@ int OrangeExterminatorApp::run() {
         closeTraceArtifact();
         return 1;
     }
+    armUiInputFocus();
     traceLine(String("{\"event\":\"ui_connected\",\"host\":") + JsonString(host, true).toString()
         + String(",\"port\":") + String(port) + String("}"));
 
-    {
-        String result_json;
-        String error_code;
-        String error_message;
-        peer->call(String("ui.enableEvent"), String("{\"action\":\"keyDown\"}"), result_json, error_code, error_message, 5000);
-        peer->call(String("ui.setFocus"), String("{\"target\":\"app.reload\"}"), result_json, error_code, error_message, 5000);
+    refreshEpaState();
+    stimulateEpa();
+    buildDocument(ui);
+    if (!loadDocument(ui.toJson())) {
+        g_orange_exterminator_app = NULL;
+        epa.stopAllKernels();
+        peer->close();
+        closeTraceArtifact();
+        return 1;
     }
+    armUiInputFocus();
 
     int loop_count = 0;
     while (true) {
@@ -747,8 +853,9 @@ int OrangeExterminatorApp::run() {
             if (command == String("reload")) {
                 refreshEpaState();
                 stimulateEpa();
-                buildDocument(ui);
-                loadDocument(ui.toJson());
+                if(!pushUiState()) {
+                    break;
+                }
                 traceLine(String("{\"event\":\"manual_reload\"}"));
                 continue;
             }
@@ -761,14 +868,16 @@ int OrangeExterminatorApp::run() {
         }
 
         drainKeyEvents();
-        buildDocument(ui);
-        loadDocument(ui.toJson());
+        if(!pushUiState()) {
+            break;
+        }
         loop_count++;
         if ((loop_count % 15) == 0) {
             traceKernelStateSnapshot("loop");
         }
     }
 
+    g_orange_exterminator_app = NULL;
     peer->close();
     epa.stopAllKernels();
     closeTraceArtifact();

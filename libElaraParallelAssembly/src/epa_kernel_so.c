@@ -489,20 +489,6 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   return 1;
 }
 
-int epa_kernel_open_viewport(EpaKernel *k, int w, int h, const char *title, int enable_cuda, char err[EPA_MAX_ERR]) {
-  if (!k) { snprintf(err, EPA_MAX_ERR, "open_viewport: kernel null"); return 0; }
-  if (k->vp) vp_destroy(k->vp);
-  k->vp = vp_create(w, h, title ? title : "Elara", enable_cuda);
-  if (!k->vp) { snprintf(err, EPA_MAX_ERR, "viewport init failed"); return 0; }
-  return 1;
-}
-
-void epa_kernel_close_viewport(EpaKernel *k) {
-  if (!k) return;
-  if (k->vp) vp_destroy(k->vp);
-  k->vp = NULL;
-}
-
 static uint32_t pad4(uint32_t n) { return (n + 3u) & ~3u; }
 
 int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len) {

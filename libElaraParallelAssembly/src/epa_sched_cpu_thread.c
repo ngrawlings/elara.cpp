@@ -81,6 +81,10 @@ static inline int worker_runnable(const EpaWorkerState *w) {
   return w && w->inited && !w->halted && !w->faulted && !w->blocked;
 }
 
+static int debug_player_avatar_worker(const EpaKernel *k, uint32_t wid) {
+  return k && k->kernel_id && strcmp(k->kernel_id, "player_avatar") == 0 && wid >= 1u && wid <= 3u;
+}
+
 static void unbind_locked(EpaKernel *k, CpuThreadState *st, int32_t tid) {
   int32_t wid = st->tid_to_wid[tid];
   if (wid >= 0 && wid < (int32_t)EPA_MAX_WORKERS) {
@@ -99,6 +103,20 @@ static void unbind_locked(EpaKernel *k, CpuThreadState *st, int32_t tid) {
 //   2 = kernel ended (worker 0 halted)
 static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
   EpaWorkerState *w = &k->impl.workers[wid];
+
+  if (debug_player_avatar_worker(k, wid)) {
+    fprintf(stderr,
+            "[EPA-CPU-TICK] kernel=%s wid=%u begin blocked=%u waiting=%u inq=%u outq=%u pc=%u type=%u id=%u\n",
+            k->kernel_id ? k->kernel_id : "(unnamed)",
+            (unsigned)wid,
+            (unsigned)w->blocked,
+            (unsigned)w->waiting_for_data,
+            (unsigned)epa_ring_count(&w->inq),
+            (unsigned)epa_ring_count(&w->outq),
+            (unsigned)w->vm.eip.rel_pc,
+            (unsigned)w->vm.eip.block_type,
+            (unsigned)w->vm.eip.block_id);
+  }
 
   k->impl.cur_wid = wid;
 
@@ -148,6 +166,21 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
       if (wid == 0) return 2;
       return 1;
     }
+  }
+
+  if (debug_player_avatar_worker(k, wid)) {
+    fprintf(stderr,
+            "[EPA-CPU-TICK] kernel=%s wid=%u end blocked=%u waiting=%u inq=%u outq=%u pc=%u type=%u id=%u frc=%d\n",
+            k->kernel_id ? k->kernel_id : "(unnamed)",
+            (unsigned)wid,
+            (unsigned)w->blocked,
+            (unsigned)w->waiting_for_data,
+            (unsigned)epa_ring_count(&w->inq),
+            (unsigned)epa_ring_count(&w->outq),
+            (unsigned)w->vm.eip.rel_pc,
+            (unsigned)w->vm.eip.block_type,
+            (unsigned)w->vm.eip.block_id,
+            (int)frc);
   }
 
   // Yielded or ran one step.
@@ -202,6 +235,19 @@ static void* cpu_worker_thread_main(void *argp) {
         // Stop at safe boundary (after a tick).
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
+          if (debug_player_avatar_worker(k, (uint32_t)wid)) {
+            EpaWorkerState *w = &k->impl.workers[wid];
+            fprintf(stderr,
+                    "[EPA-CPU-UNBIND] kernel=%s tid=%d wid=%d reason=interrupt blocked=%u waiting=%u inq=%u outq=%u pc=%u\n",
+                    k->kernel_id ? k->kernel_id : "(unnamed)",
+                    (int)tid,
+                    (int)wid,
+                    (unsigned)w->blocked,
+                    (unsigned)w->waiting_for_data,
+                    (unsigned)epa_ring_count(&w->inq),
+                    (unsigned)epa_ring_count(&w->outq),
+                    (unsigned)w->vm.eip.rel_pc);
+          }
           unbind_locked(k, st, tid);
           pthread_cond_broadcast(&st->cv);
         }
@@ -214,6 +260,20 @@ static void* cpu_worker_thread_main(void *argp) {
         // worker entered wait/halt/fault; return thread to pool
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
+          if (debug_player_avatar_worker(k, (uint32_t)wid)) {
+            fprintf(stderr,
+                    "[EPA-CPU-UNBIND] kernel=%s tid=%d wid=%d reason=not_runnable blocked=%u waiting=%u halted=%u faulted=%u inq=%u outq=%u pc=%u\n",
+                    k->kernel_id ? k->kernel_id : "(unnamed)",
+                    (int)tid,
+                    (int)wid,
+                    (unsigned)w->blocked,
+                    (unsigned)w->waiting_for_data,
+                    (unsigned)w->halted,
+                    (unsigned)w->faulted,
+                    (unsigned)epa_ring_count(&w->inq),
+                    (unsigned)epa_ring_count(&w->outq),
+                    (unsigned)w->vm.eip.rel_pc);
+          }
           unbind_locked(k, st, tid);
           pthread_cond_broadcast(&st->cv);
         }
@@ -514,18 +574,8 @@ static int cpu_run(EpaKernel *k,
       if (st->wid_to_tid[wid] < 0) { any_runnable_unbound = 1; break; }
     }
 
-    if (k->vp) {
-      // With a viewport, keep pumping the UI while still doing binding work.
-      pthread_mutex_unlock(&st->mu);
-      vp_present_gl(k->vp);
-      if (!vp_pump(k->vp)) return 1;
-      // If there is runnable work but no threads, yield to OS briefly:
-      // (optional; keeps CPU down; can be tuned later)
-      // sched_yield();
-      continue;
-    }
-
-    // Headless: sleep until woken by ingress, worker unbind, or explicit wake()
+    // Headless artifact-driven execution: sleep until woken by ingress,
+    // worker unbind, or explicit wake().
     if (!any_runnable_unbound) {
       pthread_cond_wait(&st->cv, &st->mu);
       pthread_mutex_unlock(&st->mu);

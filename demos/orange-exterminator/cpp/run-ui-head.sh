@@ -3,10 +3,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_FRAMEWORK_SERVER="$(cd "${ROOT_DIR}/../../.." 2>/dev/null && pwd)/build/bin/elaraui-server"
+FRAMEWORK_ROOT="$(cd "${ROOT_DIR}/../../.." 2>/dev/null && pwd)"
+LOCAL_FRESH_SERVER="${FRAMEWORK_ROOT}/libElaraUI/build/bin/elaraui-server"
+LOCAL_STAGED_SERVER="${FRAMEWORK_ROOT}/build/bin/elaraui-server"
 DEFAULT_SERVER="/usr/local/bin/elaraui-server"
-if [[ -x "${LOCAL_FRAMEWORK_SERVER}" ]]; then
-  RESOLVED_SERVER="${LOCAL_FRAMEWORK_SERVER}"
+if [[ -x "${LOCAL_FRESH_SERVER}" ]]; then
+  RESOLVED_SERVER="${LOCAL_FRESH_SERVER}"
+elif [[ -x "${LOCAL_STAGED_SERVER}" ]]; then
+  RESOLVED_SERVER="${LOCAL_STAGED_SERVER}"
 else
   RESOLVED_SERVER="${DEFAULT_SERVER}"
 fi

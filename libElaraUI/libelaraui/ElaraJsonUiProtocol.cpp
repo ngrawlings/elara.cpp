@@ -26,6 +26,7 @@
 #include <libelaraui/frontend/widgets/ElaraTreeViewWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraOpenClSurfaceWidget.h>
+#include <libelaraui/frontend/widgets/ElaraVulkanSurfaceWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraDensityMapWidget.h>
 #include <libelaraui/frontend/widgets/instruments/ElaraMultiAxisLineChartWidget.h>
 
@@ -69,6 +70,21 @@ static double jsonValueDouble(Ref<JsonValue> value, double fallback) {
     }
 
     return atof((const char*)text);
+}
+
+static double jsonValueDoubleEither(
+    const Json& json,
+    const String& primary_path,
+    const String& fallback_path,
+    double fallback
+) {
+    Ref<JsonValue> primary = json.getJsonValue(primary_path);
+
+    if(primary && primary->toString().trim().length() > 0) {
+        return jsonValueDouble(primary, fallback);
+    }
+
+    return jsonValueDouble(json.getJsonValue(fallback_path), fallback);
 }
 
 static String jsonString(const Json& json, const String& path, const String& fallback) {
@@ -627,6 +643,7 @@ public:
             type == String("elara.widgets.tree_view") ||
             type == String("elara.widgets.surface_panel") ||
             type == String("elara.widgets.opencl_surface") ||
+            type == String("elara.widgets.vulkan_surface") ||
             type == String("elara.widgets.density_map") ||
             type == String("elara.widgets.multi_axis_line_chart") ||
             type == String("elara.widgets.combo_box") ||
@@ -698,6 +715,8 @@ public:
             widget = new ElaraJsonSurfacePanelWidget(root, id);
         } else if(type == String("elara.widgets.opencl_surface")) {
             widget = new ElaraOpenClSurfaceWidget(root, id);
+        } else if(type == String("elara.widgets.vulkan_surface")) {
+            widget = new ElaraVulkanSurfaceWidget(root, id);
         } else if(type == String("elara.widgets.density_map")) {
             widget = new ElaraDensityMapWidget(root, id);
             // TODO: apply styling attribgutes within the json spec
@@ -1026,16 +1045,81 @@ public:
                     );
                 } else if(op == String("line")) {
                     opencl_surface->addLine(
-                        jsonValueDouble(command_json.getJsonValue("x0"), 0.0),
-                        jsonValueDouble(command_json.getJsonValue("y0"), 0.0),
-                        jsonValueDouble(command_json.getJsonValue("x1"), 0.0),
-                        jsonValueDouble(command_json.getJsonValue("y1"), 0.0),
+                        jsonValueDoubleEither(command_json, "x0", "x1", 0.0),
+                        jsonValueDoubleEither(command_json, "y0", "y1", 0.0),
+                        jsonValueDoubleEither(command_json, "x1", "x2", 0.0),
+                        jsonValueDoubleEither(command_json, "y1", "y2", 0.0),
                         jsonValueDouble(command_json.getJsonValue("r"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("g"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("b"), 1.0)
                     );
                 } else if(op == String("text")) {
                     opencl_surface->addText(
+                        jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                        command_json.getStringValue("text"),
+                        jsonValueDouble(command_json.getJsonValue("size"), 24.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                }
+            }
+        }
+
+        ElaraVulkanSurfaceWidget* vulkan_surface = dynamic_cast<ElaraVulkanSurfaceWidget*>(widget);
+        if(vulkan_surface) {
+            vulkan_surface->setBackendId(
+                jsonString(spec, "properties.backend", String("vulkan"))
+            );
+            vulkan_surface->setKernelName(
+                jsonString(spec, "properties.kernel_name", String(""))
+            );
+            vulkan_surface->setOverlayText(
+                jsonString(spec, "properties.overlay_text", String(""))
+            );
+            vulkan_surface->setVirtualSize(
+                jsonDouble(spec, "properties.virtual_width", 1000.0),
+                jsonDouble(spec, "properties.virtual_height", 1000.0)
+            );
+
+            vulkan_surface->clearCommands();
+            Array< Ref<JsonValue> > surface_commands = spec.getArray("commands");
+            if(surface_commands.length() <= 0) {
+                surface_commands = spec.getArray("sections.commands");
+            }
+            for(int i = 0; i < (int)surface_commands.length(); i++) {
+                Json command_json(surface_commands[i]->toString());
+                String op = command_json.getStringValue("op");
+
+                if(op == String("clear")) {
+                    vulkan_surface->addClear(
+                        jsonValueDouble(command_json.getJsonValue("r"), 0.10),
+                        jsonValueDouble(command_json.getJsonValue("g"), 0.11),
+                        jsonValueDouble(command_json.getJsonValue("b"), 0.14)
+                    );
+                } else if(op == String("rect")) {
+                    vulkan_surface->addRect(
+                        jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("h"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                } else if(op == String("line")) {
+                    vulkan_surface->addLine(
+                        jsonValueDoubleEither(command_json, "x0", "x1", 0.0),
+                        jsonValueDoubleEither(command_json, "y0", "y1", 0.0),
+                        jsonValueDoubleEither(command_json, "x1", "x2", 0.0),
+                        jsonValueDoubleEither(command_json, "y1", "y2", 0.0),
+                        jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                } else if(op == String("text")) {
+                    vulkan_surface->addText(
                         jsonValueDouble(command_json.getJsonValue("x"), 0.0),
                         jsonValueDouble(command_json.getJsonValue("y"), 0.0),
                         command_json.getStringValue("text"),

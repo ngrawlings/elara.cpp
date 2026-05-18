@@ -88,6 +88,34 @@ double jsonNumber(const Json& json, const String& path, double fallback) {
     return atof((const char*)text);
 }
 
+double jsonValueDouble(Ref<JsonValue> value, double fallback) {
+    if(!value) {
+        return fallback;
+    }
+
+    String text = value->toString().trim();
+    if(text.length() <= 0) {
+        return fallback;
+    }
+
+    return atof((const char*)text);
+}
+
+double jsonValueDoubleEither(
+    const Json& json,
+    const String& primary_path,
+    const String& fallback_path,
+    double fallback
+) {
+    Ref<JsonValue> primary = json.getJsonValue(primary_path);
+
+    if(primary && primary->toString().trim().length() > 0) {
+        return jsonValueDouble(primary, fallback);
+    }
+
+    return jsonValueDouble(json.getJsonValue(fallback_path), fallback);
+}
+
 String jsonBoolean(bool value) {
     return value ? String("true") : String("false");
 }
@@ -338,6 +366,164 @@ bool ElaraUiRpcUiService::setFocus(
     root->setFocus(widget->getHandle());
     result_json = "{\"updated\":true}";
     return true;
+}
+
+bool ElaraUiRpcUiService::setSectionJson(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    String section = params.getStringValue("section").trim();
+    Ref<JsonValue> value = params.getJsonValue("value");
+    String value_json = value ? value->toString() : String();
+
+    if(section.length() <= 0) {
+        error_code = "missing_section";
+        error_message = "The ui method requires a section name";
+        return false;
+    }
+
+    if(value_json.length() <= 0) {
+        error_code = "missing_value";
+        error_message = "The ui method requires a JSON value";
+        return false;
+    }
+
+    ElaraListViewWidget* list = dynamic_cast<ElaraListViewWidget*>(widget.getPtr());
+    if(list && section == String("items")) {
+        Json spec(String("{\"items\":") + value_json + String("}"));
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+        list->clearItems();
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            list->addItem(ElaraListViewItem(
+                item_json.getStringValue("id"),
+                item_json.getStringValue("label")
+            ));
+        }
+        if(root && root->getGuiBackend()) {
+            root->getGuiBackend()->invalidate();
+        }
+        result_json = "{\"updated\":true}";
+        return true;
+    }
+
+    ElaraOpenClSurfaceWidget* opencl_surface = dynamic_cast<ElaraOpenClSurfaceWidget*>(widget.getPtr());
+    if(opencl_surface && section == String("commands")) {
+        Json spec(String("{\"commands\":") + value_json + String("}"));
+        Array< Ref<JsonValue> > commands = spec.getArray("commands");
+        opencl_surface->clearCommands();
+        for(int i = 0; i < (int)commands.length(); i++) {
+            Json command_json(commands[i]->toString());
+            String op = command_json.getStringValue("op");
+            if(op == String("clear")) {
+                opencl_surface->addClear(
+                    jsonValueDouble(command_json.getJsonValue("r"), 0.10),
+                    jsonValueDouble(command_json.getJsonValue("g"), 0.11),
+                    jsonValueDouble(command_json.getJsonValue("b"), 0.14)
+                );
+            } else if(op == String("rect")) {
+                opencl_surface->addRect(
+                    jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("h"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            } else if(op == String("line")) {
+                opencl_surface->addLine(
+                    jsonValueDoubleEither(command_json, "x0", "x1", 0.0),
+                    jsonValueDoubleEither(command_json, "y0", "y1", 0.0),
+                    jsonValueDoubleEither(command_json, "x1", "x2", 0.0),
+                    jsonValueDoubleEither(command_json, "y1", "y2", 0.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            } else if(op == String("text")) {
+                opencl_surface->addText(
+                    jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                    command_json.getStringValue("text"),
+                    jsonValueDouble(command_json.getJsonValue("size"), 24.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            }
+        }
+        if(root && root->getGuiBackend()) {
+            root->getGuiBackend()->invalidate();
+        }
+        result_json = "{\"updated\":true}";
+        return true;
+    }
+
+    ElaraVulkanSurfaceWidget* vulkan_surface = dynamic_cast<ElaraVulkanSurfaceWidget*>(widget.getPtr());
+    if(vulkan_surface && section == String("commands")) {
+        Json spec(String("{\"commands\":") + value_json + String("}"));
+        Array< Ref<JsonValue> > commands = spec.getArray("commands");
+        vulkan_surface->clearCommands();
+        for(int i = 0; i < (int)commands.length(); i++) {
+            Json command_json(commands[i]->toString());
+            String op = command_json.getStringValue("op");
+            if(op == String("clear")) {
+                vulkan_surface->addClear(
+                    jsonValueDouble(command_json.getJsonValue("r"), 0.10),
+                    jsonValueDouble(command_json.getJsonValue("g"), 0.11),
+                    jsonValueDouble(command_json.getJsonValue("b"), 0.14)
+                );
+            } else if(op == String("rect")) {
+                vulkan_surface->addRect(
+                    jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("h"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            } else if(op == String("line")) {
+                vulkan_surface->addLine(
+                    jsonValueDoubleEither(command_json, "x0", "x1", 0.0),
+                    jsonValueDoubleEither(command_json, "y0", "y1", 0.0),
+                    jsonValueDoubleEither(command_json, "x1", "x2", 0.0),
+                    jsonValueDoubleEither(command_json, "y1", "y2", 0.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            } else if(op == String("text")) {
+                vulkan_surface->addText(
+                    jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                    command_json.getStringValue("text"),
+                    jsonValueDouble(command_json.getJsonValue("size"), 24.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            }
+        }
+        if(root && root->getGuiBackend()) {
+            root->getGuiBackend()->invalidate();
+        }
+        result_json = "{\"updated\":true}";
+        return true;
+    }
+
+    error_code = "unsupported_widget";
+    error_message = "The target widget does not support setSectionJson for the requested section";
+    return false;
 }
 
 bool ElaraUiRpcUiService::enableEvent(
@@ -983,6 +1169,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setFocus")) {
         return setFocus(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setSectionJson")) {
+        return setSectionJson(params, result_json, error_code, error_message);
     }
 
     if(method == String("enableEvent")) {

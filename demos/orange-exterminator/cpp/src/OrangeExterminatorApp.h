@@ -29,6 +29,7 @@ private:
     bool bundle_exists;
     bool epa_loaded;
     bool epa_started;
+    bool incremental_ui_supported;
     OrangeExterminatorEpaVmHost epa;
     Mutex input_lock;
     mutable Mutex render_lock;
@@ -42,7 +43,10 @@ private:
 
     void buildDocument(ui::rpc::ElaraUiDocumentBuilder &ui);
     bool loadDocument(const String &document_json);
+    bool setSectionJson(const String &target, const String &section, const String &value_json);
+    bool pushUiState();
     bool printSnapshot();
+    void armUiInputFocus();
     void refreshProjectState();
     void refreshEpaState();
     void stimulateEpa();

@@ -14,9 +14,6 @@
 extern "C" {
 #endif
 
-// Forward types from your runtime headers (keep includes minimal in public API)
-typedef struct Viewport Viewport;
-
 typedef enum {
   EPA_KERNEL_STATUS_UNLOADED = 0,
   EPA_KERNEL_STATUS_LOADED   = 1,
@@ -54,14 +51,10 @@ EpaKernelStatus epa_kernel_get_status(const EpaKernel *k);
 const char* epa_kernel_get_last_error(const EpaKernel *k);
 const char* epa_kernel_status_name(EpaKernelStatus status);
 
-// Viewport control (optional; if you want headless tests, allow vp=NULL and make backends handle it)
-int epa_kernel_open_viewport(EpaKernel *k, int w, int h, const char *title, int enable_cuda, char err[EPA_MAX_ERR]);
-void epa_kernel_close_viewport(EpaKernel *k);
-
 int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len);
 int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len);
 
-// Run scheduler loop until done, timeout, or viewport closes.
+// Run scheduler loop until done or timeout.
 // Returns 1 on clean halt, 0 on error (err filled).
 int epa_kernel_run(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
 void epa_kernel_request_interrupt(EpaKernel *k);

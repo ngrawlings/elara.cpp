@@ -6,6 +6,8 @@
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
+#include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
+#include <libelaraui/frontend/widgets/ElaraOpenClSurfaceWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
@@ -14,6 +16,7 @@
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
+#include <libelaraui/frontend/widgets/ElaraVulkanSurfaceWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
 #include <libelaraformat/json/Json.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
@@ -85,6 +88,12 @@ private:
         String& error_message
     );
     bool setFocus(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setSectionJson(
         const Json& params,
         String& result_json,
         String& error_code,
