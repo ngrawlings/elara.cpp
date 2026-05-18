@@ -21,6 +21,8 @@ public:
     int run();
     void enqueueKeyDown(unsigned int keyval);
     void updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len);
+    void updateKeyState(unsigned int keyval, bool pressed);
+    void accumulateMouseDelta(int dx, int dy);
 
 private:
     String host;
@@ -34,6 +36,12 @@ private:
     Mutex input_lock;
     mutable Mutex render_lock;
     Array<unsigned int> pending_keydowns;
+    bool held_forward;
+    bool held_back;
+    bool held_left;
+    bool held_right;
+    int pending_mouse_dx;
+    int pending_mouse_dy;
     String latest_surface_commands;
     bool latest_surface_valid;
     String trace_path;

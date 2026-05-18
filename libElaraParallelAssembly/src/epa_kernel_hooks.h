@@ -7,6 +7,7 @@
 #endif
 
 void kdbg_emit(EpaKernel *k, EpaKernelDbgKind kind, uint8_t wid, uint32_t code, const EpaEip *at, const char *msg);
+void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, const char *detail);
 int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_sync(void *user, char err[EPA_MAX_ERR]);

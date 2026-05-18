@@ -2,7 +2,7 @@
 #include <stdint.h>
 
 #ifndef EPA_GL_TRACE
-#define EPA_GL_TRACE 1
+#define EPA_GL_TRACE 0
 #endif
 
 #if EPA_GL_TRACE

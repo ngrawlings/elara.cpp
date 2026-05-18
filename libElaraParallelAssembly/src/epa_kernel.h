@@ -34,6 +34,13 @@ typedef struct {
 
   uint32_t rr_cursor;
 
+  // Active-worker linked list.  Slot indices (wid) are unchanged.
+  // Schedulers iterate the list instead of scanning all EPA_MAX_WORKERS slots.
+  // EPA_MAX_WORKERS is the nil/end sentinel in both fields.
+  uint32_t n_workers;                      // count of initialized workers
+  uint32_t worker_head;                    // first active wid
+  uint32_t worker_next[EPA_MAX_WORKERS];   // next active wid per slot
+
   epa_ghs_t* ghs;
   EpaThreadPool *tp;
 

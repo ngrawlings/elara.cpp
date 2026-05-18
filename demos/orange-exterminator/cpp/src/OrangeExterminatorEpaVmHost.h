@@ -17,10 +17,15 @@ typedef enum {
     EPA_KERNEL_STATUS_FAULTED  = 5,
     EPA_KERNEL_STATUS_ERROR    = 6
 } EpaKernelStatus;
+typedef enum {
+    EPA_SCHED_WAVE       = 1,
+    EPA_SCHED_CPU_THREAD = 2,
+} EpaSchedProfile;
 #ifndef EPA_MAX_ERR
 #define EPA_MAX_ERR 256
 #endif
 EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]);
+int epa_kernel_set_scheduler(EpaKernel *k, EpaSchedProfile profile, char err[EPA_MAX_ERR]);
 void epa_kernel_destroy(EpaKernel *k);
 int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]);
 void epa_kernel_set_signal_callback(EpaKernel *k, int (*cb)(uint8_t wid, const char *msg, const int msg_len));
@@ -30,6 +35,7 @@ int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, con
 int epa_kernel_run(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
 void epa_kernel_request_interrupt(EpaKernel *k);
 int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]);
+int epa_kernel_add_threads(EpaKernel *k, uint32_t add_count, char err[EPA_MAX_ERR]);
 EpaKernelStatus epa_kernel_get_status(const EpaKernel *k);
 const char* epa_kernel_status_name(EpaKernelStatus status);
 EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err[EPA_MAX_ERR]);
@@ -44,6 +50,7 @@ int epa_kernel_module_find_kernel(const EpaKernelModule *module, const char *pat
 EpaKernel* epa_kernel_module_kernel(const EpaKernelModule *module, size_t index);
 int epa_kernel_module_add_kernel_threads(EpaKernelModule *module, size_t index, uint32_t add_count, char err[EPA_MAX_ERR]);
 uint32_t epa_kernel_module_kernel_thread_count(const EpaKernelModule *module, size_t index);
+uint32_t epa_kernel_worker_count(const EpaKernel *k);
 }
 
 namespace elara {

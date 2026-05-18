@@ -8,6 +8,7 @@
 #include "epa_kernel.h"
 #include "epa_kernel_so.h"
 #include "epa_kernel_hooks.h"
+#include "opcodes/opcode_def.h"
 
 // -------------------------------
 // Scheduler context + flow hooks
@@ -16,6 +17,34 @@
 void kdbg_emit(EpaKernel *k, EpaKernelDbgKind kind, uint8_t wid, uint32_t code, const EpaEip *at, const char *msg) {
   if (!k) return;
   if (k->dbg_cb) k->dbg_cb(k->dbg_user, kind, wid, code, at, msg);
+}
+
+void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, const char *detail) {
+  const char *kernel = k && k->kernel_id ? k->kernel_id : "(unnamed)";
+  const char *block  = (eip && eip->block_type == 0) ? "entry" : "func";
+  uint32_t    bid    = eip ? (uint32_t)eip->block_id  : 0u;
+  uint32_t    pc     = eip ? (uint32_t)eip->rel_pc    : 0u;
+
+  // Resolve opcode at the fault PC.
+  const char *op_name = "?";
+  if (k && eip) {
+    const uint8_t *code = NULL;
+    size_t code_len = 0;
+    if (epa_prog_resolve(&k->prog, eip->block_type, eip->block_id, &code, &code_len)) {
+      if ((size_t)pc + 2u <= code_len) {
+        uint16_t op = EPA_READ_U16_LE(code, pc);
+        const EpaOpcodeDef *def = epa_find_opcode(op);
+        if (def) op_name = def->name;
+      }
+    }
+  }
+
+  fprintf(stderr,
+    "[EPA-FAULT] kernel=%s wid=%u %s[%u] pc=%u op=%s  (%s.epaasm)\n"
+    "            detail: %s\n",
+    kernel, (unsigned)wid, block, (unsigned)bid, (unsigned)pc, op_name,
+    kernel,
+    detail ? detail : "(no detail)");
 }
 
 int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {

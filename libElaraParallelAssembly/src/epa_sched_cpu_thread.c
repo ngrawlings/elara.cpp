@@ -130,12 +130,7 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
   if (frc == EPA_FLOW_ERR) {
     w->faulted = 1;
-    fprintf(stderr, "[EPA-CPU-FAULT] wid=%u flow err at type=%u id=%u pc=%u: %s\n",
-            (unsigned)wid,
-            (unsigned)w->vm.eip.block_type,
-            (unsigned)w->vm.eip.block_id,
-            (unsigned)w->vm.eip.rel_pc,
-            err && err[0] ? err : "(no message)");
+    epa_print_fault_location(k, wid, &w->vm.eip, err && err[0] ? err : "(no message)");
     kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0002u, &w->vm.eip, err);
     return 0;
   }
@@ -151,12 +146,7 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
     if (nrc == EPA_NF_EXEC_ERR) {
       w->faulted = 1;
-      fprintf(stderr, "[EPA-CPU-FAULT] wid=%u nonflow err at type=%u id=%u pc=%u: %s\n",
-              (unsigned)wid,
-              (unsigned)w->vm.eip.block_type,
-              (unsigned)w->vm.eip.block_id,
-              (unsigned)w->vm.eip.rel_pc,
-              err && err[0] ? err : "(no message)");
+      epa_print_fault_location(k, wid, &w->vm.eip, err && err[0] ? err : "(no message)");
       kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0003u, &w->vm.eip, err);
       return 0;
     }
@@ -470,7 +460,7 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
   // NOTE: called under st->mu.
   if (atomic_load(&st->interrupt) != 0 || k->impl.interrupt_requested) return;
 
-  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+  for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
     EpaWorkerState *w = &k->impl.workers[wid];
     if (!worker_runnable(w)) continue;
     if (st->wid_to_tid[wid] >= 0) continue; // already bound
@@ -568,7 +558,7 @@ static int cpu_run(EpaKernel *k,
 
     // Determine if any runnable worker is currently unbound (needs a thread)
     int any_runnable_unbound = 0;
-    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
       EpaWorkerState *w = &k->impl.workers[wid];
       if (!worker_runnable(w)) continue;
       if (st->wid_to_tid[wid] < 0) { any_runnable_unbound = 1; break; }

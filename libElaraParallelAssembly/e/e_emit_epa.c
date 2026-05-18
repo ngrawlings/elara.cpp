@@ -466,9 +466,9 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
   emit_indent(out, depth);
   fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
   emit_indent(out, depth);
-  fputs("GR_MOV4 0\n", out);
+  fputs("GR_MOV4 3\n", out);
   emit_indent(out, depth);
-  fputs("PUSH R0\n", out);
+  fputs("PUSH R3\n", out);
   return 1;
 }
 
@@ -949,6 +949,23 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       break;
     case E_STMT_EXPR:
       emit_expr(out, stmt->as.expr, ctx, depth);
+      /* Assignment expressions leave the result on the stack for expression
+         chaining. As a statement the result is unused — discard it. */
+      if (stmt->as.expr && stmt->as.expr->kind == E_EXPR_ASSIGN) {
+        if (stmt->as.expr->as.assign.lhs &&
+            stmt->as.expr->as.assign.lhs->kind == E_EXPR_IDENT) {
+          unsigned int slot = 0u;
+          if (scalar_vm_local_slot_for_name(ctx, stmt->as.expr->as.assign.lhs->as.ident, &slot)) {
+            emit_indent(out, depth);
+            fputs("POP 0\n", out);
+          } else if (type_ref_vm_local_slot_for_name(ctx, stmt->as.expr->as.assign.lhs->as.ident, &slot)) {
+            emit_indent(out, depth);
+            fputs("POP 0\n", out);
+            emit_indent(out, depth);
+            fputs("POP 0\n", out);
+          }
+        }
+      }
       break;
     case E_STMT_BLOCK:
       for (i = 0; i < stmt->as.block.count; i++) {

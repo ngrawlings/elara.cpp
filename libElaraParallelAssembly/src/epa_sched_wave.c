@@ -41,74 +41,88 @@ static int wave_run(EpaKernel *k,
 
     int any_ran = 0;
 
-    // Round-robin: attempt up to EPA_MAX_WORKERS steps each outer tick
-    for (uint32_t step = 0; step < EPA_MAX_WORKERS; step++) {
-      uint32_t i = (k->impl.rr_cursor + step) % EPA_MAX_WORKERS;
-      EpaWorkerState *w = &k->impl.workers[i];
+    if (k->impl.n_workers > 0) {
+      // Build round-robin order starting from rr_cursor.
+      // Two list walks: first wids >= rr_cursor, then wids < rr_cursor (wrap).
+      // EPA_MAX_WORKERS is the nil sentinel in worker_next.
+      uint32_t order[EPA_MAX_WORKERS];
+      uint32_t norder = 0;
+      uint32_t rc = k->impl.rr_cursor;
 
-      if (!w->inited || w->halted || w->faulted || w->blocked) continue;
+      for (uint32_t w = k->impl.worker_head; w < EPA_MAX_WORKERS; w = k->impl.worker_next[w])
+        if (w >= rc) order[norder++] = w;
+      for (uint32_t w = k->impl.worker_head; w < EPA_MAX_WORKERS && w < rc; w = k->impl.worker_next[w])
+        order[norder++] = w;
 
-      any_ran = 1;
-      k->impl.cur_wid = i;
+      for (uint32_t step = 0; step < norder; step++) {
+        uint32_t i = order[step];
+        EpaWorkerState *w = &k->impl.workers[i];
 
-      // --- execute exactly one "tick" of this worker ---
-      EpaFlowRc frc = epa_flow_step(
-          k,
-          &k->flow,
-          w,
-          (EpaStack*)&w->vm.stack,
-          err
-      );
+        if (w->halted || w->faulted || w->blocked) continue;
 
-      if (frc == EPA_FLOW_ERR) {
-        w->faulted = 1;
-        kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)i, 0xFFFF0002u, &w->vm.eip, err);
-        return 0;
-      }
+        any_ran = 1;
+        k->impl.cur_wid = i;
 
-      if (frc == EPA_FLOW_OK) {
-        w->halted = 1;
-        // advance cursor to next worker for fairness
-        k->impl.rr_cursor = (i + 1) % EPA_MAX_WORKERS;
-        if (i == 0) return 1; // kernel ended
-        // kernel continues; go to next worker
-      } else if (frc == EPA_FLOW_NOT_FLOW) {
-        EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, k->vp, &k->prog, w, &w->vm.eip, err);
+        // Advance cursor to the next wid in list (wrapping to head).
+        uint32_t next_cursor = k->impl.worker_next[i];
+        if (next_cursor >= EPA_MAX_WORKERS) next_cursor = k->impl.worker_head;
 
-        if (nrc == EPA_NF_EXEC_ERR) {
+        // --- execute exactly one "tick" of this worker ---
+        EpaFlowRc frc = epa_flow_step(
+            k,
+            &k->flow,
+            w,
+            (EpaStack*)&w->vm.stack,
+            err
+        );
+
+        if (frc == EPA_FLOW_ERR) {
           w->faulted = 1;
-          kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)i, 0xFFFF0003u, &w->vm.eip, err);
+          epa_print_fault_location(k, i, &w->vm.eip, err);
+          kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)i, 0xFFFF0002u, &w->vm.eip, err);
           return 0;
         }
 
-        if (nrc == EPA_NF_EXEC_HALT) {
+        if (frc == EPA_FLOW_OK) {
           w->halted = 1;
-          k->impl.rr_cursor = (i + 1) % EPA_MAX_WORKERS;
-          if (i == 0) return 1;
+          k->impl.rr_cursor = next_cursor;
+          if (i == 0) return 1; // kernel ended
+          // kernel continues; go to next worker
+        } else if (frc == EPA_FLOW_NOT_FLOW) {
+          EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, k->vp, &k->prog, w, &w->vm.eip, err);
+
+          if (nrc == EPA_NF_EXEC_ERR) {
+            w->faulted = 1;
+            epa_print_fault_location(k, i, &w->vm.eip, err);
+            kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)i, 0xFFFF0003u, &w->vm.eip, err);
+            return 0;
+          }
+
+          if (nrc == EPA_NF_EXEC_HALT) {
+            w->halted = 1;
+            k->impl.rr_cursor = next_cursor;
+            if (i == 0) return 1;
+          }
+        } else {
+          // EPA_FLOW_YIELDED or other yield-like outcome:
+          // advance cursor so resume behaves as if no pause happened
+          k->impl.rr_cursor = next_cursor;
         }
-      } else {
-        // EPA_FLOW_YIELDED or other yield-like outcome:
-        // advance cursor so resume behaves as if no pause happened
-        k->impl.rr_cursor = (i + 1) % EPA_MAX_WORKERS;
-      }
 
-      // --- SAFE INTERRUPT BOUNDARY: AFTER completing this worker tick ---
-      if (k->impl.interrupt_requested) {
-        // IMPORTANT: resume should start at next worker, not current
-        k->impl.rr_cursor = (i + 1) % EPA_MAX_WORKERS;
-
-        // clear flag
-        k->impl.interrupt_requested = 0;
-
-        // Tell caller we yielded to host (CUDA-like boundary)
-        return 2;
+        // --- SAFE INTERRUPT BOUNDARY: AFTER completing this worker tick ---
+        if (k->impl.interrupt_requested) {
+          // IMPORTANT: resume should start at next worker, not current
+          k->impl.rr_cursor = next_cursor;
+          k->impl.interrupt_requested = 0;
+          return 2;
+        }
       }
     }
 
     if (!any_ran) {
       int any_at_running = 0;
-      for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
-        if (k->impl.workers[wid].inited && k->impl.workers[wid].at_running) {
+      for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
+        if (k->impl.workers[wid].at_running) {
           any_at_running = 1;
           break;
         }

@@ -334,11 +334,18 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
 }
 
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {
-  // wipe old
+  // wipe old workers and reset active-worker linked list
   for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) {
     if (k->workers[i].inited) epa_worker_free(&k->workers[i]);
     memset(&k->workers[i], 0, sizeof(k->workers[i]));
+    k->worker_next[i] = EPA_MAX_WORKERS; // nil sentinel
   }
+  k->n_workers   = 0;
+  k->worker_head = EPA_MAX_WORKERS; // empty list
+
+  // tail tracks the last inserted wid for O(1) append.
+  // IDs are scanned in ascending order so each new wid > tail.
+  uint32_t tail = EPA_MAX_WORKERS;
 
   for (uint32_t id = 0; id < 256; id++) {
     if (!prog->entry_present[id]) continue;
@@ -357,6 +364,16 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     if (!epa_worker_init(&k->workers[id], id, body_start, body_end, in_words, out_words, signal_mailbox_size, err)) {
       return 0;
     }
+
+    // Append to active-worker linked list (ascending order guaranteed by loop).
+    k->n_workers++;
+    if (tail >= EPA_MAX_WORKERS) {
+      k->worker_head = id;        // first entry
+    } else {
+      k->worker_next[tail] = id;  // link previous tail to this worker
+    }
+    // worker_next[id] is already EPA_MAX_WORKERS (nil) from the memset above
+    tail = id;
 
     // Current E worker model: all entries start immediately and workers
     // park themselves in WAIT_FOR_DATA until ingress arrives.
@@ -823,6 +840,11 @@ int epa_kernel_add_threads(EpaKernel *k, uint32_t add_count, char err[EPA_MAX_ER
 uint32_t epa_kernel_thread_count(const EpaKernel *k) {
   if (!k || k->sched_profile != EPA_SCHED_CPU_THREAD) return 0u;
   return epa_sched_cpu_thread_thread_count((EpaSchedState*)&k->sched_state);
+}
+
+uint32_t epa_kernel_worker_count(const EpaKernel *k) {
+  if (!k) return 0u;
+  return k->impl.n_workers;
 }
 
 static uint32_t read_u32_le(const uint8_t *p) {

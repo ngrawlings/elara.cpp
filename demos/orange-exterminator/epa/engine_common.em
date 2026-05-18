@@ -13,6 +13,15 @@ type KeyInput(int key_code, int pressed, int modifiers) {
   return key_code;
 }
 
+// Combined per-frame camera input.
+// move_x: -1 = strafe left, 0 = none, +1 = strafe right
+// move_z: -1 = move back, 0 = none, +1 = move forward
+// look_dx: accumulated mouse delta x (right = positive)
+// look_dy: accumulated mouse delta y (down = positive)
+type CameraInput(int move_x, int move_z, int look_dx, int look_dy) {
+  return move_x;
+}
+
 type PlayerIntent(int move_x, int move_y, int fire_mode, int look_dx) {
   return move_x;
 }

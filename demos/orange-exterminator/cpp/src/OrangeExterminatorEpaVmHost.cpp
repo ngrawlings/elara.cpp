@@ -30,6 +30,12 @@ bool OrangeExterminatorEpaVmHost::create() {
         setError("epa_kernel_create failed", err);
         return false;
     }
+    if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_CPU_THREAD, err)) {
+        setError("epa_kernel_set_scheduler failed", err);
+        epa_kernel_destroy(kernel);
+        kernel = NULL;
+        return false;
+    }
     error_text = String();
     return true;
 }
@@ -71,6 +77,10 @@ bool OrangeExterminatorEpaVmHost::loadAsmPath(const String &asm_path) {
         setError("epa_kernel_load_asm failed", err);
         return false;
     }
+    uint32_t n = epa_kernel_worker_count(kernel);
+    if (n > 0) {
+        epa_kernel_add_threads(kernel, n, err);
+    }
     error_text = String();
     return true;
 }
@@ -88,6 +98,10 @@ bool OrangeExterminatorEpaVmHost::loadBlob(const uint8_t *blob, size_t blob_len)
     if (!epa_kernel_load_blob(kernel, blob, blob_len, err)) {
         setError("epa_kernel_load_blob failed", err);
         return false;
+    }
+    uint32_t n = epa_kernel_worker_count(kernel);
+    if (n > 0) {
+        epa_kernel_add_threads(kernel, n, err);
     }
     error_text = String();
     return true;
@@ -260,6 +274,15 @@ bool OrangeExterminatorEpaVmHost::startAllKernels() {
         return false;
     }
     err[0] = 0;
+    size_t count = epa_kernel_module_count(module);
+    for (size_t i = 0; i < count; i++) {
+        EpaKernel *k = epa_kernel_module_kernel(module, i);
+        if (!k) continue;
+        uint32_t n = epa_kernel_worker_count(k);
+        if (n > 0) {
+            epa_kernel_module_add_kernel_threads(module, i, n, err);
+        }
+    }
     if (!epa_kernel_module_start_all_kernels(module, err)) {
         setError("epa_kernel_module_start_all_kernels failed", err);
         return false;
