@@ -3,7 +3,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOCAL_FRAMEWORK_SERVER="$(cd "${ROOT_DIR}/../elara.cpp" 2>/dev/null && pwd)/build/bin/elaraui-server"
+LOCAL_FRAMEWORK_SERVER="$(cd "${ROOT_DIR}/../../.." 2>/dev/null && pwd)/build/bin/elaraui-server"
 DEFAULT_SERVER="/usr/local/bin/elaraui-server"
 if [[ -x "${LOCAL_FRAMEWORK_SERVER}" ]]; then
   RESOLVED_SERVER="${LOCAL_FRAMEWORK_SERVER}"

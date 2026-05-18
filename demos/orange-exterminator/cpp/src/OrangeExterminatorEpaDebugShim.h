@@ -33,6 +33,8 @@ typedef struct {
   uint32_t stack_depth;
   uint32_t stack_preview_count;
   uint32_t stack_preview[ORANGEEXTERMINATOR_EPA_DEBUG_STACK_PREVIEW];
+  uint32_t inq_count;
+  uint32_t outq_count;
   int32_t locals[ORANGEEXTERMINATOR_EPA_DEBUG_LOCALS];
   uint32_t lbytes_top;
   uint32_t lbytes_cap;

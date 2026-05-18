@@ -255,6 +255,10 @@ static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx
 static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -386,6 +390,22 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       }
       if (strcmp(expr->as.call.callee, "host_signal") == 0) {
         emit_host_signal_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "frame_begin") == 0) {
+        emit_frame_begin_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "frame_rect") == 0) {
+        emit_frame_rect_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "frame_line") == 0) {
+        emit_frame_line_builtin(out, expr, ctx, depth);
+        break;
+      }
+      if (strcmp(expr->as.call.callee, "frame_commit") == 0) {
+        emit_frame_commit_builtin(out, expr, ctx, depth);
         break;
       }
       if (strcmp(expr->as.call.callee, "far_signal") == 0) {
@@ -536,6 +556,101 @@ static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, 
     fputs("; host_signal only valid in workers\n", out);
     return 0;
   }
+  emit_indent(out, depth);
+  fputs("HOST_SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_mailbox_write_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  emit_expr(out, expr, ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("SM_PUT\n", out);
+  return 1;
+}
+
+static int emit_mailbox_write_i32(FILE *out, int value, int depth) {
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %d\n", value);
+  emit_indent(out, depth);
+  fputs("SM_PUT\n", out);
+  return 1;
+}
+
+static int emit_frame_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 5u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_begin expects 5 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_begin only valid in workers\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fputs("SET_R 3 0\n", out);
+  emit_mailbox_write_i32(out, 0x45465231, depth);
+  emit_mailbox_write_i32(out, 1, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[2], ctx, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[3], ctx, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[4], ctx, depth);
+  return 1;
+}
+
+static int emit_frame_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 7u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_rect expects 7 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_rect only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 1, depth);
+  for (i = 0; i < 7u; i++) emit_mailbox_write_expr(out, expr->as.call.args[i], ctx, depth);
+  return 1;
+}
+
+static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 8u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_line expects 8 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_line only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 2, depth);
+  for (i = 0; i < 8u; i++) emit_mailbox_write_expr(out, expr->as.call.args[i], ctx, depth);
+  return 1;
+}
+
+static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_commit expects 0 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_commit only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 255, depth);
   emit_indent(out, depth);
   fputs("HOST_SIGNAL\n", out);
   return 1;

@@ -351,6 +351,13 @@ EpaFlowRc epa_flow_step(
         return EPA_FLOW_ERR;
       }
 
+      if (epa_ring_count(&w->inq) > 0u) {
+        w->waiting_for_data = 0;
+        w->blocked = 0;
+        eip->rel_pc = (uint32_t)(pc + need);
+        return EPA_FLOW_YIELDED;
+      }
+
       w->has_current_ghs = 0;
       w->current_ghs = 0;
       w->waiting_for_data = 1;

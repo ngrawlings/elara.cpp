@@ -139,7 +139,7 @@ void ElaraTheme::buildDark() {
         palette->set("button", "pressed", t);
     }
     {
-        ElaraPaletteTriplet t(ElaraColor(0.16, 0.16, 0.18), ElaraColor(0.26, 0.26, 0.30), ElaraColor(0.56, 0.56, 0.60));
+        ElaraPaletteTriplet t(ElaraColor(0.28, 0.32, 0.46), ElaraColor(0.55, 0.65, 1.00), ElaraColor(1.00, 1.00, 1.00));
         t.corner_radius = 5.0; t.border_width = 1.0;
         palette->set("button", "disabled", t);
     }
@@ -304,7 +304,7 @@ void ElaraTheme::buildLight() {
         palette->set("button", "pressed", t);
     }
     {
-        ElaraPaletteTriplet t(ElaraColor(0.92, 0.92, 0.94), ElaraColor(0.80, 0.80, 0.84), ElaraColor(0.56, 0.56, 0.60));
+        ElaraPaletteTriplet t(ElaraColor(0.78, 0.84, 0.98), ElaraColor(0.40, 0.52, 0.84), ElaraColor(0.08, 0.10, 0.16));
         t.corner_radius = 5.0; t.border_width = 1.0;
         palette->set("button", "disabled", t);
     }

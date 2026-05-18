@@ -34,8 +34,9 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   w->vm.lbytes = malloc(w->vm.lbytes_cap);
   w->vm.lbytes_top = 0;
 
-  // Scheduling policy: kernel runs, others sleep until ENTRY_EXEC
-  w->blocked = (block_id == 0) ? 0 : 1;
+  // Current E worker model: all entries start immediately and workers
+  // block themselves explicitly when they reach WAIT_FOR_DATA.
+  w->blocked = 0;
   w->faulted = 0;
   w->halted  = 0;
   w->waiting_for_data = 0;
@@ -105,6 +106,6 @@ void epa_worker_reset(EpaWorkerState *w) {
   w->has_current_ghs = 0;
   w->current_ghs = 0;
 
-  // Keep blocked policy unchanged: kernel unblocked, others blocked
-  w->blocked = (w->id == 0) ? 0 : 1;
+  // Preserve current E worker model on reset as well.
+  w->blocked = 0;
 }

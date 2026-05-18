@@ -4,6 +4,7 @@
 #include <libelaraparallelassembly/epa_kernel.h>
 #include <libelaraparallelassembly/vm/epa_worker_state.h>
 #include <libelaraparallelassembly/memory/epa_stack.h>
+#include <libelaraparallelassembly/memory/epa_ring_buffer.h>
 
 int OrangeExterminator_epa_debug_capture_kernel(EpaKernel *kernel, OrangeExterminatorEpaDebugKernelSnapshot *out_snapshot) {
   uint32_t wid;
@@ -47,6 +48,8 @@ size_t OrangeExterminator_epa_debug_capture_workers(EpaKernel *kernel, OrangeExt
       size_t src_index = w->vm.stack.sp - dst->stack_preview_count + i;
       dst->stack_preview[i] = w->vm.stack.words ? w->vm.stack.words[src_index] : 0u;
     }
+    dst->inq_count = epa_ring_count(&w->inq);
+    dst->outq_count = epa_ring_count(&w->outq);
     memcpy(dst->locals, w->vm.locals, sizeof(dst->locals));
     dst->lbytes_top = w->vm.lbytes_top;
     dst->lbytes_cap = w->vm.lbytes_cap;

@@ -1,5 +1,5 @@
 NAME=orange-exterminator
-CXX=@CXX@
+CXX=g++
 CC?=gcc
 DEFS =
 FRAMEWORK_ROOT?=$(abspath ../../..)

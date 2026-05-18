@@ -611,7 +611,7 @@ static EpaNonFlowRc opengl_exec_one(
     char err[EPA_MAX_ERR]
 ) {
   if (err) err[0] = 0;
-  if (!impl_v || !vp || !prog || !w || !eip) {
+  if (!impl_v || !prog || !w || !eip) {
     snprintf(err, EPA_MAX_ERR, "opengl_nonflow: NULL arg");
     return EPA_NF_EXEC_ERR;
   }

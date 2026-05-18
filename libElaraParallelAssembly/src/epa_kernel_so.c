@@ -285,6 +285,11 @@ const char* epa_kernel_get_id(const EpaKernel *k) {
   return k ? k->kernel_id : NULL;
 }
 
+void epa_kernel_set_signal_callback(EpaKernel *k, EpaKernelSignal cb) {
+  if (!k) return;
+  k->signal_cb = cb;
+}
+
 EpaKernel* epa_kernel_find_by_id(const char *kernel_id) {
   EpaKernel *k = NULL;
   if (!kernel_id || !kernel_id[0]) return NULL;
@@ -353,8 +358,9 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
       return 0;
     }
 
-    // Scheduling policy: kernel (0) runs, others sleep until ENTRY_EXEC
-    k->workers[id].blocked = (id == 0) ? 0 : 1;
+    // Current E worker model: all entries start immediately and workers
+    // park themselves in WAIT_FOR_DATA until ingress arrives.
+    k->workers[id].blocked = 0;
 
     // Store EIP in worker state if you've added it there.
     // If you haven't yet: add `EpaEip eip;` into EpaWorkerState.
@@ -520,6 +526,10 @@ int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, con
 	q->q[q->tail].tag = tag;
 	q->tail = (q->tail + 1) % EPA_INGRESS_QMAX;
 	q->count++;
+
+  if (k->sched_vt && k->sched_vt->wake) {
+    k->sched_vt->wake(k, &k->sched_state);
+  }
 
 	return 1;
 }

@@ -81,9 +81,12 @@ static inline int worker_runnable(const EpaWorkerState *w) {
   return w && w->inited && !w->halted && !w->faulted && !w->blocked;
 }
 
-static void unbind_locked(CpuThreadState *st, int32_t tid) {
+static void unbind_locked(EpaKernel *k, CpuThreadState *st, int32_t tid) {
   int32_t wid = st->tid_to_wid[tid];
   if (wid >= 0 && wid < (int32_t)EPA_MAX_WORKERS) {
+    fprintf(stderr, "[EPA-CPU-BIND] kernel=%s unbind tid=%d wid=%d\n",
+            k && k->kernel_id ? k->kernel_id : "(unnamed)",
+            (int)tid, (int)wid);
     st->wid_to_tid[wid] = -1;
   }
   st->tid_to_wid[tid] = -1;
@@ -109,6 +112,12 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
   if (frc == EPA_FLOW_ERR) {
     w->faulted = 1;
+    fprintf(stderr, "[EPA-CPU-FAULT] wid=%u flow err at type=%u id=%u pc=%u: %s\n",
+            (unsigned)wid,
+            (unsigned)w->vm.eip.block_type,
+            (unsigned)w->vm.eip.block_id,
+            (unsigned)w->vm.eip.rel_pc,
+            err && err[0] ? err : "(no message)");
     kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0002u, &w->vm.eip, err);
     return 0;
   }
@@ -124,6 +133,12 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
     if (nrc == EPA_NF_EXEC_ERR) {
       w->faulted = 1;
+      fprintf(stderr, "[EPA-CPU-FAULT] wid=%u nonflow err at type=%u id=%u pc=%u: %s\n",
+              (unsigned)wid,
+              (unsigned)w->vm.eip.block_type,
+              (unsigned)w->vm.eip.block_id,
+              (unsigned)w->vm.eip.rel_pc,
+              err && err[0] ? err : "(no message)");
       kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0003u, &w->vm.eip, err);
       return 0;
     }
@@ -167,7 +182,7 @@ static void* cpu_worker_thread_main(void *argp) {
     // If interrupted, park (ensure unbound) and keep waiting.
     if (atomic_load(&st->interrupt) != 0) {
       if (st->tid_to_wid[tid] >= 0) {
-        unbind_locked(st, tid);
+        unbind_locked(k, st, tid);
         pthread_cond_broadcast(&st->cv);
       }
       pthread_mutex_unlock(&st->mu);
@@ -187,7 +202,7 @@ static void* cpu_worker_thread_main(void *argp) {
         // Stop at safe boundary (after a tick).
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
-          unbind_locked(st, tid);
+          unbind_locked(k, st, tid);
           pthread_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
@@ -199,7 +214,7 @@ static void* cpu_worker_thread_main(void *argp) {
         // worker entered wait/halt/fault; return thread to pool
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
-          unbind_locked(st, tid);
+          unbind_locked(k, st, tid);
           pthread_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
@@ -211,7 +226,7 @@ static void* cpu_worker_thread_main(void *argp) {
         // fault; unbind and park
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
-          unbind_locked(st, tid);
+          unbind_locked(k, st, tid);
           pthread_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
@@ -409,6 +424,9 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
 
     st->tid_to_wid[free_tid] = (int32_t)wid;
     st->wid_to_tid[wid] = free_tid;
+    fprintf(stderr, "[EPA-CPU-BIND] kernel=%s bind tid=%d wid=%u\n",
+            k && k->kernel_id ? k->kernel_id : "(unnamed)",
+            (int)free_tid, (unsigned)wid);
   }
 
   pthread_cond_broadcast(&st->cv);
