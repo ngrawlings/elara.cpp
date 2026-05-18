@@ -466,9 +466,9 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
   emit_indent(out, depth);
   fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
   emit_indent(out, depth);
-  fputs("GR_MOV4 3\n", out);
+  fputs("GR_MOV4 0\n", out);
   emit_indent(out, depth);
-  fputs("PUSH R3\n", out);
+  fputs("PUSH R0\n", out);
   return 1;
 }
 

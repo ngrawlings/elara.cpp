@@ -82,15 +82,14 @@ static inline int worker_runnable(const EpaWorkerState *w) {
 }
 
 static int debug_player_avatar_worker(const EpaKernel *k, uint32_t wid) {
-  return k && k->kernel_id && strcmp(k->kernel_id, "player_avatar") == 0 && wid >= 1u && wid <= 3u;
+  (void)k;
+  (void)wid;
+  return 0;
 }
 
 static void unbind_locked(EpaKernel *k, CpuThreadState *st, int32_t tid) {
   int32_t wid = st->tid_to_wid[tid];
   if (wid >= 0 && wid < (int32_t)EPA_MAX_WORKERS) {
-    fprintf(stderr, "[EPA-CPU-BIND] kernel=%s unbind tid=%d wid=%d\n",
-            k && k->kernel_id ? k->kernel_id : "(unnamed)",
-            (int)tid, (int)wid);
     st->wid_to_tid[wid] = -1;
   }
   st->tid_to_wid[tid] = -1;
@@ -474,9 +473,6 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
 
     st->tid_to_wid[free_tid] = (int32_t)wid;
     st->wid_to_tid[wid] = free_tid;
-    fprintf(stderr, "[EPA-CPU-BIND] kernel=%s bind tid=%d wid=%u\n",
-            k && k->kernel_id ? k->kernel_id : "(unnamed)",
-            (int)free_tid, (unsigned)wid);
   }
 
   pthread_cond_broadcast(&st->cv);

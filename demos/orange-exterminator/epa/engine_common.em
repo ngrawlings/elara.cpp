@@ -22,6 +22,10 @@ type CameraInput(int move_x, int move_z, int look_dx, int look_dy) {
   return move_x;
 }
 
+type ScenePoseInput(int cam_x, int cam_z, int depth, int lane) {
+  return cam_x;
+}
+
 type PlayerIntent(int move_x, int move_y, int fire_mode, int look_dx) {
   return move_x;
 }
@@ -48,4 +52,25 @@ type RenderProduct(int product_id, int dirty_flags, int layer) {
 
 type HudCommand(int hud_mode, int dirty_flags, int selected_weapon) {
   return hud_mode;
+}
+
+// Solid wall primitive.
+// size_*: dimensions of the wall volume
+// pos_*: world-space origin/placement
+// pitch/yaw: orientation in engine ticks
+// color_*: flat solid-color surface for the first wall pass
+type WallSurface(
+  int size_x,
+  int size_y,
+  int size_z,
+  int pos_x,
+  int pos_y,
+  int pos_z,
+  int pitch,
+  int yaw,
+  int color_r,
+  int color_g,
+  int color_b
+) {
+  return size_x;
 }

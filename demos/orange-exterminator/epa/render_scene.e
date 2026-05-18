@@ -4,6 +4,7 @@
 // Intended mesh links:
 // - ingress from frame tick
 // - ingress from player/world state
+// - later ingress from wall visibility / slice output
 // - output RenderProduct back to entry kernel
 
 kernel(VM vm) {

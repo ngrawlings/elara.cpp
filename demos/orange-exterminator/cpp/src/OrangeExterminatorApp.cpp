@@ -26,6 +26,26 @@ static uint32_t read_le_u32(const unsigned char *p) {
          | ((uint32_t)p[3] << 24);
 }
 
+static double parse_json_number_after(const String& text, const String& needle, double fallback) {
+    String text_copy(text);
+    int index = text_copy.indexOf(needle);
+    if(index < 0) {
+        return fallback;
+    }
+    String fragment = text_copy.substr(index + needle.length()).trim();
+    return strtod(fragment.operator char *(), NULL);
+}
+
+static int parse_json_int_after(const String& text, const String& needle, int fallback) {
+    String text_copy(text);
+    int index = text_copy.indexOf(needle);
+    if(index < 0) {
+        return fallback;
+    }
+    String fragment = text_copy.substr(index + needle.length()).trim();
+    return (int)strtol(fragment.operator char *(), NULL, 10);
+}
+
 struct SceneViewState {
     int cam_x;
     int cam_y;
@@ -35,6 +55,16 @@ struct SceneViewState {
     int depth;
     int lane;
 };
+
+static int clampInt(int value, int min_value, int max_value) {
+    if (value < min_value) {
+        return min_value;
+    }
+    if (value > max_value) {
+        return max_value;
+    }
+    return value;
+}
 
 class UiEventSinkService : public sockets::rpc::json::JsonRPCService {
 public:
@@ -68,16 +98,20 @@ public:
                     unsigned int keyval = (unsigned int)strtoul(fragment.operator char *(), NULL, 10);
                     app->updateKeyState(keyval, false);
                 }
+            } else if (app && params.indexOf(String("\"action\":\"mouseDown\"")) >= 0) {
+                int button = parse_json_int_after(params, String("\"button\":"), 0);
+                double x = parse_json_number_after(params, String("\"x\":"), 0.0);
+                double y = parse_json_number_after(params, String("\"y\":"), 0.0);
+                app->handleMouseDown(button, x, y);
+            } else if (app && params.indexOf(String("\"action\":\"mouseUp\"")) >= 0) {
+                int button = parse_json_int_after(params, String("\"button\":"), 0);
+                double x = parse_json_number_after(params, String("\"x\":"), 0.0);
+                double y = parse_json_number_after(params, String("\"y\":"), 0.0);
+                app->handleMouseUp(button, x, y);
             } else if (app && params.indexOf(String("\"action\":\"mouseMove\"")) >= 0) {
-                int x_index = params.indexOf(String("\"x\":"));
-                int y_index = params.indexOf(String("\"y\":"));
-                if (x_index >= 0 && y_index >= 0) {
-                    String xf = params.substr(x_index + 4).trim();
-                    String yf = params.substr(y_index + 4).trim();
-                    int dx = (int)strtod(xf.operator char *(), NULL);
-                    int dy = (int)strtod(yf.operator char *(), NULL);
-                    app->accumulateMouseDelta(dx, dy);
-                }
+                double x = parse_json_number_after(params, String("\"x\":"), 0.0);
+                double y = parse_json_number_after(params, String("\"y\":"), 0.0);
+                app->handleMouseMove(x, y);
             }
 
             result_json = "{\"received\":true}";
@@ -93,29 +127,15 @@ private:
     OrangeExterminatorApp *app;
 };
 
-SceneViewState readSceneViewState(const OrangeExterminatorEpaVmHost &epa) {
-    SceneViewState state = { 0, 0, 0, 0, 0, 0, 0 };
-    int scene_kernel = epa.findKernelIndex(String("scene"));
-    if (scene_kernel >= 0) {
-        EpaKernel *kernel = epa.rawKernelAt((size_t)scene_kernel);
-        if (kernel) {
-            OrangeExterminatorEpaDebugWorkerSnapshot workers[ORANGEEXTERMINATOR_EPA_DEBUG_MAX_WORKERS];
-            size_t count = OrangeExterminator_epa_debug_capture_workers(kernel, workers, ORANGEEXTERMINATOR_EPA_DEBUG_MAX_WORKERS);
-            for (size_t i = 0; i < count; i++) {
-                if (workers[i].wid != 1u) {
-                    continue;
-                }
-                state.cam_x   = workers[i].locals[0];
-                state.cam_y   = workers[i].locals[1];
-                state.cam_z   = workers[i].locals[2];
-                state.cam_yaw = workers[i].locals[3];
-                state.cam_pitch = workers[i].locals[4];
-                state.depth   = workers[i].locals[6];
-                state.lane    = workers[i].locals[8];
-                break;
-            }
-        }
-    }
+SceneViewState clampSceneViewState(const SceneViewState &input) {
+    SceneViewState state = input;
+    state.cam_x = clampInt(state.cam_x, -4096, 4096);
+    state.cam_y = clampInt(state.cam_y, -1024, 1024);
+    state.cam_z = clampInt(state.cam_z, -4096, 4096);
+    state.cam_yaw = clampInt(state.cam_yaw, -720, 720);
+    state.cam_pitch = clampInt(state.cam_pitch, -90, 90);
+    state.depth = clampInt(state.depth, 0, 6);
+    state.lane = clampInt(state.lane, -320, 320);
     return state;
 }
 
@@ -144,7 +164,17 @@ OrangeExterminatorApp::OrangeExterminatorApp(const String &value_host, int value
       held_right(false),
       pending_mouse_dx(0),
       pending_mouse_dy(0),
+      mouse_captured(false),
+      scene_cam_x(0),
+      scene_cam_y(0),
+      scene_cam_z(0),
+      scene_cam_yaw(0),
+      scene_cam_pitch(0),
+      scene_depth(0),
+      scene_lane(0),
       latest_surface_valid(false),
+      surface_revision(0),
+      pushed_surface_revision(0),
       trace_path(String("..") + String("/") + String("artifacts") + String("/") + String("live-epa-trace.jsonl")),
       trace_file(NULL),
       trace_sequence(0),
@@ -183,20 +213,33 @@ void OrangeExterminatorApp::armUiInputFocus() {
 
     peer->call(String("ui.enableEvent"), String("{\"action\":\"keyDown\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.enableEvent"), String("{\"action\":\"keyUp\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseMove\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseDown\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseUp\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.setFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
 
     traceLine(String("{\"event\":\"ui_input_focus_armed\",\"target\":\"app.surface\"}"));
 }
 
 void OrangeExterminatorApp::armMouseCapture() {
+    setMouseCaptured(false);
+    traceLine(String("{\"event\":\"mouse_capture_armed_click_surface\"}"));
+}
+
+void OrangeExterminatorApp::setMouseCaptured(bool captured) {
     String result_json;
     String error_code;
     String error_message;
-
-    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseMove\"}"), result_json, error_code, error_message, 5000);
-    peer->call(String("ui.setMouseCaptured"), String("{\"captured\":true}"), result_json, error_code, error_message, 5000);
-
-    traceLine(String("{\"event\":\"mouse_captured\"}"));
+    mouse_captured = captured;
+    peer->call(
+        String("ui.setMouseCaptured"),
+        String("{\"captured\":") + String(captured ? "true" : "false") + String("}"),
+        result_json,
+        error_code,
+        error_message,
+        5000
+    );
+    traceLine(String("{\"event\":\"mouse_capture_state\",\"captured\":") + String(captured ? "true" : "false") + String("}"));
 }
 
 void OrangeExterminatorApp::traceLine(const String &json_line) {
@@ -285,11 +328,20 @@ void OrangeExterminatorApp::refreshEpaState() {
     refreshProjectState();
     epa_loaded = false;
     epa_started = false;
+    scene_cam_x = 0;
+    scene_cam_y = 0;
+    scene_cam_z = 0;
+    scene_cam_yaw = 0;
+    scene_cam_pitch = 0;
+    scene_depth = 0;
+    scene_lane = 0;
     epa.destroy();
     {
         Mutex::Lock lock(render_lock);
         latest_surface_valid = false;
         latest_surface_commands = String();
+        surface_revision = 0;
+        pushed_surface_revision = 0;
     }
     traceLine(String("{\"event\":\"refresh_epa_state\",\"bundle_exists\":") + String(bundle_exists ? "true" : "false") + String("}"));
     if (!bundle_exists) {
@@ -395,9 +447,9 @@ void OrangeExterminatorApp::stimulateEpa() {
 
     idx = epa.findKernelIndex(String("scene"));
     if (idx >= 0) {
-        struct CameraInputPayload { int32_t move_x; int32_t move_z; int32_t look_dx; int32_t look_dy; };
-        CameraInputPayload cam_init = { 0, 0, 0, 0 };
-        int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &cam_init, sizeof(cam_init)) ? 1 : 0;
+        struct ScenePoseInputPayload { int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; };
+        ScenePoseInputPayload pose_init = { scene_cam_x, scene_cam_z, scene_depth, scene_lane };
+        int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &pose_init, sizeof(pose_init)) ? 1 : 0;
         printf("stimulate scene worker1=%d\n", ok1);
         traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"scene\",\"wid1\":")
             + String(ok1) + String(",\"wid2\":0,\"wid3\":0}"));
@@ -431,6 +483,29 @@ void OrangeExterminatorApp::stimulateEpa() {
     traceKernelStateSnapshot("after_stimulate");
 }
 
+bool OrangeExterminatorApp::sendScenePose() {
+    struct ScenePoseInputPayload {
+        int32_t cam_x;
+        int32_t cam_z;
+        int32_t depth;
+        int32_t lane;
+    };
+
+    if (!epa_started) {
+        return false;
+    }
+
+    int idx = epa.findKernelIndex(String("scene"));
+    if (idx < 0) {
+        return false;
+    }
+
+    ScenePoseInputPayload pose = { scene_cam_x, scene_cam_z, scene_depth, scene_lane };
+    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d\n",
+           pose.cam_x, pose.cam_z, pose.depth, pose.lane);
+    return epa.ingressPushToKernel((size_t)idx, 1u, &pose, sizeof(pose));
+}
+
 void OrangeExterminatorApp::enqueueKeyDown(unsigned int keyval) {
     Mutex::Lock lock(input_lock);
     pending_keydowns.push(keyval);
@@ -443,6 +518,9 @@ void OrangeExterminatorApp::updateKeyState(unsigned int keyval, bool pressed) {
     if (keyval == 65364u || keyval == 115u) { held_back    = pressed; }  // Down / S
     if (keyval == 65361u || keyval == 97u)  { held_left    = pressed; }  // Left / A
     if (keyval == 65363u || keyval == 100u) { held_right   = pressed; }  // Right / D
+    if (keyval == 65307u && pressed) {
+        mouse_captured = false;
+    }
     printf("updateKeyState: keyval=%u pressed=%d held_f=%d held_b=%d held_l=%d held_r=%d\n",
            keyval, (int)pressed, (int)held_forward, (int)held_back, (int)held_left, (int)held_right);
 }
@@ -453,40 +531,65 @@ void OrangeExterminatorApp::accumulateMouseDelta(int dx, int dy) {
     pending_mouse_dy += dy;
 }
 
-void OrangeExterminatorApp::drainKeyEvents() {
-    struct CameraInputPayload {
-        int32_t move_x;   // strafe: -1 left, 0 none, +1 right
-        int32_t move_z;   // forward: -1 back, 0 none, +1 forward
-        int32_t look_dx;  // mouse delta x
-        int32_t look_dy;  // mouse delta y
-    };
+void OrangeExterminatorApp::handleMouseDown(int button, double x, double y) {
+    (void)x;
+    (void)y;
+    if (button == 1) {
+        setMouseCaptured(true);
+    }
+}
 
+void OrangeExterminatorApp::handleMouseUp(int button, double x, double y) {
+    (void)button;
+    (void)x;
+    (void)y;
+}
+
+void OrangeExterminatorApp::handleMouseMove(double x, double y) {
+    if (!mouse_captured) {
+        return;
+    }
+    accumulateMouseDelta((int)x, (int)y);
+}
+
+void OrangeExterminatorApp::drainKeyEvents() {
     if (!epa_started) {
         return;
     }
 
-    int idx = epa.findKernelIndex(String("scene"));
-    if (idx < 0) {
-        return;
-    }
-
-    CameraInputPayload cam = { 0, 0, 0, 0 };
+    int move_x = 0;
+    int move_z = 0;
+    int look_dx = 0;
     {
         Mutex::Lock lock(input_lock);
-        cam.move_x = (held_right ? 1 : 0) - (held_left ? 1 : 0);
-        cam.move_z = (held_forward ? 1 : 0) - (held_back ? 1 : 0);
-        cam.look_dx = pending_mouse_dx;
-        cam.look_dy = pending_mouse_dy;
+        move_x = (held_right ? 1 : 0) - (held_left ? 1 : 0);
+        move_z = (held_forward ? 1 : 0) - (held_back ? 1 : 0);
+        look_dx = pending_mouse_dx;
         pending_mouse_dx = 0;
         pending_mouse_dy = 0;
         pending_keydowns.clear();
     }
 
-    if (cam.move_x != 0 || cam.move_z != 0 || cam.look_dx != 0 || cam.look_dy != 0) {
-        printf("drainKeyEvents: move_x=%d move_z=%d look_dx=%d look_dy=%d\n",
-               cam.move_x, cam.move_z, cam.look_dx, cam.look_dy);
+    if (move_x == 0 && move_z == 0 && look_dx == 0) {
+        return;
     }
-    epa.ingressPushToKernel((size_t)idx, 1u, &cam, sizeof(cam));
+
+    scene_cam_x += (move_x * 24) + (look_dx / 4);
+    scene_cam_z += (move_z * 96);
+    scene_lane += (move_x * 24) + (look_dx / 4);
+    if (move_z > 0) {
+        scene_depth = 1;
+    } else if (move_z < 0) {
+        scene_depth = 0;
+    }
+    scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
+    scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
+    scene_lane = clampInt(scene_lane, -320, 320);
+    scene_depth = clampInt(scene_depth, 0, 1);
+
+    printf("drainKeyEvents: cam_x=%d cam_z=%d depth=%d lane=%d\n",
+           scene_cam_x, scene_cam_z, scene_depth, scene_lane);
+    sendScenePose();
 }
 
 void OrangeExterminatorApp::installSurfaceCallback() {
@@ -599,7 +702,9 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
     }
 
     {
-        SceneViewState scene = readSceneViewState(epa);
+        SceneViewState scene = clampSceneViewState(
+            SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
+        );
         if (emitted) {
             json += String(",");
         }
@@ -617,6 +722,9 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
         Mutex::Lock lock(render_lock);
         latest_surface_commands = json;
         latest_surface_valid = emitted;
+        if (emitted) {
+            surface_revision++;
+        }
     }
     printf("surface mailbox parsed: emitted=%d\n", emitted);
     traceLine(String("{\"event\":\"mailbox_parsed\",\"emitted\":") + String(emitted) + String("}"));
@@ -628,78 +736,7 @@ String OrangeExterminatorApp::buildSurfaceCommandsJson() const {
     if (latest_surface_valid) {
         return latest_surface_commands;
     }
-    {
-        SceneViewState scene = readSceneViewState(epa);
-        int lane = scene.lane;
-        int depth = scene.depth;
-        int spread = depth * 90;
-        int inner = depth * 54;
-        int center_x = 640 + lane;
-        int dead_x = 535 + lane - (spread / 2);
-        int dead_y = 210 - (depth * 26);
-        int dead_w = 210 + (depth * 150);
-        int dead_h = 170 + (depth * 58);
-        int glow_x = 590 + lane - (depth * 40);
-        int glow_y = 248 - (depth * 22);
-        int glow_w = 100 + (depth * 78);
-        int glow_h = 72 + (depth * 36);
-        int wall_outer = 210 + (depth * 18);
-        int wall_inner = 340 + (depth * 24);
-        int far_y = 330 - (depth * 18);
-        int mid_y = 410 - (depth * 12);
-
-        return String("[")
-            + String("{\"op\":\"clear\",\"r\":0.05,\"g\":0.05,\"b\":0.07},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":0,\"w\":1280,\"h\":250,\"r\":0.09,\"g\":0.11,\"b\":0.13},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":250,\"w\":1280,\"h\":120,\"r\":0.20,\"g\":0.22,\"b\":0.24},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":370,\"w\":1280,\"h\":350,\"r\":0.36,\"g\":0.28,\"b\":0.18},")
-            + String("{\"op\":\"rect\",\"x\":0,\"y\":250,\"w\":210,\"h\":470,\"r\":0.10,\"g\":0.11,\"b\":0.13},")
-            + String("{\"op\":\"rect\",\"x\":1070,\"y\":250,\"w\":210,\"h\":470,\"r\":0.10,\"g\":0.11,\"b\":0.13},")
-            + String("{\"op\":\"rect\",\"x\":") + String(dead_x)
-            + String(",\"y\":") + String(dead_y)
-            + String(",\"w\":") + String(dead_w)
-            + String(",\"h\":") + String(dead_h)
-            + String(",\"r\":0.27,\"g\":0.29,\"b\":0.31},")
-            + String("{\"op\":\"rect\",\"x\":") + String(glow_x)
-            + String(",\"y\":") + String(glow_y)
-            + String(",\"w\":") + String(glow_w)
-            + String(",\"h\":") + String(glow_h)
-            + String(",\"r\":0.67,\"g\":0.57,\"b\":0.42},")
-            + String("{\"op\":\"text\",\"x\":54,\"y\":52,\"text\":\"Orange Exterminator\",\"size\":32,\"r\":1.0,\"g\":0.95,\"b\":0.90},")
-            + String("{\"op\":\"text\",\"x\":56,\"y\":82,\"text\":\"Waiting for first committed EPA frame artifact. Live fallback scene active.\",\"size\":17,\"r\":0.95,\"g\":0.90,\"b\":0.82},")
-            + String("{\"op\":\"text\",\"x\":56,\"y\":110,\"text\":") + JsonString(String("x=") + String(scene.cam_x) + String(" y=") + String(scene.cam_y) + String(" z=") + String(scene.cam_z), true).toString() + String(",\"size\":17,\"r\":0.82,\"g\":0.86,\"b\":0.90},")
-            + String("{\"op\":\"text\",\"x\":56,\"y\":130,\"text\":") + JsonString(String("yaw=") + String(scene.cam_yaw) + String(" pitch=") + String(scene.cam_pitch), true).toString() + String(",\"size\":17,\"r\":0.82,\"g\":0.86,\"b\":0.90},")
-            + String("{\"op\":\"line\",\"x0\":") + String(wall_outer + lane)
-            + String(",\"y0\":720,\"x1\":") + String(560 + lane - spread)
-            + String(",\"y1\":") + String(far_y)
-            + String(",\"line_width\":3,\"r\":0.46,\"g\":0.40,\"b\":0.31},")
-            + String("{\"op\":\"line\",\"x0\":") + String(1280 - wall_outer + lane)
-            + String(",\"y0\":720,\"x1\":") + String(720 + lane + spread)
-            + String(",\"y1\":") + String(far_y)
-            + String(",\"line_width\":3,\"r\":0.46,\"g\":0.40,\"b\":0.31},")
-            + String("{\"op\":\"line\",\"x0\":") + String(wall_inner + lane)
-            + String(",\"y0\":720,\"x1\":") + String(595 + lane - inner)
-            + String(",\"y1\":370,\"line_width\":2,\"r\":0.59,\"g\":0.53,\"b\":0.41},")
-            + String("{\"op\":\"line\",\"x0\":") + String(1280 - wall_inner + lane)
-            + String(",\"y0\":720,\"x1\":") + String(685 + lane + inner)
-            + String(",\"y1\":370,\"line_width\":2,\"r\":0.59,\"g\":0.53,\"b\":0.41},")
-            + String("{\"op\":\"line\",\"x0\":") + String(470 + lane)
-            + String(",\"y0\":720,\"x1\":") + String(625 + lane - inner)
-            + String(",\"y1\":") + String(mid_y)
-            + String(",\"line_width\":2,\"r\":0.73,\"g\":0.67,\"b\":0.54},")
-            + String("{\"op\":\"line\",\"x0\":") + String(810 + lane)
-            + String(",\"y0\":720,\"x1\":") + String(655 + lane + inner)
-            + String(",\"y1\":") + String(mid_y)
-            + String(",\"line_width\":2,\"r\":0.73,\"g\":0.67,\"b\":0.54},")
-            + String("{\"op\":\"line\",\"x0\":") + String(center_x)
-            + String(",\"y0\":200,\"x1\":") + String(center_x)
-            + String(",\"y1\":650,\"line_width\":1,\"r\":0.49,\"g\":0.51,\"b\":0.53},")
-            + String("{\"op\":\"line\",\"x0\":0,\"y0\":370,\"x1\":1280,\"y1\":370,\"line_width\":2,\"r\":0.52,\"g\":0.45,\"b\":0.33},")
-            + String("{\"op\":\"line\",\"x0\":0,\"y0\":250,\"x1\":1280,\"y1\":250,\"line_width\":1,\"r\":0.34,\"g\":0.35,\"b\":0.38},")
-            + String("{\"op\":\"rect\",\"x\":592,\"y\":654,\"w\":96,\"h\":28,\"r\":0.14,\"g\":0.15,\"b\":0.16},")
-            + String("{\"op\":\"rect\",\"x\":610,\"y\":662,\"w\":60,\"h\":12,\"r\":0.46,\"g\":0.48,\"b\":0.49},")
-            + String("]");
-    }
+    return String("[]");
 }
 
 String OrangeExterminatorApp::buildStatusItemsJson() const {
@@ -720,7 +757,9 @@ String OrangeExterminatorApp::buildStatusItemsJson() const {
         : String("EPA kernels not started");
 
     String kernel_count_label = String("Kernel count: ") + String((int)epa.kernelCount());
-    SceneViewState scene = readSceneViewState(epa);
+    SceneViewState scene = clampSceneViewState(
+        SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
+    );
     String scene_label = String("x=") + String(scene.cam_x)
         + String(" y=") + String(scene.cam_y)
         + String(" z=") + String(scene.cam_z)
@@ -747,13 +786,7 @@ void OrangeExterminatorApp::buildDocument(ElaraUiDocumentBuilder &ui) {
     ui.clear();
     ui.createWindow(String("Orange Exterminator"), 1480, 920, String("org.elara.ui.orange-exterminator"));
     ui.setThemeMode(String("dark"));
-    ui.setRootContent(String("app.shell"));
-
-    ui.createGrid(String("app.shell"));
-    ui.addGridColumnFill(String("app.shell"));
-    ui.addGridColumnExact(String("app.shell"), 300);
-    ui.setGridColumnBorderResizable(String("app.shell"), 0, true);
-    ui.addGridRowFill(String("app.shell"));
+    ui.setRootContent(String("app.surface"));
 
     ui.createWidget(String("app.surface"), String("elara.widgets.vulkan_surface"));
     ui.setPropertyString(String("app.surface"), String("backend"), String("vulkan"));
@@ -762,41 +795,6 @@ void OrangeExterminatorApp::buildDocument(ElaraUiDocumentBuilder &ui) {
     ui.setPropertyNumber(String("app.surface"), String("virtual_width"), 1280);
     ui.setPropertyNumber(String("app.surface"), String("virtual_height"), 720);
     ui.setSectionJson(String("app.surface"), String("commands"), buildSurfaceCommandsJson());
-
-    ui.createGrid(String("app.side"));
-    ui.addGridColumnFill(String("app.side"));
-    ui.addGridRowExact(String("app.side"), 34);
-    ui.addGridRowExact(String("app.side"), 70);
-    ui.addGridRowExact(String("app.side"), 40);
-    ui.addGridRowExact(String("app.side"), 44);
-    ui.addGridRowFill(String("app.side"));
-
-    ui.createLabel(String("app.title"), String("Orange Exterminator"), 22);
-    ui.createRichTextEdit(
-        String("app.notes"),
-        String("Movement slice online.\n")
-        + String("The Vulkan surface is showing a simple third-person test scene.\n")
-        + String("Arrow keys are routed into the EPA scene kernel.\n")
-        + String("Up/down moves the camera toward the corridor dead end.\n")
-        + String("Left/right shifts the corridor framing from the live scene worker locals.")
-    );
-    ui.setPropertyBool(String("app.notes"), String("read_only"), true);
-
-    ui.createButton(String("app.reload"), String("Reload Surface"), String("app.reload"));
-    ui.createButton(String("app.snapshot"), String("Snapshot"), String("app.snapshot"));
-
-    ui.createListView(String("app.status"));
-    ui.setSectionJson(String("app.status"), String("items"), buildStatusItemsJson());
-    ui.setPropertyNumber(String("app.status"), String("font_size"), 14);
-
-    ui.placeGridChild(String("app.side"), String("app.title"), 0, 0);
-    ui.placeGridChild(String("app.side"), String("app.notes"), 0, 1);
-    ui.placeGridChild(String("app.side"), String("app.reload"), 0, 2);
-    ui.placeGridChild(String("app.side"), String("app.snapshot"), 0, 3);
-    ui.placeGridChild(String("app.side"), String("app.status"), 0, 4);
-
-    ui.placeGridChild(String("app.shell"), String("app.surface"), 0, 0);
-    ui.placeGridChild(String("app.shell"), String("app.side"), 1, 0);
 }
 
 bool OrangeExterminatorApp::loadDocument(const String &document_json) {
@@ -837,11 +835,18 @@ bool OrangeExterminatorApp::setSectionJson(const String &target, const String &s
 }
 
 bool OrangeExterminatorApp::pushUiState() {
+    {
+        Mutex::Lock lock(render_lock);
+        if (surface_revision == pushed_surface_revision) {
+            return true;
+        }
+    }
+
     if(incremental_ui_supported) {
         if(setSectionJson(String("app.surface"), String("commands"), buildSurfaceCommandsJson())) {
-            if(setSectionJson(String("app.status"), String("items"), buildStatusItemsJson())) {
-                return true;
-            }
+            Mutex::Lock lock(render_lock);
+            pushed_surface_revision = surface_revision;
+            return true;
         }
         incremental_ui_supported = false;
         traceLine(String("{\"event\":\"ui_incremental_disabled\"}"));
@@ -851,6 +856,10 @@ bool OrangeExterminatorApp::pushUiState() {
     buildDocument(ui);
     if(!loadDocument(ui.toJson())) {
         return false;
+    }
+    {
+        Mutex::Lock lock(render_lock);
+        pushed_surface_revision = surface_revision;
     }
     return true;
 }
@@ -935,6 +944,42 @@ int OrangeExterminatorApp::run() {
             if (command == String("snapshot")) {
                 printSnapshot();
                 traceLine(String("{\"event\":\"manual_snapshot\"}"));
+                continue;
+            }
+            if (command == String("step-forward")) {
+                scene_cam_z += 96;
+                scene_depth = 1;
+                scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"forward\"}"));
+                continue;
+            }
+            if (command == String("step-back")) {
+                scene_cam_z -= 96;
+                scene_depth = 0;
+                scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"back\"}"));
+                continue;
+            }
+            if (command == String("step-right")) {
+                scene_cam_x += 24;
+                scene_lane = clampInt(scene_lane + 24, -320, 320);
+                scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"right\"}"));
+                continue;
+            }
+            if (command == String("step-left")) {
+                scene_cam_x -= 24;
+                scene_lane = clampInt(scene_lane - 24, -320, 320);
+                scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"left\"}"));
                 continue;
             }
             printf("Unhandled command: %s\n", command.operator char *());

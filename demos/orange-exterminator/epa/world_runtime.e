@@ -4,6 +4,7 @@
 // Intended mesh links:
 // - ingress from frame tick
 // - ingress from actor state
+// - later far/local route wall primitives into the walls kernel
 // - output world state toward player/render/gameplay
 
 kernel(VM vm) {

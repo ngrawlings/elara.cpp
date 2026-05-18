@@ -49,6 +49,7 @@ private:
     double scaleX(double value) const;
     double scaleY(double value) const;
     bool renderVulkan(int pixel_width, int pixel_height);
+    void drawCpuCommands(ElaraDrawContext* ctx);
     void drawEmptyState(ElaraDrawContext* ctx);
 
 public:
@@ -80,7 +81,9 @@ public:
 
 protected:
     void drawCanvas(ElaraDrawContext* ctx);
+    void onMouseMove(double px, double py);
     void onMouseDown(int button, double px, double py);
+    void onMouseUp(int button, double px, double py);
     void onKeyDown(unsigned int keyval);
     void onKeyDown(unsigned int keyval, unsigned int modifiers);
     void onKeyUp(unsigned int keyval);

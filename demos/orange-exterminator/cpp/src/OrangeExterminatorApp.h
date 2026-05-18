@@ -23,6 +23,9 @@ public:
     void updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len);
     void updateKeyState(unsigned int keyval, bool pressed);
     void accumulateMouseDelta(int dx, int dy);
+    void handleMouseDown(int button, double x, double y);
+    void handleMouseUp(int button, double x, double y);
+    void handleMouseMove(double x, double y);
 
 private:
     String host;
@@ -42,8 +45,18 @@ private:
     bool held_right;
     int pending_mouse_dx;
     int pending_mouse_dy;
+    bool mouse_captured;
+    int scene_cam_x;
+    int scene_cam_y;
+    int scene_cam_z;
+    int scene_cam_yaw;
+    int scene_cam_pitch;
+    int scene_depth;
+    int scene_lane;
     String latest_surface_commands;
     bool latest_surface_valid;
+    unsigned long surface_revision;
+    unsigned long pushed_surface_revision;
     String trace_path;
     FILE *trace_file;
     unsigned long trace_sequence;
@@ -56,9 +69,11 @@ private:
     bool printSnapshot();
     void armUiInputFocus();
     void armMouseCapture();
+    void setMouseCaptured(bool captured);
     void refreshProjectState();
     void refreshEpaState();
     void stimulateEpa();
+    bool sendScenePose();
     void drainKeyEvents();
     void installSurfaceCallback();
     String buildSurfaceCommandsJson() const;

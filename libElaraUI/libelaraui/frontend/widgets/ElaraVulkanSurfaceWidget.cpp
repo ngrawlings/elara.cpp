@@ -1206,17 +1206,46 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
     );
 }
 
+void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
+    execution_status = "CPU surface fallback active";
+
+    for(int i = 0; i < (int)commands.length(); i++) {
+        Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
+        if(!cmd || cmd->type == ElaraVulkanSurfaceCommand::TEXT) {
+            continue;
+        }
+
+        ctx->setColor(cmd->r, cmd->g, cmd->b);
+
+        if(cmd->type == ElaraVulkanSurfaceCommand::CLEAR) {
+            ctx->fillRect(0, 0, width, height);
+        } else if(cmd->type == ElaraVulkanSurfaceCommand::RECT) {
+            ctx->fillRect(
+                scaleX(cmd->x0),
+                scaleY(cmd->y0),
+                scaleX(cmd->x1),
+                scaleY(cmd->y1)
+            );
+        } else if(cmd->type == ElaraVulkanSurfaceCommand::LINE) {
+            double line_width = cmd->value0 > 0.0 ? cmd->value0 : 1.0;
+            ctx->line(
+                scaleX(cmd->x0),
+                scaleY(cmd->y0),
+                scaleX(cmd->x1),
+                scaleY(cmd->y1),
+                line_width
+            );
+        }
+    }
+}
+
 void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
     if(commands.length() <= 0) {
         drawEmptyState(ctx);
         return;
     }
 
-    if(renderVulkan((int)width, (int)height) && !pixel_buffer.empty()) {
-        ctx->drawBitmapRgba(0, 0, (int)width, (int)height, &pixel_buffer[0], (int)width * 4);
-    } else {
-        drawEmptyState(ctx);
-    }
+    drawCpuCommands(ctx);
 
     for(int i = 0; i < (int)commands.length(); i++) {
         Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
@@ -1246,6 +1275,14 @@ void ElaraVulkanSurfaceWidget::onMouseDown(int button, double px, double py) {
             root_widget->setFocus(getHandle());
         }
     }
+}
+
+void ElaraVulkanSurfaceWidget::onMouseMove(double px, double py) {
+    emitMouseMove(px, py);
+}
+
+void ElaraVulkanSurfaceWidget::onMouseUp(int button, double px, double py) {
+    emitMouseUp(button, px, py);
 }
 
 void ElaraVulkanSurfaceWidget::onKeyDown(unsigned int keyval) {
