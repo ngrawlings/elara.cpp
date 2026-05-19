@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 #define EPA_DYNAMIC_NULL 0xffffffffu
+#define EPA_DYNAMIC_VTABLE_LEVELS 4u
 
 typedef struct {
   uint32_t id;
@@ -25,6 +26,12 @@ typedef struct {
   uint32_t slot_count;
   uint8_t present;
 } EpaDynamicSegment;
+
+typedef struct {
+  uint32_t stride;
+  uint32_t *ids;
+  uint32_t count;
+} EpaDynamicOrdinalVTable;
 
 typedef struct {
   uint32_t min_free;
@@ -49,6 +56,8 @@ typedef struct {
   uint32_t segment_count;
   uint32_t first_present_segment;
   uint32_t last_present_segment;
+
+  EpaDynamicOrdinalVTable ord_vtables[EPA_DYNAMIC_VTABLE_LEVELS];
 } EpaDynamicPool;
 
 int epa_dynamic_pool_init(EpaDynamicPool *pool, uint32_t min_free, uint32_t max_free,
@@ -61,6 +70,7 @@ int epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t id, char err[256]);
 int epa_dynamic_pool_read(const EpaDynamicPool *pool, uint32_t id, void *dst, uint32_t dst_len, char err[256]);
 int epa_dynamic_pool_write(EpaDynamicPool *pool, uint32_t id, const void *src, uint32_t src_len, char err[256]);
 int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32_t id_b, char err[256]);
+int epa_dynamic_pool_live_id_at(const EpaDynamicPool *pool, uint32_t ordinal, uint32_t *out_id, char err[256]);
 
 EpaDynamicSlot *epa_dynamic_pool_slot(EpaDynamicPool *pool, uint32_t id);
 uint32_t epa_dynamic_pool_collect_live(EpaDynamicPool *pool, uint32_t *out_ids, uint32_t cap);

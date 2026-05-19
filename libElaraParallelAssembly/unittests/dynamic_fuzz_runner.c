@@ -1,6 +1,7 @@
 #include "dynamic_pool_fuzz_model.h"
 #include "memory/epa_dynamic_pool.h"
 
+#include <stdlib.h>
 #include <stdio.h>
 
 static int compare_model_and_runtime(DynPool *model, EpaDynamicPool *runtime, char err[256])
@@ -45,6 +46,12 @@ static int compare_model_and_runtime(DynPool *model, EpaDynamicPool *runtime, ch
         }
     }
     return 1;
+}
+
+static uint32_t *alloc_live_ids(uint32_t count)
+{
+    uint32_t cap = count ? count : 1u;
+    return (uint32_t*)malloc(sizeof(uint32_t) * cap);
 }
 
 static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_t max_free,
@@ -104,12 +111,13 @@ static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_
                     return 1;
                 }
             } else if (choice < 90u) {
-                uint32_t live_ids[1024];
-                uint32_t live_count = dyn_collect_live(&model, live_ids, 1024u);
+                uint32_t *live_ids = alloc_live_ids(model.active_count);
+                uint32_t live_count = dyn_collect_live(&model, live_ids, model.active_count ? model.active_count : 1u);
                 if (live_count > 0u) {
                     uint32_t pick = dynamic_fuzz_rng_range(&rng, live_count);
                     dyn_pool_free(&model, live_ids[pick]);
                     if (!epa_dynamic_pool_release(&runtime, live_ids[pick], err)) {
+                        free(live_ids);
                         fprintf(stderr, "release failed seed=%u round=%u op=%u: %s\n",
                                 seed, round_index, op, err);
                         epa_dynamic_pool_free(&runtime);
@@ -117,6 +125,7 @@ static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_
                         return 1;
                     }
                 }
+                free(live_ids);
             } else {
                 uint32_t burst = 1u + dynamic_fuzz_rng_range(&rng, 6u);
                 uint32_t i;
@@ -154,12 +163,13 @@ static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_
         }
 
         if ((round_index % 7u) == 0u) {
-            uint32_t live_ids[1024];
-            uint32_t live_count = dyn_collect_live(&model, live_ids, 1024u);
+            uint32_t *live_ids = alloc_live_ids(model.active_count);
+            uint32_t live_count = dyn_collect_live(&model, live_ids, model.active_count ? model.active_count : 1u);
             while (live_count > 0u) {
                 uint32_t id = live_ids[live_count - 1u];
                 dyn_pool_free(&model, id);
                 if (!epa_dynamic_pool_release(&runtime, id, err)) {
+                    free(live_ids);
                     fprintf(stderr, "final release failed seed=%u round=%u: %s\n", seed, round_index, err);
                     epa_dynamic_pool_free(&runtime);
                     dyn_pool_destroy(&model);
@@ -167,6 +177,7 @@ static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_
                 }
                 live_count--;
             }
+            free(live_ids);
             dyn_assert_invariants(&model);
             if (!epa_dynamic_pool_validate(&runtime, err) ||
                 !compare_model_and_runtime(&model, &runtime, err)) {

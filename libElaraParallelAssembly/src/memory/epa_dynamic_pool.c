@@ -14,6 +14,33 @@ static void set_errf(char err[256], const char *fmt, uint32_t a, uint32_t b)
   if (err) snprintf(err, 256, fmt, a, b);
 }
 
+static uint32_t dyn_vtable_stride_for_level(uint32_t level)
+{
+  uint32_t stride = 10u;
+  while (level > 0u) {
+    stride *= 10u;
+    level--;
+  }
+  return stride;
+}
+
+static int dyn_vtable_reserve(EpaDynamicOrdinalVTable *table, uint32_t need, char err[256])
+{
+  uint32_t next_cap;
+  uint32_t *next;
+  if (need <= table->count) return 1;
+  next_cap = table->count ? table->count : 16u;
+  while (next_cap < need) next_cap *= 2u;
+  next = (uint32_t*)realloc(table->ids, sizeof(uint32_t) * next_cap);
+  if (!next) {
+    set_err(err, "epa_dynamic_pool: ordinal vtable realloc failed");
+    return 0;
+  }
+  table->ids = next;
+  table->count = next_cap;
+  return 1;
+}
+
 static int dyn_slots_reserve(EpaDynamicPool *pool, uint32_t need, char err[256])
 {
   uint32_t next_cap;
@@ -72,6 +99,39 @@ static uint8_t *dyn_slot_data(EpaDynamicPool *pool, uint32_t id)
 {
   if (!pool || !pool->slot_data || id >= pool->slot_count) return NULL;
   return pool->slot_data + ((size_t)id * (size_t)pool->element_size);
+}
+
+static int dyn_rebuild_ord_vtables(EpaDynamicPool *pool, char err[256])
+{
+  uint32_t level;
+  uint32_t ordinal = 0u;
+  uint32_t id;
+  if (!pool) {
+    set_err(err, "epa_dynamic_pool: null pool in ordinal vtable rebuild");
+    return 0;
+  }
+  for (level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
+    uint32_t stride = pool->ord_vtables[level].stride;
+    uint32_t need = (pool->active_count == 0u) ? 0u : (pool->active_count - 1u) / stride + 1u;
+    if (need != 0u && !dyn_vtable_reserve(&pool->ord_vtables[level], need, err)) return 0;
+  }
+  id = pool->live_head;
+  while (id != EPA_DYNAMIC_NULL) {
+    EpaDynamicSlot *slot = epa_dynamic_pool_slot(pool, id);
+    if (!slot) {
+      set_err(err, "epa_dynamic_pool: invalid live slot during ordinal vtable rebuild");
+      return 0;
+    }
+    for (level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
+      uint32_t stride = pool->ord_vtables[level].stride;
+      if ((ordinal % stride) == 0u) {
+        pool->ord_vtables[level].ids[ordinal / stride] = id;
+      }
+    }
+    ordinal++;
+    id = slot->next_live;
+  }
+  return 1;
 }
 
 static int dyn_free_prepend(EpaDynamicPool *pool, uint32_t id, char err[256])
@@ -329,6 +389,11 @@ int epa_dynamic_pool_init(EpaDynamicPool *pool, uint32_t min_free, uint32_t max_
   pool->max_free = max_free;
   pool->grow_by = grow_by;
   pool->element_size = element_size;
+  for (uint32_t level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
+    pool->ord_vtables[level].stride = dyn_vtable_stride_for_level(level);
+    pool->ord_vtables[level].ids = NULL;
+    pool->ord_vtables[level].count = 0u;
+  }
   pool->live_head = EPA_DYNAMIC_NULL;
   pool->live_tail = EPA_DYNAMIC_NULL;
   pool->free_head = EPA_DYNAMIC_NULL;
@@ -344,6 +409,9 @@ void epa_dynamic_pool_free(EpaDynamicPool *pool)
   free(pool->slots);
   free(pool->slot_data);
   free(pool->segments);
+  for (uint32_t level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
+    free(pool->ord_vtables[level].ids);
+  }
   memset(pool, 0, sizeof(*pool));
 }
 
@@ -382,6 +450,7 @@ int epa_dynamic_pool_alloc(EpaDynamicPool *pool, uint32_t *out_id, char err[256]
   slot->is_free = 0u;
   slot->is_live = 1u;
   if (!dyn_live_append(pool, id, err)) return 0;
+  if (!dyn_rebuild_ord_vtables(pool, err)) return 0;
   *out_id = id;
   return 1;
 }
@@ -406,6 +475,7 @@ int epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t id, char err[256])
   slot->is_live = 0u;
   slot->is_free = 1u;
   if (!dyn_free_prepend(pool, id, err)) return 0;
+  if (!dyn_rebuild_ord_vtables(pool, err)) return 0;
   return 1;
 }
 
@@ -503,7 +573,7 @@ int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32
     else pool->live_head = id_b;
     if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
     else pool->live_tail = id_a;
-    return 1;
+    return dyn_rebuild_ord_vtables(pool, err);
   }
   if (b_next == id_a) {
     b->prev_live = id_a;
@@ -514,7 +584,7 @@ int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32
     else pool->live_head = id_a;
     if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
     else pool->live_tail = id_b;
-    return 1;
+    return dyn_rebuild_ord_vtables(pool, err);
   }
 
   a->prev_live = b_prev;
@@ -530,6 +600,47 @@ int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32
   else pool->live_head = id_a;
   if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
   else pool->live_tail = id_a;
+  return dyn_rebuild_ord_vtables(pool, err);
+}
+
+int epa_dynamic_pool_live_id_at(const EpaDynamicPool *pool, uint32_t ordinal, uint32_t *out_id, char err[256])
+{
+  uint32_t level;
+  uint32_t base_ordinal = 0u;
+  uint32_t id = EPA_DYNAMIC_NULL;
+  if (!pool || !out_id) {
+    set_err(err, "epa_dynamic_pool_live_id_at: bad args");
+    return 0;
+  }
+  if (ordinal >= pool->active_count) {
+    set_err(err, "epa_dynamic_pool_live_id_at: ordinal out of range");
+    return 0;
+  }
+  id = pool->live_head;
+  for (level = EPA_DYNAMIC_VTABLE_LEVELS; level > 0u; level--) {
+    uint32_t idx = level - 1u;
+    uint32_t stride = pool->ord_vtables[idx].stride;
+    uint32_t entry = ordinal / stride;
+    if (entry == 0u) continue;
+    if (entry >= pool->ord_vtables[idx].count) {
+      set_err(err, "epa_dynamic_pool_live_id_at: ordinal vtable miss");
+      return 0;
+    }
+    id = pool->ord_vtables[idx].ids[entry];
+    base_ordinal = entry * stride;
+    break;
+  }
+  while (base_ordinal < ordinal) {
+    const EpaDynamicSlot *slot;
+    if (id == EPA_DYNAMIC_NULL || id >= pool->slot_count) {
+      set_err(err, "epa_dynamic_pool_live_id_at: broken live chain");
+      return 0;
+    }
+    slot = &pool->slots[id];
+    id = slot->next_live;
+    base_ordinal++;
+  }
+  *out_id = id;
   return 1;
 }
 
@@ -686,6 +797,24 @@ int epa_dynamic_pool_validate(const EpaDynamicPool *pool, char err[256])
     free(free_marks); free(live_marks);
     set_err(err, "epa_dynamic_pool_validate: last_present_segment mismatch");
     return 0;
+  }
+
+  for (i = 0; i < EPA_DYNAMIC_VTABLE_LEVELS; i++) {
+    uint32_t stride = pool->ord_vtables[i].stride;
+    uint32_t entry_count = (pool->active_count == 0u) ? 0u : ((pool->active_count - 1u) / stride + 1u);
+    uint32_t entry;
+    for (entry = 0; entry < entry_count; entry++) {
+      uint32_t expected = EPA_DYNAMIC_NULL;
+      if (!epa_dynamic_pool_live_id_at(pool, entry * stride, &expected, err)) {
+        free(free_marks); free(live_marks);
+        return 0;
+      }
+      if (entry >= pool->ord_vtables[i].count || pool->ord_vtables[i].ids[entry] != expected) {
+        free(free_marks); free(live_marks);
+        set_err(err, "epa_dynamic_pool_validate: ordinal vtable mismatch");
+        return 0;
+      }
+    }
   }
 
   free(free_marks);
