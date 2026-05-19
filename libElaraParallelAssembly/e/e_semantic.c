@@ -320,6 +320,40 @@ static int push_function_decl(ESemanticModel *model, const EFunction *fn) {
   return 1;
 }
 
+static const EDynamicPool *find_dynamic_pool(const ESemanticModel *model, const char *name) {
+  size_t i;
+  for (i = 0; i < model->dynamic_pool_count; i++) {
+    if (strcmp(model->dynamic_pools[i].name, name) == 0) return &model->dynamic_pools[i];
+  }
+  return NULL;
+}
+
+static int push_dynamic_pool(ESemanticModel *model, const EDynamicDecl *decl, size_t element_size) {
+  EDynamicPool *next;
+  next = (EDynamicPool*)realloc(model->dynamic_pools, sizeof(EDynamicPool) * (model->dynamic_pool_count + 1u));
+  if (!next) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  model->dynamic_pools = next;
+  memset(&model->dynamic_pools[model->dynamic_pool_count], 0, sizeof(EDynamicPool));
+  model->dynamic_pools[model->dynamic_pool_count].name = xstrdup_local(decl->name);
+  model->dynamic_pools[model->dynamic_pool_count].element_type_name = xstrdup_local(decl->element_type.name);
+  model->dynamic_pools[model->dynamic_pool_count].element_array_len = decl->element_type.array_len;
+  model->dynamic_pools[model->dynamic_pool_count].element_size = element_size;
+  model->dynamic_pools[model->dynamic_pool_count].min_free = decl->min_free;
+  model->dynamic_pools[model->dynamic_pool_count].max_free = decl->max_free;
+  model->dynamic_pools[model->dynamic_pool_count].grow_by = decl->grow_by;
+  model->dynamic_pools[model->dynamic_pool_count].header_word_count = 5u;
+  model->dynamic_pools[model->dynamic_pool_count].active_count_word = 0u;
+  model->dynamic_pools[model->dynamic_pool_count].free_count_word = 1u;
+  model->dynamic_pools[model->dynamic_pool_count].live_head_word = 2u;
+  model->dynamic_pools[model->dynamic_pool_count].live_tail_word = 3u;
+  model->dynamic_pools[model->dynamic_pool_count].free_head_word = 4u;
+  model->dynamic_pool_count++;
+  return 1;
+}
+
 static int collect_validators(const EProgram *program, ESemanticModel *model, char err[256]) {
   size_t i;
   for (i = 0; i < program->count; i++) {
@@ -431,6 +465,7 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
       case E_TOP_STRUCT:
       case E_TOP_TYPE:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
   }
@@ -445,6 +480,48 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
     return 0;
   }
 
+  return 1;
+}
+
+static int collect_dynamic_pools(const EProgram *program, ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    size_t element_size;
+    if (top->kind != E_TOP_DYNAMIC) continue;
+    if (find_dynamic_pool(model, top->as.dynamic_decl.name)) {
+      snprintf(err, 256, "duplicate dynamic pool '%s'", top->as.dynamic_decl.name);
+      return 0;
+    }
+    if (find_validator(model, top->as.dynamic_decl.name) || find_type_layout(model, top->as.dynamic_decl.name)) {
+      snprintf(err, 256, "dynamic pool '%s' collides with an existing type name", top->as.dynamic_decl.name);
+      return 0;
+    }
+    if (top->as.dynamic_decl.element_type.union_count != 0u) {
+      snprintf(err, 256, "dynamic pool '%s' element type cannot be a union", top->as.dynamic_decl.name);
+      return 0;
+    }
+    if (top->as.dynamic_decl.min_free > top->as.dynamic_decl.max_free) {
+      snprintf(err, 256, "dynamic pool '%s' min_free cannot exceed max_free", top->as.dynamic_decl.name);
+      return 0;
+    }
+    if (top->as.dynamic_decl.grow_by == 0u) {
+      snprintf(err, 256, "dynamic pool '%s' grow_by must be greater than zero", top->as.dynamic_decl.name);
+      return 0;
+    }
+    element_size = type_ref_size(model, &top->as.dynamic_decl.element_type, err);
+    if (element_size == 0u &&
+        top->as.dynamic_decl.element_type.array_len == 0u &&
+        primitive_size(top->as.dynamic_decl.element_type.name) == 0u &&
+        !find_type_layout(model, top->as.dynamic_decl.element_type.name)) {
+      return 0;
+    }
+    if (element_size == 0u) {
+      snprintf(err, 256, "dynamic pool '%s' element type must have non-zero inline size", top->as.dynamic_decl.name);
+      return 0;
+    }
+    push_dynamic_pool(model, &top->as.dynamic_decl, element_size);
+  }
   return 1;
 }
 
@@ -822,6 +899,7 @@ static int validate_loop_control_usage(const EProgram *program, char err[256]) {
       case E_TOP_TYPE: body = top->as.tdecl.body; break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
     if (body && !validate_loop_control_in_stmt(body, 0, 0, err)) return 0;
@@ -1106,6 +1184,7 @@ static int validate_typeof_typeid_usage(const EProgram *program, const ESemantic
       case E_TOP_TYPE: body = top->as.tdecl.body; break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
     if (body && !validate_typeof_typeid_usage_in_stmt(body, model, err)) return 0;
@@ -1145,6 +1224,7 @@ static int validate_kernel_get_ghs_usage(const EProgram *program, const ESemanti
         break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
 
@@ -1192,6 +1272,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
       case E_TOP_STRUCT:
       case E_TOP_FUNCTION:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
 
@@ -1226,6 +1307,11 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!collect_type_layouts(program, out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
+
+  if (!collect_dynamic_pools(program, out_model, err)) {
     e_semantic_model_free(out_model);
     return 0;
   }
@@ -1298,6 +1384,11 @@ void e_semantic_model_free(ESemanticModel *model) {
   free(model->frames);
   free(model->workers);
   free(model->functions);
+  for (i = 0; i < model->dynamic_pool_count; i++) {
+    free(model->dynamic_pools[i].name);
+    free(model->dynamic_pools[i].element_type_name);
+  }
+  free(model->dynamic_pools);
   model->kernel = NULL;
   model->validators = NULL;
   model->type_layouts = NULL;
@@ -1305,6 +1396,7 @@ void e_semantic_model_free(ESemanticModel *model) {
   model->frames = NULL;
   model->workers = NULL;
   model->functions = NULL;
+  model->dynamic_pools = NULL;
   model->kernel_count = 0;
   model->worker_count = 0;
   model->function_count = 0;
@@ -1312,6 +1404,7 @@ void e_semantic_model_free(ESemanticModel *model) {
   model->type_layout_count = 0;
   model->check_count = 0;
   model->frame_count = 0;
+  model->dynamic_pool_count = 0;
 }
 
 static const char *check_kind_name(EParamValidationKind kind) {
@@ -1356,6 +1449,29 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
   fprintf(out, "  functions count=%zu\n", model->function_count);
   for (i = 0; i < model->function_count; i++) {
     fprintf(out, "    function %s\n", model->functions[i]->name);
+  }
+  fprintf(out, "  dynamics count=%zu\n", model->dynamic_pool_count);
+  for (i = 0; i < model->dynamic_pool_count; i++) {
+    fprintf(out, "    dynamic %s element=%s",
+            model->dynamic_pools[i].name,
+            model->dynamic_pools[i].element_type_name);
+    if (model->dynamic_pools[i].element_array_len != 0u) {
+      fprintf(out, "[%u]", model->dynamic_pools[i].element_array_len);
+    }
+    fprintf(out, " element_size=%zu min_free=%u max_free=%u grow_by=%u maintenance=round-start replenish_to_min_free use_scope=entire-round\n",
+            model->dynamic_pools[i].element_size,
+            model->dynamic_pools[i].min_free,
+            model->dynamic_pools[i].max_free,
+            model->dynamic_pools[i].grow_by);
+    fprintf(out, "      header words=%u active_count@%u free_count@%u live_head@%u live_tail@%u free_head@%u\n",
+            model->dynamic_pools[i].header_word_count,
+            model->dynamic_pools[i].active_count_word,
+            model->dynamic_pools[i].free_count_word,
+            model->dynamic_pools[i].live_head_word,
+            model->dynamic_pools[i].live_tail_word,
+            model->dynamic_pools[i].free_head_word);
+    fputs("      note new capacity is prepended at free_head, so grow never traverses the free list tail\n", out);
+    fputs("      note live_tail is maintained in the main header for O(1) append to the active list\n", out);
   }
 
   fputs("validator-manifest\n", out);

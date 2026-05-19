@@ -3,6 +3,7 @@
 #include <stddef.h>
 
 #include "../memory/epa_ring_buffer.h"
+#include "../memory/epa_dynamic_pool.h"
 #include "epa_vm.h"
 
 #define EPA_MAX_WORKERS 256
@@ -34,6 +35,12 @@ typedef struct {
 } EpaAtCtx;
 
 typedef enum { EPA_EXEC_WORKER=0, EPA_EXEC_THREAD=1 } EpaExecType;
+
+typedef struct {
+  uint32_t min_free;
+  uint32_t max_free;
+  uint32_t grow_by;
+} EpaDynamicPoolConfig;
 
 typedef struct {
   EpaExecType exec_type;
@@ -68,6 +75,9 @@ typedef struct {
   uint8_t  *signal_mailbox;      // A block of memory for passing data directly to the container via a signal interupt
   epa_ghs_handle_t current_ghs;  // Stable current ingress GHS for kernel-side inspection
 
+  EpaDynamicPool *dynamic_pools;
+  uint32_t dynamic_pool_count;
+
 } EpaWorkerState;
 
 
@@ -79,3 +89,8 @@ int  epa_worker_init(EpaWorkerState *w, uint32_t block_id,
 
 void epa_worker_free(EpaWorkerState *w);
 void epa_worker_reset(EpaWorkerState *w);
+int  epa_worker_configure_dynamic_pools(EpaWorkerState *w,
+                                        const EpaDynamicPoolConfig *configs,
+                                        uint32_t config_count,
+                                        char err[EPA_MAX_ERR]);
+int  epa_worker_round_enter(EpaWorkerState *w, char err[EPA_MAX_ERR]);

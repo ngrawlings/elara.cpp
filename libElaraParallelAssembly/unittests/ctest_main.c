@@ -25,6 +25,8 @@ void ctest_register_test_hf_mapping_variants(void);
 void ctest_register_test_hf_loader_phi3_minimal(void);
 void ctest_register_test_hf_dump_state(void);
 void ctest_register_test_hf_lazy_loading(void);
+void ctest_register_test_dynamic_pool_fuzz(void);
+void ctest_register_test_dynamic_pool_runtime(void);
 
 typedef void (*ctest_reg_fn)(void);
 
@@ -57,6 +59,8 @@ static const struct {
                                       ctest_register_test_hf_loader_phi3_minimal },
     { "test_hf_dump_state.c",        ctest_register_test_hf_dump_state    },
 	{ "test_hf_lazy_loading.c",     ctest_register_test_hf_lazy_loading }
+   ,{ "test_dynamic_pool_fuzz.c",   ctest_register_test_dynamic_pool_fuzz }
+   ,{ "test_dynamic_pool_runtime.c", ctest_register_test_dynamic_pool_runtime }
 
 };
 

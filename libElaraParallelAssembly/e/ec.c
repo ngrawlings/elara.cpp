@@ -41,6 +41,7 @@ static void dump_templates(FILE *out, const EProgram *prog) {
         break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
 

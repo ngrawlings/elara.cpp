@@ -230,6 +230,7 @@ void epa_program_free(EpaProgramDesc *p) {
   if (!p) return;
   free(p->consts);
   free(p->funcs);
+  free(p->dynamic_pools);
   memset(p, 0, sizeof(*p));
 }
 
@@ -313,6 +314,47 @@ int epa_program_parse(
       out->signal_mailbox_size[id] = signal_mail_box_size;
 
       pc = pc_after;
+      continue;
+    }
+
+    if (op == EPA_OP_DYNAMIC_POOL) {
+      uint32_t pool_id = EPA_READ_U32_LE(blob, pc + 2);
+      uint32_t min_free = EPA_READ_U32_LE(blob, pc + 6);
+      uint32_t max_free = EPA_READ_U32_LE(blob, pc + 10);
+      uint32_t grow_by = EPA_READ_U32_LE(blob, pc + 14);
+      size_t i;
+      EpaProgramDynamicPoolDesc *np;
+
+      if (grow_by == 0u) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: DYNAMIC_POOL pool_id=%u has grow_by=0", (unsigned)pool_id);
+        return 0;
+      }
+      if (min_free > max_free) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: DYNAMIC_POOL pool_id=%u has min_free > max_free", (unsigned)pool_id);
+        return 0;
+      }
+      for (i = 0; i < out->dynamic_pool_count; i++) {
+        if (out->dynamic_pools[i].pool_id == pool_id) {
+          snprintf(err, EPA_MAX_ERR, "program_loader: duplicate DYNAMIC_POOL pool_id=%u", (unsigned)pool_id);
+          return 0;
+        }
+      }
+
+      np = (EpaProgramDynamicPoolDesc*)realloc(
+          out->dynamic_pools,
+          (out->dynamic_pool_count + 1u) * sizeof(EpaProgramDynamicPoolDesc));
+      if (!np) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: OOM growing dynamic pool table");
+        return 0;
+      }
+      out->dynamic_pools = np;
+      out->dynamic_pools[out->dynamic_pool_count].pool_id = pool_id;
+      out->dynamic_pools[out->dynamic_pool_count].min_free = min_free;
+      out->dynamic_pools[out->dynamic_pool_count].max_free = max_free;
+      out->dynamic_pools[out->dynamic_pool_count].grow_by = grow_by;
+      out->dynamic_pool_count++;
+
+      pc += need;
       continue;
     }
 

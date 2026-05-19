@@ -712,6 +712,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"ENTRY_END",  EPA_OP_ENTRY_END,             0,0, 0,{0}, NULL, "ENTRY_END takes no params"},
     {"ENTRY_EXEC", EPA_OP_ENTRY_EXEC,            1,1, 1,{AK_U8}, NULL, "ENTRY_EXEC <worker_id:u8>"},
     {"ENTRY_HALT", EPA_OP_ENTRY_HALT,            1,1, 1,{AK_U8}, NULL, "ENTRY_HALT <worker_id:u8>"},
+    {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         4,4, 4,{AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
     {"SYNC",       EPA_OP_SYNC,                  0,0, 0,{0}, NULL, "SYNC takes no params"},
     {"WAIT_ON_SYNC",EPA_OP_WAIT_ON_SYNC,         0,0, 0,{0}, NULL, "WAIT_ON_SYNC takes no params"},
 

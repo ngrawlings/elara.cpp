@@ -34,6 +34,7 @@ X(ENTRY_START,    0x0120u, "ENTRY_START",  12) // Begin kernel/worker block (id,
 X(ENTRY_END,      0x0121u, "ENTRY_END",    0) // End entry block definition
 X(ENTRY_EXEC,     0x0122u, "ENTRY_EXEC",   1) // Execute worker by id (u8 wid)
 X(ENTRY_HALT,     0x0123u, "ENTRY_HALT",   1) // Halt worker by id (u8 wid)
+X(DYNAMIC_POOL,   0x0124u, "DYNAMIC_POOL", 16) // Program-level dynamic pool manifest (pool_id, min_free, max_free, grow_by)
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker
 X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives

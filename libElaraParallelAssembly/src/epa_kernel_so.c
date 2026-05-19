@@ -334,6 +334,8 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
 }
 
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {
+  EpaDynamicPoolConfig dynamic_cfgs[256];
+  uint32_t dynamic_cfg_count = 0u;
   // wipe old workers and reset active-worker linked list
   for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) {
     if (k->workers[i].inited) epa_worker_free(&k->workers[i]);
@@ -346,6 +348,16 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
   // tail tracks the last inserted wid for O(1) append.
   // IDs are scanned in ascending order so each new wid > tail.
   uint32_t tail = EPA_MAX_WORKERS;
+
+  if (prog->dynamic_pool_count > 256u) {
+    snprintf(err, EPA_MAX_ERR, "too many dynamic pools in program manifest: %zu", prog->dynamic_pool_count);
+    return 0;
+  }
+  for (dynamic_cfg_count = 0; dynamic_cfg_count < (uint32_t)prog->dynamic_pool_count; dynamic_cfg_count++) {
+    dynamic_cfgs[dynamic_cfg_count].min_free = prog->dynamic_pools[dynamic_cfg_count].min_free;
+    dynamic_cfgs[dynamic_cfg_count].max_free = prog->dynamic_pools[dynamic_cfg_count].max_free;
+    dynamic_cfgs[dynamic_cfg_count].grow_by = prog->dynamic_pools[dynamic_cfg_count].grow_by;
+  }
 
   for (uint32_t id = 0; id < 256; id++) {
     if (!prog->entry_present[id]) continue;
@@ -362,6 +374,9 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     uint32_t signal_mailbox_size = (uint32_t)prog->signal_mailbox_size[id];
 
     if (!epa_worker_init(&k->workers[id], id, body_start, body_end, in_words, out_words, signal_mailbox_size, err)) {
+      return 0;
+    }
+    if (!epa_worker_configure_dynamic_pools(&k->workers[id], dynamic_cfgs, dynamic_cfg_count, err)) {
       return 0;
     }
 
@@ -625,6 +640,7 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
 
   // Wake worker ONLY if it was explicitly waiting for data
   if (dst->waiting_for_data) {
+    if (!epa_worker_round_enter(dst, err)) return 0;
     dst->waiting_for_data = 0;
     dst->blocked = 0;
   }
@@ -692,6 +708,7 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
 
   // Wake worker ONLY if it was explicitly waiting for data
   if (dst->waiting_for_data) {
+    if (!epa_worker_round_enter(dst, err)) return 1;
     dst->waiting_for_data = 0;
     dst->blocked = 0;
   }

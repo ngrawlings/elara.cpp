@@ -637,6 +637,33 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       continue;
     }
 
+    if (match(&p, E_TOK_KW_DYNAMIC)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
+      top.kind = E_TOP_DYNAMIC;
+      if (!expect(&p, E_TOK_IDENT, "expected dynamic pool name")) return 0;
+      top.as.dynamic_decl.name = xstrdup_local(tokens->items[p.pos - 1].text);
+      if (!expect(&p, E_TOK_LPAREN, "expected '(' after dynamic pool name")) return 0;
+      if (!parse_type(&p, &top.as.dynamic_decl.element_type)) return 0;
+      if (!expect(&p, E_TOK_COMMA, "expected ',' after dynamic element type")) return 0;
+      if (peek(&p)->kind != E_TOK_INT_LIT) return set_err(&p, "expected min_free integer", peek(&p));
+      top.as.dynamic_decl.min_free = (unsigned int)strtoul(peek(&p)->text, NULL, 10);
+      p.pos++;
+      if (!expect(&p, E_TOK_COMMA, "expected ',' after dynamic min_free")) return 0;
+      if (peek(&p)->kind != E_TOK_INT_LIT) return set_err(&p, "expected max_free integer", peek(&p));
+      top.as.dynamic_decl.max_free = (unsigned int)strtoul(peek(&p)->text, NULL, 10);
+      p.pos++;
+      if (!expect(&p, E_TOK_COMMA, "expected ',' after dynamic max_free")) return 0;
+      if (peek(&p)->kind != E_TOK_INT_LIT) return set_err(&p, "expected grow_by integer", peek(&p));
+      top.as.dynamic_decl.grow_by = (unsigned int)strtoul(peek(&p)->text, NULL, 10);
+      p.pos++;
+      if (!expect(&p, E_TOK_RPAREN, "expected ')' after dynamic declaration")) return 0;
+      if (!expect(&p, E_TOK_SEMI, "expected ';' after dynamic declaration")) return 0;
+      top_push(out_program, &top);
+      continue;
+    }
+
     if (match(&p, E_TOK_KW_STRUCT)) {
       if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
         return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));

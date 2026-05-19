@@ -196,6 +196,14 @@ typedef struct {
   unsigned int value;
 } EDeclareDecl;
 
+typedef struct {
+  char *name;
+  ETypeRef element_type;
+  unsigned int min_free;
+  unsigned int max_free;
+  unsigned int grow_by;
+} EDynamicDecl;
+
 typedef enum {
   E_TOP_STRUCT = 1,
   E_TOP_KERNEL,
@@ -203,6 +211,7 @@ typedef enum {
   E_TOP_FUNCTION,
   E_TOP_TYPE,
   E_TOP_DECLARE,
+  E_TOP_DYNAMIC,
 } ETopKind;
 
 typedef struct {
@@ -214,6 +223,7 @@ typedef struct {
     EFunction func;
     ETypeDecl tdecl;
     EDeclareDecl declare_decl;
+    EDynamicDecl dynamic_decl;
   } as;
 } ETopDecl;
 

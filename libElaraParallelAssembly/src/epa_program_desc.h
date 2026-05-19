@@ -37,6 +37,12 @@ typedef struct {
   uint32_t b;       // meaning depends on kind (len / high bits / value)
 } EpaConst;
 
+typedef struct {
+  uint32_t pool_id;
+  uint32_t min_free;
+  uint32_t max_free;
+  uint32_t grow_by;
+} EpaProgramDynamicPoolDesc;
 
 typedef struct {
   EpaCodeView entries[256];   // entry slots (present -> code_len > 0)
@@ -52,6 +58,9 @@ typedef struct {
 
   EpaFuncDesc *funcs;         // dense
   size_t nfuncs;
+
+  EpaProgramDynamicPoolDesc *dynamic_pools;
+  size_t dynamic_pool_count;
 
   // ---- NEW: backing image for absolute offsets (DATA_BLOCK strings/bytes) ----
   const uint8_t *image_base;   // caller-owned; must remain alive

@@ -244,6 +244,7 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
       case E_TOP_TYPE: collect_strings_in_stmt(ctx, top->as.tdecl.body); break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
         break;
     }
   }
@@ -1265,6 +1266,43 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
       }
       case E_TOP_DECLARE:
         break;
+      case E_TOP_DYNAMIC:
+        fprintf(out, "; dynamic %s element=%s",
+                top->as.dynamic_decl.name,
+                top->as.dynamic_decl.element_type.name);
+        if (top->as.dynamic_decl.element_type.array_len != 0u) {
+          fprintf(out, "[%u]", top->as.dynamic_decl.element_type.array_len);
+        }
+        fprintf(out, " min_free=%u max_free=%u grow_by=%u maintenance=round-start replenish_to_min_free use_scope=entire-round\n",
+                top->as.dynamic_decl.min_free,
+                top->as.dynamic_decl.max_free,
+                top->as.dynamic_decl.grow_by);
+        {
+          size_t di;
+          for (di = 0; di < model->dynamic_pool_count; di++) {
+            if (strcmp(model->dynamic_pools[di].name, top->as.dynamic_decl.name) == 0) {
+              fprintf(out, ";   manifest element_size=%zu segmented-slot-pool pending-runtime\n\n",
+                      model->dynamic_pools[di].element_size);
+              fprintf(out, ";   header words=%u active_count@%u free_count@%u live_head@%u live_tail@%u free_head@%u\n",
+                      model->dynamic_pools[di].header_word_count,
+                      model->dynamic_pools[di].active_count_word,
+                      model->dynamic_pools[di].free_count_word,
+                      model->dynamic_pools[di].live_head_word,
+                      model->dynamic_pools[di].live_tail_word,
+                      model->dynamic_pools[di].free_head_word);
+              fputs(";   grow policy: prepend new capacity onto free_head\n", out);
+              fputs(";   append policy: use live_tail in main header for O(1) live append\n\n", out);
+              fprintf(out, "DYNAMIC_POOL %zu %u %u %u\n\n",
+                      di,
+                      model->dynamic_pools[di].min_free,
+                      model->dynamic_pools[di].max_free,
+                      model->dynamic_pools[di].grow_by);
+              break;
+            }
+          }
+          if (di == model->dynamic_pool_count) fputc('\n', out);
+        }
+        break;
       case E_TOP_KERNEL:
         fputs("; kernel entry\n", out);
         fprintf(out, "ENTRY_START 0 %u %u %u\n",
@@ -1339,6 +1377,12 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           fputs("WORKER_TRX_IN_R 0\n", out);
           emit_indent(out, 1);
           fputs("WORKER_TRX_IN_R 1\n", out);
+          emit_indent(out, 1);
+          fputs("; dynamic pool round-start maintenance prelude runs here\n", out);
+          emit_indent(out, 1);
+          fputs("; rule: replenish free slots up to min_free here, then allocations may consume them anywhere in this round\n", out);
+          emit_indent(out, 1);
+          fputs("; rule: no implicit mid-round growth; worker code uses only the prepared free capacity\n", out);
           emit_indent(out, 1);
           fputs("; E worker body begins after ingress wake-up\n", out);
           emit_stmt(out, top->as.worker.body, &ctx, 1, NULL, NULL);

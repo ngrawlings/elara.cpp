@@ -147,6 +147,10 @@ void e_program_free(EProgram *p) {
         break;
       case E_TOP_DECLARE:
         break;
+      case E_TOP_DYNAMIC:
+        free(d->as.dynamic_decl.name);
+        free_type_ref(&d->as.dynamic_decl.element_type);
+        break;
     }
   }
   free(p->items);
@@ -456,6 +460,14 @@ void e_program_dump(FILE *out, const EProgram *p) {
             fprintf(out, "declare default_signal_mail_box_size %u\n", d->as.declare_decl.value);
             break;
         }
+        break;
+      case E_TOP_DYNAMIC:
+        fprintf(out, "dynamic %s(", d->as.dynamic_decl.name);
+        dump_type_ref(out, &d->as.dynamic_decl.element_type);
+        fprintf(out, ", %u, %u, %u);\n",
+                d->as.dynamic_decl.min_free,
+                d->as.dynamic_decl.max_free,
+                d->as.dynamic_decl.grow_by);
         break;
     }
   }

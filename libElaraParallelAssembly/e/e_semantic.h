@@ -84,6 +84,22 @@ typedef struct ELocalBinding {
 } ELocalBinding;
 
 typedef struct {
+  char *name;
+  char *element_type_name;
+  unsigned int element_array_len;
+  size_t element_size;
+  unsigned int min_free;
+  unsigned int max_free;
+  unsigned int grow_by;
+  unsigned int header_word_count;
+  unsigned int active_count_word;
+  unsigned int free_count_word;
+  unsigned int live_head_word;
+  unsigned int live_tail_word;
+  unsigned int free_head_word;
+} EDynamicPool;
+
+typedef struct {
   const EKernel *kernel;
   size_t kernel_count;
   unsigned int default_in_words;
@@ -107,6 +123,9 @@ typedef struct {
 
   EFunctionFrame *frames;
   size_t frame_count;
+
+  EDynamicPool *dynamic_pools;
+  size_t dynamic_pool_count;
 } ESemanticModel;
 
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]);

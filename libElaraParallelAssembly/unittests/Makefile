@@ -19,10 +19,11 @@ OBJ_DIR      := $(BUILD_DIR)
 
 UNIT_RUNNER  := $(BUILD_DIR)/epa_unit_runner
 CTEST_RUNNER := $(BUILD_DIR)/ctest_runner
+DYNAMIC_FUZZ_RUNNER := $(BUILD_DIR)/dynamic_fuzz_runner
 
-.PHONY: all unit_runner ctests clean-unit clean-ctests clean print-core print-objs isa-lint
+.PHONY: all unit_runner ctests dynamic-fuzz clean-unit clean-ctests clean print-core print-objs isa-lint
 
-all: isa-lint unit_runner ctests
+all: isa-lint unit_runner ctests dynamic-fuzz
 
 isa-lint:
 	$(PYTHON) $(ROOT_DIR)/scripts/isa_lint.py
@@ -51,10 +52,18 @@ CTEST_TOOL_SRCS := \
 	$(TOOLS_DIR)/ctest_main.c \
 	$(TOOLS_DIR)/ctest_registry.c
 
-CTEST_SRCS := $(CTEST_TOOL_SRCS) $(CTEST_FILES)
+DYNAMIC_FUZZ_SRCS := \
+	$(TOOLS_DIR)/dynamic_fuzz_runner.c \
+	$(TOOLS_DIR)/dynamic_pool_fuzz_model.c \
+	$(SRC_DIR)/memory/epa_dynamic_pool.c
+
+CTEST_SRCS := $(CTEST_TOOL_SRCS) $(CTEST_FILES) $(TOOLS_DIR)/dynamic_pool_fuzz_model.c
 
 # CORE sources (includes at_state + weights/*)
 EPA_CORE_NAMES := \
+	epa_asm_compiler.c \
+	epa_program_loader.c \
+	memory/epa_dynamic_pool.c \
 	memory/epa_ring_buffer.c \
 	memory/epa_stack.c \
 	memory/epa_ghs.c \
@@ -90,6 +99,7 @@ endif
 # ---- Object paths mirror repo layout under build/unittests/ ----
 CTEST_OBJS := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(CTEST_SRCS))
 EPA_OBJS   := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(EPA_CORE_SRCS))
+DYNAMIC_FUZZ_OBJS := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(DYNAMIC_FUZZ_SRCS))
 
 # --- Explicit rules for tool objects (fixes your exact failure) ---
 $(OBJ_DIR)/unittests/ctest_main.o: $(TOOLS_DIR)/ctest_main.c | $(OBJ_DIR)
@@ -106,9 +116,13 @@ $(OBJ_DIR)/%.o: $(ROOT_DIR)/%.c | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
 
 ctests: isa-lint $(CTEST_RUNNER)
+dynamic-fuzz: isa-lint $(DYNAMIC_FUZZ_RUNNER)
 
 $(CTEST_RUNNER): $(CTEST_OBJS) $(EPA_OBJS) | $(OBJ_DIR)
 	$(CC) $(CFLAGS) -o $@ $(CTEST_OBJS) $(EPA_OBJS) $(LDFLAGS) $(LDLIBS)
+
+$(DYNAMIC_FUZZ_RUNNER): $(DYNAMIC_FUZZ_OBJS) | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -o $@ $(DYNAMIC_FUZZ_OBJS) $(LDFLAGS) $(LDLIBS)
 
 print-core:
 	@echo "EPA_CORE_SRCS:"
@@ -127,7 +141,7 @@ clean-unit:
 	@rm -f $(UNIT_RUNNER)
 
 clean-ctests:
-	@rm -f $(CTEST_RUNNER)
+	@rm -f $(CTEST_RUNNER) $(DYNAMIC_FUZZ_RUNNER)
 	@rm -rf $(OBJ_DIR)/unittests $(OBJ_DIR)/src
 
 clean: clean-unit clean-ctests

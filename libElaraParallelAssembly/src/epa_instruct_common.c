@@ -356,6 +356,9 @@ EpaFlowRc epa_flow_step(
       }
 
       if (epa_ring_count(&w->inq) > 0u) {
+        if (!epa_worker_round_enter(w, err)) {
+          return EPA_FLOW_ERR;
+        }
         w->waiting_for_data = 0;
         w->blocked = 0;
         eip->rel_pc = (uint32_t)(pc + need);

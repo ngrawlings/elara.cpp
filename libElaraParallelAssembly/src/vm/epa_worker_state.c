@@ -5,6 +5,17 @@
 
 #include "epa_vm.h"
 
+static void worker_free_dynamic_pools(EpaWorkerState *w) {
+  uint32_t i;
+  if (!w || !w->dynamic_pools) return;
+  for (i = 0; i < w->dynamic_pool_count; i++) {
+    epa_dynamic_pool_free(&w->dynamic_pools[i]);
+  }
+  free(w->dynamic_pools);
+  w->dynamic_pools = NULL;
+  w->dynamic_pool_count = 0u;
+}
+
 int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
                     uint32_t body_start_pc, uint32_t body_end_pc,
                     uint32_t in_words, uint32_t out_words, uint32_t signal_mailbox_size,
@@ -66,6 +77,7 @@ void epa_worker_free(EpaWorkerState *w) {
   epa_ring_free(&w->inq);
   epa_ring_free(&w->outq);
   epa_vm_free(&w->vm);
+  worker_free_dynamic_pools(w);
 
   free(w->vm.lbytes);
   w->vm.lbytes = NULL;
@@ -108,4 +120,69 @@ void epa_worker_reset(EpaWorkerState *w) {
 
   // Preserve current E worker model on reset as well.
   w->blocked = 0;
+}
+
+int epa_worker_configure_dynamic_pools(EpaWorkerState *w,
+                                       const EpaDynamicPoolConfig *configs,
+                                       uint32_t config_count,
+                                       char err[EPA_MAX_ERR]) {
+  uint32_t i;
+  EpaDynamicPool *pools = NULL;
+  if (err) err[0] = 0;
+  if (!w || !w->inited) {
+    snprintf(err, EPA_MAX_ERR, "worker dynamic config: worker not initialized");
+    return 0;
+  }
+
+  worker_free_dynamic_pools(w);
+  if (config_count == 0u) return 1;
+  if (!configs) {
+    snprintf(err, EPA_MAX_ERR, "worker dynamic config: null configs");
+    return 0;
+  }
+
+  pools = (EpaDynamicPool*)calloc(config_count, sizeof(EpaDynamicPool));
+  if (!pools) {
+    snprintf(err, EPA_MAX_ERR, "worker dynamic config: OOM");
+    return 0;
+  }
+
+  for (i = 0; i < config_count; i++) {
+    if (!epa_dynamic_pool_init(&pools[i],
+                               configs[i].min_free,
+                               configs[i].max_free,
+                               configs[i].grow_by,
+                               err)) {
+      uint32_t j;
+      for (j = 0; j < i; j++) epa_dynamic_pool_free(&pools[j]);
+      free(pools);
+      return 0;
+    }
+  }
+
+  w->dynamic_pools = pools;
+  w->dynamic_pool_count = config_count;
+  return 1;
+}
+
+int epa_worker_round_enter(EpaWorkerState *w, char err[EPA_MAX_ERR]) {
+  uint32_t i;
+  if (err) err[0] = 0;
+  if (!w || !w->inited) {
+    snprintf(err, EPA_MAX_ERR, "worker round enter: worker not initialized");
+    return 0;
+  }
+  for (i = 0; i < w->dynamic_pool_count; i++) {
+    if (!epa_dynamic_pool_round_enter(&w->dynamic_pools[i], err)) {
+      if (err && err[0]) {
+        char local[EPA_MAX_ERR];
+        snprintf(local, sizeof(local), "worker %u dynamic pool %u: %s",
+                 (unsigned)w->id, (unsigned)i, err);
+        strncpy(err, local, EPA_MAX_ERR - 1u);
+        err[EPA_MAX_ERR - 1u] = 0;
+      }
+      return 0;
+    }
+  }
+  return 1;
 }
