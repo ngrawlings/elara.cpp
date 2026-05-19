@@ -247,24 +247,8 @@ static ProjectedRectState projectWallRect(
 
 static CalibrationProjectionState projectCalibrationScene(const SceneViewState &input) {
     CalibrationProjectionState projection;
-    SceneViewState scene = clampSceneViewState(input);
-    projection.end_wall = projectWallRect(
-        scene,
-        -640.0, -180.0, 3072.0,
-         640.0, -180.0, 3072.0,
-         640.0,  320.0, 3072.0,
-        -640.0,  320.0, 3072.0
-    );
-    projection.side_wall = projectWallRect(
-        scene,
-         896.0, -180.0, 1600.0,
-         896.0, -180.0, 3000.0,
-         896.0,  320.0, 3000.0,
-         896.0,  320.0, 1600.0
-    );
-    projection.marker0 = projectWorldPoint(scene, 0.0, -256.0, 2048.0);
-    projection.marker1 = projectWorldPoint(scene, 0.0, 0.0, 2048.0);
-    projection.marker2 = projectWorldPoint(scene, 0.0, 256.0, 2048.0);
+    (void)input;
+    memset(&projection, 0, sizeof(projection));
     return projection;
 }
 
