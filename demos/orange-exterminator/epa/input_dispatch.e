@@ -6,7 +6,8 @@
 // - output toward gameplay rules and UI kernels
 
 kernel(VM vm) {
-  while (kernel_wait_signal()) {
+  int wid = 0;
+  while (wid = kernel_wait_signal()) {
     // Coordinator only for now.
   }
 }

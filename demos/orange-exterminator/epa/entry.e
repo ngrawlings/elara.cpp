@@ -9,7 +9,8 @@
 kernel(VM vm) {
   request_threads(3);
 
-  while (kernel_wait_signal()) {
+  int wid = 0;
+  while (wid = kernel_wait_signal()) {
     // Coordinator only for now.
   }
 }

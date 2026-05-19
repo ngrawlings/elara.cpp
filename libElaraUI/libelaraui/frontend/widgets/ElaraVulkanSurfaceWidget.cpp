@@ -1101,6 +1101,7 @@ void ElaraVulkanSurfaceWidget::addClear(double red, double green, double blue) {
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::CLEAR));
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
+    command_revision++;
 }
 
 void ElaraVulkanSurfaceWidget::addRect(double x, double y, double w, double h, double red, double green, double blue) {
@@ -1109,6 +1110,7 @@ void ElaraVulkanSurfaceWidget::addRect(double x, double y, double w, double h, d
     cmd->x0 = x; cmd->y0 = y; cmd->x1 = w; cmd->y1 = h;
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
+    command_revision++;
 }
 
 void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y1, double red, double green, double blue) {
@@ -1117,6 +1119,7 @@ void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y
     cmd->x0 = x0; cmd->y0 = y0; cmd->x1 = x1; cmd->y1 = y1;
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
+    command_revision++;
 }
 
 void ElaraVulkanSurfaceWidget::addText(double x, double y, const String& value, double size, double red, double green, double blue) {
@@ -1126,6 +1129,7 @@ void ElaraVulkanSurfaceWidget::addText(double x, double y, const String& value, 
     cmd->text = value;
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
+    command_revision++;
 }
 
 void ElaraVulkanSurfaceWidget::setBackendId(const String& value) { backend_id = value; }
@@ -1251,6 +1255,7 @@ void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
 void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
     unsigned long current_revision = 0;
     int current_count = 0;
+    bool revision_changed = false;
     {
         Mutex::Lock lock(commands_mutex);
         current_revision = command_revision;
@@ -1261,22 +1266,33 @@ void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
         }
     }
 
-    drawCpuCommands(ctx);
+    if(width <= 0 || height <= 0) {
+        execution_status = "Vulkan skipped: invalid widget bounds";
+        pixel_buffer.clear();
+    } else if(renderVulkan(width, height) && !pixel_buffer.empty()) {
+        ctx->drawBitmapRgba(0, 0, width, height, &pixel_buffer[0], width * 4);
+    } else {
+        pixel_buffer.clear();
+    }
 
     Mutex::Lock lock(commands_mutex);
     if(commands.length() <= 0) {
         drawEmptyState(ctx);
         return;
     }
-    if(drawn_revision != command_revision) {
-        printf("[vulkan-surface] drawCanvas applying revision=%lu command_count=%d size=%dx%d\n",
+    revision_changed = (drawn_revision != command_revision);
+    drawn_revision = command_revision;
+
+    if(revision_changed || width <= 1 || height <= 1) {
+        printf("[vulkan-surface] drawCanvas revision=%lu command_count=%d size=%dx%d status=%s path=%s\n",
                command_revision,
                (int)commands.length(),
                width,
-               height);
+               height,
+               (const char*)execution_status,
+               pixel_buffer.empty() ? "cpu" : "vulkan");
         fflush(stdout);
     }
-    drawn_revision = command_revision;
 
     for(int i = 0; i < (int)commands.length(); i++) {
         Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];

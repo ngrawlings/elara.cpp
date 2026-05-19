@@ -18,6 +18,7 @@ namespace rpc {
 class OrangeExterminatorApp {
 public:
     OrangeExterminatorApp(const String &host, int port);
+    ~OrangeExterminatorApp();
     int run();
     void enqueueKeyDown(unsigned int keyval);
     void updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len);
@@ -85,6 +86,7 @@ private:
     void closeTraceArtifact();
     void traceLine(const String &json_line);
     void traceKernelStateSnapshot(const char *phase);
+    void shutdown();
 };
 
 }

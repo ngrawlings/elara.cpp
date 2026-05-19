@@ -7,7 +7,8 @@
 kernel(VM vm) {
   request_threads(2);
 
-  while (kernel_wait_signal()) {
+  int wid = 0;
+  while (wid = kernel_wait_signal()) {
     // Worker 1 owns the current calibration scene frame.
   }
 }
