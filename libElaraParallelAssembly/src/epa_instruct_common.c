@@ -1291,13 +1291,13 @@ case EPA_OP_GR_MOV4: {
 case EPA_OP_DYN_ALLOC: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t id = EPA_DYNAMIC_NULL;
+  uint32_t ordinal = 0u;
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_ALLOC: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_alloc(pool, &id, err)) return EPA_FLOW_ERR;
-  w->vm.csc[0] = (int32_t)(pool->active_count - 1u);
+  if (!epa_dynamic_pool_alloc(pool, &ordinal, err)) return EPA_FLOW_ERR;
+  w->vm.csc[0] = (int32_t)ordinal;
   w->vm.csc[1] = 1;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
@@ -1306,13 +1306,11 @@ case EPA_OP_DYN_ALLOC: {
 case EPA_OP_DYN_FREE: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t id = EPA_DYNAMIC_NULL;
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_FREE: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_live_id_at(pool, (uint32_t)w->vm.csc[0], &id, err)) return EPA_FLOW_ERR;
-  if (!epa_dynamic_pool_release(pool, id, err)) return EPA_FLOW_ERR;
+  if (!epa_dynamic_pool_release(pool, (uint32_t)w->vm.csc[0], err)) return EPA_FLOW_ERR;
   w->vm.csc[1] = 1;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
@@ -1321,7 +1319,6 @@ case EPA_OP_DYN_FREE: {
 case EPA_OP_DYN_LOAD: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t id = EPA_DYNAMIC_NULL;
   uint32_t size;
   uint32_t top;
   uint32_t off;
@@ -1329,15 +1326,14 @@ case EPA_OP_DYN_LOAD: {
     snprintf(err, EPA_MAX_ERR, "DYN_LOAD: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_live_id_at(pool, (uint32_t)w->vm.csc[0], &id, err)) return EPA_FLOW_ERR;
   size = pool->element_size;
-  top = w->vm.lbytes_top;
-  off = (top + 3u) & ~3u;
+  top  = w->vm.lbytes_top;
+  off  = (top + 3u) & ~3u;
   if (!w->vm.lbytes || size > w->vm.lbytes_cap || off > w->vm.lbytes_cap - size) {
     snprintf(err, EPA_MAX_ERR, "DYN_LOAD: local byte heap exhausted for size=%u", (unsigned)size);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_read(pool, id, w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
+  if (!epa_dynamic_pool_read(pool, (uint32_t)w->vm.csc[0], w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
   w->vm.lbytes_top = off + size;
   w->vm.csc[0] = (int32_t)off;
   w->vm.csc[1] = (int32_t)size;
@@ -1349,21 +1345,19 @@ case EPA_OP_DYN_LOAD: {
 case EPA_OP_DYN_STORE: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t id = EPA_DYNAMIC_NULL;
   uint32_t off;
   uint32_t size;
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_STORE: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_live_id_at(pool, (uint32_t)w->vm.csc[0], &id, err)) return EPA_FLOW_ERR;
-  off = (uint32_t)w->vm.csc[1];
+  off  = (uint32_t)w->vm.csc[1];
   size = (uint32_t)w->vm.csc[2];
   if (!w->vm.lbytes || off > w->vm.lbytes_top || size > w->vm.lbytes_top - off) {
     snprintf(err, EPA_MAX_ERR, "DYN_STORE: invalid source ref off=%u size=%u", (unsigned)off, (unsigned)size);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_write(pool, id, w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
+  if (!epa_dynamic_pool_write(pool, (uint32_t)w->vm.csc[0], w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
   w->vm.csc[3] = 1;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
@@ -1372,17 +1366,11 @@ case EPA_OP_DYN_STORE: {
 case EPA_OP_DYN_SWAP: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t id_a = EPA_DYNAMIC_NULL;
-  uint32_t id_b = EPA_DYNAMIC_NULL;
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_SWAP: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (!epa_dynamic_pool_live_id_at(pool, (uint32_t)w->vm.csc[0], &id_a, err)) return EPA_FLOW_ERR;
-  if (!epa_dynamic_pool_live_id_at(pool, (uint32_t)w->vm.csc[1], &id_b, err)) return EPA_FLOW_ERR;
-  if (!epa_dynamic_pool_swap_live_order(pool, id_a, id_b, err)) {
-    return EPA_FLOW_ERR;
-  }
+  if (!epa_dynamic_pool_swap(pool, (uint32_t)w->vm.csc[0], (uint32_t)w->vm.csc[1], err)) return EPA_FLOW_ERR;
   w->vm.csc[2] = 1;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
@@ -1395,7 +1383,7 @@ case EPA_OP_DYN_ITER_HEAD: {
     snprintf(err, EPA_MAX_ERR, "DYN_ITER_HEAD: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  w->vm.csc[0] = (int32_t)pool->live_head;
+  w->vm.csc[0] = 0;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
@@ -1403,36 +1391,27 @@ case EPA_OP_DYN_ITER_HEAD: {
 case EPA_OP_DYN_ITER_NEXT: {
   uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
-  uint32_t current_id = (uint32_t)w->vm.csc[0];
+  uint32_t ordinal = (uint32_t)w->vm.csc[0];
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_ITER_NEXT: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
-  if (current_id == EPA_DYNAMIC_NULL) {
-    w->vm.csc[0] = (int32_t)EPA_DYNAMIC_NULL;
+  if (ordinal >= pool->count) {
     w->vm.csc[1] = 0;
     eip->rel_pc = (uint32_t)(pc + need);
     return EPA_FLOW_YIELDED;
   }
   {
-    EpaDynamicSlot *slot = epa_dynamic_pool_slot(pool, current_id);
-    uint32_t size, top, off;
-    if (!slot || !slot->is_live) {
-      w->vm.csc[0] = (int32_t)EPA_DYNAMIC_NULL;
-      w->vm.csc[1] = 0;
-      eip->rel_pc = (uint32_t)(pc + need);
-      return EPA_FLOW_YIELDED;
-    }
-    size = pool->element_size;
-    top  = w->vm.lbytes_top;
-    off  = (top + 3u) & ~3u;
+    uint32_t size = pool->element_size;
+    uint32_t top  = w->vm.lbytes_top;
+    uint32_t off  = (top + 3u) & ~3u;
     if (!w->vm.lbytes || size > w->vm.lbytes_cap || off > w->vm.lbytes_cap - size) {
       snprintf(err, EPA_MAX_ERR, "DYN_ITER_NEXT: local byte heap exhausted size=%u", (unsigned)size);
       return EPA_FLOW_ERR;
     }
-    if (!epa_dynamic_pool_read(pool, current_id, w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
+    if (!epa_dynamic_pool_read(pool, ordinal, w->vm.lbytes + off, size, err)) return EPA_FLOW_ERR;
     w->vm.lbytes_top = off + size;
-    w->vm.csc[0] = (int32_t)slot->next_live;
+    w->vm.csc[0] = (int32_t)(ordinal + 1u);
     w->vm.csc[1] = 1;
     w->vm.csc[2] = (int32_t)off;
     w->vm.csc[3] = (int32_t)size;
