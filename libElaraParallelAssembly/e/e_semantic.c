@@ -34,7 +34,8 @@ static int is_primitive_type(const char *name) {
          strcmp(name, "float") == 0 ||
          strcmp(name, "double") == 0 ||
          strcmp(name, "void") == 0 ||
-         strcmp(name, "z") == 0;
+         strcmp(name, "z") == 0 ||
+         strcmp(name, "Iterator") == 0;
 }
 
 static int streq(const char *a, const char *b) {
@@ -51,6 +52,7 @@ static size_t primitive_size(const char *name) {
   if (strcmp(name, "double") == 0) return 8u;
   if (strcmp(name, "z") == 0) return 8u;
   if (strcmp(name, "void") == 0) return 0u;
+  if (strcmp(name, "Iterator") == 0) return 4u;
   return 0u;
 }
 
@@ -590,6 +592,9 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
     case E_STMT_FOR:
       if (!collect_local_decls_in_stmt(stmt->as.for_stmt.init, model, frame, in_worker, err)) return 0;
       return collect_local_decls_in_stmt(stmt->as.for_stmt.body, model, frame, in_worker, err);
+    case E_STMT_FOREACH:
+      if (!collect_local_decls_in_stmt(stmt->as.foreach_stmt.var_decl, model, frame, in_worker, err)) return 0;
+      return collect_local_decls_in_stmt(stmt->as.foreach_stmt.body, model, frame, in_worker, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -817,6 +822,8 @@ static int validate_next_stmt_in_stmt(
     case E_STMT_FOR:
       if (!validate_next_stmt_in_stmt(stmt->as.for_stmt.init, model, current_worker, err)) return 0;
       return validate_next_stmt_in_stmt(stmt->as.for_stmt.body, model, current_worker, err);
+    case E_STMT_FOREACH:
+      return validate_next_stmt_in_stmt(stmt->as.foreach_stmt.body, model, current_worker, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -860,6 +867,8 @@ static int validate_loop_control_in_stmt(const EStmt *stmt, int loop_depth, int 
     case E_STMT_FOR:
       if (!validate_loop_control_in_stmt(stmt->as.for_stmt.init, loop_depth, switch_depth, err)) return 0;
       return validate_loop_control_in_stmt(stmt->as.for_stmt.body, loop_depth + 1, switch_depth, err);
+    case E_STMT_FOREACH:
+      return validate_loop_control_in_stmt(stmt->as.foreach_stmt.body, loop_depth + 1, switch_depth, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -1073,6 +1082,8 @@ static int validate_kernel_get_ghs_usage_in_stmt(const EStmt *stmt,
     case E_STMT_FOR:
       if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.for_stmt.init, model, frame, function, worker, in_kernel, err)) return 0;
       return validate_kernel_get_ghs_usage_in_stmt(stmt->as.for_stmt.body, model, frame, function, worker, in_kernel, err);
+    case E_STMT_FOREACH:
+      return validate_kernel_get_ghs_usage_in_stmt(stmt->as.foreach_stmt.body, model, frame, function, worker, in_kernel, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
@@ -1178,6 +1189,8 @@ static int validate_typeof_typeid_usage_in_stmt(const EStmt *stmt,
              validate_typeof_typeid_expr(stmt->as.for_stmt.cond, model, err) &&
              validate_typeof_typeid_expr(stmt->as.for_stmt.step, model, err) &&
              validate_typeof_typeid_usage_in_stmt(stmt->as.for_stmt.body, model, err);
+    case E_STMT_FOREACH:
+      return validate_typeof_typeid_usage_in_stmt(stmt->as.foreach_stmt.body, model, err);
     case E_STMT_SWITCH:
       if (!validate_typeof_typeid_expr(stmt->as.switch_stmt.target, model, err)) return 0;
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {

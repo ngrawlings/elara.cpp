@@ -124,6 +124,8 @@ X(DYN_FREE,        0x031Au, "DYN_FREE",  4) // pool_id:u32, r0=id -> r1=ok
 X(DYN_LOAD,        0x031Bu, "DYN_LOAD",  4) // pool_id:u32, r0=id -> r0=off,r1=size,r2=ok
 X(DYN_STORE,       0x031Cu, "DYN_STORE", 4) // pool_id:u32, r0=id,r1=off,r2=size -> r3=ok
 X(DYN_SWAP,        0x031Du, "DYN_SWAP",  4) // pool_id:u32, r0=id_a,r1=id_b -> r2=ok
+X(DYN_ITER_HEAD,   0x031Eu, "DYN_ITER_HEAD", 4) // pool_id:u32 -> r0=live_head slot_id
+X(DYN_ITER_NEXT,   0x031Fu, "DYN_ITER_NEXT", 4) // pool_id:u32, r0=current_slot_id -> r0=next_slot_id, r1=ok, r2=off, r3=size
 
 
 //

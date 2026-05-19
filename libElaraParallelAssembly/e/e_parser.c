@@ -421,14 +421,40 @@ static EStmt *parse_if_stmt(Parser *p) {
 }
 
 static EStmt *parse_while_stmt(Parser *p) {
-  EStmt *s = new_stmt(E_STMT_WHILE);
   if (!expect(p, E_TOK_LPAREN, "expected '(' after while")) return NULL;
-  s->as.while_stmt.cond = parse_expr(p);
-  if (!s->as.while_stmt.cond) return NULL;
-  if (!expect(p, E_TOK_RPAREN, "expected ')' after while condition")) return NULL;
-  s->as.while_stmt.body = parse_stmt(p);
-  if (!s->as.while_stmt.body) return NULL;
-  return s;
+
+  /* Detect foreach: while(Type name = dynamic_next(iter_name)) */
+  if (peek_n(p, 0)->kind == E_TOK_IDENT &&
+      peek_n(p, 1)->kind == E_TOK_IDENT &&
+      peek_n(p, 2)->kind == E_TOK_ASSIGN &&
+      peek_n(p, 3)->kind == E_TOK_IDENT &&
+      strcmp(peek_n(p, 3)->text, "dynamic_next") == 0 &&
+      peek_n(p, 4)->kind == E_TOK_LPAREN &&
+      peek_n(p, 5)->kind == E_TOK_IDENT &&
+      peek_n(p, 6)->kind == E_TOK_RPAREN &&
+      peek_n(p, 7)->kind == E_TOK_RPAREN) {
+    EStmt *s = new_stmt(E_STMT_FOREACH);
+    EStmt *var_decl = new_stmt(E_STMT_DECL);
+    var_decl->as.decl.type.name = xstrdup_local(peek_n(p, 0)->text);
+    var_decl->as.decl.name      = xstrdup_local(peek_n(p, 1)->text);
+    s->as.foreach_stmt.iter_name = xstrdup_local(peek_n(p, 5)->text);
+    s->as.foreach_stmt.var_decl  = var_decl;
+    p->pos += 8; /* consume Type name = dynamic_next ( iter_name ) ) */
+    s->as.foreach_stmt.body = parse_stmt(p);
+    if (!s->as.foreach_stmt.body) return NULL;
+    return s;
+  }
+
+  /* Normal while */
+  {
+    EStmt *s = new_stmt(E_STMT_WHILE);
+    s->as.while_stmt.cond = parse_expr(p);
+    if (!s->as.while_stmt.cond) return NULL;
+    if (!expect(p, E_TOK_RPAREN, "expected ')' after while condition")) return NULL;
+    s->as.while_stmt.body = parse_stmt(p);
+    if (!s->as.while_stmt.body) return NULL;
+    return s;
+  }
 }
 
 static EStmt *parse_for_stmt(Parser *p) {

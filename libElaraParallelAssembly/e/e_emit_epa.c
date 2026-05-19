@@ -32,6 +32,9 @@ struct EmitCtx {
   const EFunctionFrame *current_frame;
   EmitStringConst *strings;
   size_t string_count;
+  /* Iterator variable → pool_id bindings, registered when dynamic_iterator() is emitted */
+  struct { const char *iter_name; unsigned int pool_id; } iter_bindings[16];
+  unsigned int iter_binding_count;
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -215,6 +218,9 @@ static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
         }
       }
       break;
+    case E_STMT_FOREACH:
+      collect_strings_in_stmt(ctx, stmt->as.foreach_stmt.body);
+      break;
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_NEXT:
@@ -288,6 +294,8 @@ static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
 static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_free_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_swap_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dyn_iterator_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dyn_next_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
 static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -437,6 +445,8 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"dyn_alloc", emit_dyn_alloc_builtin},
     {"dyn_free", emit_dyn_free_builtin},
     {"dyn_swap", emit_dyn_swap_builtin},
+    {"dynamic_iterator", emit_dyn_iterator_builtin},
+    {"dynamic_next", emit_dyn_next_builtin},
   };
   size_t i;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
@@ -1089,6 +1099,46 @@ static int emit_dyn_swap_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int
   return 1;
 }
 
+static int emit_dyn_iterator_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; dynamic_iterator expects 1 dynamic pool identifier\n", out);
+    return 0;
+  }
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) {
+    emit_indent(out, depth);
+    fputs("; dynamic_iterator target is not a dynamic pool\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_HEAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
+}
+
+static int emit_dyn_next_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  /* dynamic_next() as a standalone expression is a no-op placeholder.
+     Real iteration is handled by E_STMT_FOREACH in emit_stmt. */
+  (void)out; (void)expr; (void)ctx; (void)depth;
+  return 0;
+}
+
+static unsigned int find_iter_pool_id(const EmitCtx *ctx, const char *iter_name, int *found) {
+  unsigned int i;
+  for (i = 0; i < ctx->iter_binding_count; i++) {
+    if (strcmp(ctx->iter_bindings[i].iter_name, iter_name) == 0) {
+      *found = 1;
+      return ctx->iter_bindings[i].pool_id;
+    }
+  }
+  *found = 0;
+  return 0u;
+}
+
 static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
 }
@@ -1155,6 +1205,19 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       if (binding && binding->storage == E_LOCAL_STACK_STATIC) break;
       if (stmt->as.decl.init) {
         emit_expr(out, stmt->as.decl.init, ctx, depth);
+        /* Register iterator binding if init is dynamic_iterator(pool_name) */
+        if (stmt->as.decl.init->kind == E_EXPR_CALL &&
+            strcmp(stmt->as.decl.init->as.call.callee, "dynamic_iterator") == 0 &&
+            stmt->as.decl.init->as.call.arg_count == 1u &&
+            stmt->as.decl.init->as.call.args[0]->kind == E_EXPR_IDENT &&
+            ctx->iter_binding_count < 16u) {
+          const EDynamicPool *iter_pool = find_dynamic_pool(ctx->model, stmt->as.decl.init->as.call.args[0]->as.ident);
+          if (iter_pool) {
+            ctx->iter_bindings[ctx->iter_binding_count].iter_name = stmt->as.decl.name;
+            ctx->iter_bindings[ctx->iter_binding_count].pool_id = dynamic_pool_id(ctx, iter_pool);
+            ctx->iter_binding_count++;
+          }
+        }
         if (binding && binding->vm_local_words == 1u) {
           emit_indent(out, depth);
           fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
@@ -1305,6 +1368,93 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       }
       emit_indent(out, depth);
       fprintf(out, "JMP %s\n", head_label);
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", exit_label);
+      break;
+    }
+    case E_STMT_FOREACH: {
+      /* Emit: while(MyType t = dynamic_next(_iterator)) { body }
+         Generates DYN_ITER_NEXT with L_SCOPE_ENTER/LEAVE per iteration. */
+      const char *iter_name = stmt->as.foreach_stmt.iter_name;
+      const ELocalBinding *iter_binding = find_local_binding_by_name(active_frame_for_ctx(ctx), iter_name);
+      const ELocalBinding *var_binding  = find_local_binding(active_frame_for_ctx(ctx), stmt->as.foreach_stmt.var_decl);
+      unsigned int head_id    = next_label(ctx);
+      unsigned int cleanup_id = next_label(ctx);
+      unsigned int cont_id    = next_label(ctx);
+      unsigned int exit_id    = next_label(ctx);
+      char head_label[64];
+      char cleanup_label[64];
+      char cont_label[64];
+      char exit_label[64];
+      int pool_found = 0;
+      unsigned int pool_id = find_iter_pool_id(ctx, iter_name, &pool_found);
+      snprintf(head_label,    sizeof(head_label),    "E_FOREACH_HEAD_%u",    head_id);
+      snprintf(cleanup_label, sizeof(cleanup_label), "E_FOREACH_CLEANUP_%u", cleanup_id);
+      snprintf(cont_label,    sizeof(cont_label),    "E_FOREACH_CONT_%u",    cont_id);
+      snprintf(exit_label,    sizeof(exit_label),    "E_FOREACH_EXIT_%u",    exit_id);
+      if (!pool_found) {
+        emit_indent(out, depth);
+        fprintf(out, "; foreach: iterator '%s' has no registered pool binding\n", iter_name);
+        break;
+      }
+      if (!iter_binding) {
+        emit_indent(out, depth);
+        fprintf(out, "; foreach: iterator '%s' not found in frame\n", iter_name);
+        break;
+      }
+      emit_indent(out, depth);
+      fprintf(out, "; foreach %s t over pool %u via iterator '%s'\n",
+              stmt->as.foreach_stmt.var_decl->as.decl.type.name, pool_id, iter_name);
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", head_label);
+      /* Load current iterator slot ID */
+      emit_indent(out, depth);
+      fprintf(out, "LOAD_L %u\n", iter_binding->vm_local_slot);
+      emit_indent(out, depth);
+      fputs("POP R0\n", out);
+      /* Save lbytes scope before loading the element */
+      emit_indent(out, depth);
+      fputs("L_SCOPE_ENTER\n", out);
+      /* Advance: r0=next_id, r1=ok, r2=off, r3=size */
+      emit_indent(out, depth);
+      fprintf(out, "DYN_ITER_NEXT %u\n", pool_id);
+      /* Save next iterator id */
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "STORE_L %u\n", iter_binding->vm_local_slot);
+      /* Check ok flag */
+      emit_indent(out, depth);
+      fputs("PUSH R1\n", out);
+      emit_indent(out, depth);
+      fputs("POP 0\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "JZ %s\n", cleanup_label);
+      /* Store element ref into var (slot=off, slot+1=size) */
+      if (var_binding && var_binding->vm_local_words >= 2u) {
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", var_binding->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("PUSH R3\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", var_binding->vm_local_slot + 1u);
+      }
+      /* Body: break → cleanup, continue → cont (scope leave + jmp head) */
+      emit_stmt(out, stmt->as.foreach_stmt.body, ctx, depth, cleanup_label, cont_label);
+      /* Continue label: release scope, jump to head */
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", cont_label);
+      emit_indent(out, depth);
+      fputs("L_SCOPE_LEAVE\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "JMP %s\n", head_label);
+      /* Cleanup label: release scope on loop exit */
+      emit_indent(out, depth);
+      fprintf(out, "%s:\n", cleanup_label);
+      emit_indent(out, depth);
+      fputs("L_SCOPE_LEAVE\n", out);
       emit_indent(out, depth);
       fprintf(out, "%s:\n", exit_label);
       break;
@@ -1518,6 +1668,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                 resolved_signal_mail_box_size(model, &top->as.worker.attrs));
         {
           unsigned int loop_id = next_label(&ctx);
+          ctx.iter_binding_count = 0u;
           ctx.current_worker = &top->as.worker;
           ctx.current_frame = find_frame(model, top->as.worker.name);
           /* Zero-initialise all static locals once before the worker loop. */
@@ -1575,6 +1726,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         int frame_words = frame_words_for_function(model, top->as.func.name);
         fprintf(out, "; function %s\n", top->as.func.name);
         fprintf(out, "FUNC_START %u %d\n", ctx.next_func_id++, frame_words);
+        ctx.iter_binding_count = 0u;
         ctx.current_function = &top->as.func;
         ctx.current_frame = find_frame(model, top->as.func.name);
         emit_stmt(out, top->as.func.body, &ctx, 1, NULL, NULL);

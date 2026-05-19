@@ -748,7 +748,9 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"DYN_FREE",   EPA_OP_DYN_FREE,              1,1, 1,{AK_U32}, NULL, "DYN_FREE <pool_id:u32>"},
     {"DYN_LOAD",   EPA_OP_DYN_LOAD,              1,1, 1,{AK_U32}, NULL, "DYN_LOAD <pool_id:u32>"},
     {"DYN_STORE",  EPA_OP_DYN_STORE,             1,1, 1,{AK_U32}, NULL, "DYN_STORE <pool_id:u32>"},
-    {"DYN_SWAP",   EPA_OP_DYN_SWAP,              1,1, 1,{AK_U32}, NULL, "DYN_SWAP <pool_id:u32>"},
+    {"DYN_SWAP",      EPA_OP_DYN_SWAP,              1,1, 1,{AK_U32}, NULL, "DYN_SWAP <pool_id:u32>"},
+    {"DYN_ITER_HEAD", EPA_OP_DYN_ITER_HEAD,         1,1, 1,{AK_U32}, NULL, "DYN_ITER_HEAD <pool_id:u32>"},
+    {"DYN_ITER_NEXT", EPA_OP_DYN_ITER_NEXT,         1,1, 1,{AK_U32}, NULL, "DYN_ITER_NEXT <pool_id:u32>"},
 
     // Debug / interrupts
     {"BREAK",      EPA_OP_BREAK,                 1,1, 1,{AK_U32}, NULL, "BREAK <code:u32>"},

@@ -96,6 +96,7 @@ typedef enum {
   E_STMT_CONTINUE,
   E_STMT_NEXT,
   E_STMT_RAW_EPA,
+  E_STMT_FOREACH,
 } EStmtKind;
 
 typedef struct {
@@ -153,6 +154,11 @@ struct EStmt {
     struct {
       char *text;
     } raw_epa;
+    struct {
+      EStmt *var_decl;   /* E_STMT_DECL for loop variable (MyType t), no init */
+      char *iter_name;   /* name of the Iterator variable */
+      EStmt *body;
+    } foreach_stmt;
   } as;
 };
 
