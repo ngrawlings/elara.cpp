@@ -243,6 +243,12 @@ class ElaraUiRpcClient:
     def set_focus(self, target: str, timeout: float = 5.0):
         return self.call("ui.setFocus", {"target": target}, timeout=timeout)
 
+    def lock_focus(self, target: str, timeout: float = 5.0):
+        return self.call("ui.lockFocus", {"target": target}, timeout=timeout)
+
+    def clear_focus_lock(self, timeout: float = 5.0):
+        return self.call("ui.clearFocusLock", {}, timeout=timeout)
+
     def set_window_title(self, title: str, timeout: float = 5.0):
         return self.call("ui.setWindowTitle", {"title": title}, timeout=timeout)
 

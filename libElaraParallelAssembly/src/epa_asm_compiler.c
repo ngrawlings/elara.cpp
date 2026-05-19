@@ -686,6 +686,10 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"MUL_I32",    EPA_OP_MUL_I32,               0,0, 0,{0}, NULL, "MUL_I32 takes no params"},
     {"EQ_I32",     EPA_OP_EQ_I32,                0,0, 0,{0}, NULL, "EQ_I32 takes no params"},
     {"LT_I32",     EPA_OP_LT_I32,                0,0, 0,{0}, NULL, "LT_I32 takes no params"},
+    {"NE_I32",     EPA_OP_NE_I32,                0,0, 0,{0}, NULL, "NE_I32 takes no params"},
+    {"LE_I32",     EPA_OP_LE_I32,                0,0, 0,{0}, NULL, "LE_I32 takes no params"},
+    {"GT_I32",     EPA_OP_GT_I32,                0,0, 0,{0}, NULL, "GT_I32 takes no params"},
+    {"GE_I32",     EPA_OP_GE_I32,                0,0, 0,{0}, NULL, "GE_I32 takes no params"},
     {"CMP",        EPA_OP_CMP,                   0,0, 0,{0}, NULL, "CMP takes no params"},
     {"CMPZ",       EPA_OP_CMPZ,                  0,0, 0,{0}, NULL, "CMPZ takes no params"},
 

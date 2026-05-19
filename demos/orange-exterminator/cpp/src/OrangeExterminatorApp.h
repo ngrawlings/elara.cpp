@@ -35,6 +35,7 @@ private:
     bool epa_loaded;
     bool epa_started;
     bool incremental_ui_supported;
+    bool last_section_update_timed_out;
     OrangeExterminatorEpaVmHost epa;
     Mutex input_lock;
     mutable Mutex render_lock;
@@ -46,6 +47,8 @@ private:
     int pending_mouse_dx;
     int pending_mouse_dy;
     bool mouse_captured;
+    bool mouse_capture_requested;
+    bool mouse_uncapture_requested;
     int scene_cam_x;
     int scene_cam_y;
     int scene_cam_z;

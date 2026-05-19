@@ -22,7 +22,7 @@ type CameraInput(int move_x, int move_z, int look_dx, int look_dy) {
   return move_x;
 }
 
-type ScenePoseInput(int cam_x, int cam_z, int depth, int lane) {
+type ScenePoseInput(int cam_x, int cam_z, int depth, int lane, int yaw, int pitch) {
   return cam_x;
 }
 

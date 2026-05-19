@@ -177,6 +177,11 @@ static const char *bin_name(EBinaryOp op) {
     case E_BIN_MUL: return "*";
     case E_BIN_DIV: return "/";
     case E_BIN_EQ: return "==";
+    case E_BIN_NE: return "!=";
+    case E_BIN_LT: return "<";
+    case E_BIN_LE: return "<=";
+    case E_BIN_GT: return ">";
+    case E_BIN_GE: return ">=";
   }
   return "?";
 }

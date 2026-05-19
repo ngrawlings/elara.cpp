@@ -368,6 +368,38 @@ bool ElaraUiRpcUiService::setFocus(
     return true;
 }
 
+bool ElaraUiRpcUiService::lockFocus(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    root->lockFocus(widget->getHandle());
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::clearFocusLock(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)params;
+    (void)error_code;
+    (void)error_message;
+
+    root->clearFocusLock();
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::setSectionJson(
     const Json& params,
     String& result_json,
@@ -1186,6 +1218,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setFocus")) {
         return setFocus(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("lockFocus")) {
+        return lockFocus(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("clearFocusLock")) {
+        return clearFocusLock(params, result_json, error_code, error_message);
     }
 
     if(method == String("setSectionJson")) {

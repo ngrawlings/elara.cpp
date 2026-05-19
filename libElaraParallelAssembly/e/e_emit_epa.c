@@ -341,6 +341,11 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         case E_BIN_MUL: fputs("MUL_I32\n", out); break;
         case E_BIN_DIV: fputs("; DIV pending lowering\n", out); break;
         case E_BIN_EQ: fputs("EQ_I32\n", out); break;
+        case E_BIN_NE: fputs("NE_I32\n", out); break;
+        case E_BIN_LT: fputs("LT_I32\n", out); break;
+        case E_BIN_LE: fputs("LE_I32\n", out); break;
+        case E_BIN_GT: fputs("GT_I32\n", out); break;
+        case E_BIN_GE: fputs("GE_I32\n", out); break;
       }
       break;
     case E_EXPR_ASSIGN:

@@ -19,6 +19,8 @@ private:
     ElaraGuiBackend* gui_backend;
     ElaraWidgetHandle content;
     ElaraWidgetHandle focus;
+    bool focus_locked;
+    ElaraWidgetHandle locked_focus;
     Array<ElaraWidgetHandle> popups;
     HashMap<ElaraVectorDocument> vector_overlays;
     int overlay_count;
@@ -63,6 +65,10 @@ public:
     String getRootSnapshotJson() const;
     void setFocus(ElaraWidgetHandle widget_handle);
     ElaraWidgetHandle getFocus() const;
+    void lockFocus(ElaraWidgetHandle widget_handle);
+    void clearFocusLock();
+    bool hasFocusLock() const;
+    ElaraWidgetHandle getLockedFocus() const;
     void enableOutboundEvent(const String& action);
     void disableOutboundEvent(const String& action);
 

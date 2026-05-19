@@ -638,7 +638,7 @@ case EPA_OP_LT_I32: {
   uint32_t ub=0, ua=0;
   if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "LT_I32: stack underflow"); return EPA_FLOW_ERR; }
   int32_t a = (int32_t)ua, b = (int32_t)ub;
-  w->vm.csc[0] = (uint32_t)((a < b) ? 1u : 0u);
+  if (!epa_stack_push(st, (uint32_t)((a < b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "LT_I32: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
@@ -648,6 +648,42 @@ case EPA_OP_EQ_I32: {
   if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "EQ_I32: stack underflow"); return EPA_FLOW_ERR; }
   int32_t a = (int32_t)ua, b = (int32_t)ub;
   if (!epa_stack_push(st, (uint32_t)((a == b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "EQ_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_NE_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "NE_I32: stack underflow"); return EPA_FLOW_ERR; }
+  int32_t a = (int32_t)ua, b = (int32_t)ub;
+  if (!epa_stack_push(st, (uint32_t)((a != b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "NE_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_LE_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "LE_I32: stack underflow"); return EPA_FLOW_ERR; }
+  int32_t a = (int32_t)ua, b = (int32_t)ub;
+  if (!epa_stack_push(st, (uint32_t)((a <= b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "LE_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_GT_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "GT_I32: stack underflow"); return EPA_FLOW_ERR; }
+  int32_t a = (int32_t)ua, b = (int32_t)ub;
+  if (!epa_stack_push(st, (uint32_t)((a > b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "GT_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_GE_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "GE_I32: stack underflow"); return EPA_FLOW_ERR; }
+  int32_t a = (int32_t)ua, b = (int32_t)ub;
+  if (!epa_stack_push(st, (uint32_t)((a >= b) ? 1u : 0u))) { snprintf(err, EPA_MAX_ERR, "GE_I32: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }

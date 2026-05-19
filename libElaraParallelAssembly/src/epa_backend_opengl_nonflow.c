@@ -788,7 +788,37 @@ static EpaNonFlowRc opengl_exec_one(
 
     case EPA_OP_LT_I32: {
       int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
-      csc[0] = (uint32_t)((a < b) ? 1u : 0u);
+      VM_DATA_PUSH((a < b) ? 1 : 0);
+      break;
+    }
+
+    case EPA_OP_EQ_I32: {
+      int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
+      VM_DATA_PUSH((a == b) ? 1 : 0);
+      break;
+    }
+
+    case EPA_OP_NE_I32: {
+      int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
+      VM_DATA_PUSH((a != b) ? 1 : 0);
+      break;
+    }
+
+    case EPA_OP_LE_I32: {
+      int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
+      VM_DATA_PUSH((a <= b) ? 1 : 0);
+      break;
+    }
+
+    case EPA_OP_GT_I32: {
+      int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
+      VM_DATA_PUSH((a > b) ? 1 : 0);
+      break;
+    }
+
+    case EPA_OP_GE_I32: {
+      int32_t b,a; VM_DATA_POP(b); VM_DATA_POP(a);
+      VM_DATA_PUSH((a >= b) ? 1 : 0);
       break;
     }
 

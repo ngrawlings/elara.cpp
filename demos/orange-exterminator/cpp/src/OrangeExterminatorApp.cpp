@@ -56,6 +56,11 @@ struct SceneViewState {
     int lane;
 };
 
+struct SceneMarkerState {
+    int x;
+    int y;
+};
+
 static int clampInt(int value, int min_value, int max_value) {
     if (value < min_value) {
         return min_value;
@@ -133,10 +138,20 @@ SceneViewState clampSceneViewState(const SceneViewState &input) {
     state.cam_y = clampInt(state.cam_y, -1024, 1024);
     state.cam_z = clampInt(state.cam_z, -4096, 4096);
     state.cam_yaw = clampInt(state.cam_yaw, -720, 720);
-    state.cam_pitch = clampInt(state.cam_pitch, -90, 90);
+    state.cam_pitch = clampInt(state.cam_pitch, -360, 360);
     state.depth = clampInt(state.depth, 0, 6);
     state.lane = clampInt(state.lane, -320, 320);
     return state;
+}
+
+SceneMarkerState projectSceneMarker(const SceneViewState &input) {
+    SceneViewState scene = clampSceneViewState(input);
+    SceneMarkerState marker;
+    int horizon = scene.cam_pitch * 3;
+    int center_shift = scene.cam_yaw * 4;
+    marker.x = 630 + scene.lane + center_shift;
+    marker.y = (scene.depth == 1 ? 302 : 311) + horizon;
+    return marker;
 }
 
 int on_surface_host_signal(uint8_t wid, const char *msg, const int msg_len) {
@@ -156,6 +171,7 @@ OrangeExterminatorApp::OrangeExterminatorApp(const String &value_host, int value
       epa_loaded(false),
       epa_started(false),
       incremental_ui_supported(true),
+      last_section_update_timed_out(false),
       input_lock("orange-exterminator-input"),
       render_lock("orange-exterminator-render"),
       held_forward(false),
@@ -165,6 +181,8 @@ OrangeExterminatorApp::OrangeExterminatorApp(const String &value_host, int value
       pending_mouse_dx(0),
       pending_mouse_dy(0),
       mouse_captured(false),
+      mouse_capture_requested(false),
+      mouse_uncapture_requested(false),
       scene_cam_x(0),
       scene_cam_y(0),
       scene_cam_z(0),
@@ -217,6 +235,7 @@ void OrangeExterminatorApp::armUiInputFocus() {
     peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseDown\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseUp\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.setFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.lockFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
 
     traceLine(String("{\"event\":\"ui_input_focus_armed\",\"target\":\"app.surface\"}"));
 }
@@ -231,7 +250,14 @@ void OrangeExterminatorApp::setMouseCaptured(bool captured) {
     String error_code;
     String error_message;
     mouse_captured = captured;
-    peer->call(
+    mouse_capture_requested = false;
+    mouse_uncapture_requested = false;
+    {
+        Mutex::Lock lock(input_lock);
+        pending_mouse_dx = 0;
+        pending_mouse_dy = 0;
+    }
+    bool ok = peer->call(
         String("ui.setMouseCaptured"),
         String("{\"captured\":") + String(captured ? "true" : "false") + String("}"),
         result_json,
@@ -239,6 +265,17 @@ void OrangeExterminatorApp::setMouseCaptured(bool captured) {
         error_message,
         5000
     );
+    if (!ok) {
+        printf("ui.setMouseCaptured failed [%s]: %s\n",
+               error_code.operator char *(),
+               error_message.operator char *());
+    } else {
+        printf("ui.setMouseCaptured ok: captured=%d\n", captured ? 1 : 0);
+    }
+    if (captured) {
+        peer->call(String("ui.setFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
+        peer->call(String("ui.lockFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
+    }
     traceLine(String("{\"event\":\"mouse_capture_state\",\"captured\":") + String(captured ? "true" : "false") + String("}"));
 }
 
@@ -447,8 +484,8 @@ void OrangeExterminatorApp::stimulateEpa() {
 
     idx = epa.findKernelIndex(String("scene"));
     if (idx >= 0) {
-        struct ScenePoseInputPayload { int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; };
-        ScenePoseInputPayload pose_init = { scene_cam_x, scene_cam_z, scene_depth, scene_lane };
+        struct ScenePoseInputPayload { int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; int32_t yaw; int32_t pitch; };
+        ScenePoseInputPayload pose_init = { scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch };
         int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &pose_init, sizeof(pose_init)) ? 1 : 0;
         printf("stimulate scene worker1=%d\n", ok1);
         traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"scene\",\"wid1\":")
@@ -489,6 +526,8 @@ bool OrangeExterminatorApp::sendScenePose() {
         int32_t cam_z;
         int32_t depth;
         int32_t lane;
+        int32_t yaw;
+        int32_t pitch;
     };
 
     if (!epa_started) {
@@ -500,9 +539,13 @@ bool OrangeExterminatorApp::sendScenePose() {
         return false;
     }
 
-    ScenePoseInputPayload pose = { scene_cam_x, scene_cam_z, scene_depth, scene_lane };
-    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d\n",
-           pose.cam_x, pose.cam_z, pose.depth, pose.lane);
+    ScenePoseInputPayload pose = { scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch };
+    SceneMarkerState marker = projectSceneMarker(
+        SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
+    );
+    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d marker_x=%d marker_y=%d\n",
+           pose.cam_x, pose.cam_z, pose.depth, pose.lane, pose.yaw, pose.pitch, marker.x, marker.y);
+    fflush(stdout);
     return epa.ingressPushToKernel((size_t)idx, 1u, &pose, sizeof(pose));
 }
 
@@ -519,7 +562,7 @@ void OrangeExterminatorApp::updateKeyState(unsigned int keyval, bool pressed) {
     if (keyval == 65361u || keyval == 97u)  { held_left    = pressed; }  // Left / A
     if (keyval == 65363u || keyval == 100u) { held_right   = pressed; }  // Right / D
     if (keyval == 65307u && pressed) {
-        mouse_captured = false;
+        mouse_uncapture_requested = true;
     }
     printf("updateKeyState: keyval=%u pressed=%d held_f=%d held_b=%d held_l=%d held_r=%d\n",
            keyval, (int)pressed, (int)held_forward, (int)held_back, (int)held_left, (int)held_right);
@@ -527,22 +570,39 @@ void OrangeExterminatorApp::updateKeyState(unsigned int keyval, bool pressed) {
 
 void OrangeExterminatorApp::accumulateMouseDelta(int dx, int dy) {
     Mutex::Lock lock(input_lock);
+    if (dx > 64) { dx = 64; }
+    if (dx < -64) { dx = -64; }
+    if (dy > 64) { dy = 64; }
+    if (dy < -64) { dy = -64; }
+    if (dx > -2 && dx < 2) {
+        dx = 0;
+    }
+    if (dy > -2 && dy < 2) {
+        dy = 0;
+    }
+
     pending_mouse_dx += dx;
     pending_mouse_dy += dy;
+    if (pending_mouse_dx > 128) { pending_mouse_dx = 128; }
+    if (pending_mouse_dx < -128) { pending_mouse_dx = -128; }
+    if (pending_mouse_dy > 128) { pending_mouse_dy = 128; }
+    if (pending_mouse_dy < -128) { pending_mouse_dy = -128; }
 }
 
 void OrangeExterminatorApp::handleMouseDown(int button, double x, double y) {
     (void)x;
     (void)y;
+    printf("handleMouseDown: button=%d x=%.2f y=%.2f\n", button, x, y);
     if (button == 1) {
-        setMouseCaptured(true);
+        mouse_capture_requested = true;
     }
 }
 
 void OrangeExterminatorApp::handleMouseUp(int button, double x, double y) {
-    (void)button;
-    (void)x;
-    (void)y;
+    printf("handleMouseUp: button=%d x=%.2f y=%.2f\n", button, x, y);
+    if (button == 1 && !mouse_captured) {
+        mouse_capture_requested = true;
+    }
 }
 
 void OrangeExterminatorApp::handleMouseMove(double x, double y) {
@@ -557,26 +617,36 @@ void OrangeExterminatorApp::drainKeyEvents() {
         return;
     }
 
+    if (mouse_uncapture_requested) {
+        setMouseCaptured(false);
+    } else if (mouse_capture_requested && !mouse_captured) {
+        setMouseCaptured(true);
+    }
+
     int move_x = 0;
     int move_z = 0;
     int look_dx = 0;
+    int look_dy = 0;
     {
         Mutex::Lock lock(input_lock);
         move_x = (held_right ? 1 : 0) - (held_left ? 1 : 0);
         move_z = (held_forward ? 1 : 0) - (held_back ? 1 : 0);
         look_dx = pending_mouse_dx;
+        look_dy = pending_mouse_dy;
         pending_mouse_dx = 0;
         pending_mouse_dy = 0;
         pending_keydowns.clear();
     }
 
-    if (move_x == 0 && move_z == 0 && look_dx == 0) {
+    if (move_x == 0 && move_z == 0 && look_dx == 0 && look_dy == 0) {
         return;
     }
 
-    scene_cam_x += (move_x * 24) + (look_dx / 4);
+    scene_cam_x += (move_x * 24);
     scene_cam_z += (move_z * 96);
-    scene_lane += (move_x * 24) + (look_dx / 4);
+    scene_lane += (move_x * 24);
+    scene_cam_yaw += (look_dx / 6);
+    scene_cam_pitch -= (look_dy / 8);
     if (move_z > 0) {
         scene_depth = 1;
     } else if (move_z < 0) {
@@ -585,10 +655,12 @@ void OrangeExterminatorApp::drainKeyEvents() {
     scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
     scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
     scene_lane = clampInt(scene_lane, -320, 320);
+    scene_cam_yaw = clampInt(scene_cam_yaw, -720, 720);
+    scene_cam_pitch = clampInt(scene_cam_pitch, -360, 360);
     scene_depth = clampInt(scene_depth, 0, 1);
 
-    printf("drainKeyEvents: cam_x=%d cam_z=%d depth=%d lane=%d\n",
-           scene_cam_x, scene_cam_z, scene_depth, scene_lane);
+    printf("drainKeyEvents: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d\n",
+           scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch);
     sendScenePose();
 }
 
@@ -821,6 +893,7 @@ bool OrangeExterminatorApp::setSectionJson(const String &target, const String &s
     String result_json;
     String error_code;
     String error_message;
+    last_section_update_timed_out = false;
     if(!peer->call(String("ui.setSectionJson"), params, result_json, error_code, error_message, 5000)) {
         String target_copy(target);
         String section_copy(section);
@@ -829,6 +902,9 @@ bool OrangeExterminatorApp::setSectionJson(const String &target, const String &s
                target_copy.operator char *(),
                section_copy.operator char *(),
                error_message.operator char *());
+        if (error_code == String("timeout")) {
+            last_section_update_timed_out = true;
+        }
         return false;
     }
     return true;
@@ -848,18 +924,12 @@ bool OrangeExterminatorApp::pushUiState() {
             pushed_surface_revision = surface_revision;
             return true;
         }
-        incremental_ui_supported = false;
-        traceLine(String("{\"event\":\"ui_incremental_disabled\"}"));
-    }
-
-    ElaraUiDocumentBuilder ui;
-    buildDocument(ui);
-    if(!loadDocument(ui.toJson())) {
-        return false;
-    }
-    {
-        Mutex::Lock lock(render_lock);
-        pushed_surface_revision = surface_revision;
+        if (last_section_update_timed_out) {
+            traceLine(String("{\"event\":\"ui_incremental_timeout_retry\"}"));
+            return true;
+        }
+        traceLine(String("{\"event\":\"ui_incremental_failed_retry\"}"));
+        return true;
     }
     return true;
 }
@@ -980,6 +1050,63 @@ int OrangeExterminatorApp::run() {
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"left\"}"));
+                continue;
+            }
+            if (command == String("yaw-left")) {
+                scene_cam_yaw = clampInt(scene_cam_yaw - 12, -720, 720);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-left\"}"));
+                continue;
+            }
+            if (command == String("yaw-right")) {
+                scene_cam_yaw = clampInt(scene_cam_yaw + 12, -720, 720);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-right\"}"));
+                continue;
+            }
+            if (command == String("pitch-up")) {
+                scene_cam_pitch = clampInt(scene_cam_pitch + 4, -360, 360);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-up\"}"));
+                continue;
+            }
+            if (command == String("pitch-down")) {
+                scene_cam_pitch = clampInt(scene_cam_pitch - 4, -360, 360);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-down\"}"));
+                continue;
+            }
+            if (command == String("pose-reset")) {
+                scene_cam_x = 0;
+                scene_cam_y = 0;
+                scene_cam_z = 0;
+                scene_cam_yaw = 0;
+                scene_cam_pitch = 0;
+                scene_depth = 0;
+                scene_lane = 0;
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pose-reset\"}"));
+                continue;
+            }
+            if (command.indexOf(String("yaw-set ")) == 0) {
+                String value = command.substr(8).trim();
+                scene_cam_yaw = clampInt((int)strtol(value.operator char *(), NULL, 10), -720, 720);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-set\",\"value\":") + String(scene_cam_yaw) + String("}"));
+                continue;
+            }
+            if (command.indexOf(String("pitch-set ")) == 0) {
+                String value = command.substr(10).trim();
+                scene_cam_pitch = clampInt((int)strtol(value.operator char *(), NULL, 10), -360, 360);
+                sendScenePose();
+                pushUiState();
+                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-set\",\"value\":") + String(scene_cam_pitch) + String("}"));
                 continue;
             }
             printf("Unhandled command: %s\n", command.operator char *());

@@ -42,6 +42,7 @@ build
 ElaraUnitTests/artifacts
 libElaraUI/artifacts
 epa-ide/artifacts
+demos/orange-exterminator/artifacts
 demos/orange-exterminator/cpp/artifacts
 
 # Per-project generated autotools/configure output

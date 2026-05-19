@@ -174,6 +174,7 @@ void renderVectorOverlay(ElaraVectorDocument *overlay, ElaraDrawContext *ctx,
 ElaraRootWidget::ElaraRootWidget(const String& root_widget_id)
     : root_id(root_widget_id),
       gui_backend(0),
+      focus_locked(false),
       overlay_count(0),
       max_overlays(32) {
     event_filter = Ref<WidgetListener>(new ElaraOutboundEventFilter());
@@ -209,6 +210,8 @@ void ElaraRootWidget::unregisterWidget(ElaraWidgetHandle widget_handle) {
 void ElaraRootWidget::sweepRegistry() {
     dismissAllPopups();
     focus = ElaraWidgetHandle();
+    focus_locked = false;
+    locked_focus = ElaraWidgetHandle();
     content = ElaraWidgetHandle();
     ElaraWidgetRegistry::getInstance()->clearNamespace(root_id);
 }
@@ -433,11 +436,33 @@ String ElaraRootWidget::getRootSnapshotJson() const {
 }
 
 void ElaraRootWidget::setFocus(ElaraWidgetHandle widget_handle) {
+    if(focus_locked) {
+        return;
+    }
     this->focus = widget_handle;
 }
 
 ElaraWidgetHandle ElaraRootWidget::getFocus() const {
     return focus;
+}
+
+void ElaraRootWidget::lockFocus(ElaraWidgetHandle widget_handle) {
+    focus = widget_handle;
+    locked_focus = widget_handle;
+    focus_locked = true;
+}
+
+void ElaraRootWidget::clearFocusLock() {
+    focus_locked = false;
+    locked_focus = ElaraWidgetHandle();
+}
+
+bool ElaraRootWidget::hasFocusLock() const {
+    return focus_locked;
+}
+
+ElaraWidgetHandle ElaraRootWidget::getLockedFocus() const {
+    return locked_focus;
 }
 
 void ElaraRootWidget::enableOutboundEvent(const String& action) {
@@ -650,7 +675,7 @@ void ElaraRootWidget::dispatchMouseDown(int button, double px, double py) {
         ? dynamic_cast<ElaraTextInputWidget*>(focused_widget.getPtr())
         : 0;
 
-    if(focused_input) {
+    if(focused_input && !focus_locked) {
         bool inside_focused =
             px >= focused_input->getAbsoluteX() &&
             py >= focused_input->getAbsoluteY() &&
@@ -732,6 +757,14 @@ void ElaraRootWidget::dispatchKeyDown(unsigned int keyval, unsigned int modifier
         return;
     }
 
+    if(focus_locked) {
+        Ref<ElaraWidget> locked_widget = getWidget(locked_focus);
+        if(locked_widget && locked_widget->isVisible()) {
+            locked_widget->onKeyDown(keyval, modifiers);
+            return;
+        }
+    }
+
     Ref<ElaraWidget> focused_widget = getWidget(focus);
 
     if(focused_widget && focused_widget->isVisible()) {
@@ -745,6 +778,14 @@ void ElaraRootWidget::dispatchKeyDown(unsigned int keyval, unsigned int modifier
 }
 
 void ElaraRootWidget::dispatchKeyUp(unsigned int keyval, unsigned int modifiers) {
+    if(focus_locked) {
+        Ref<ElaraWidget> locked_widget = getWidget(locked_focus);
+        if(locked_widget && locked_widget->isVisible()) {
+            locked_widget->onKeyUp(keyval, modifiers);
+            return;
+        }
+    }
+
     Ref<ElaraWidget> focused_widget = getWidget(focus);
 
     if(focused_widget && focused_widget->isVisible()) {

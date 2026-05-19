@@ -93,6 +93,18 @@ private:
         String& error_code,
         String& error_message
     );
+    bool lockFocus(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool clearFocusLock(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool setSectionJson(
         const Json& params,
         String& result_json,

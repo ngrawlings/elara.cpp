@@ -254,16 +254,45 @@ static EExpr *parse_add(Parser *p) {
   return lhs;
 }
 
-static EExpr *parse_eq(Parser *p) {
+static EExpr *parse_rel(Parser *p) {
   EExpr *lhs = parse_add(p);
-  while (lhs && peek(p)->kind == E_TOK_EQEQ) {
+  while (lhs &&
+         (peek(p)->kind == E_TOK_LT ||
+          peek(p)->kind == E_TOK_LTE ||
+          peek(p)->kind == E_TOK_GT ||
+          peek(p)->kind == E_TOK_GTE)) {
+    ETokenKind op = peek(p)->kind;
     EExpr *rhs;
     EExpr *e;
     p->pos++;
     rhs = parse_add(p);
     if (!rhs) return NULL;
     e = new_expr(E_EXPR_BINARY);
-    e->as.binary.op = E_BIN_EQ;
+    switch (op) {
+      case E_TOK_LT: e->as.binary.op = E_BIN_LT; break;
+      case E_TOK_LTE: e->as.binary.op = E_BIN_LE; break;
+      case E_TOK_GT: e->as.binary.op = E_BIN_GT; break;
+      case E_TOK_GTE: e->as.binary.op = E_BIN_GE; break;
+      default: return NULL;
+    }
+    e->as.binary.lhs = lhs;
+    e->as.binary.rhs = rhs;
+    lhs = e;
+  }
+  return lhs;
+}
+
+static EExpr *parse_eq(Parser *p) {
+  EExpr *lhs = parse_rel(p);
+  while (lhs && (peek(p)->kind == E_TOK_EQEQ || peek(p)->kind == E_TOK_NEQ)) {
+    ETokenKind op = peek(p)->kind;
+    EExpr *rhs;
+    EExpr *e;
+    p->pos++;
+    rhs = parse_rel(p);
+    if (!rhs) return NULL;
+    e = new_expr(E_EXPR_BINARY);
+    e->as.binary.op = (op == E_TOK_EQEQ) ? E_BIN_EQ : E_BIN_NE;
     e->as.binary.lhs = lhs;
     e->as.binary.rhs = rhs;
     lhs = e;

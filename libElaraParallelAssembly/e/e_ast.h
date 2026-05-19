@@ -44,6 +44,11 @@ typedef enum {
   E_BIN_MUL,
   E_BIN_DIV,
   E_BIN_EQ,
+  E_BIN_NE,
+  E_BIN_LT,
+  E_BIN_LE,
+  E_BIN_GT,
+  E_BIN_GE,
 } EBinaryOp;
 
 struct EExpr {

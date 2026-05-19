@@ -3,6 +3,8 @@
 
 #include <math.h>
 #include <stdlib.h>
+#include <X11/Xlib.h>
+#include <gdk/x11/gdkx.h>
 
 namespace elara {
 
@@ -20,6 +22,8 @@ public:
     bool visible;
     bool mouse_captured;
     bool capture_on_click;
+    bool ignore_next_capture_motion;
+    int capture_ignore_events_remaining;
     double last_mouse_x;
     double last_mouse_y;
     double capture_ref_x;
@@ -48,6 +52,8 @@ public:
         visible(false),
         mouse_captured(false),
         capture_on_click(false),
+        ignore_next_capture_motion(false),
+        capture_ignore_events_remaining(0),
         last_mouse_x(0),
         last_mouse_y(0),
         capture_ref_x(0),
@@ -465,6 +471,45 @@ void GtkGuiBackend::onWindowDestroy(GtkWindow* window, gpointer user_data) {
     }
 }
 
+void GtkGuiBackend::recenterPointer(WindowState* state) {
+    if(!state || !state->drawing_area || !state->window) {
+        return;
+    }
+
+    int width = gtk_widget_get_width(state->drawing_area);
+    int height = gtk_widget_get_height(state->drawing_area);
+    if(width <= 0 || height <= 0) {
+        return;
+    }
+
+    double center_x = (double)width * 0.5;
+    double center_y = (double)height * 0.5;
+    state->capture_ref_x = center_x;
+    state->capture_ref_y = center_y;
+    state->last_mouse_x = center_x;
+    state->last_mouse_y = center_y;
+
+    GdkSurface* surface = gtk_native_get_surface(GTK_NATIVE(state->window));
+    if(!surface) {
+        return;
+    }
+    GdkDisplay* display = gdk_surface_get_display(surface);
+    if(!display || !GDK_IS_X11_DISPLAY(display)) {
+        return;
+    }
+
+    Display* xdisplay = gdk_x11_display_get_xdisplay(display);
+    Window xid = gdk_x11_surface_get_xid(surface);
+    if(!xdisplay || xid == 0) {
+        return;
+    }
+
+    state->ignore_next_capture_motion = true;
+    state->capture_ignore_events_remaining = 3;
+    XWarpPointer(xdisplay, None, xid, 0, 0, 0, 0, (int)center_x, (int)center_y);
+    XFlush(xdisplay);
+}
+
 void GtkGuiBackend::onMouseMotion(
     GtkEventControllerMotion* controller,
     double x,
@@ -479,14 +524,28 @@ void GtkGuiBackend::onMouseMotion(
         if(state->mouse_captured) {
             double dx = x - state->capture_ref_x;
             double dy = y - state->capture_ref_y;
-            state->capture_ref_x = x;
-            state->capture_ref_y = y;
-            state->surface->dispatchMouseMove(dx, dy);
+            if(state->capture_ignore_events_remaining > 0 &&
+               fabs(dx) <= 1.0 && fabs(dy) <= 1.0) {
+                state->capture_ignore_events_remaining--;
+                state->ignore_next_capture_motion = false;
+                return;
+            }
+            if(state->ignore_next_capture_motion &&
+               fabs(dx) <= 1.0 && fabs(dy) <= 1.0) {
+                state->ignore_next_capture_motion = false;
+                return;
+            }
+            if(fabs(dx) >= 4.0 || fabs(dy) >= 4.0) {
+                if(dx > 64.0) { dx = 64.0; }
+                if(dx < -64.0) { dx = -64.0; }
+                if(dy > 64.0) { dy = 64.0; }
+                if(dy < -64.0) { dy = -64.0; }
+                state->surface->dispatchMouseMove(dx, dy);
+                recenterPointer(state);
+            }
         } else {
             state->surface->dispatchMouseMove(x, y);
             gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
-        }
-        if(state->backend) {
             state->backend->invalidate();
         }
     }
@@ -547,10 +606,6 @@ void GtkGuiBackend::onMousePressed(
 
     if(state && state->drawing_area) {
         gtk_widget_grab_focus(state->drawing_area);
-    }
-
-    if(state && state->capture_on_click && !state->mouse_captured) {
-        state->backend->setMouseCaptured(true);
     }
 
     if(state && state->backend) {
@@ -803,12 +858,17 @@ void GtkGuiBackend::setMouseCaptured(bool captured) {
             continue;
         }
         state->mouse_captured = captured;
-        state->capture_on_click = captured;
+        state->capture_on_click = false;
         if(captured) {
-            state->capture_ref_x = state->last_mouse_x;
-            state->capture_ref_y = state->last_mouse_y;
+            state->capture_ignore_events_remaining = 3;
+            if(state->drawing_area) {
+                gtk_widget_grab_focus(state->drawing_area);
+            }
             gtk_widget_set_cursor_from_name(state->drawing_area, "none");
+            recenterPointer(state);
         } else {
+            state->ignore_next_capture_motion = false;
+            state->capture_ignore_events_remaining = 0;
             gtk_widget_set_cursor_from_name(state->drawing_area, "default");
         }
         return;
