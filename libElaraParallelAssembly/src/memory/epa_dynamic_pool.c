@@ -101,35 +101,18 @@ static uint8_t *dyn_slot_data(EpaDynamicPool *pool, uint32_t id)
   return pool->slot_data + ((size_t)id * (size_t)pool->element_size);
 }
 
-static int dyn_rebuild_ord_vtables(EpaDynamicPool *pool, char err[256])
+static int dyn_vtable_update_at(EpaDynamicPool *pool, uint32_t ordinal, uint32_t id, char err[256])
 {
   uint32_t level;
-  uint32_t ordinal = 0u;
-  uint32_t id;
-  if (!pool) {
-    set_err(err, "epa_dynamic_pool: null pool in ordinal vtable rebuild");
-    return 0;
-  }
-  for (level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
+  for (level = 0u; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
     uint32_t stride = pool->ord_vtables[level].stride;
-    uint32_t need = (pool->active_count == 0u) ? 0u : (pool->active_count - 1u) / stride + 1u;
-    if (need != 0u && !dyn_vtable_reserve(&pool->ord_vtables[level], need, err)) return 0;
-  }
-  id = pool->live_head;
-  while (id != EPA_DYNAMIC_NULL) {
-    EpaDynamicSlot *slot = epa_dynamic_pool_slot(pool, id);
-    if (!slot) {
-      set_err(err, "epa_dynamic_pool: invalid live slot during ordinal vtable rebuild");
-      return 0;
-    }
-    for (level = 0; level < EPA_DYNAMIC_VTABLE_LEVELS; level++) {
-      uint32_t stride = pool->ord_vtables[level].stride;
-      if ((ordinal % stride) == 0u) {
-        pool->ord_vtables[level].ids[ordinal / stride] = id;
+    if ((ordinal % stride) == 0u) {
+      uint32_t entry = ordinal / stride;
+      if (entry >= pool->ord_vtables[level].count) {
+        if (!dyn_vtable_reserve(&pool->ord_vtables[level], entry + 1u, err)) return 0;
       }
+      pool->ord_vtables[level].ids[entry] = id;
     }
-    ordinal++;
-    id = slot->next_live;
   }
   return 1;
 }
@@ -298,6 +281,7 @@ static int dyn_pool_grow(EpaDynamicPool *pool, char err[256])
     slot->prev_live = EPA_DYNAMIC_NULL;
     slot->next_free = EPA_DYNAMIC_NULL;
     slot->prev_free = EPA_DYNAMIC_NULL;
+    slot->ordinal = EPA_DYNAMIC_NULL;
     slot->is_live = 0u;
     slot->is_free = 1u;
   }
@@ -450,7 +434,8 @@ int epa_dynamic_pool_alloc(EpaDynamicPool *pool, uint32_t *out_id, char err[256]
   slot->is_free = 0u;
   slot->is_live = 1u;
   if (!dyn_live_append(pool, id, err)) return 0;
-  if (!dyn_rebuild_ord_vtables(pool, err)) return 0;
+  slot->ordinal = pool->active_count - 1u;
+  if (!dyn_vtable_update_at(pool, slot->ordinal, id, err)) return 0;
   *out_id = id;
   return 1;
 }
@@ -458,6 +443,10 @@ int epa_dynamic_pool_alloc(EpaDynamicPool *pool, uint32_t *out_id, char err[256]
 int epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t id, char err[256])
 {
   EpaDynamicSlot *slot;
+  uint32_t removed_ord;
+  uint32_t next_id;
+  uint32_t cur_id;
+  uint32_t cur_ord;
   if (!pool) {
     set_err(err, "epa_dynamic_pool_release: null pool");
     return 0;
@@ -471,11 +460,26 @@ int epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t id, char err[256])
     set_err(err, "epa_dynamic_pool_release: slot is not live");
     return 0;
   }
+  removed_ord = slot->ordinal;
+  next_id = slot->next_live;
   if (!dyn_live_remove(pool, id, err)) return 0;
   slot->is_live = 0u;
   slot->is_free = 1u;
+  slot->ordinal = EPA_DYNAMIC_NULL;
   if (!dyn_free_prepend(pool, id, err)) return 0;
-  if (!dyn_rebuild_ord_vtables(pool, err)) return 0;
+  cur_id = next_id;
+  cur_ord = removed_ord;
+  while (cur_id != EPA_DYNAMIC_NULL) {
+    EpaDynamicSlot *cur = epa_dynamic_pool_slot(pool, cur_id);
+    if (!cur) {
+      set_err(err, "epa_dynamic_pool_release: broken live chain");
+      return 0;
+    }
+    cur->ordinal = cur_ord;
+    if (!dyn_vtable_update_at(pool, cur_ord, cur_id, err)) return 0;
+    cur_ord++;
+    cur_id = cur->next_live;
+  }
   return 1;
 }
 
@@ -540,10 +544,8 @@ int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32
 {
   EpaDynamicSlot *a;
   EpaDynamicSlot *b;
-  uint32_t a_prev;
-  uint32_t a_next;
-  uint32_t b_prev;
-  uint32_t b_next;
+  uint32_t a_prev, a_next, b_prev, b_next;
+  uint32_t ord_a, ord_b, tmp_ord;
   if (!pool) {
     set_err(err, "epa_dynamic_pool_swap_live_order: null pool");
     return 0;
@@ -559,48 +561,44 @@ int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32
     set_err(err, "epa_dynamic_pool_swap_live_order: both slots must be live");
     return 0;
   }
+  ord_a = a->ordinal;
+  ord_b = b->ordinal;
   a_prev = a->prev_live;
   a_next = a->next_live;
   b_prev = b->prev_live;
   b_next = b->next_live;
 
   if (a_next == id_b) {
-    a->prev_live = id_b;
-    a->next_live = b_next;
-    b->prev_live = a_prev;
-    b->next_live = id_a;
+    a->prev_live = id_b; a->next_live = b_next;
+    b->prev_live = a_prev; b->next_live = id_a;
     if (a_prev != EPA_DYNAMIC_NULL) pool->slots[a_prev].next_live = id_b;
     else pool->live_head = id_b;
     if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
     else pool->live_tail = id_a;
-    return dyn_rebuild_ord_vtables(pool, err);
-  }
-  if (b_next == id_a) {
-    b->prev_live = id_a;
-    b->next_live = a_next;
-    a->prev_live = b_prev;
-    a->next_live = id_b;
+  } else if (b_next == id_a) {
+    b->prev_live = id_a; b->next_live = a_next;
+    a->prev_live = b_prev; a->next_live = id_b;
     if (b_prev != EPA_DYNAMIC_NULL) pool->slots[b_prev].next_live = id_a;
     else pool->live_head = id_a;
     if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
     else pool->live_tail = id_b;
-    return dyn_rebuild_ord_vtables(pool, err);
+  } else {
+    a->prev_live = b_prev; a->next_live = b_next;
+    b->prev_live = a_prev; b->next_live = a_next;
+    if (a_prev != EPA_DYNAMIC_NULL) pool->slots[a_prev].next_live = id_b;
+    else pool->live_head = id_b;
+    if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
+    else pool->live_tail = id_b;
+    if (b_prev != EPA_DYNAMIC_NULL) pool->slots[b_prev].next_live = id_a;
+    else pool->live_head = id_a;
+    if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
+    else pool->live_tail = id_a;
   }
 
-  a->prev_live = b_prev;
-  a->next_live = b_next;
-  b->prev_live = a_prev;
-  b->next_live = a_next;
-
-  if (a_prev != EPA_DYNAMIC_NULL) pool->slots[a_prev].next_live = id_b;
-  else pool->live_head = id_b;
-  if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
-  else pool->live_tail = id_b;
-  if (b_prev != EPA_DYNAMIC_NULL) pool->slots[b_prev].next_live = id_a;
-  else pool->live_head = id_a;
-  if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
-  else pool->live_tail = id_a;
-  return dyn_rebuild_ord_vtables(pool, err);
+  tmp_ord = a->ordinal; a->ordinal = b->ordinal; b->ordinal = tmp_ord;
+  if (!dyn_vtable_update_at(pool, ord_a, id_b, err)) return 0;
+  if (!dyn_vtable_update_at(pool, ord_b, id_a, err)) return 0;
+  return 1;
 }
 
 int epa_dynamic_pool_live_id_at(const EpaDynamicPool *pool, uint32_t ordinal, uint32_t *out_id, char err[256])
@@ -621,11 +619,8 @@ int epa_dynamic_pool_live_id_at(const EpaDynamicPool *pool, uint32_t ordinal, ui
     uint32_t idx = level - 1u;
     uint32_t stride = pool->ord_vtables[idx].stride;
     uint32_t entry = ordinal / stride;
-    if (entry == 0u) continue;
-    if (entry >= pool->ord_vtables[idx].count) {
-      set_err(err, "epa_dynamic_pool_live_id_at: ordinal vtable miss");
-      return 0;
-    }
+    uint32_t valid = (pool->active_count == 0u) ? 0u : (pool->active_count - 1u) / stride + 1u;
+    if (entry == 0u || entry >= valid || entry >= pool->ord_vtables[idx].count) continue;
     id = pool->ord_vtables[idx].ids[entry];
     base_ordinal = entry * stride;
     break;

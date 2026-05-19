@@ -16,6 +16,7 @@ typedef struct {
   uint32_t prev_live;
   uint32_t next_free;
   uint32_t prev_free;
+  uint32_t ordinal;
   uint8_t is_live;
   uint8_t is_free;
 } EpaDynamicSlot;
