@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <vector>
+#include <math.h>
 #include <unistd.h>
 #include <sys/select.h>
 #include <sys/stat.h>
@@ -57,8 +58,26 @@ struct SceneViewState {
 };
 
 struct SceneMarkerState {
+    bool visible;
     int x;
     int y;
+    double depth;
+};
+
+struct ProjectedRectState {
+    bool visible;
+    int x;
+    int y;
+    int w;
+    int h;
+};
+
+struct CalibrationProjectionState {
+    ProjectedRectState end_wall;
+    ProjectedRectState side_wall;
+    SceneMarkerState marker0;
+    SceneMarkerState marker1;
+    SceneMarkerState marker2;
 };
 
 static int clampInt(int value, int min_value, int max_value) {
@@ -69,6 +88,14 @@ static int clampInt(int value, int min_value, int max_value) {
         return max_value;
     }
     return value;
+}
+
+static int wrapDegrees360(int value) {
+    int wrapped = value % 360;
+    if (wrapped < 0) {
+        wrapped += 360;
+    }
+    return wrapped;
 }
 
 class UiEventSinkService : public sockets::rpc::json::JsonRPCService {
@@ -137,21 +164,108 @@ SceneViewState clampSceneViewState(const SceneViewState &input) {
     state.cam_x = clampInt(state.cam_x, -4096, 4096);
     state.cam_y = clampInt(state.cam_y, -1024, 1024);
     state.cam_z = clampInt(state.cam_z, -4096, 4096);
-    state.cam_yaw = clampInt(state.cam_yaw, -720, 720);
-    state.cam_pitch = clampInt(state.cam_pitch, -360, 360);
+    state.cam_yaw = wrapDegrees360(state.cam_yaw);
+    state.cam_pitch = clampInt(state.cam_pitch, -89, 89);
     state.depth = clampInt(state.depth, 0, 6);
     state.lane = clampInt(state.lane, -320, 320);
     return state;
 }
 
-SceneMarkerState projectSceneMarker(const SceneViewState &input) {
+static SceneMarkerState projectWorldPoint(const SceneViewState &input, double wx, double wy, double wz) {
     SceneViewState scene = clampSceneViewState(input);
     SceneMarkerState marker;
-    int horizon = scene.cam_pitch * 3;
-    int center_shift = scene.cam_yaw * 4;
-    marker.x = 630 + scene.lane + center_shift;
-    marker.y = (scene.depth == 1 ? 302 : 311) + horizon;
+    double yaw = ((double)scene.cam_yaw) * 3.14159265358979323846 / 180.0;
+    double pitch = ((double)scene.cam_pitch) * 3.14159265358979323846 / 180.0;
+    double dx = wx - (double)scene.cam_x;
+    double dy = wy - (double)scene.cam_y;
+    double dz = wz - (double)scene.cam_z;
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double cp = cos(pitch);
+    double sp = sin(pitch);
+    double view_x = (cy * dx) - (sy * dz);
+    double view_z = (sy * dx) + (cy * dz);
+    double view_y = (cp * dy) - (sp * view_z);
+    double depth_z = (sp * dy) + (cp * view_z);
+    double focal = 760.0;
+    marker.visible = false;
+    marker.x = 0;
+    marker.y = 0;
+    marker.depth = depth_z;
+    if (depth_z <= 32.0) {
+        return marker;
+    }
+    marker.x = (int)lrint(640.0 + ((view_x * focal) / depth_z));
+    marker.y = (int)lrint(360.0 - ((view_y * focal) / depth_z));
+    marker.visible = true;
     return marker;
+}
+
+static ProjectedRectState projectWallRect(
+    const SceneViewState &input,
+    double ax, double ay, double az,
+    double bx, double by, double bz,
+    double cx, double cy, double cz,
+    double dx, double dy, double dz
+) {
+    SceneMarkerState p0 = projectWorldPoint(input, ax, ay, az);
+    SceneMarkerState p1 = projectWorldPoint(input, bx, by, bz);
+    SceneMarkerState p2 = projectWorldPoint(input, cx, cy, cz);
+    SceneMarkerState p3 = projectWorldPoint(input, dx, dy, dz);
+    ProjectedRectState rect;
+    rect.visible = false;
+    rect.x = 0;
+    rect.y = 0;
+    rect.w = 0;
+    rect.h = 0;
+    if (!p0.visible || !p1.visible || !p2.visible || !p3.visible) {
+        return rect;
+    }
+    int min_x = p0.x;
+    int max_x = p0.x;
+    int min_y = p0.y;
+    int max_y = p0.y;
+    if (p1.x < min_x) min_x = p1.x;
+    if (p2.x < min_x) min_x = p2.x;
+    if (p3.x < min_x) min_x = p3.x;
+    if (p1.x > max_x) max_x = p1.x;
+    if (p2.x > max_x) max_x = p2.x;
+    if (p3.x > max_x) max_x = p3.x;
+    if (p1.y < min_y) min_y = p1.y;
+    if (p2.y < min_y) min_y = p2.y;
+    if (p3.y < min_y) min_y = p3.y;
+    if (p1.y > max_y) max_y = p1.y;
+    if (p2.y > max_y) max_y = p2.y;
+    if (p3.y > max_y) max_y = p3.y;
+    rect.x = min_x;
+    rect.y = min_y;
+    rect.w = max_x - min_x;
+    rect.h = max_y - min_y;
+    rect.visible = (rect.w > 2 && rect.h > 2);
+    return rect;
+}
+
+static CalibrationProjectionState projectCalibrationScene(const SceneViewState &input) {
+    CalibrationProjectionState projection;
+    SceneViewState scene = clampSceneViewState(input);
+    projection.end_wall = projectWallRect(
+        scene,
+        -640.0, -180.0, 3072.0,
+         640.0, -180.0, 3072.0,
+         640.0,  320.0, 3072.0,
+        -640.0,  320.0, 3072.0
+    );
+    projection.side_wall = projectWallRect(
+        scene,
+         896.0, -180.0, 1600.0,
+         896.0, -180.0, 3000.0,
+         896.0,  320.0, 3000.0,
+         896.0,  320.0, 1600.0
+    );
+    projection.marker0 = projectWorldPoint(scene, 0.0, 0.0, 2048.0);
+    projection.marker1 = projectWorldPoint(scene, 512.0, 0.0, 2048.0);
+    projection.marker2 = projectWorldPoint(scene, 0.0, 256.0, 2048.0);
+    return projection;
 }
 
 int on_surface_host_signal(uint8_t wid, const char *msg, const int msg_len) {
@@ -484,8 +598,25 @@ void OrangeExterminatorApp::stimulateEpa() {
 
     idx = epa.findKernelIndex(String("scene"));
     if (idx >= 0) {
-        struct ScenePoseInputPayload { int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; int32_t yaw; int32_t pitch; };
-        ScenePoseInputPayload pose_init = { scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch };
+        struct ScenePoseInputPayload {
+            int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; int32_t yaw; int32_t pitch;
+            int32_t end_wall_x; int32_t end_wall_y; int32_t end_wall_w; int32_t end_wall_h; int32_t end_wall_visible;
+            int32_t side_wall_x; int32_t side_wall_y; int32_t side_wall_w; int32_t side_wall_h; int32_t side_wall_visible;
+            int32_t marker0_x; int32_t marker0_y; int32_t marker0_visible;
+            int32_t marker1_x; int32_t marker1_y; int32_t marker1_visible;
+            int32_t marker2_x; int32_t marker2_y; int32_t marker2_visible;
+        };
+        CalibrationProjectionState projection = projectCalibrationScene(
+            SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
+        );
+        ScenePoseInputPayload pose_init = {
+            scene_cam_x, scene_cam_z, scene_depth, scene_lane, wrapDegrees360(scene_cam_yaw), clampInt(scene_cam_pitch, -89, 89),
+            projection.end_wall.x, projection.end_wall.y, projection.end_wall.w, projection.end_wall.h, projection.end_wall.visible ? 1 : 0,
+            projection.side_wall.x, projection.side_wall.y, projection.side_wall.w, projection.side_wall.h, projection.side_wall.visible ? 1 : 0,
+            projection.marker0.x, projection.marker0.y, projection.marker0.visible ? 1 : 0,
+            projection.marker1.x, projection.marker1.y, projection.marker1.visible ? 1 : 0,
+            projection.marker2.x, projection.marker2.y, projection.marker2.visible ? 1 : 0
+        };
         int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &pose_init, sizeof(pose_init)) ? 1 : 0;
         printf("stimulate scene worker1=%d\n", ok1);
         traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"scene\",\"wid1\":")
@@ -528,6 +659,25 @@ bool OrangeExterminatorApp::sendScenePose() {
         int32_t lane;
         int32_t yaw;
         int32_t pitch;
+        int32_t end_wall_x;
+        int32_t end_wall_y;
+        int32_t end_wall_w;
+        int32_t end_wall_h;
+        int32_t end_wall_visible;
+        int32_t side_wall_x;
+        int32_t side_wall_y;
+        int32_t side_wall_w;
+        int32_t side_wall_h;
+        int32_t side_wall_visible;
+        int32_t marker0_x;
+        int32_t marker0_y;
+        int32_t marker0_visible;
+        int32_t marker1_x;
+        int32_t marker1_y;
+        int32_t marker1_visible;
+        int32_t marker2_x;
+        int32_t marker2_y;
+        int32_t marker2_visible;
     };
 
     if (!epa_started) {
@@ -539,12 +689,43 @@ bool OrangeExterminatorApp::sendScenePose() {
         return false;
     }
 
-    ScenePoseInputPayload pose = { scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch };
-    SceneMarkerState marker = projectSceneMarker(
+    CalibrationProjectionState projection = projectCalibrationScene(
         SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
     );
-    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d marker_x=%d marker_y=%d\n",
-           pose.cam_x, pose.cam_z, pose.depth, pose.lane, pose.yaw, pose.pitch, marker.x, marker.y);
+    ScenePoseInputPayload pose = {
+        scene_cam_x,
+        scene_cam_z,
+        scene_depth,
+        scene_lane,
+        wrapDegrees360(scene_cam_yaw),
+        clampInt(scene_cam_pitch, -89, 89),
+        projection.end_wall.x,
+        projection.end_wall.y,
+        projection.end_wall.w,
+        projection.end_wall.h,
+        projection.end_wall.visible ? 1 : 0,
+        projection.side_wall.x,
+        projection.side_wall.y,
+        projection.side_wall.w,
+        projection.side_wall.h,
+        projection.side_wall.visible ? 1 : 0,
+        projection.marker0.x,
+        projection.marker0.y,
+        projection.marker0.visible ? 1 : 0,
+        projection.marker1.x,
+        projection.marker1.y,
+        projection.marker1.visible ? 1 : 0,
+        projection.marker2.x,
+        projection.marker2.y,
+        projection.marker2.visible ? 1 : 0
+    };
+    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d "
+           "m0=(%d,%d,%d) m1=(%d,%d,%d) m2=(%d,%d,%d) end=(%d,%d,%d,%d,%d)\n",
+           pose.cam_x, pose.cam_z, pose.depth, pose.lane, pose.yaw, pose.pitch,
+           pose.marker0_x, pose.marker0_y, pose.marker0_visible,
+           pose.marker1_x, pose.marker1_y, pose.marker1_visible,
+           pose.marker2_x, pose.marker2_y, pose.marker2_visible,
+           pose.end_wall_x, pose.end_wall_y, pose.end_wall_w, pose.end_wall_h, pose.end_wall_visible);
     fflush(stdout);
     return epa.ingressPushToKernel((size_t)idx, 1u, &pose, sizeof(pose));
 }
@@ -645,8 +826,8 @@ void OrangeExterminatorApp::drainKeyEvents() {
     scene_cam_x += (move_x * 24);
     scene_cam_z += (move_z * 96);
     scene_lane += (move_x * 24);
-    scene_cam_yaw += (look_dx / 6);
-    scene_cam_pitch -= (look_dy / 8);
+    scene_cam_yaw = wrapDegrees360(scene_cam_yaw + (look_dx / 6));
+    scene_cam_pitch = clampInt(scene_cam_pitch - (look_dy / 8), -89, 89);
     if (move_z > 0) {
         scene_depth = 1;
     } else if (move_z < 0) {
@@ -655,8 +836,6 @@ void OrangeExterminatorApp::drainKeyEvents() {
     scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
     scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
     scene_lane = clampInt(scene_lane, -320, 320);
-    scene_cam_yaw = clampInt(scene_cam_yaw, -720, 720);
-    scene_cam_pitch = clampInt(scene_cam_pitch, -360, 360);
     scene_depth = clampInt(scene_depth, 0, 1);
 
     printf("drainKeyEvents: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d\n",
@@ -687,7 +866,9 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
     const unsigned char *bytes = (const unsigned char *)msg;
     size_t offset = 0;
     String json("[");
+    String rect_summary("");
     int emitted = 0;
+    int rect_count = 0;
     printf("surface mailbox callback wid=%u len=%d\n", wid, msg_len);
     traceLine(String("{\"event\":\"mailbox_callback\",\"wid\":") + String((int)wid) + String(",\"len\":") + String(msg_len) + String("}"));
     if (wid != 1u || !msg || msg_len < 28) {
@@ -745,6 +926,16 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
                  + String(",\"b\":") + String(((double)b) / 255.0)
                  + String("}");
             emitted = 1;
+            if (rect_summary.length() > 0) {
+                rect_summary += String(" ");
+            }
+            rect_summary += String("#") + String(rect_count)
+                         + String("(") + String((int)x)
+                         + String(",") + String((int)y)
+                         + String(",") + String((int)w)
+                         + String(",") + String((int)h)
+                         + String(")");
+            rect_count++;
             continue;
         }
         if (opcode == 2u) {
@@ -799,6 +990,9 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
         }
     }
     printf("surface mailbox parsed: emitted=%d\n", emitted);
+    if (rect_summary.length() > 0) {
+        printf("surface mailbox rects: %s\n", rect_summary.operator char *());
+    }
     traceLine(String("{\"event\":\"mailbox_parsed\",\"emitted\":") + String(emitted) + String("}"));
     traceKernelStateSnapshot("after_mailbox");
 }
@@ -907,21 +1101,33 @@ bool OrangeExterminatorApp::setSectionJson(const String &target, const String &s
         }
         return false;
     }
+    printf("ui.setSectionJson ok: target=%s section=%s bytes=%d\n",
+           String(target).operator char *(),
+           String(section).operator char *(),
+           value_json.length());
     return true;
 }
 
 bool OrangeExterminatorApp::pushUiState() {
+    unsigned long current_revision = 0;
+    unsigned long current_pushed_revision = 0;
     {
         Mutex::Lock lock(render_lock);
+        current_revision = surface_revision;
+        current_pushed_revision = pushed_surface_revision;
         if (surface_revision == pushed_surface_revision) {
             return true;
         }
     }
+    printf("pushUiState: surface_revision=%lu pushed_surface_revision=%lu\n",
+           current_revision,
+           current_pushed_revision);
 
     if(incremental_ui_supported) {
         if(setSectionJson(String("app.surface"), String("commands"), buildSurfaceCommandsJson())) {
             Mutex::Lock lock(render_lock);
             pushed_surface_revision = surface_revision;
+            printf("pushUiState applied: pushed_surface_revision=%lu\n", pushed_surface_revision);
             return true;
         }
         if (last_section_update_timed_out) {
@@ -1053,28 +1259,28 @@ int OrangeExterminatorApp::run() {
                 continue;
             }
             if (command == String("yaw-left")) {
-                scene_cam_yaw = clampInt(scene_cam_yaw - 12, -720, 720);
+                scene_cam_yaw = wrapDegrees360(scene_cam_yaw - 12);
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-left\"}"));
                 continue;
             }
             if (command == String("yaw-right")) {
-                scene_cam_yaw = clampInt(scene_cam_yaw + 12, -720, 720);
+                scene_cam_yaw = wrapDegrees360(scene_cam_yaw + 12);
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-right\"}"));
                 continue;
             }
             if (command == String("pitch-up")) {
-                scene_cam_pitch = clampInt(scene_cam_pitch + 4, -360, 360);
+                scene_cam_pitch = clampInt(scene_cam_pitch + 4, -89, 89);
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-up\"}"));
                 continue;
             }
             if (command == String("pitch-down")) {
-                scene_cam_pitch = clampInt(scene_cam_pitch - 4, -360, 360);
+                scene_cam_pitch = clampInt(scene_cam_pitch - 4, -89, 89);
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-down\"}"));
@@ -1095,7 +1301,7 @@ int OrangeExterminatorApp::run() {
             }
             if (command.indexOf(String("yaw-set ")) == 0) {
                 String value = command.substr(8).trim();
-                scene_cam_yaw = clampInt((int)strtol(value.operator char *(), NULL, 10), -720, 720);
+                scene_cam_yaw = wrapDegrees360((int)strtol(value.operator char *(), NULL, 10));
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-set\",\"value\":") + String(scene_cam_yaw) + String("}"));
@@ -1103,7 +1309,7 @@ int OrangeExterminatorApp::run() {
             }
             if (command.indexOf(String("pitch-set ")) == 0) {
                 String value = command.substr(10).trim();
-                scene_cam_pitch = clampInt((int)strtol(value.operator char *(), NULL, 10), -360, 360);
+                scene_cam_pitch = clampInt((int)strtol(value.operator char *(), NULL, 10), -89, 89);
                 sendScenePose();
                 pushUiState();
                 traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-set\",\"value\":") + String(scene_cam_pitch) + String("}"));

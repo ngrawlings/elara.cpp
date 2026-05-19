@@ -66,6 +66,7 @@ typedef enum {
   E_LOCAL_STACK = 1,
   E_LOCAL_REG,
   E_LOCAL_ARENA_SCOPED,
+  E_LOCAL_STACK_STATIC,
 } ELocalStorageKind;
 
 typedef struct ELocalBinding {

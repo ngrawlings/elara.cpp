@@ -47,6 +47,7 @@ private:
     void buildWindow(WindowState* state);
     void removeWindowState(WindowState* state);
     static void recenterPointer(WindowState* state);
+    static gboolean invalidateOnMainThread(gpointer user_data);
 
     static void onActivate(GtkApplication* app, gpointer user_data);
     static void onDraw(GtkDrawingArea* area, cairo_t* cr, int width, int height, gpointer user_data);

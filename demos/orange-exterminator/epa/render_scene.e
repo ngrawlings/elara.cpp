@@ -10,23 +10,8 @@
 kernel(VM vm) {
   request_threads(4);
 
-  int wid = 0;
-  while (wid = kernel_wait_signal()) {
-    if (wid == 1) {
-      FrameTick tick = kernal_get_ghs(1);
-      // TODO: begin scene build for this frame.
-      log("render scene tick wid={d}", wid);
-    } else if (wid == 2) {
-      ActorState actor = kernal_get_ghs(2);
-      // TODO: fold actor transforms into the scene graph/product.
-      log("render scene actor wid={d}", wid);
-    } else if (wid == 3) {
-      WorldState world = kernal_get_ghs(3);
-      // TODO: fold world/static geometry state into the scene product.
-      log("render scene world wid={d}", wid);
-    } else {
-      log("render scene unknown wid={d}", wid);
-    }
+  while (kernel_wait_signal()) {
+    // Coordinator only for now.
   }
 }
 

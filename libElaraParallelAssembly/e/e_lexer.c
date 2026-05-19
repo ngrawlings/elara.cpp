@@ -72,6 +72,7 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "next") == 0) return E_TOK_KW_NEXT;
   if (strcmp(text, "reg") == 0) return E_TOK_KW_REG;
   if (strcmp(text, "local") == 0) return E_TOK_KW_LOCAL;
+  if (strcmp(text, "static") == 0) return E_TOK_KW_STATIC;
   return E_TOK_IDENT;
 }
 

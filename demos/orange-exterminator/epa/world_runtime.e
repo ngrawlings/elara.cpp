@@ -10,19 +10,8 @@
 kernel(VM vm) {
   request_threads(2);
 
-  int wid = 0;
-  while (wid = kernel_wait_signal()) {
-    if (wid == 1) {
-      FrameTick tick = kernal_get_ghs(1);
-      // TODO: advance moving doors, triggers, lifts, hazards, and scripted state.
-      log("world tick wid={d}", wid);
-    } else if (wid == 2) {
-      ActorState actor = kernal_get_ghs(2);
-      // TODO: update zone occupancy and actor/world interaction state.
-      log("world actor wid={d}", wid);
-    } else {
-      log("world unknown wid={d}", wid);
-    }
+  while (kernel_wait_signal()) {
+    // Coordinator only for now.
   }
 }
 

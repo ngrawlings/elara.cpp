@@ -98,6 +98,7 @@ typedef struct {
   char *name;
   int is_reg;
   int is_local;
+  int is_static;
   EExpr *init;
 } EDeclStmt;
 

@@ -396,13 +396,24 @@ void GtkGuiBackend::showSurface(Ref<ElaraDrawSurface> surface) {
     }
 }
 
-void GtkGuiBackend::invalidate() {
-    for(int i = 0; i < (int)windows.length(); i++) {
-        WindowState* state = windows[i];
+gboolean GtkGuiBackend::invalidateOnMainThread(gpointer user_data) {
+    GtkGuiBackend* self = (GtkGuiBackend*)user_data;
+    if(!self) {
+        return G_SOURCE_REMOVE;
+    }
+
+    for(int i = 0; i < (int)self->windows.length(); i++) {
+        WindowState* state = self->windows[i];
         if(state && state->drawing_area) {
             gtk_widget_queue_draw(state->drawing_area);
         }
     }
+
+    return G_SOURCE_REMOVE;
+}
+
+void GtkGuiBackend::invalidate() {
+    g_idle_add(&GtkGuiBackend::invalidateOnMainThread, this);
 }
 
 int GtkGuiBackend::run(int argc, char** argv) {

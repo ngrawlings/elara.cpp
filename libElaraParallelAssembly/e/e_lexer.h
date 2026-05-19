@@ -27,6 +27,7 @@ typedef enum {
   E_TOK_KW_NEXT,
   E_TOK_KW_REG,
   E_TOK_KW_LOCAL,
+  E_TOK_KW_STATIC,
   E_TOK_RAW_EPA,
 
   E_TOK_LPAREN,

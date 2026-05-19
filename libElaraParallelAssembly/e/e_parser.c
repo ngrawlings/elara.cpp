@@ -99,7 +99,9 @@ static int parse_type(Parser *p, ETypeRef *out) {
 
 static int is_decl_start(const Parser *p) {
   size_t pos = p->pos;
-  if (peek_n(p, 0)->kind == E_TOK_KW_REG || peek_n(p, 0)->kind == E_TOK_KW_LOCAL) pos++;
+  if (peek_n(p, 0)->kind == E_TOK_KW_REG ||
+      peek_n(p, 0)->kind == E_TOK_KW_LOCAL ||
+      peek_n(p, 0)->kind == E_TOK_KW_STATIC) pos++;
   if (p->tokens->items[pos].kind != E_TOK_IDENT) return 0;
   pos++;
   if (p->tokens->items[pos].kind == E_TOK_LBRACKET) {
@@ -361,6 +363,7 @@ static EStmt *parse_decl_stmt(Parser *p) {
   EStmt *s = new_stmt(E_STMT_DECL);
   if (match(p, E_TOK_KW_REG)) s->as.decl.is_reg = 1;
   else if (match(p, E_TOK_KW_LOCAL)) s->as.decl.is_local = 1;
+  else if (match(p, E_TOK_KW_STATIC)) s->as.decl.is_static = 1;
   if (!parse_type(p, &s->as.decl.type)) return NULL;
   if (!expect(p, E_TOK_IDENT, "expected local name")) return NULL;
   s->as.decl.name = xstrdup_local(p->tokens->items[p->pos - 1].text);

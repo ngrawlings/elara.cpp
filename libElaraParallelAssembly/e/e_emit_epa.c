@@ -266,6 +266,8 @@ static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
 static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth);
+static unsigned int next_label(EmitCtx *ctx);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
   if (!expr) return;
@@ -477,6 +479,65 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
   return 1;
 }
 
+static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth) {
+  unsigned int loop_id = next_label(ctx);
+  unsigned int done_id = next_label(ctx);
+  emit_indent(out, depth);
+  fputs("; zero-fill declared-type static allocation\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH R0\n");
+  emit_indent(out, depth);
+  fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH R1\n");
+  emit_indent(out, depth);
+  fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
+  emit_indent(out, depth);
+  fputs("SET_R 2 0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "E_STATIC_ZERO_%u:\n", loop_id);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_STATIC_ZERO_DONE_%u\n", done_id);
+  emit_indent(out, depth);
+  fputs("RLB_MOV1 2 0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_STATIC_ZERO_%u\n", loop_id);
+  emit_indent(out, depth);
+  fprintf(out, "E_STATIC_ZERO_DONE_%u:\n", done_id);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot + 1u);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+}
+
 static unsigned int find_string_const_id(const EmitCtx *ctx, const char *literal) {
   size_t i;
   for (i = 0; i < ctx->string_count; i++) {
@@ -686,9 +747,9 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
     return 0;
   }
   binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.call.args[1]->as.ident);
-  if (!binding || binding->storage != E_LOCAL_ARENA_SCOPED || binding->vm_local_words != 2u) {
+  if (!binding || (binding->storage != E_LOCAL_ARENA_SCOPED && binding->storage != E_LOCAL_STACK_STATIC) || binding->vm_local_words != 2u) {
     emit_indent(out, depth);
-    fputs("; far_signal payload must be a local area variable\n", out);
+    fputs("; far_signal payload must be a local or static declared type variable\n", out);
     return 0;
   }
   emit_indent(out, depth);
@@ -899,12 +960,15 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       fputs("; decl ", out);
       if (stmt->as.decl.is_reg) fputs("reg ", out);
       if (stmt->as.decl.is_local) fputs("local ", out);
+      if (stmt->as.decl.is_static) fputs("static ", out);
       fprintf(out, "%s", stmt->as.decl.type.name);
       if (stmt->as.decl.type.array_len != 0u) fprintf(out, "[%u]", stmt->as.decl.type.array_len);
       fprintf(out, " %s", stmt->as.decl.name);
       if (binding) {
         if (binding->storage == E_LOCAL_STACK) {
           fprintf(out, " stack+%zu size=%zu", binding->stack_offset, binding->byte_size);
+        } else if (binding->storage == E_LOCAL_STACK_STATIC) {
+          fprintf(out, " static vm_local=%u size=%zu (zero-init before loop)", binding->vm_local_slot, binding->byte_size);
         } else if (binding->storage == E_LOCAL_ARENA_SCOPED) {
           fprintf(out, " local-scope-arena size=%zu", binding->byte_size);
         } else {
@@ -914,6 +978,8 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         }
       }
       fputc('\n', out);
+      /* Static locals: init was emitted once before the worker loop; nothing to do here. */
+      if (binding && binding->storage == E_LOCAL_STACK_STATIC) break;
       if (stmt->as.decl.init) {
         emit_expr(out, stmt->as.decl.init, ctx, depth);
         if (binding && binding->vm_local_words == 1u) {
@@ -1238,6 +1304,29 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           unsigned int loop_id = next_label(&ctx);
           ctx.current_worker = &top->as.worker;
           ctx.current_frame = find_frame(model, top->as.worker.name);
+          /* Zero-initialise all static locals once before the worker loop. */
+          if (ctx.current_frame) {
+            size_t si;
+            for (si = 0; si < ctx.current_frame->local_count; si++) {
+              const ELocalBinding *sb = &ctx.current_frame->locals[si];
+              if (sb->storage != E_LOCAL_STACK_STATIC) continue;
+              emit_indent(out, 1);
+              fprintf(out, "; static %s %s zero-init\n", sb->type_name, sb->name);
+              if (sb->vm_local_words == 1u) {
+                emit_indent(out, 1);
+                fputs("PUSH 0\n", out);
+                emit_indent(out, 1);
+                fprintf(out, "STORE_L %u\n", sb->vm_local_slot);
+              } else {
+                /* Declared type: L_ALLOC once, then zero-fill and persist the 2-word reference. */
+                emit_indent(out, 1);
+                fprintf(out, "SET_R 0 %zu\n", sb->byte_size);
+                emit_indent(out, 1);
+                fputs("L_ALLOC\n", out);
+                emit_zero_fill_static_type(out, sb, &ctx, 1);
+              }
+            }
+          }
           emit_indent(out, 1);
           fprintf(out, "E_WORKER_WAIT_%u:\n", loop_id);
           emit_indent(out, 1);

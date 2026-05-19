@@ -4,6 +4,7 @@
 #include "ElaraCanvasWidget.h"
 #include <libelaracore/memory/Array.h>
 #include <libelaracore/memory/Ref.h>
+#include <libelarathreads/Mutex.h>
 #include <vector>
 
 namespace elara {
@@ -36,7 +37,10 @@ class ElaraVulkanSurfaceWidget : public ElaraCanvasWidget {
 private:
     class VulkanRuntime;
 
+    mutable Mutex commands_mutex;
     Array< Ref<ElaraVulkanSurfaceCommand> > commands;
+    unsigned long command_revision;
+    unsigned long drawn_revision;
     String backend_id;
     String kernel_name;
     String overlay_text;

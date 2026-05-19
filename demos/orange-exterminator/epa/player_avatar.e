@@ -9,38 +9,21 @@
 kernel(VM vm) {
   request_threads(2);
 
-  int wid = 0;
-  while (wid = kernel_wait_signal()) {
-    if (wid == 1) {
-      KeyInput input = kernal_get_ghs(1);
-      // TODO: this worker now owns the first real controllable player state.
-      log("player input wid={d}", wid);
-    } else if (wid == 2) {
-      WorldState world = kernal_get_ghs(2);
-      // TODO: fold world feedback into movement/collision posture.
-      log("player world wid={d}", wid);
-    } else if (wid == 3) {
-      WeaponCommand weapon = kernal_get_ghs(3);
-      // TODO: integrate current weapon feedback into avatar state.
-      log("player weapon wid={d}", wid);
-    } else {
-      log("player unknown wid={d}", wid);
-    }
+  while (kernel_wait_signal()) {
+    // Coordinator only for now.
   }
 }
 
 @attributes signal_mail_box_size:2048
 worker player_intent_ingress(KeyInput input) {
-  int initialized;
-  int x;
-  int y;
-  int size;
+  static int x;
+  static int y;
+  static int size;
   int key_code = input.key_code;
   int pressed = input.pressed;
 
-  if (initialized) {
+  if (size) {
   } else {
-    initialized = 1;
     x = 640;
     y = 360;
     size = 48;

@@ -492,29 +492,29 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
 }
 
 static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *model,
-                                       EFunctionFrame *frame, char err[256]) {
+                                       EFunctionFrame *frame, int in_worker, char err[256]) {
   size_t i;
   if (!stmt) return 1;
   switch (stmt->kind) {
     case E_STMT_BLOCK:
       for (i = 0; i < stmt->as.block.count; i++) {
-        if (!collect_local_decls_in_stmt(stmt->as.block.items[i], model, frame, err)) return 0;
+        if (!collect_local_decls_in_stmt(stmt->as.block.items[i], model, frame, in_worker, err)) return 0;
       }
       return 1;
     case E_STMT_IF:
-      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.then_branch, model, frame, err)) return 0;
-      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.else_branch, model, frame, err)) return 0;
+      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.then_branch, model, frame, in_worker, err)) return 0;
+      if (!collect_local_decls_in_stmt(stmt->as.if_stmt.else_branch, model, frame, in_worker, err)) return 0;
       return 1;
     case E_STMT_WHILE:
-      return collect_local_decls_in_stmt(stmt->as.while_stmt.body, model, frame, err);
+      return collect_local_decls_in_stmt(stmt->as.while_stmt.body, model, frame, in_worker, err);
     case E_STMT_FOR:
-      if (!collect_local_decls_in_stmt(stmt->as.for_stmt.init, model, frame, err)) return 0;
-      return collect_local_decls_in_stmt(stmt->as.for_stmt.body, model, frame, err);
+      if (!collect_local_decls_in_stmt(stmt->as.for_stmt.init, model, frame, in_worker, err)) return 0;
+      return collect_local_decls_in_stmt(stmt->as.for_stmt.body, model, frame, in_worker, err);
     case E_STMT_SWITCH:
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
         for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
-          if (!collect_local_decls_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, frame, err)) return 0;
+          if (!collect_local_decls_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, frame, in_worker, err)) return 0;
         }
       }
       return 1;
@@ -531,8 +531,8 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
       }
       if (stmt->as.decl.is_reg) {
         unsigned int reg_words;
-        if (stmt->as.decl.is_local) {
-          snprintf(err, 256, "decl '%s' cannot be both reg and local", stmt->as.decl.name);
+        if (stmt->as.decl.is_local || stmt->as.decl.is_static) {
+          snprintf(err, 256, "decl '%s' cannot combine reg with local or static", stmt->as.decl.name);
           return 0;
         }
         if (stmt->as.decl.type.array_len != 0u) {
@@ -554,6 +554,44 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
         push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
                            E_LOCAL_REG, 0u, frame->reserved_reg_words, reg_words);
         frame->reserved_reg_words += reg_words;
+      } else if (stmt->as.decl.is_static) {
+        if (!in_worker) {
+          snprintf(err, 256, "static decl '%s' is only allowed inside a worker", stmt->as.decl.name);
+          return 0;
+        }
+        if (stmt->as.decl.is_local) {
+          snprintf(err, 256, "decl '%s' cannot be both static and local", stmt->as.decl.name);
+          return 0;
+        }
+        if (stmt->as.decl.type.array_len != 0u) {
+          snprintf(err, 256, "static decl '%s' cannot be an array", stmt->as.decl.name);
+          return 0;
+        }
+        if (stmt->as.decl.init) {
+          snprintf(err, 256, "static decl '%s' cannot have an initializer; statics are zero-initialized", stmt->as.decl.name);
+          return 0;
+        }
+        push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
+                           E_LOCAL_STACK_STATIC, 0u, 0u, 0u);
+        if (frame->local_count > 0u) {
+          ELocalBinding *binding = &frame->locals[frame->local_count - 1u];
+          binding->vm_local_slot = frame->vm_local_count;
+          if (is_primitive_type(stmt->as.decl.type.name)) {
+            if (byte_size == 0u || byte_size > 4u) {
+              snprintf(err, 256, "static decl '%s' primitive type must fit in one word", stmt->as.decl.name);
+              return 0;
+            }
+            binding->vm_local_words = 1u;
+            frame->vm_local_count += 1u;
+          } else if (find_type_layout(model, stmt->as.decl.type.name)) {
+            /* Declared type: L_ALLOC from local memory once before the loop, persist the reference. */
+            binding->vm_local_words = E_TYPE_REF_ABI_WORDS;
+            frame->vm_local_count += E_TYPE_REF_ABI_WORDS;
+          } else {
+            snprintf(err, 256, "static decl '%s' must be a primitive or a declared type with a layout", stmt->as.decl.name);
+            return 0;
+          }
+        }
       } else if (stmt->as.decl.is_local) {
         if (strcmp(stmt->as.decl.type.name, "byte") == 0) {
           if (stmt->as.decl.type.array_len == 0u) {
@@ -659,7 +697,7 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
     }
     frame.param_size = next_offset;
     frame.vm_local_count = next_vm_local_slot;
-    if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, err)) {
+    if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, 0, err)) {
       return 0;
     }
     push_frame(model, top->as.func.name, &top->as.func, frame.param_size, frame.stack_local_size,
@@ -1133,6 +1171,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
     const ETopDecl *top = &program->items[i];
     const EStmt *body = NULL;
     const char *owner_name = NULL;
+    int in_worker = 0;
     EFunctionFrame frame;
     memset(&frame, 0, sizeof(frame));
 
@@ -1144,6 +1183,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
       case E_TOP_WORKER:
         body = top->as.worker.body;
         owner_name = top->as.worker.name;
+        in_worker = 1;
         break;
       case E_TOP_TYPE:
         body = top->as.tdecl.body;
@@ -1156,7 +1196,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
     }
 
     if (!body) continue;
-    if (!collect_local_decls_in_stmt(body, model, &frame, err)) {
+    if (!collect_local_decls_in_stmt(body, model, &frame, in_worker, err)) {
       free_temp_frame(&frame);
       return 0;
     }
@@ -1369,6 +1409,8 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
       if (local->storage == E_LOCAL_STACK) {
         fprintf(out, " storage=stack offset=%zu", local->stack_offset);
         if (local->vm_local_words != 0u) fprintf(out, " vm_local=%u", local->vm_local_slot);
+      } else if (local->storage == E_LOCAL_STACK_STATIC) {
+        fprintf(out, " storage=static vm_local=%u", local->vm_local_slot);
       } else if (local->storage == E_LOCAL_ARENA_SCOPED) {
         fprintf(out, " storage=local-scope-arena");
       } else {

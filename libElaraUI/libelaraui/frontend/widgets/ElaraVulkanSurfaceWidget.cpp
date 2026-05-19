@@ -1067,6 +1067,8 @@ ElaraVulkanSurfaceWidget::ElaraVulkanSurfaceWidget(
     virtual_width(1000.0),
     virtual_height(1000.0),
     execution_status("Vulkan pending"),
+    command_revision(0),
+    drawn_revision(0),
     vulkan_runtime(0) {
     setPaletteMaster("panel");
 }
@@ -1089,16 +1091,20 @@ double ElaraVulkanSurfaceWidget::scaleY(double value) const {
 }
 
 void ElaraVulkanSurfaceWidget::clearCommands() {
+    Mutex::Lock lock(commands_mutex);
     commands.clear();
+    command_revision++;
 }
 
 void ElaraVulkanSurfaceWidget::addClear(double red, double green, double blue) {
+    Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::CLEAR));
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
 }
 
 void ElaraVulkanSurfaceWidget::addRect(double x, double y, double w, double h, double red, double green, double blue) {
+    Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::RECT));
     cmd->x0 = x; cmd->y0 = y; cmd->x1 = w; cmd->y1 = h;
     cmd->r = red; cmd->g = green; cmd->b = blue;
@@ -1106,6 +1112,7 @@ void ElaraVulkanSurfaceWidget::addRect(double x, double y, double w, double h, d
 }
 
 void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y1, double red, double green, double blue) {
+    Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::LINE));
     cmd->x0 = x0; cmd->y0 = y0; cmd->x1 = x1; cmd->y1 = y1;
     cmd->r = red; cmd->g = green; cmd->b = blue;
@@ -1113,6 +1120,7 @@ void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y
 }
 
 void ElaraVulkanSurfaceWidget::addText(double x, double y, const String& value, double size, double red, double green, double blue) {
+    Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TEXT));
     cmd->x0 = x; cmd->y0 = y; cmd->value0 = size;
     cmd->text = value;
@@ -1209,6 +1217,7 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
 void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
     execution_status = "CPU surface fallback active";
 
+    Mutex::Lock lock(commands_mutex);
     for(int i = 0; i < (int)commands.length(); i++) {
         Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
         if(!cmd || cmd->type == ElaraVulkanSurfaceCommand::TEXT) {
@@ -1240,12 +1249,34 @@ void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
 }
 
 void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
+    unsigned long current_revision = 0;
+    int current_count = 0;
+    {
+        Mutex::Lock lock(commands_mutex);
+        current_revision = command_revision;
+        current_count = (int)commands.length();
+        if(commands.length() <= 0) {
+            drawEmptyState(ctx);
+            return;
+        }
+    }
+
+    drawCpuCommands(ctx);
+
+    Mutex::Lock lock(commands_mutex);
     if(commands.length() <= 0) {
         drawEmptyState(ctx);
         return;
     }
-
-    drawCpuCommands(ctx);
+    if(drawn_revision != command_revision) {
+        printf("[vulkan-surface] drawCanvas applying revision=%lu command_count=%d size=%dx%d\n",
+               command_revision,
+               (int)commands.length(),
+               width,
+               height);
+        fflush(stdout);
+    }
+    drawn_revision = command_revision;
 
     for(int i = 0; i < (int)commands.length(); i++) {
         Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
@@ -1261,6 +1292,7 @@ void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
     if(execution_status.length() > 0) {
         ctx->drawText(14, 40, execution_status, 12);
     }
+    ctx->drawText(14, 58, String("cmd_rev=") + String((int)current_revision) + String(" draw_rev=") + String((int)drawn_revision) + String(" cmds=") + String(current_count), 12);
 }
 
 void ElaraVulkanSurfaceWidget::onMouseDown(int button, double px, double py) {

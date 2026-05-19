@@ -88,6 +88,12 @@ Current memory tiers:
   - transferable payload/state carrier
   - intended for owned working state and ingress payload
 
+- `static`
+  - persistent worker-owned state
+  - initialized once before the worker wait loop
+  - survives wake cycles
+  - this is the storage class that should carry durable worker continuity
+
 - stack/frame locals
   - per-function / per-activation scalar and value state
 
@@ -104,6 +110,14 @@ Declared-type ABI direction:
 - local arena typed objects can move through call chains without implicit copying
 
 This is a good fit for an engine because large artifacts should not be copied casually.
+
+Practical rule:
+
+- use `static` for durable worker state such as position, mode, phase, timers, cached decisions, and other continuity-bearing values
+- use `local` for outbound typed payloads and temporary typed work objects
+- do not treat inbound GHS as a substitute for owned persistent state
+
+That separation matters. A stateful worker should keep its identity in `static`, not rebuild it implicitly every wake.
 
 ## 2. Role Of The C++ Host
 
@@ -324,6 +338,7 @@ Lateral links should be explicit and sparse.
 Suggested convention for inter-kernel payloads:
 
 - use `local` typed payloads for outbound `far_signal(...)`
+- use `static` for any state that must still exist on the next worker wake
 - treat them as message objects, not shared state
 - tag them clearly with `typeid(...)`
 - route them with `typeof(...)` on ingress
@@ -529,4 +544,3 @@ The most promising direction is:
 The resulting hierarchy should look less like a traditional CPU game loop and more like an operating mesh of device-native artifact coordinators.
 
 That is the part that could make this engine qualitatively different rather than just incrementally faster.
-

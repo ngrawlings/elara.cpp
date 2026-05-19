@@ -9,23 +9,8 @@
 kernel(VM vm) {
   request_threads(3);
 
-  int wid = 0;
-  while (wid = kernel_wait_signal()) {
-    if (wid == 1) {
-      FrameTick tick = kernal_get_ghs(1);
-      // TODO: route frame tick to gameplay, world, and render domain kernels.
-      log("entry tick worker signalled wid={d}", wid);
-    } else if (wid == 2) {
-      RenderProduct render_product = kernal_get_ghs(2);
-      // TODO: integrate scene output and decide frame completion.
-      log("entry render worker signalled wid={d}", wid);
-    } else if (wid == 3) {
-      HudCommand hud = kernal_get_ghs(3);
-      // TODO: merge HUD state before final present/present-signal path.
-      log("entry hud worker signalled wid={d}", wid);
-    } else {
-      log("entry unknown worker wid={d}", wid);
-    }
+  while (kernel_wait_signal()) {
+    // Coordinator only for now.
   }
 }
 
