@@ -313,6 +313,10 @@ OrangeExterminatorApp::OrangeExterminatorApp(const String &value_host, int value
       peer(new ElaraUiRpcPeer()) {
 }
 
+OrangeExterminatorApp::~OrangeExterminatorApp() {
+    shutdown();
+}
+
 void OrangeExterminatorApp::openTraceArtifact() {
     String artifact_dir = String("..") + String("/") + String("artifacts");
     mkdir(artifact_dir.operator char *(), 0777);
@@ -862,6 +866,27 @@ void OrangeExterminatorApp::installSurfaceCallback() {
     }
 }
 
+void OrangeExterminatorApp::shutdown() {
+    g_orange_exterminator_app = NULL;
+
+    int idx = epa.findKernelIndex(String("scene"));
+    if (idx >= 0) {
+        EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
+        if (kernel) {
+            epa_kernel_set_signal_callback(kernel, NULL);
+        }
+    }
+
+    if (peer) {
+        peer->close();
+        peer = Ref<ui::rpc::ElaraUiRpcPeer>(0);
+    }
+
+    epa.stopAllKernels();
+    epa.destroy();
+    closeTraceArtifact();
+}
+
 void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len) {
     const unsigned char *bytes = (const unsigned char *)msg;
     size_t offset = 0;
@@ -1159,16 +1184,14 @@ int OrangeExterminatorApp::run() {
 
     if (!peer->connect(host, (unsigned short)port)) {
         printf("Failed to connect to %s:%d\n", host.operator char *(), port);
-        closeTraceArtifact();
+        shutdown();
         return 1;
     }
 
     ElaraUiDocumentBuilder ui;
     buildDocument(ui);
     if (!loadDocument(ui.toJson())) {
-        peer->close();
-        epa.stopAllKernels();
-        closeTraceArtifact();
+        shutdown();
         return 1;
     }
     armUiInputFocus();
@@ -1179,10 +1202,7 @@ int OrangeExterminatorApp::run() {
     stimulateEpa();
     buildDocument(ui);
     if (!loadDocument(ui.toJson())) {
-        g_orange_exterminator_app = NULL;
-        epa.stopAllKernels();
-        peer->close();
-        closeTraceArtifact();
+        shutdown();
         return 1;
     }
     armUiInputFocus();
@@ -1328,10 +1348,7 @@ int OrangeExterminatorApp::run() {
         }
     }
 
-    g_orange_exterminator_app = NULL;
-    peer->close();
-    epa.stopAllKernels();
-    closeTraceArtifact();
+    shutdown();
     return 0;
 }
 
