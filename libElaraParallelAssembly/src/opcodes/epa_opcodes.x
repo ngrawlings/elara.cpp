@@ -76,8 +76,10 @@ X(INC,        0x0242u, "INC",      1)   // Increment register
 X(DEC,        0x0243u, "DEC",      1)   // Decrement register
 
 // Local byte heap access (byte-granular)
-X(RLB_MOV1, 0x0245u, "RLB_MOV1", 2) // u8 reg, u8 lb_reg
-X(LBR_MOV1, 0x0246u, "LBR_MOV1", 2) // u8 reg, u8 lb_reg
+X(RLB_MOV1, 0x0245u, "RLB_MOV1", 2) // u8 reg, u8 lb_reg: lbytes[csc[lb_reg]] = csc[reg] & 0xFF (1 byte)
+X(LBR_MOV1, 0x0246u, "LBR_MOV1", 2) // u8 reg, u8 lb_reg: csc[reg] = lbytes[csc[lb_reg]] (1 byte, zero-ext)
+X(RLB_MOV4, 0x0248u, "RLB_MOV4", 2) // u8 reg, u8 lb_reg: lbytes[csc[lb_reg]] = csc[reg] (4 bytes LE)
+X(LBR_MOV4, 0x0249u, "LBR_MOV4", 2) // u8 reg, u8 lb_reg: csc[reg] = lbytes[csc[lb_reg]] (4 bytes LE)
 
 X(SM_PUT, 0x0247u, "SM_PUT", 0) // write u32 from r0 to signal mailbox at r3; r3 += 4
 

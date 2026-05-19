@@ -578,20 +578,53 @@ static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int dept
 }
 
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth) {
-  const EWorker *worker = ctx->current_worker;
   const EGhsField *field;
-  if (!worker) return 0;
-  if (worker->param_count != 1u) return 0;
-  if (strcmp(worker->params[0].name, base_name) != 0) return 0;
-  field = find_field_layout(ctx->model, worker->params[0].type.name, field_name);
-  if (!field || field->ghs_size != 4u) return 0;
-  emit_indent(out, depth);
-  fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
-  emit_indent(out, depth);
-  fputs("GR_MOV4 0\n", out);
-  emit_indent(out, depth);
-  fputs("PUSH R0\n", out);
-  return 1;
+
+  /* GHS path: worker's typed ingress parameter backed by the Global Handle Space */
+  {
+    const EWorker *worker = ctx->current_worker;
+    if (worker && worker->param_count == 1u &&
+        strcmp(worker->params[0].name, base_name) == 0) {
+      field = find_field_layout(ctx->model, worker->params[0].type.name, field_name);
+      if (field && field->ghs_size == 4u) {
+        emit_indent(out, depth);
+        fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("GR_MOV4 0\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        return 1;
+      }
+    }
+  }
+
+  /* Local type-ref path: foreach vars, local typed refs backed by the lbytes arena.
+     The 2-word binding stores (off, off+1=size); element data lives at lbytes[off]. */
+  {
+    const ELocalBinding *binding = find_local_binding_by_name(active_frame_for_ctx(ctx), base_name);
+    if (binding && binding->vm_local_words == 2u) {
+      field = find_field_layout(ctx->model, binding->type_name, field_name);
+      if (field && field->ghs_size == 4u) {
+        emit_indent(out, depth);
+        fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);  /* push element base off */
+        if (field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fprintf(out, "PUSH %zu\n", field->ghs_offset);
+          emit_indent(out, depth);
+          fputs("ADD_I32\n", out);
+        }
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);          /* R0 = lbytes read index */
+        emit_indent(out, depth);
+        fputs("LBR_MOV4 R0 R0\n", out); /* R0 = u32 at lbytes[R0] */
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        return 1;
+      }
+    }
+  }
+
+  return 0;
 }
 
 static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth) {

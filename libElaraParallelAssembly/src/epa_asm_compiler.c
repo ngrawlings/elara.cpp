@@ -702,6 +702,8 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 
 	{ "RLB_MOV1", EPA_OP_RLB_MOV1, 2,  2, 2, { AK_REG4_OR_U8, AK_REG4_OR_U8 }, NULL, "RLB_MOV1 <reg> <lb_reg>  ; store low byte of reg into local byte heap at offset in lb_reg" },
 	{ "LBR_MOV1", EPA_OP_LBR_MOV1, 2, 2, 2, { AK_REG4_OR_U8, AK_REG4_OR_U8 }, NULL, "LBR_MOV1 <reg> <lb_reg>  ; load byte from local byte heap at offset in lb_reg into reg" },
+	{ "RLB_MOV4", EPA_OP_RLB_MOV4, 2,  2, 2, { AK_REG4_OR_U8, AK_REG4_OR_U8 }, NULL, "RLB_MOV4 <reg> <lb_reg>  ; store 4 bytes of reg (LE) into local byte heap at offset in lb_reg" },
+	{ "LBR_MOV4", EPA_OP_LBR_MOV4, 2, 2, 2, { AK_REG4_OR_U8, AK_REG4_OR_U8 }, NULL, "LBR_MOV4 <reg> <lb_reg>  ; load 4 bytes from local byte heap at offset in lb_reg into reg (LE)" },
 
 	{"FUNC_START", EPA_OP_FUNC_START, 2,2,2, {AK_U32, AK_U16}, NULL, "FUNC_START <func_id:u32> <frame_words:u16>"},
 	{"FUNC_END",   EPA_OP_FUNC_END,   0,0,0, {0},             NULL, "FUNC_END"},

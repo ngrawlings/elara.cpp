@@ -589,6 +589,35 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_RLB_MOV4: {
+      uint8_t reg    = code[pc + 2];
+      uint8_t lb_reg = code[pc + 3];
+      uint32_t off   = (uint32_t)w->vm.csc[lb_reg];
+      uint32_t val   = (uint32_t)w->vm.csc[reg];
+      if (!w->vm.lbytes || off + 3u >= w->vm.lbytes_top) {
+        snprintf(err, EPA_MAX_ERR, "RLB_MOV4: off out of range (%u)", (unsigned)off);
+        return EPA_FLOW_ERR;
+      }
+      w->vm.lbytes[off + 0] = (uint8_t)(val       & 0xFFu);
+      w->vm.lbytes[off + 1] = (uint8_t)((val >> 8) & 0xFFu);
+      w->vm.lbytes[off + 2] = (uint8_t)((val >> 16) & 0xFFu);
+      w->vm.lbytes[off + 3] = (uint8_t)((val >> 24) & 0xFFu);
+      eip->rel_pc = pc + need;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_LBR_MOV4: {
+      uint8_t reg    = code[pc + 2];
+      uint8_t lb_reg = code[pc + 3];
+      uint32_t off   = (uint32_t)w->vm.csc[lb_reg];
+      if (!w->vm.lbytes || off + 3u >= w->vm.lbytes_top) {
+        snprintf(err, EPA_MAX_ERR, "LBR_MOV4: off out of range (%u)", (unsigned)off);
+        return EPA_FLOW_ERR;
+      }
+      w->vm.csc[reg] = EPA_READ_U32_LE(w->vm.lbytes, off);
+      eip->rel_pc = pc + need;
+      return EPA_FLOW_YIELDED;
+    }
 
 // ---- Common VM ops (backend-independent) ----
 case EPA_OP_PUSH_I32: {
