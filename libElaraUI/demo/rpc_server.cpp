@@ -687,6 +687,7 @@ public:
 class MainThreadUiService : public sockets::rpc::json::JsonRPCService {
 private:
     ElaraRootWidget* root;
+    ElaraGuiBackend* backend;
     ElaraUiRpcUiService executor;
     ElaraJsonUiProtocol* protocol;
     SecondaryWindowManager* window_manager;
@@ -782,12 +783,14 @@ private:
 public:
     MainThreadUiService(
         ElaraRootWidget* root,
+        ElaraGuiBackend* gui_backend,
         ElaraJsonUiProtocol* ui_protocol,
         EventArtifactLogger* event_logger,
         SecondaryWindowManager* secondary_window_manager
     )
         : sockets::rpc::json::JsonRPCService("ui"),
           root(root),
+          backend(gui_backend),
           executor(root, ui_protocol),
           protocol(ui_protocol),
           window_manager(secondary_window_manager),
@@ -839,6 +842,10 @@ public:
             error_code = "load_failed";
             error_message = "The UI document could not be loaded";
             return false;
+        }
+
+        if(backend) {
+            backend->invalidate();
         }
 
         loaded_window_title = win_title;
@@ -1337,7 +1344,7 @@ public:
           protocol(ui_protocol),
           logger(),
           window_manager(gui_backend, ui_theme, &logger),
-          ui_service_ref(new MainThreadUiService(root, protocol, &logger, &window_manager)),
+          ui_service_ref(new MainThreadUiService(root, gui_backend.getPtr(), protocol, &logger, &window_manager)),
           rpc_ui_service_ref(Ref<sockets::rpc::json::JsonRPCService>::borrow((sockets::rpc::json::JsonRPCService*)ui_service_ref.getPtr())),
           ui_service((MainThreadUiService*)ui_service_ref.getPtr()),
           layout_attached(false),

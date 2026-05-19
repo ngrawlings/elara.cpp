@@ -1,5 +1,14 @@
 #!/usr/bin/env python3
-"""Generate SPIR-V compute shader for ElaraVulkanSurfaceWidget."""
+"""Generate SPIR-V compute shader for ElaraVulkanSurfaceWidget.
+
+The command buffer has a 5-word header followed by command records:
+  cmds[0] = pixel width  (int32 bits)
+  cmds[1] = pixel height (int32 bits)
+  cmds[2] = virtual_width  (float32 bits)
+  cmds[3] = virtual_height (float32 bits)
+  cmds[4] = command_count  (int32 bits)
+  cmds[5..] = command records, each 10 uint32 words (40 bytes)
+"""
 import struct, sys
 
 MAGIC = 0x07230203
@@ -50,7 +59,7 @@ OP = dict(
     FOrdLessThanEqual=186, FOrdGreaterThanEqual=187,
     CompositeExtract=81, Bitcast=124,
     ConvertUToF=111, ConvertSToF=112, ConvertFToU=109,
-    ShiftLeftLogical=196, BitwiseOr=194,
+    ShiftLeftLogical=196, BitwiseOr=197,
     LogicalAnd=167, LogicalOr=166,
     Select=169, ExtInst=12, Phi=245, Dot=148,
 )
@@ -67,24 +76,19 @@ def build():
     T_ra_uint = s.ID()
     T_spx   = s.ID()   # struct PixelBuffer { uint[] }
     T_scmd  = s.ID()   # struct CmdBuffer   { uint[] }
-    T_spc   = s.ID()   # struct PushConst   { int,int,float,float,int }
     T_ptr_sb_spx  = s.ID()
     T_ptr_sb_scmd = s.ID()
-    T_ptr_pc_spc  = s.ID()
     T_ptr_sb_uint = s.ID()
-    T_ptr_pc_int  = s.ID()
-    T_ptr_pc_float= s.ID()
     T_ptr_in_uv3  = s.ID()
     T_fn_void     = s.ID()
 
     V_pixels  = s.ID()
     V_cmds    = s.ID()
-    V_pc      = s.ID()
     V_glob_id = s.ID()
 
-    # int constants
+    # int constants (CI5 = header size, CI12 = cmd offset from base)
     CI0=s.ID(); CI1=s.ID(); CI2=s.ID()
-    CI3=s.ID(); CI4=s.ID()
+    CI3=s.ID(); CI4=s.ID(); CI5=s.ID()
     CI7=s.ID(); CI8=s.ID(); CI9=s.ID(); CI10=s.ID()
     # uint constants
     CU8=s.ID(); CU16=s.ID(); CU_ALPHA=s.ID()  # 0xFF000000
@@ -136,13 +140,6 @@ def build():
     s.E(OP['Decorate'], V_cmds, 33, 1)             # Binding 1
     s.E(OP['MemberDecorate'], T_scmd, 0, 24)       # NonWritable
 
-    s.E(OP['Decorate'], T_spc, 2)                  # Block
-    s.E(OP['MemberDecorate'], T_spc, 0, 35, 0)     # Offset 0  (int width)
-    s.E(OP['MemberDecorate'], T_spc, 1, 35, 4)     # Offset 4  (int height)
-    s.E(OP['MemberDecorate'], T_spc, 2, 35, 8)     # Offset 8  (float virtual_width)
-    s.E(OP['MemberDecorate'], T_spc, 3, 35, 12)    # Offset 12 (float virtual_height)
-    s.E(OP['MemberDecorate'], T_spc, 4, 35, 16)    # Offset 16 (int command_count)
-
     s.E(OP['Decorate'], V_glob_id, 11, 28)         # BuiltIn GlobalInvocationId
 
     # === Types ===
@@ -156,20 +153,15 @@ def build():
     s.E(OP['TypeRuntimeArray'], T_ra_uint, T_uint)
     s.E(OP['TypeStruct'], T_spx, T_ra_uint)
     s.E(OP['TypeStruct'], T_scmd, T_ra_uint)
-    s.E(OP['TypeStruct'], T_spc, T_int, T_int, T_float, T_float, T_int)
     s.E(OP['TypePointer'], T_ptr_sb_spx,  12, T_spx)
     s.E(OP['TypePointer'], T_ptr_sb_scmd, 12, T_scmd)
-    s.E(OP['TypePointer'], T_ptr_pc_spc,   9, T_spc)
     s.E(OP['TypePointer'], T_ptr_sb_uint, 12, T_uint)
-    s.E(OP['TypePointer'], T_ptr_pc_int,   9, T_int)
-    s.E(OP['TypePointer'], T_ptr_pc_float, 9, T_float)
     s.E(OP['TypePointer'], T_ptr_in_uv3,   1, T_uvec3)
     s.E(OP['TypeFunction'], T_fn_void, T_void)
 
     # === Variables ===
     s.E(OP['Variable'], T_ptr_sb_spx,  V_pixels,  12)
     s.E(OP['Variable'], T_ptr_sb_scmd, V_cmds,    12)
-    s.E(OP['Variable'], T_ptr_pc_spc,  V_pc,       9)
     s.E(OP['Variable'], T_ptr_in_uv3,  V_glob_id,  1)
 
     # === Constants ===
@@ -178,6 +170,7 @@ def build():
     s.E(OP['Constant'], T_int,  CI2,  2)
     s.E(OP['Constant'], T_int,  CI3,  3)
     s.E(OP['Constant'], T_int,  CI4,  4)
+    s.E(OP['Constant'], T_int,  CI5,  5)
     s.E(OP['Constant'], T_int,  CI7,  7)
     s.E(OP['Constant'], T_int,  CI8,  8)
     s.E(OP['Constant'], T_int,  CI9,  9)
@@ -205,23 +198,44 @@ def build():
     gy_u = tid()
     s.E(OP['CompositeExtract'], T_uint, gy_u, gid_val, 1)
 
-    # Load width, height from push constants
-    ptr_w = tid()
-    s.E(OP['AccessChain'], T_ptr_pc_int, ptr_w, V_pc, CI0)
-    pc_width = tid()
-    s.E(OP['Load'], T_int, pc_width, ptr_w)
-    ptr_h = tid()
-    s.E(OP['AccessChain'], T_ptr_pc_int, ptr_h, V_pc, CI1)
-    pc_height = tid()
-    s.E(OP['Load'], T_int, pc_height, ptr_h)
+    # Helper: load uint32 from cmds[idx_const] as int (via bitcast)
+    def load_hdr_int(idx_const):
+        idx_u = tid()
+        s.E(OP['Bitcast'], T_uint, idx_u, idx_const)
+        ptr = tid()
+        s.E(OP['AccessChain'], T_ptr_sb_uint, ptr, V_cmds, CI0, idx_u)
+        u = tid()
+        s.E(OP['Load'], T_uint, u, ptr)
+        i = tid()
+        s.E(OP['Bitcast'], T_int, i, u)
+        return i
 
-    # Convert width/height to uint for comparison
+    # Helper: load uint32 from cmds[idx_const] as float (via bitcast)
+    def load_hdr_float(idx_const):
+        idx_u = tid()
+        s.E(OP['Bitcast'], T_uint, idx_u, idx_const)
+        ptr = tid()
+        s.E(OP['AccessChain'], T_ptr_sb_uint, ptr, V_cmds, CI0, idx_u)
+        u = tid()
+        s.E(OP['Load'], T_uint, u, ptr)
+        f = tid()
+        s.E(OP['Bitcast'], T_float, f, u)
+        return f
+
+    # Load width, height, virtual_width, virtual_height, command_count from header
+    pc_width  = load_hdr_int(CI0)    # cmds[0] = pixel width
+    pc_height = load_hdr_int(CI1)    # cmds[1] = pixel height
+    vw        = load_hdr_float(CI2)  # cmds[2] = virtual_width
+    vh        = load_hdr_float(CI3)  # cmds[3] = virtual_height
+    cc        = load_hdr_int(CI4)    # cmds[4] = command_count
+
+    # Convert width/height to uint for bounds comparison
     pc_width_u = tid()
     s.E(OP['Bitcast'], T_uint, pc_width_u, pc_width)
     pc_height_u = tid()
     s.E(OP['Bitcast'], T_uint, pc_height_u, pc_height)
 
-    # Bounds check: gx >= width || gy >= height
+    # Bounds check: gx >= width || gy >= height → early return
     gx_oob = tid()
     s.E(OP['ULessThan'], T_bool, gx_oob, gx_u, pc_width_u)   # gx < width
     gy_oob = tid()
@@ -237,22 +251,6 @@ def build():
     s.E(OP['Return'])
 
     s.E(OP['Label'], L_bounds_merge)
-
-    # Load virtual_width, virtual_height
-    ptr_vw = tid()
-    s.E(OP['AccessChain'], T_ptr_pc_float, ptr_vw, V_pc, CI2)
-    vw = tid()
-    s.E(OP['Load'], T_float, vw, ptr_vw)
-    ptr_vh = tid()
-    s.E(OP['AccessChain'], T_ptr_pc_float, ptr_vh, V_pc, CI3)
-    vh = tid()
-    s.E(OP['Load'], T_float, vh, ptr_vh)
-
-    # Load command_count
-    ptr_cc = tid()
-    s.E(OP['AccessChain'], T_ptr_pc_int, ptr_cc, V_pc, CI4)
-    cc = tid()
-    s.E(OP['Load'], T_int, cc, ptr_cc)
 
     # Convert gx, gy to float
     gx_f = tid()
@@ -287,17 +285,16 @@ def build():
     s.E(OP['Branch'], L_loop_hdr)
     s.E(OP['Label'], L_loop_hdr)
 
-    phi_i  = tid()
+    phi_i = tid()
+    phi_i_pos = len(s.w)
+    s.E(OP['Phi'], T_int,   phi_i,  CI0,   L_bounds_merge, 0, L_loop_cont)
     phi_cr = tid()
-    phi_cg = tid()
-    phi_cb = tid()
-    # Phi filled in at end: (init_val, entry_pred, cont_val, cont_pred)
-    phi_i_pos  = len(s.w)
-    s.E(OP['Phi'], T_int,   phi_i,  CI0,  L_bounds_merge, 0, L_loop_cont)
     phi_cr_pos = len(s.w)
     s.E(OP['Phi'], T_float, phi_cr, CF010, L_bounds_merge, 0, L_loop_cont)
+    phi_cg = tid()
     phi_cg_pos = len(s.w)
     s.E(OP['Phi'], T_float, phi_cg, CF011, L_bounds_merge, 0, L_loop_cont)
+    phi_cb = tid()
     phi_cb_pos = len(s.w)
     s.E(OP['Phi'], T_float, phi_cb, CF014, L_bounds_merge, 0, L_loop_cont)
 
@@ -309,9 +306,11 @@ def build():
     # --- Loop body ---
     s.E(OP['Label'], L_loop_body)
 
-    # base = i * 10
+    # base = CI5 + i * 10  (skip the 5-word header)
+    base_mul = tid()
+    s.E(OP['IMul'], T_int, base_mul, phi_i, CI10)
     base = tid()
-    s.E(OP['IMul'], T_int, base, phi_i, CI10)
+    s.E(OP['IAdd'], T_int, base, base_mul, CI5)
 
     # Load op (uint, cast to int)
     idx_op = tid()

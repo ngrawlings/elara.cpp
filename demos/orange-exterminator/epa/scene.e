@@ -15,20 +15,45 @@ kernel(VM vm) {
 
 @attributes signal_mail_box_size:2048
 worker scene_camera_update(ScenePoseInput input) {
+  int horizon_y;
+  int horizon_band_y;
+  int sky_height;
+  int ground_height;
+
+  horizon_y = 340 + (input.pitch * 4);
+  if (horizon_y < 120) {
+    horizon_y = 120;
+  }
+  if (horizon_y > 620) {
+    horizon_y = 620;
+  }
+
+  horizon_band_y = horizon_y - 8;
+  sky_height = horizon_y;
+  ground_height = 720 - horizon_y;
+
   frame_begin(1280, 720, 18, 20, 24);
 
-  frame_rect(0, 0, 1280, 340, 42, 44, 40);
-  frame_rect(0, 340, 1280, 380, 106, 88, 60);
-  frame_rect(0, 332, 1280, 8, 78, 72, 64);
+  frame_rect(0, 0, 1280, sky_height, 42, 44, 40);
+  frame_rect(0, horizon_y, 1280, ground_height, 106, 88, 60);
+  frame_rect(0, horizon_band_y, 1280, 8, 78, 72, 64);
 
   if (input.end_wall_visible) {
-    frame_rect(input.end_wall_x, input.end_wall_y, input.end_wall_w, input.end_wall_h, 112, 104, 88);
-    frame_rect(input.end_wall_x + 18, input.end_wall_y + 18, input.end_wall_w - 36, input.end_wall_h - 36, 154, 142, 118);
+    if (input.end_wall_w > 40) {
+      if (input.end_wall_h > 40) {
+        frame_rect(input.end_wall_x, input.end_wall_y, input.end_wall_w, input.end_wall_h, 112, 104, 88);
+        frame_rect(input.end_wall_x + 18, input.end_wall_y + 18, input.end_wall_w - 36, input.end_wall_h - 36, 154, 142, 118);
+      }
+    }
   }
 
   if (input.side_wall_visible) {
-    frame_rect(input.side_wall_x, input.side_wall_y, input.side_wall_w, input.side_wall_h, 86, 76, 64);
-    frame_rect(input.side_wall_x + 8, input.side_wall_y + 8, input.side_wall_w - 16, input.side_wall_h - 16, 124, 108, 88);
+    if (input.side_wall_w > 20) {
+      if (input.side_wall_h > 20) {
+        frame_rect(input.side_wall_x, input.side_wall_y, input.side_wall_w, input.side_wall_h, 86, 76, 64);
+        frame_rect(input.side_wall_x + 8, input.side_wall_y + 8, input.side_wall_w - 16, input.side_wall_h - 16, 124, 108, 88);
+      }
+    }
   }
 
   frame_rect(638, 328, 4, 64, 210, 212, 216);

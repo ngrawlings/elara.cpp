@@ -262,8 +262,8 @@ static CalibrationProjectionState projectCalibrationScene(const SceneViewState &
          896.0,  320.0, 3000.0,
          896.0,  320.0, 1600.0
     );
-    projection.marker0 = projectWorldPoint(scene, 0.0, 0.0, 2048.0);
-    projection.marker1 = projectWorldPoint(scene, 512.0, 0.0, 2048.0);
+    projection.marker0 = projectWorldPoint(scene, 0.0, -256.0, 2048.0);
+    projection.marker1 = projectWorldPoint(scene, 0.0, 0.0, 2048.0);
     projection.marker2 = projectWorldPoint(scene, 0.0, 256.0, 2048.0);
     return projection;
 }
