@@ -190,13 +190,28 @@ static EExpr *parse_primary(Parser *p) {
       e->as.ident = name;
     }
 
-    while (match(p, E_TOK_DOT)) {
-      EExpr *field_expr;
-      if (!expect(p, E_TOK_IDENT, "expected field name after '.'")) return NULL;
-      field_expr = new_expr(E_EXPR_FIELD);
-      field_expr->as.field.base = e;
-      field_expr->as.field.field = xstrdup_local(p->tokens->items[p->pos - 1].text);
-      e = field_expr;
+    for (;;) {
+      if (match(p, E_TOK_DOT)) {
+        EExpr *field_expr;
+        if (!expect(p, E_TOK_IDENT, "expected field name after '.'")) return NULL;
+        field_expr = new_expr(E_EXPR_FIELD);
+        field_expr->as.field.base = e;
+        field_expr->as.field.field = xstrdup_local(p->tokens->items[p->pos - 1].text);
+        e = field_expr;
+        continue;
+      }
+      if (match(p, E_TOK_LBRACKET)) {
+        EExpr *index_expr = parse_expr(p);
+        EExpr *sub_expr;
+        if (!index_expr) return NULL;
+        if (!expect(p, E_TOK_RBRACKET, "expected ']' after index expression")) return NULL;
+        sub_expr = new_expr(E_EXPR_INDEX);
+        sub_expr->as.index.base = e;
+        sub_expr->as.index.index = index_expr;
+        e = sub_expr;
+        continue;
+      }
+      break;
     }
     return e;
   }

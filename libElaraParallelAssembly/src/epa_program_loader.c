@@ -319,12 +319,21 @@ int epa_program_parse(
 
     if (op == EPA_OP_DYNAMIC_POOL) {
       uint32_t pool_id = EPA_READ_U32_LE(blob, pc + 2);
-      uint32_t min_free = EPA_READ_U32_LE(blob, pc + 6);
-      uint32_t max_free = EPA_READ_U32_LE(blob, pc + 10);
-      uint32_t grow_by = EPA_READ_U32_LE(blob, pc + 14);
+      uint32_t element_size = EPA_READ_U32_LE(blob, pc + 6);
+      uint32_t min_free = EPA_READ_U32_LE(blob, pc + 10);
+      uint32_t max_free = EPA_READ_U32_LE(blob, pc + 14);
+      uint32_t grow_by = EPA_READ_U32_LE(blob, pc + 18);
       size_t i;
       EpaProgramDynamicPoolDesc *np;
 
+      if (pool_id != out->dynamic_pool_count) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: DYNAMIC_POOL pool_id=%u must be dense and declared in order", (unsigned)pool_id);
+        return 0;
+      }
+      if (element_size == 0u) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: DYNAMIC_POOL pool_id=%u has element_size=0", (unsigned)pool_id);
+        return 0;
+      }
       if (grow_by == 0u) {
         snprintf(err, EPA_MAX_ERR, "program_loader: DYNAMIC_POOL pool_id=%u has grow_by=0", (unsigned)pool_id);
         return 0;
@@ -349,6 +358,7 @@ int epa_program_parse(
       }
       out->dynamic_pools = np;
       out->dynamic_pools[out->dynamic_pool_count].pool_id = pool_id;
+      out->dynamic_pools[out->dynamic_pool_count].element_size = element_size;
       out->dynamic_pools[out->dynamic_pool_count].min_free = min_free;
       out->dynamic_pools[out->dynamic_pool_count].max_free = max_free;
       out->dynamic_pools[out->dynamic_pool_count].grow_by = grow_by;

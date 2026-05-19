@@ -37,6 +37,8 @@ typedef struct {
 typedef enum { EPA_EXEC_WORKER=0, EPA_EXEC_THREAD=1 } EpaExecType;
 
 typedef struct {
+  uint32_t pool_id;
+  uint32_t element_size;
   uint32_t min_free;
   uint32_t max_free;
   uint32_t grow_by;

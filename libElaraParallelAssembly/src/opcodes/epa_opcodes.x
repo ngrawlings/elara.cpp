@@ -34,7 +34,7 @@ X(ENTRY_START,    0x0120u, "ENTRY_START",  12) // Begin kernel/worker block (id,
 X(ENTRY_END,      0x0121u, "ENTRY_END",    0) // End entry block definition
 X(ENTRY_EXEC,     0x0122u, "ENTRY_EXEC",   1) // Execute worker by id (u8 wid)
 X(ENTRY_HALT,     0x0123u, "ENTRY_HALT",   1) // Halt worker by id (u8 wid)
-X(DYNAMIC_POOL,   0x0124u, "DYNAMIC_POOL", 16) // Program-level dynamic pool manifest (pool_id, min_free, max_free, grow_by)
+X(DYNAMIC_POOL,   0x0124u, "DYNAMIC_POOL", 20) // Program-level dynamic pool manifest (pool_id, element_size, min_free, max_free, grow_by)
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker
 X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives
@@ -62,6 +62,7 @@ X(NE_I32,     0x0215u, "NE_I32",   0)   // Pop a,b → push (a!=b ? 1 : 0)
 X(LE_I32,     0x0216u, "LE_I32",   0)   // Pop a,b → push (a<=b ? 1 : 0)
 X(GT_I32,     0x0217u, "GT_I32",   0)   // Pop a,b → push (a>b ? 1 : 0)
 X(GE_I32,     0x0218u, "GE_I32",   0)   // Pop a,b → push (a>=b ? 1 : 0)
+X(DIV_I32,    0x0219u, "DIV_I32",  0)   // Pop a,b → push (a/b), b==0 yields 0
 
 X(STORE_L,    0x0220u, "STORE_L",  1)   // Store top-of-stack into local slot (u8 idx)
 X(LOAD_L,     0x0221u, "LOAD_L",   1)   // Load local slot and push to stack (u8 idx)
@@ -118,6 +119,11 @@ X(G_TAG,            0x0318u, "G_TAG",       0) // Query handle tag -> r0=tag
 // Intended for the standard payload routing: INGRESS -> GHS -> notify worker,
 // where the worker's INQ receives a 4-word coordinate packet.
 X(GR_MOV4,         0x0317u, "GR_MOV4", 1) // out: r0..r3 (u32 each)
+X(DYN_ALLOC,       0x0319u, "DYN_ALLOC", 4) // pool_id:u32 -> r0=id, r1=ok
+X(DYN_FREE,        0x031Au, "DYN_FREE",  4) // pool_id:u32, r0=id -> r1=ok
+X(DYN_LOAD,        0x031Bu, "DYN_LOAD",  4) // pool_id:u32, r0=id -> r0=off,r1=size,r2=ok
+X(DYN_STORE,       0x031Cu, "DYN_STORE", 4) // pool_id:u32, r0=id,r1=off,r2=size -> r3=ok
+X(DYN_SWAP,        0x031Du, "DYN_SWAP",  4) // pool_id:u32, r0=id_a,r1=id_b -> r2=ok
 
 
 //

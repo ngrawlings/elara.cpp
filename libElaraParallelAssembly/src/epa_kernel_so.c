@@ -354,6 +354,8 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     return 0;
   }
   for (dynamic_cfg_count = 0; dynamic_cfg_count < (uint32_t)prog->dynamic_pool_count; dynamic_cfg_count++) {
+    dynamic_cfgs[dynamic_cfg_count].pool_id = prog->dynamic_pools[dynamic_cfg_count].pool_id;
+    dynamic_cfgs[dynamic_cfg_count].element_size = prog->dynamic_pools[dynamic_cfg_count].element_size;
     dynamic_cfgs[dynamic_cfg_count].min_free = prog->dynamic_pools[dynamic_cfg_count].min_free;
     dynamic_cfgs[dynamic_cfg_count].max_free = prog->dynamic_pools[dynamic_cfg_count].max_free;
     dynamic_cfgs[dynamic_cfg_count].grow_by = prog->dynamic_pools[dynamic_cfg_count].grow_by;

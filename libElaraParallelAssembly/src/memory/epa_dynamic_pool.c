@@ -18,6 +18,7 @@ static int dyn_slots_reserve(EpaDynamicPool *pool, uint32_t need, char err[256])
 {
   uint32_t next_cap;
   EpaDynamicSlot *next;
+  uint8_t *next_data = NULL;
   if (need <= pool->slot_cap) return 1;
   next_cap = pool->slot_cap ? pool->slot_cap : 16u;
   while (next_cap < need) next_cap *= 2u;
@@ -27,6 +28,16 @@ static int dyn_slots_reserve(EpaDynamicPool *pool, uint32_t need, char err[256])
     return 0;
   }
   pool->slots = next;
+  if (pool->element_size != 0u) {
+    next_data = (uint8_t*)realloc(pool->slot_data, (size_t)next_cap * (size_t)pool->element_size);
+    if (!next_data) {
+      set_err(err, "epa_dynamic_pool: slot data realloc failed");
+      return 0;
+    }
+    pool->slot_data = next_data;
+    memset(pool->slot_data + ((size_t)pool->slot_cap * (size_t)pool->element_size), 0,
+           (size_t)(next_cap - pool->slot_cap) * (size_t)pool->element_size);
+  }
   memset(pool->slots + pool->slot_cap, 0, sizeof(EpaDynamicSlot) * (next_cap - pool->slot_cap));
   pool->slot_cap = next_cap;
   return 1;
@@ -55,6 +66,12 @@ EpaDynamicSlot *epa_dynamic_pool_slot(EpaDynamicPool *pool, uint32_t id)
 {
   if (!pool || id == EPA_DYNAMIC_NULL || id >= pool->slot_count) return NULL;
   return &pool->slots[id];
+}
+
+static uint8_t *dyn_slot_data(EpaDynamicPool *pool, uint32_t id)
+{
+  if (!pool || !pool->slot_data || id >= pool->slot_count) return NULL;
+  return pool->slot_data + ((size_t)id * (size_t)pool->element_size);
 }
 
 static int dyn_free_prepend(EpaDynamicPool *pool, uint32_t id, char err[256])
@@ -293,7 +310,7 @@ static int dyn_pool_shrink_tail_segments(EpaDynamicPool *pool, char err[256])
 }
 
 int epa_dynamic_pool_init(EpaDynamicPool *pool, uint32_t min_free, uint32_t max_free,
-                          uint32_t grow_by, char err[256])
+                          uint32_t grow_by, uint32_t element_size, char err[256])
 {
   if (!pool) {
     set_err(err, "epa_dynamic_pool_init: null pool");
@@ -311,6 +328,7 @@ int epa_dynamic_pool_init(EpaDynamicPool *pool, uint32_t min_free, uint32_t max_
   pool->min_free = min_free;
   pool->max_free = max_free;
   pool->grow_by = grow_by;
+  pool->element_size = element_size;
   pool->live_head = EPA_DYNAMIC_NULL;
   pool->live_tail = EPA_DYNAMIC_NULL;
   pool->free_head = EPA_DYNAMIC_NULL;
@@ -324,6 +342,7 @@ void epa_dynamic_pool_free(EpaDynamicPool *pool)
 {
   if (!pool) return;
   free(pool->slots);
+  free(pool->slot_data);
   free(pool->segments);
   memset(pool, 0, sizeof(*pool));
 }
@@ -387,6 +406,130 @@ int epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t id, char err[256])
   slot->is_live = 0u;
   slot->is_free = 1u;
   if (!dyn_free_prepend(pool, id, err)) return 0;
+  return 1;
+}
+
+int epa_dynamic_pool_read(const EpaDynamicPool *pool, uint32_t id, void *dst, uint32_t dst_len, char err[256])
+{
+  const EpaDynamicSlot *slot;
+  if (!pool || !dst) {
+    set_err(err, "epa_dynamic_pool_read: bad args");
+    return 0;
+  }
+  if (dst_len != pool->element_size) {
+    set_err(err, "epa_dynamic_pool_read: size mismatch");
+    return 0;
+  }
+  if (id == EPA_DYNAMIC_NULL || id >= pool->slot_count) {
+    set_err(err, "epa_dynamic_pool_read: invalid slot id");
+    return 0;
+  }
+  slot = &pool->slots[id];
+  if (!slot->is_live) {
+    set_err(err, "epa_dynamic_pool_read: slot is not live");
+    return 0;
+  }
+  if (pool->element_size != 0u) {
+    memcpy(dst, pool->slot_data + ((size_t)id * (size_t)pool->element_size), pool->element_size);
+  }
+  return 1;
+}
+
+int epa_dynamic_pool_write(EpaDynamicPool *pool, uint32_t id, const void *src, uint32_t src_len, char err[256])
+{
+  EpaDynamicSlot *slot;
+  if (!pool || !src) {
+    set_err(err, "epa_dynamic_pool_write: bad args");
+    return 0;
+  }
+  if (src_len != pool->element_size) {
+    set_err(err, "epa_dynamic_pool_write: size mismatch");
+    return 0;
+  }
+  slot = epa_dynamic_pool_slot(pool, id);
+  if (!slot) {
+    set_err(err, "epa_dynamic_pool_write: invalid slot id");
+    return 0;
+  }
+  if (!slot->is_live) {
+    set_err(err, "epa_dynamic_pool_write: slot is not live");
+    return 0;
+  }
+  if (pool->element_size != 0u) {
+    uint8_t *dst = dyn_slot_data(pool, id);
+    if (!dst) {
+      set_err(err, "epa_dynamic_pool_write: missing slot storage");
+      return 0;
+    }
+    memcpy(dst, src, pool->element_size);
+  }
+  return 1;
+}
+
+int epa_dynamic_pool_swap_live_order(EpaDynamicPool *pool, uint32_t id_a, uint32_t id_b, char err[256])
+{
+  EpaDynamicSlot *a;
+  EpaDynamicSlot *b;
+  uint32_t a_prev;
+  uint32_t a_next;
+  uint32_t b_prev;
+  uint32_t b_next;
+  if (!pool) {
+    set_err(err, "epa_dynamic_pool_swap_live_order: null pool");
+    return 0;
+  }
+  if (id_a == id_b) return 1;
+  a = epa_dynamic_pool_slot(pool, id_a);
+  b = epa_dynamic_pool_slot(pool, id_b);
+  if (!a || !b) {
+    set_err(err, "epa_dynamic_pool_swap_live_order: invalid slot id");
+    return 0;
+  }
+  if (!a->is_live || !b->is_live) {
+    set_err(err, "epa_dynamic_pool_swap_live_order: both slots must be live");
+    return 0;
+  }
+  a_prev = a->prev_live;
+  a_next = a->next_live;
+  b_prev = b->prev_live;
+  b_next = b->next_live;
+
+  if (a_next == id_b) {
+    a->prev_live = id_b;
+    a->next_live = b_next;
+    b->prev_live = a_prev;
+    b->next_live = id_a;
+    if (a_prev != EPA_DYNAMIC_NULL) pool->slots[a_prev].next_live = id_b;
+    else pool->live_head = id_b;
+    if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
+    else pool->live_tail = id_a;
+    return 1;
+  }
+  if (b_next == id_a) {
+    b->prev_live = id_a;
+    b->next_live = a_next;
+    a->prev_live = b_prev;
+    a->next_live = id_b;
+    if (b_prev != EPA_DYNAMIC_NULL) pool->slots[b_prev].next_live = id_a;
+    else pool->live_head = id_a;
+    if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
+    else pool->live_tail = id_b;
+    return 1;
+  }
+
+  a->prev_live = b_prev;
+  a->next_live = b_next;
+  b->prev_live = a_prev;
+  b->next_live = a_next;
+
+  if (a_prev != EPA_DYNAMIC_NULL) pool->slots[a_prev].next_live = id_b;
+  else pool->live_head = id_b;
+  if (a_next != EPA_DYNAMIC_NULL) pool->slots[a_next].prev_live = id_b;
+  else pool->live_tail = id_b;
+  if (b_prev != EPA_DYNAMIC_NULL) pool->slots[b_prev].next_live = id_a;
+  else pool->live_head = id_a;
+  if (b_next != EPA_DYNAMIC_NULL) pool->slots[b_next].prev_live = id_a;
+  else pool->live_tail = id_a;
   return 1;
 }
 

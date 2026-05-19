@@ -11,7 +11,16 @@ typedef struct {
   unsigned int id;
 } EmitStringConst;
 
+typedef struct EmitCtx EmitCtx;
+
+typedef int (*EmitBuiltinFn)(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+
 typedef struct {
+  const char *name;
+  EmitBuiltinFn fn;
+} EmitBuiltinEntry;
+
+struct EmitCtx {
   unsigned int next_label_id;
   unsigned int next_worker_id;
   unsigned int next_func_id;
@@ -23,7 +32,7 @@ typedef struct {
   const EFunctionFrame *current_frame;
   EmitStringConst *strings;
   size_t string_count;
-} EmitCtx;
+};
 
 static void emit_indent(FILE *out, int depth) {
   int i;
@@ -115,6 +124,14 @@ static const ETypeLayout *find_type_layout(const ESemanticModel *model, const ch
   size_t i;
   for (i = 0; i < model->type_layout_count; i++) {
     if (strcmp(model->type_layouts[i].type_name, name) == 0) return &model->type_layouts[i];
+  }
+  return NULL;
+}
+
+static const EDynamicPool *find_dynamic_pool(const ESemanticModel *model, const char *name) {
+  size_t i;
+  for (i = 0; i < model->dynamic_pool_count; i++) {
+    if (strcmp(model->dynamic_pools[i].name, name) == 0) return &model->dynamic_pools[i];
   }
   return NULL;
 }
@@ -227,6 +244,10 @@ static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr) {
     case E_EXPR_FIELD:
       collect_strings_in_expr(ctx, expr->as.field.base);
       break;
+    case E_EXPR_INDEX:
+      collect_strings_in_expr(ctx, expr->as.index.base);
+      collect_strings_in_expr(ctx, expr->as.index.index);
+      break;
     case E_EXPR_IDENT:
     case E_EXPR_INT:
       break;
@@ -264,11 +285,17 @@ static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dyn_free_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dyn_swap_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
 static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth);
 static unsigned int next_label(EmitCtx *ctx);
+static int emit_dynamic_index_load(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rhs, EmitCtx *ctx, int depth);
+static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
   if (!expr) return;
@@ -309,6 +336,118 @@ static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *
   }
 }
 
+static int expr_is_dynamic_index(const EExpr *expr, const ESemanticModel *model, const EDynamicPool **out_pool) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_INDEX) return 0;
+  if (!expr->as.index.base || expr->as.index.base->kind != E_EXPR_IDENT) return 0;
+  pool = find_dynamic_pool(model, expr->as.index.base->as.ident);
+  if (!pool) return 0;
+  if (out_pool) *out_pool = pool;
+  return 1;
+}
+
+static unsigned int dynamic_pool_id(const EmitCtx *ctx, const EDynamicPool *pool) {
+  return (unsigned int)(pool - ctx->model->dynamic_pools);
+}
+
+static unsigned int emit_temp_scalar_slot(const EmitCtx *ctx) {
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+  return frame ? frame->vm_local_count : 0u;
+}
+
+static unsigned int emit_temp_ref_slot(const EmitCtx *ctx) {
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+  return frame ? frame->vm_local_count + 1u : 1u;
+}
+
+static int emit_dynamic_index_load(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  if (!expr_is_dynamic_index(expr, ctx->model, &pool)) return 0;
+  emit_expr(out, expr->as.index.index, ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_LOAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  return 1;
+}
+
+static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rhs, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  unsigned int id_slot = emit_temp_scalar_slot(ctx);
+  unsigned int ref_slot = emit_temp_ref_slot(ctx);
+  if (!expr_is_dynamic_index(lhs, ctx->model, &pool)) return 0;
+  emit_expr(out, lhs->as.index.index, ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "STORE_L %u\n", id_slot);
+
+  emit_expr(out, rhs, ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "STORE_L %u\n", ref_slot + 1u);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "STORE_L %u\n", ref_slot);
+
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", id_slot);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", ref_slot);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", ref_slot + 1u);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_STORE %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", ref_slot);
+  emit_indent(out, depth);
+  fprintf(out, "LOAD_L %u\n", ref_slot + 1u);
+  return 1;
+}
+
+static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  static const EmitBuiltinEntry kBuiltins[] = {
+    {"log", emit_log_builtin},
+    {"kernel_wait_signal", emit_kernel_wait_signal_builtin},
+    {"signal", emit_signal_builtin},
+    {"kernel_signal", emit_signal_builtin},
+    {"host_signal", emit_host_signal_builtin},
+    {"frame_begin", emit_frame_begin_builtin},
+    {"frame_rect", emit_frame_rect_builtin},
+    {"frame_line", emit_frame_line_builtin},
+    {"frame_commit", emit_frame_commit_builtin},
+    {"far_signal", emit_far_signal_builtin},
+    {"request_threads", emit_request_threads_builtin},
+    {"kernal_get_ghs", emit_kernel_get_ghs_builtin},
+    {"kernel_get_ghs", emit_kernel_get_ghs_builtin},
+    {"typeof", emit_typeof_builtin},
+    {"typeid", emit_typeid_builtin},
+    {"dyn_alloc", emit_dyn_alloc_builtin},
+    {"dyn_free", emit_dyn_free_builtin},
+    {"dyn_swap", emit_dyn_swap_builtin},
+  };
+  size_t i;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  for (i = 0; i < sizeof(kBuiltins) / sizeof(kBuiltins[0]); i++) {
+    if (strcmp(expr->as.call.callee, kBuiltins[i].name) == 0) {
+      return kBuiltins[i].fn(out, expr, ctx, depth);
+    }
+  }
+  return 0;
+}
+
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   size_t i;
   emit_indent(out, depth);
@@ -322,6 +461,12 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       unsigned int slot = 0u;
       if (scalar_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
         fprintf(out, "LOAD_L %u\n", slot);
+      } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
+        fprintf(out, "LOAD_L %u\n", slot);
+        emit_indent(out, depth);
+        fprintf(out, "LOAD_L %u\n", slot + 1u);
+      } else if (find_dynamic_pool(ctx->model, expr->as.ident)) {
+        fprintf(out, "; dynamic pool ident %s\n", expr->as.ident);
       } else {
         fprintf(out, "; expr ident %s\n", expr->as.ident);
       }
@@ -342,7 +487,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         case E_BIN_ADD: fputs("ADD_I32\n", out); break;
         case E_BIN_SUB: fputs("SUB_I32\n", out); break;
         case E_BIN_MUL: fputs("MUL_I32\n", out); break;
-        case E_BIN_DIV: fputs("; DIV pending lowering\n", out); break;
+        case E_BIN_DIV: fputs("DIV_I32\n", out); break;
         case E_BIN_EQ: fputs("EQ_I32\n", out); break;
         case E_BIN_NE: fputs("NE_I32\n", out); break;
         case E_BIN_LT: fputs("LT_I32\n", out); break;
@@ -352,7 +497,11 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       }
       break;
     case E_EXPR_ASSIGN:
-      emit_expr(out, expr->as.assign.rhs, ctx, depth);
+      if (expr_is_dynamic_index(expr->as.assign.lhs, ctx->model, NULL)) {
+        emit_dynamic_index_store(out, expr->as.assign.lhs, expr->as.assign.rhs, ctx, depth);
+      } else {
+        emit_expr(out, expr->as.assign.rhs, ctx, depth);
+      }
       if (expr->as.assign.lhs && expr->as.assign.lhs->kind == E_EXPR_IDENT) {
         {
           unsigned int slot = 0u;
@@ -377,64 +526,15 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
             fprintf(out, "; assign target %s unsupported\n", expr->as.assign.lhs->as.ident);
           }
         }
+      } else if (expr_is_dynamic_index(expr->as.assign.lhs, ctx->model, NULL)) {
+        /* emit_dynamic_index_store already leaves the assigned ref on stack. */
       } else {
         emit_indent(out, depth);
         fputs("; assign pending lowering\n", out);
       }
       break;
     case E_EXPR_CALL:
-      if (strcmp(expr->as.call.callee, "log") == 0) {
-        emit_log_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "kernel_wait_signal") == 0) {
-        emit_kernel_wait_signal_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "signal") == 0 ||
-          strcmp(expr->as.call.callee, "kernel_signal") == 0) {
-        emit_signal_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "host_signal") == 0) {
-        emit_host_signal_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "frame_begin") == 0) {
-        emit_frame_begin_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "frame_rect") == 0) {
-        emit_frame_rect_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "frame_line") == 0) {
-        emit_frame_line_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "frame_commit") == 0) {
-        emit_frame_commit_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "far_signal") == 0) {
-        emit_far_signal_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "request_threads") == 0) {
-        emit_request_threads_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "kernal_get_ghs") == 0 ||
-          strcmp(expr->as.call.callee, "kernel_get_ghs") == 0) {
-        emit_kernel_get_ghs_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "typeof") == 0) {
-        emit_typeof_builtin(out, expr, ctx, depth);
-        break;
-      }
-      if (strcmp(expr->as.call.callee, "typeid") == 0) {
-        emit_typeid_builtin(out, expr, ctx, depth);
+      if (emit_call_builtin(out, expr, ctx, depth)) {
         break;
       }
       fprintf(out, "; call %s argc=%zu pending lowering\n", expr->as.call.callee, expr->as.call.arg_count);
@@ -448,6 +548,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       fputs("; field ", out);
       emit_field_path(out, expr, ctx->model);
       fputc('\n', out);
+      break;
+    case E_EXPR_INDEX:
+      if (emit_dynamic_index_load(out, expr, ctx, depth)) break;
+      fputs("; index pending lowering\n", out);
       break;
   }
 }
@@ -917,6 +1021,74 @@ static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
   return 1;
 }
 
+static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; dyn_alloc expects 1 dynamic pool identifier\n", out);
+    return 0;
+  }
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) {
+    emit_indent(out, depth);
+    fputs("; dyn_alloc target is not a dynamic pool\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ALLOC %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
+}
+
+static int emit_dyn_free_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; dyn_free expects (dynamic_pool, id)\n", out);
+    return 0;
+  }
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) {
+    emit_indent(out, depth);
+    fputs("; dyn_free target is not a dynamic pool\n", out);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_FREE %u\n", dynamic_pool_id(ctx, pool));
+  return 1;
+}
+
+static int emit_dyn_swap_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 3u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; dyn_swap expects (dynamic_pool, id_a, id_b)\n", out);
+    return 0;
+  }
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) {
+    emit_indent(out, depth);
+    fputs("; dyn_swap target is not a dynamic pool\n", out);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_expr(out, expr->as.call.args[2], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_SWAP %u\n", dynamic_pool_id(ctx, pool));
+  return 1;
+}
+
 static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
 }
@@ -1036,6 +1208,11 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
             emit_indent(out, depth);
             fputs("POP 0\n", out);
           }
+        } else if (expr_is_dynamic_index(stmt->as.expr->as.assign.lhs, ctx->model, NULL)) {
+          emit_indent(out, depth);
+          fputs("POP 0\n", out);
+          emit_indent(out, depth);
+          fputs("POP 0\n", out);
         }
       }
       break;
@@ -1292,8 +1469,9 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                       model->dynamic_pools[di].free_head_word);
               fputs(";   grow policy: prepend new capacity onto free_head\n", out);
               fputs(";   append policy: use live_tail in main header for O(1) live append\n\n", out);
-              fprintf(out, "DYNAMIC_POOL %zu %u %u %u\n\n",
+              fprintf(out, "DYNAMIC_POOL %zu %zu %u %u %u\n\n",
                       di,
+                      model->dynamic_pools[di].element_size,
                       model->dynamic_pools[di].min_free,
                       model->dynamic_pools[di].max_free,
                       model->dynamic_pools[di].grow_by);

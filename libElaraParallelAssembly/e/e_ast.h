@@ -36,6 +36,7 @@ typedef enum {
   E_EXPR_ASSIGN,
   E_EXPR_CALL,
   E_EXPR_FIELD,
+  E_EXPR_INDEX,
 } EExprKind;
 
 typedef enum {
@@ -75,6 +76,10 @@ struct EExpr {
       EExpr *base;
       char *field;
     } field;
+    struct {
+      EExpr *base;
+      EExpr *index;
+    } index;
   } as;
 };
 

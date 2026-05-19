@@ -152,6 +152,7 @@ int epa_worker_configure_dynamic_pools(EpaWorkerState *w,
                                configs[i].min_free,
                                configs[i].max_free,
                                configs[i].grow_by,
+                               configs[i].element_size,
                                err)) {
       uint32_t j;
       for (j = 0; j < i; j++) epa_dynamic_pool_free(&pools[j]);

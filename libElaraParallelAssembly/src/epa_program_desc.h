@@ -39,6 +39,7 @@ typedef struct {
 
 typedef struct {
   uint32_t pool_id;
+  uint32_t element_size;
   uint32_t min_free;
   uint32_t max_free;
   uint32_t grow_by;

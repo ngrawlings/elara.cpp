@@ -690,6 +690,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"LE_I32",     EPA_OP_LE_I32,                0,0, 0,{0}, NULL, "LE_I32 takes no params"},
     {"GT_I32",     EPA_OP_GT_I32,                0,0, 0,{0}, NULL, "GT_I32 takes no params"},
     {"GE_I32",     EPA_OP_GE_I32,                0,0, 0,{0}, NULL, "GE_I32 takes no params"},
+    {"DIV_I32",    EPA_OP_DIV_I32,               0,0, 0,{0}, NULL, "DIV_I32 takes no params"},
     {"CMP",        EPA_OP_CMP,                   0,0, 0,{0}, NULL, "CMP takes no params"},
     {"CMPZ",       EPA_OP_CMPZ,                  0,0, 0,{0}, NULL, "CMPZ takes no params"},
 
@@ -712,7 +713,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"ENTRY_END",  EPA_OP_ENTRY_END,             0,0, 0,{0}, NULL, "ENTRY_END takes no params"},
     {"ENTRY_EXEC", EPA_OP_ENTRY_EXEC,            1,1, 1,{AK_U8}, NULL, "ENTRY_EXEC <worker_id:u8>"},
     {"ENTRY_HALT", EPA_OP_ENTRY_HALT,            1,1, 1,{AK_U8}, NULL, "ENTRY_HALT <worker_id:u8>"},
-    {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         4,4, 4,{AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
+    {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         5,5, 5,{AK_U32, AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <element_size:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
     {"SYNC",       EPA_OP_SYNC,                  0,0, 0,{0}, NULL, "SYNC takes no params"},
     {"WAIT_ON_SYNC",EPA_OP_WAIT_ON_SYNC,         0,0, 0,{0}, NULL, "WAIT_ON_SYNC takes no params"},
 
@@ -743,6 +744,11 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"G_META",     EPA_OP_G_META,               0,0, 0,{0}, NULL, "G_META (uses r0=idx, r1=gen; returns r0=owner,r1=type,r2=size,r3=cap)"},
     {"G_TAG",      EPA_OP_G_TAG,                0,0, 0,{0}, NULL, "G_TAG (uses r0=idx, r1=gen; returns r0=tag)"},
 	{"GR_MOV4",     EPA_OP_GR_MOV4,               1,1, 1,{AK_U8}, NULL, "GR_MOV4 <rx:u8> (uses r0=idx, r1=gen; returns rx=value)"},
+    {"DYN_ALLOC",  EPA_OP_DYN_ALLOC,             1,1, 1,{AK_U32}, NULL, "DYN_ALLOC <pool_id:u32>"},
+    {"DYN_FREE",   EPA_OP_DYN_FREE,              1,1, 1,{AK_U32}, NULL, "DYN_FREE <pool_id:u32>"},
+    {"DYN_LOAD",   EPA_OP_DYN_LOAD,              1,1, 1,{AK_U32}, NULL, "DYN_LOAD <pool_id:u32>"},
+    {"DYN_STORE",  EPA_OP_DYN_STORE,             1,1, 1,{AK_U32}, NULL, "DYN_STORE <pool_id:u32>"},
+    {"DYN_SWAP",   EPA_OP_DYN_SWAP,              1,1, 1,{AK_U32}, NULL, "DYN_SWAP <pool_id:u32>"},
 
     // Debug / interrupts
     {"BREAK",      EPA_OP_BREAK,                 1,1, 1,{AK_U32}, NULL, "BREAK <code:u32>"},

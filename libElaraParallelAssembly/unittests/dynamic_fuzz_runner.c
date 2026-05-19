@@ -58,7 +58,7 @@ static int run_dynamic_crosscheck_case(uint32_t seed, uint32_t min_free, uint32_
 
     rng.state = seed ? seed : 0x9e3779b9u;
     dyn_pool_init(&model, min_free, max_free, grow_by);
-    if (!epa_dynamic_pool_init(&runtime, min_free, max_free, grow_by, err)) {
+    if (!epa_dynamic_pool_init(&runtime, min_free, max_free, grow_by, 8u, err)) {
         fprintf(stderr, "runtime init failed: %s\n", err);
         return 1;
     }

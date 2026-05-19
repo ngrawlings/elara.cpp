@@ -102,6 +102,9 @@ static int validate_typeof_typeid_expr(const EExpr *expr, const ESemanticModel *
       return 1;
     case E_EXPR_FIELD:
       return validate_typeof_typeid_expr(expr->as.field.base, model, err);
+    case E_EXPR_INDEX:
+      return validate_typeof_typeid_expr(expr->as.index.base, model, err) &&
+             validate_typeof_typeid_expr(expr->as.index.index, model, err);
     case E_EXPR_ASSIGN:
       return validate_typeof_typeid_expr(expr->as.assign.lhs, model, err) &&
              validate_typeof_typeid_expr(expr->as.assign.rhs, model, err);
@@ -946,15 +949,27 @@ static const char *find_custom_param_type_by_name(const EFunction *function, con
 }
 
 static const char *find_expected_custom_lvalue_type(const EExpr *lhs,
+                                                    const ESemanticModel *model,
                                                     const EFunctionFrame *frame,
                                                     const EFunction *function) {
   const ELocalBinding *local;
   const char *param_type;
-  if (!lhs || lhs->kind != E_EXPR_IDENT) return NULL;
-  local = find_local_binding_by_name(frame, lhs->as.ident);
-  if (local && !is_primitive_type(local->type_name)) return local->type_name;
-  param_type = find_custom_param_type_by_name(function, lhs->as.ident);
-  if (param_type) return param_type;
+  const EDynamicPool *pool;
+  if (!lhs) return NULL;
+  if (lhs->kind == E_EXPR_IDENT) {
+    local = find_local_binding_by_name(frame, lhs->as.ident);
+    if (local && !is_primitive_type(local->type_name)) return local->type_name;
+    param_type = find_custom_param_type_by_name(function, lhs->as.ident);
+    if (param_type) return param_type;
+  }
+  if (lhs->kind == E_EXPR_INDEX &&
+      lhs->as.index.base &&
+      lhs->as.index.base->kind == E_EXPR_IDENT) {
+    pool = find_dynamic_pool(model, lhs->as.index.base->as.ident);
+    if (pool && (pool->element_array_len != 0u || !is_primitive_type(pool->element_type_name))) {
+      return pool->element_type_name;
+    }
+  }
   return NULL;
 }
 
@@ -989,6 +1004,15 @@ static const char *infer_custom_expr_type(const EExpr *expr,
         return worker->params[0].type.name;
       }
       return find_custom_param_type_by_name(function, expr->as.ident);
+    case E_EXPR_INDEX:
+      if (expr->as.index.base &&
+          expr->as.index.base->kind == E_EXPR_IDENT) {
+        const EDynamicPool *pool = find_dynamic_pool(model, expr->as.index.base->as.ident);
+        if (pool && (pool->element_array_len != 0u || !is_primitive_type(pool->element_type_name))) {
+          return pool->element_type_name;
+        }
+      }
+      return NULL;
     case E_EXPR_CALL:
       if (!is_kernel_get_ghs_call(expr)) return NULL;
       if (!in_kernel) {
@@ -1078,7 +1102,7 @@ static int validate_kernel_get_ghs_usage_in_stmt(const EStmt *stmt,
       return 1;
     case E_STMT_EXPR:
       if (stmt->as.expr && stmt->as.expr->kind == E_EXPR_ASSIGN) {
-        const char *lhs_type = find_expected_custom_lvalue_type(stmt->as.expr->as.assign.lhs, frame, function);
+        const char *lhs_type = find_expected_custom_lvalue_type(stmt->as.expr->as.assign.lhs, model, frame, function);
         const char *rhs_type = infer_custom_expr_type(stmt->as.expr->as.assign.rhs, model, frame, function, worker, in_kernel, err);
         if (rhs_type == (const char*)-1) return 0;
         if (rhs_type) {

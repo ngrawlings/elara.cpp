@@ -43,6 +43,10 @@ static void free_expr(EExpr *e) {
       free_expr(e->as.field.base);
       free(e->as.field.field);
       break;
+    case E_EXPR_INDEX:
+      free_expr(e->as.index.base);
+      free_expr(e->as.index.index);
+      break;
     case E_EXPR_INT:
       break;
   }
@@ -231,6 +235,12 @@ static void dump_expr(FILE *out, const EExpr *e, int depth) {
       indent(out, depth);
       fprintf(out, "field %s\n", e->as.field.field);
       dump_expr(out, e->as.field.base, depth + 1);
+      break;
+    case E_EXPR_INDEX:
+      indent(out, depth);
+      fputs("index\n", out);
+      dump_expr(out, e->as.index.base, depth + 1);
+      dump_expr(out, e->as.index.index, depth + 1);
       break;
   }
 }
