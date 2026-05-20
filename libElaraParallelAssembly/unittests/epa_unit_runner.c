@@ -1,16 +1,11 @@
 // epa_unit_runner.c
-// Build: gcc -O2 -Wall -Wextra -std=c11 -o epa_unit_runner epa_unit_runner.c -ldl
+// Build: see unittests/Makefile (E compiler sources are linked in)
 //
 // Usage:
 //   ./epa_unit_runner /path/to/libepa_kernel.so /path/to/tests_dir [max_ticks]
 //
-// Notes:
-// - Headless by default (does not open a viewport).
-// - A test PASSES only if epa_kernel_run() returns 1 and no TRAP/EXCEPT fired.
-// - TRAP will fail automatically in the VM when r0==0.
-// - EXCEPT is forced-fatal by returning 0 in the hook.
-//
-// If you later want viewport support, add a flag and dlsym epa_kernel_open_viewport.
+// Accepts both .epaasm and .e files. .e files are compiled in-process.
+// A test PASSES only if epa_kernel_run() returns 1 and no TRAP/EXCEPT fired.
 
 #define _POSIX_C_SOURCE 200809L
 #include <stdio.h>
@@ -22,6 +17,10 @@
 #include <dlfcn.h>
 #include <sys/stat.h>
 #include <stdatomic.h>
+#include <unistd.h>
+
+#include "e_compiler.h"
+#include "epa_asm_compiler.h"
 
 #ifndef EPA_MAX_ERR
 #define EPA_MAX_ERR 256
@@ -72,7 +71,7 @@ typedef void (*EpaKernelDbgCallback)(
 // --- dlsym function pointer types (from epa_kernel_so.h) ---
 typedef EpaKernel* (*fp_epa_kernel_create)(char err[EPA_MAX_ERR]);
 typedef void      (*fp_epa_kernel_destroy)(EpaKernel *k);
-typedef int       (*fp_epa_kernel_load_asm)(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR]);
+typedef int       (*fp_epa_kernel_load_blob)(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]);
 typedef int       (*fp_epa_kernel_run)(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
 typedef int       (*fp_epa_ghs_get_ptr)(epa_ghs_t *ghs, epa_ghs_handle_t h, void **out_ptr);
 
@@ -250,10 +249,9 @@ int main(int argc, char **argv) {
 
   fp_epa_kernel_create  epa_kernel_create  = (fp_epa_kernel_create)must_dlsym(so, "epa_kernel_create");
   fp_epa_kernel_destroy epa_kernel_destroy = (fp_epa_kernel_destroy)must_dlsym(so, "epa_kernel_destroy");
-  fp_epa_kernel_load_asm epa_kernel_load_asm = (fp_epa_kernel_load_asm)must_dlsym(so, "epa_kernel_load_asm");
+  fp_epa_kernel_load_blob epa_kernel_load_blob = (fp_epa_kernel_load_blob)must_dlsym(so, "epa_kernel_load_blob");
   fp_epa_kernel_run     epa_kernel_run     = (fp_epa_kernel_run)must_dlsym(so, "epa_kernel_run");
 
-  // NEW symbol:
   fp_epa_kernel_set_debug_callback epa_kernel_set_debug_callback =
     (fp_epa_kernel_set_debug_callback)must_dlsym(so, "epa_kernel_set_debug_callback");
   fp_epa_at_router_register epa_at_router_register =
@@ -278,7 +276,7 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  // Collect *.epaasm
+  // Collect *.epaasm and *.e
   size_t cap = 64, n = 0;
   char **files = (char**)calloc(cap, sizeof(char*));
   if (!files) {
@@ -291,7 +289,7 @@ int main(int argc, char **argv) {
   struct dirent *de;
   while ((de = readdir(d)) != NULL) {
     if (de->d_name[0] == '.') continue;
-    if (!ends_with(de->d_name, ".epaasm")) continue;
+    if (!ends_with(de->d_name, ".epaasm") && !ends_with(de->d_name, ".e")) continue;
 
     // Build full path
     size_t need = strlen(dir_path) + 1 + strlen(de->d_name) + 1;
@@ -315,7 +313,7 @@ int main(int argc, char **argv) {
   closedir(d);
 
   if (n == 0) {
-    fprintf(stderr, "No .epaasm files found in %s\n", dir_path);
+    fprintf(stderr, "No .epaasm or .e files found in %s\n", dir_path);
     free(files);
     dlclose(so);
     return 1;
@@ -327,6 +325,8 @@ int main(int argc, char **argv) {
 
   for (size_t i = 0; i < n; i++) {
     const char *path = files[i];
+    int is_e = ends_with(path, ".e");
+
     int expects_test_at = ends_with(path, "at_entry.epaasm");
     int expects_math_at = ends_with(path, "at_math_lifecycle.epaasm");
     if (expects_test_at) atomic_store(&g_test_at_hits, 0u);
@@ -335,9 +335,34 @@ int main(int argc, char **argv) {
     char err[EPA_MAX_ERR];
     err[0] = '\0';
 
+    /* Compile to binary blob fully in-memory */
+    char     *epaasm = NULL;
+    uint8_t  *blob   = NULL;
+    size_t    blob_len = 0;
+
+    if (is_e) {
+      epaasm = e_compile_file_to_epaasm(path, err);
+      if (!epaasm) {
+        fprintf(stderr, "[FAIL] %s\n  e_compile: %s\n", path, err);
+        fail++;
+        continue;
+      }
+      blob = epa_asm_compile_src(epaasm, &blob_len, err);
+      free(epaasm); epaasm = NULL;
+    } else {
+      blob = epa_asm_compile_file(path, &blob_len, err);
+    }
+
+    if (!blob) {
+      fprintf(stderr, "[FAIL] %s\n  asm_compile: %s\n", path, err);
+      fail++;
+      continue;
+    }
+
     EpaKernel *k = epa_kernel_create(err);
     if (!k) {
       fprintf(stderr, "[FAIL] %s\n  kernel_create: %s\n", path, err);
+      free(blob);
       fail++;
       continue;
     }
@@ -345,16 +370,17 @@ int main(int argc, char **argv) {
     TestEvents ev;
     memset(&ev, 0, sizeof(ev));
 
-    // Set unified debug callback (single entry point)
     epa_kernel_set_debug_callback(k, unit_dbg_cb, &ev);
 
-    if (!epa_kernel_load_asm(k, path, err)) {
-      fprintf(stderr, "[FAIL] %s\n  load_asm: %s\n", path, err);
+    if (!epa_kernel_load_blob(k, blob, blob_len, err)) {
+      fprintf(stderr, "[FAIL] %s\n  load_blob: %s\n", path, err);
       print_event_summary(&ev);
       epa_kernel_destroy(k);
+      free(blob);
       fail++;
       continue;
     }
+    free(blob); blob = NULL;
 
     int ok = epa_kernel_run(k, max_ticks, 0, err);
 

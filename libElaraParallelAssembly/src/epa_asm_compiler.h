@@ -59,3 +59,7 @@ House rules
 // Compile a text assembly file into a binary EPA blob.
 // Returns malloc'd buffer (caller frees) or NULL on error.
 uint8_t *epa_asm_compile_file(const char *path, size_t *out_len, char err[EPA_MAX_ERR]);
+
+// Compile an in-memory epaasm string into a binary EPA blob.
+// Returns malloc'd buffer (caller frees) or NULL on error.
+uint8_t *epa_asm_compile_src(const char *src, size_t *out_len, char err[EPA_MAX_ERR]);

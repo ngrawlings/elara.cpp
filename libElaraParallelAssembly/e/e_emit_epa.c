@@ -221,10 +221,14 @@ static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
     case E_STMT_FOREACH:
       collect_strings_in_stmt(ctx, stmt->as.foreach_stmt.body);
       break;
+    case E_STMT_STATIC_BLOCK:
+      for (i = 0; i < stmt->as.static_block.count; i++) collect_strings_in_stmt(ctx, stmt->as.static_block.items[i]);
+      break;
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       break;
   }
 }
@@ -1440,14 +1444,14 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
               stmt->as.foreach_stmt.var_decl->as.decl.type.name, pool_id, iter_name);
       emit_indent(out, depth);
       fprintf(out, "%s:\n", head_label);
-      /* Load current iterator slot ID */
+      /* Save lbytes scope first; its side-effect on csc[0] is overwritten below */
+      emit_indent(out, depth);
+      fputs("L_SCOPE_ENTER\n", out);
+      /* Load current iterator ordinal into csc[0] for DYN_ITER_NEXT */
       emit_indent(out, depth);
       fprintf(out, "LOAD_L %u\n", iter_binding->vm_local_slot);
       emit_indent(out, depth);
       fputs("POP R0\n", out);
-      /* Save lbytes scope before loading the element */
-      emit_indent(out, depth);
-      fputs("L_SCOPE_ENTER\n", out);
       /* Advance: r0=next_id, r1=ok, r2=off, r3=size */
       emit_indent(out, depth);
       fprintf(out, "DYN_ITER_NEXT %u\n", pool_id);
@@ -1554,6 +1558,28 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
     case E_STMT_RAW_EPA:
       emit_verbatim_epa(out, stmt->as.raw_epa.text, depth);
       break;
+    case E_STMT_DYNAMIC:
+      break;
+    case E_STMT_STATIC_BLOCK:
+      emit_indent(out, depth);
+      fputs("; static { } block — emitted before worker loop\n", out);
+      break;
+  }
+}
+
+static void emit_static_blocks_in_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!stmt) return;
+  if (stmt->kind == E_STMT_STATIC_BLOCK) {
+    emit_indent(out, depth);
+    fputs("; static { }\n", out);
+    for (i = 0; i < stmt->as.static_block.count; i++)
+      emit_stmt(out, stmt->as.static_block.items[i], ctx, depth, NULL, NULL);
+    return;
+  }
+  if (stmt->kind == E_STMT_BLOCK) {
+    for (i = 0; i < stmt->as.block.count; i++)
+      emit_static_blocks_in_stmt(out, stmt->as.block.items[i], ctx, depth);
   }
 }
 
@@ -1598,6 +1624,37 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
     fprintf(out, ".SSTR %u %s\n", ctx.strings[i].id, ctx.strings[i].literal);
   }
   if (ctx.string_count > 0u) fputc('\n', out);
+
+  /* Emit DYNAMIC_POOL records for pools declared inside worker bodies.
+     Top-level E_TOP_DYNAMIC pools are emitted inline in the main loop below;
+     worker-inline ones are emitted here so the manifest precedes any ENTRY_START. */
+  {
+    size_t di;
+    int any_inline = 0;
+    for (di = 0; di < model->dynamic_pool_count; di++) {
+      int is_top_level = 0;
+      size_t j;
+      for (j = 0; j < prog->count; j++) {
+        if (prog->items[j].kind == E_TOP_DYNAMIC &&
+            strcmp(prog->items[j].as.dynamic_decl.name, model->dynamic_pools[di].name) == 0) {
+          is_top_level = 1;
+          break;
+        }
+      }
+      if (is_top_level) continue;
+      if (!any_inline) {
+        fputs("; worker-inline dynamic pool manifests\n", out);
+        any_inline = 1;
+      }
+      fprintf(out, "DYNAMIC_POOL %zu %zu %u %u %u\n\n",
+              di,
+              model->dynamic_pools[di].element_size,
+              model->dynamic_pools[di].min_free,
+              model->dynamic_pools[di].max_free,
+              model->dynamic_pools[di].grow_by);
+    }
+    if (any_inline) fputc('\n', out);
+  }
 
   for (i = 0; i < prog->count; i++) {
     const ETopDecl *top = &prog->items[i];
@@ -1727,6 +1784,8 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
               }
             }
           }
+          /* Emit any static { } blocks — run-once code before the wait loop. */
+          emit_static_blocks_in_stmt(out, top->as.worker.body, &ctx, 1);
           emit_indent(out, 1);
           fprintf(out, "E_WORKER_WAIT_%u:\n", loop_id);
           emit_indent(out, 1);

@@ -488,44 +488,91 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
   return 1;
 }
 
+static int register_dynamic_pool_decl(ESemanticModel *model, const EDynamicDecl *decl, char err[256]) {
+  size_t element_size;
+  if (find_dynamic_pool(model, decl->name)) {
+    snprintf(err, 256, "duplicate dynamic pool '%s'", decl->name);
+    return 0;
+  }
+  if (find_validator(model, decl->name) || find_type_layout(model, decl->name)) {
+    snprintf(err, 256, "dynamic pool '%s' collides with an existing type name", decl->name);
+    return 0;
+  }
+  if (decl->element_type.union_count != 0u) {
+    snprintf(err, 256, "dynamic pool '%s' element type cannot be a union", decl->name);
+    return 0;
+  }
+  if (decl->min_free > decl->max_free) {
+    snprintf(err, 256, "dynamic pool '%s' min_free cannot exceed max_free", decl->name);
+    return 0;
+  }
+  if (decl->grow_by == 0u) {
+    snprintf(err, 256, "dynamic pool '%s' grow_by must be greater than zero", decl->name);
+    return 0;
+  }
+  element_size = type_ref_size(model, &decl->element_type, err);
+  if (element_size == 0u &&
+      decl->element_type.array_len == 0u &&
+      primitive_size(decl->element_type.name) == 0u &&
+      !find_type_layout(model, decl->element_type.name)) {
+    return 0;
+  }
+  if (element_size == 0u) {
+    snprintf(err, 256, "dynamic pool '%s' element type must have non-zero inline size", decl->name);
+    return 0;
+  }
+  push_dynamic_pool(model, decl, element_size);
+  return 1;
+}
+
+static int collect_inline_dynamic_pools_in_stmt(const EStmt *stmt, ESemanticModel *model, char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_DYNAMIC:
+      return register_dynamic_pool_decl(model, &stmt->as.dynamic_decl, err);
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!collect_inline_dynamic_pools_in_stmt(stmt->as.block.items[i], model, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!collect_inline_dynamic_pools_in_stmt(stmt->as.if_stmt.then_branch, model, err)) return 0;
+      return collect_inline_dynamic_pools_in_stmt(stmt->as.if_stmt.else_branch, model, err);
+    case E_STMT_WHILE:
+      return collect_inline_dynamic_pools_in_stmt(stmt->as.while_stmt.body, model, err);
+    case E_STMT_FOR:
+      if (!collect_inline_dynamic_pools_in_stmt(stmt->as.for_stmt.init, model, err)) return 0;
+      return collect_inline_dynamic_pools_in_stmt(stmt->as.for_stmt.body, model, err);
+    case E_STMT_FOREACH:
+      return collect_inline_dynamic_pools_in_stmt(stmt->as.foreach_stmt.body, model, err);
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!collect_inline_dynamic_pools_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], model, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_STATIC_BLOCK:
+      for (i = 0; i < stmt->as.static_block.count; i++) {
+        if (!collect_inline_dynamic_pools_in_stmt(stmt->as.static_block.items[i], model, err)) return 0;
+      }
+      return 1;
+    default:
+      return 1;
+  }
+}
+
 static int collect_dynamic_pools(const EProgram *program, ESemanticModel *model, char err[256]) {
   size_t i;
   for (i = 0; i < program->count; i++) {
     const ETopDecl *top = &program->items[i];
-    size_t element_size;
-    if (top->kind != E_TOP_DYNAMIC) continue;
-    if (find_dynamic_pool(model, top->as.dynamic_decl.name)) {
-      snprintf(err, 256, "duplicate dynamic pool '%s'", top->as.dynamic_decl.name);
-      return 0;
+    if (top->kind == E_TOP_DYNAMIC) {
+      if (!register_dynamic_pool_decl(model, &top->as.dynamic_decl, err)) return 0;
+    } else if (top->kind == E_TOP_WORKER) {
+      if (!collect_inline_dynamic_pools_in_stmt(top->as.worker.body, model, err)) return 0;
     }
-    if (find_validator(model, top->as.dynamic_decl.name) || find_type_layout(model, top->as.dynamic_decl.name)) {
-      snprintf(err, 256, "dynamic pool '%s' collides with an existing type name", top->as.dynamic_decl.name);
-      return 0;
-    }
-    if (top->as.dynamic_decl.element_type.union_count != 0u) {
-      snprintf(err, 256, "dynamic pool '%s' element type cannot be a union", top->as.dynamic_decl.name);
-      return 0;
-    }
-    if (top->as.dynamic_decl.min_free > top->as.dynamic_decl.max_free) {
-      snprintf(err, 256, "dynamic pool '%s' min_free cannot exceed max_free", top->as.dynamic_decl.name);
-      return 0;
-    }
-    if (top->as.dynamic_decl.grow_by == 0u) {
-      snprintf(err, 256, "dynamic pool '%s' grow_by must be greater than zero", top->as.dynamic_decl.name);
-      return 0;
-    }
-    element_size = type_ref_size(model, &top->as.dynamic_decl.element_type, err);
-    if (element_size == 0u &&
-        top->as.dynamic_decl.element_type.array_len == 0u &&
-        primitive_size(top->as.dynamic_decl.element_type.name) == 0u &&
-        !find_type_layout(model, top->as.dynamic_decl.element_type.name)) {
-      return 0;
-    }
-    if (element_size == 0u) {
-      snprintf(err, 256, "dynamic pool '%s' element type must have non-zero inline size", top->as.dynamic_decl.name);
-      return 0;
-    }
-    push_dynamic_pool(model, &top->as.dynamic_decl, element_size);
   }
   return 1;
 }
@@ -714,12 +761,20 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
       }
       return 1;
     }
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!collect_local_decls_in_stmt(stmt->as.static_block.items[j], model, frame, in_worker, err)) return 0;
+      }
+      return 1;
+    }
     case E_STMT_RETURN:
     case E_STMT_EXPR:
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       return 1;
   }
   return 1;
@@ -838,12 +893,20 @@ static int validate_next_stmt_in_stmt(
         return 0;
       }
       return 1;
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!validate_next_stmt_in_stmt(stmt->as.static_block.items[j], model, current_worker, err)) return 0;
+      }
+      return 1;
+    }
     case E_STMT_DECL:
     case E_STMT_RETURN:
     case E_STMT_EXPR:
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       return 1;
   }
   return 1;
@@ -889,11 +952,19 @@ static int validate_loop_control_in_stmt(const EStmt *stmt, int loop_depth, int 
         return 0;
       }
       return 1;
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!validate_loop_control_in_stmt(stmt->as.static_block.items[j], loop_depth, switch_depth, err)) return 0;
+      }
+      return 1;
+    }
     case E_STMT_DECL:
     case E_STMT_RETURN:
     case E_STMT_EXPR:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       return 1;
   }
   return 1;
@@ -1151,10 +1222,18 @@ static int validate_kernel_get_ghs_usage_in_stmt(const EStmt *stmt,
         }
       }
       return 1;
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!validate_kernel_get_ghs_usage_in_stmt(stmt->as.static_block.items[j], model, frame, function, worker, in_kernel, err)) return 0;
+      }
+      return 1;
+    }
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       return 1;
   }
   return 1;
@@ -1200,10 +1279,18 @@ static int validate_typeof_typeid_usage_in_stmt(const EStmt *stmt,
         }
       }
       return 1;
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!validate_typeof_typeid_usage_in_stmt(stmt->as.static_block.items[j], model, err)) return 0;
+      }
+      return 1;
+    }
     case E_STMT_BREAK:
     case E_STMT_CONTINUE:
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
       return 1;
   }
   return 1;

@@ -97,6 +97,8 @@ typedef enum {
   E_STMT_NEXT,
   E_STMT_RAW_EPA,
   E_STMT_FOREACH,
+  E_STMT_DYNAMIC,
+  E_STMT_STATIC_BLOCK,
 } EStmtKind;
 
 typedef struct {
@@ -107,6 +109,14 @@ typedef struct {
   int is_static;
   EExpr *init;
 } EDeclStmt;
+
+typedef struct {
+  char *name;
+  ETypeRef element_type;
+  unsigned int min_free;
+  unsigned int max_free;
+  unsigned int grow_by;
+} EDynamicDecl;
 
 typedef struct {
   EStmt **items;
@@ -159,6 +169,8 @@ struct EStmt {
       char *iter_name;   /* name of the Iterator variable */
       EStmt *body;
     } foreach_stmt;
+    EDynamicDecl dynamic_decl;
+    EStmtList static_block;
   } as;
 };
 
@@ -206,14 +218,6 @@ typedef struct {
   EDeclareKind kind;
   unsigned int value;
 } EDeclareDecl;
-
-typedef struct {
-  char *name;
-  ETypeRef element_type;
-  unsigned int min_free;
-  unsigned int max_free;
-  unsigned int grow_by;
-} EDynamicDecl;
 
 typedef enum {
   E_TOP_STRUCT = 1,

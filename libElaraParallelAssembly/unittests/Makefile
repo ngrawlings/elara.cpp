@@ -1,5 +1,5 @@
 CC      ?= gcc
-CFLAGS  ?= -O2 -Wall -Wextra -std=c11
+CFLAGS  ?= -O2 -Wall -Wextra -std=gnu11
 LDFLAGS ?=
 LDLIBS  ?= -ldl -lm
 PYTHON  ?= python3
@@ -12,18 +12,26 @@ MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 ROOT_DIR     := $(abspath $(MAKEFILE_DIR)/..)
 
 SRC_DIR      := $(ROOT_DIR)/src
+E_DIR        := $(ROOT_DIR)/e
+LIB_DIR      := $(ROOT_DIR)/build/lib
 TOOLS_DIR    := $(ROOT_DIR)/unittests
 CTESTS_DIR   := $(TOOLS_DIR)/ctests
 BUILD_DIR    := $(ROOT_DIR)/build/unittests
 OBJ_DIR      := $(BUILD_DIR)
 
-UNIT_RUNNER  := $(BUILD_DIR)/epa_unit_runner
-CTEST_RUNNER := $(BUILD_DIR)/ctest_runner
+UNIT_RUNNER       := $(BUILD_DIR)/epa_unit_runner
+CTEST_RUNNER      := $(BUILD_DIR)/ctest_runner
 DYNAMIC_FUZZ_RUNNER := $(BUILD_DIR)/dynamic_fuzz_runner
+E_FUZZ_RUNNER     := $(BUILD_DIR)/e_fuzz_runner
 
-.PHONY: all unit_runner ctests dynamic-fuzz clean-unit clean-ctests clean print-core print-objs isa-lint
+# Static E compiler library (built by e/Makefile)
+LIBELARA_E   := $(LIB_DIR)/libelara_e.a
+# epa_asm_compiler needed in-process for epa_asm_compile_src/epa_asm_compile_file
+EPA_ASM_SRC  := $(SRC_DIR)/epa_asm_compiler.c
 
-all: isa-lint unit_runner ctests dynamic-fuzz
+.PHONY: all unit_runner ctests dynamic-fuzz e-fuzz clean-unit clean-ctests clean print-core print-objs isa-lint
+
+all: isa-lint unit_runner ctests dynamic-fuzz e-fuzz
 
 isa-lint:
 	$(PYTHON) $(ROOT_DIR)/scripts/isa_lint.py
@@ -35,10 +43,27 @@ $(OBJ_DIR):
 # -------------------------
 # EPA unit runner
 # -------------------------
-unit_runner: isa-lint $(UNIT_RUNNER)
+unit_runner: isa-lint $(LIBELARA_E) $(UNIT_RUNNER)
 
-$(UNIT_RUNNER): $(TOOLS_DIR)/epa_unit_runner.c | $(OBJ_DIR)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -o $@ $< $(LDFLAGS) $(LDLIBS)
+$(UNIT_RUNNER): $(TOOLS_DIR)/epa_unit_runner.c $(EPA_ASM_SRC) $(LIBELARA_E) | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -I$(E_DIR) \
+	  -o $@ $(TOOLS_DIR)/epa_unit_runner.c $(EPA_ASM_SRC) \
+	  -L$(LIB_DIR) -lelara_e $(LDFLAGS) $(LDLIBS)
+
+# -------------------------
+# E fuzz runner
+# -------------------------
+e-fuzz: isa-lint $(LIBELARA_E) $(E_FUZZ_RUNNER)
+
+E_FUZZ_SRCS := \
+	$(TOOLS_DIR)/e_fuzz_runner.c \
+	$(TOOLS_DIR)/e_fuzz_pump.c \
+	$(EPA_ASM_SRC)
+
+$(E_FUZZ_RUNNER): $(E_FUZZ_SRCS) $(LIBELARA_E) | $(OBJ_DIR)
+	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -I$(E_DIR) \
+	  -o $@ $(E_FUZZ_SRCS) \
+	  -L$(LIB_DIR) -lelara_e $(LDFLAGS) $(LDLIBS)
 
 # -------------------------
 # C-level unit tests
@@ -138,7 +163,7 @@ print-objs:
 # Clean
 # -------------------------
 clean-unit:
-	@rm -f $(UNIT_RUNNER)
+	@rm -f $(UNIT_RUNNER) $(E_FUZZ_RUNNER)
 
 clean-ctests:
 	@rm -f $(CTEST_RUNNER) $(DYNAMIC_FUZZ_RUNNER)

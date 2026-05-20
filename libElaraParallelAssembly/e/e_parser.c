@@ -568,6 +568,43 @@ static EStmt *parse_stmt(Parser *p) {
     return s;
   }
 
+  if (peek(p)->kind == E_TOK_KW_STATIC && peek_n(p, 1)->kind == E_TOK_LBRACE) {
+    p->pos++; /* consume 'static' */
+    EStmt *s = new_stmt(E_STMT_STATIC_BLOCK);
+    if (!expect(p, E_TOK_LBRACE, "expected '{'")) return NULL;
+    while (peek(p)->kind != E_TOK_RBRACE && peek(p)->kind != E_TOK_EOF) {
+      EStmt *child = parse_stmt(p);
+      if (!child) return NULL;
+      stmt_list_push(&s->as.static_block, child);
+    }
+    if (!expect(p, E_TOK_RBRACE, "expected '}'")) return NULL;
+    return s;
+  }
+
+  if (peek(p)->kind == E_TOK_KW_DYNAMIC) {
+    p->pos++;
+    EStmt *s = new_stmt(E_STMT_DYNAMIC);
+    if (!expect(p, E_TOK_IDENT, "expected dynamic pool name")) return NULL;
+    s->as.dynamic_decl.name = xstrdup_local(p->tokens->items[p->pos - 1].text);
+    if (!expect(p, E_TOK_LPAREN, "expected '(' after dynamic pool name")) return NULL;
+    if (!parse_type(p, &s->as.dynamic_decl.element_type)) return NULL;
+    if (!expect(p, E_TOK_COMMA, "expected ',' after dynamic element type")) return NULL;
+    if (peek(p)->kind != E_TOK_INT_LIT) { set_err(p, "expected min_free integer", peek(p)); return NULL; }
+    s->as.dynamic_decl.min_free = (unsigned int)strtoul(peek(p)->text, NULL, 10);
+    p->pos++;
+    if (!expect(p, E_TOK_COMMA, "expected ',' after dynamic min_free")) return NULL;
+    if (peek(p)->kind != E_TOK_INT_LIT) { set_err(p, "expected max_free integer", peek(p)); return NULL; }
+    s->as.dynamic_decl.max_free = (unsigned int)strtoul(peek(p)->text, NULL, 10);
+    p->pos++;
+    if (!expect(p, E_TOK_COMMA, "expected ',' after dynamic max_free")) return NULL;
+    if (peek(p)->kind != E_TOK_INT_LIT) { set_err(p, "expected grow_by integer", peek(p)); return NULL; }
+    s->as.dynamic_decl.grow_by = (unsigned int)strtoul(peek(p)->text, NULL, 10);
+    p->pos++;
+    if (!expect(p, E_TOK_RPAREN, "expected ')' after dynamic declaration")) return NULL;
+    if (!expect(p, E_TOK_SEMI, "expected ';' after dynamic declaration")) return NULL;
+    return s;
+  }
+
   if (is_decl_start(p)) {
     return parse_decl_stmt(p);
   }

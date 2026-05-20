@@ -827,67 +827,40 @@ static int emit_line(AsmCtx *ctx, Out *o, int line_no, char *line, char err[EPA_
   return emit_generic(ctx, o, line_no, nt, tok, d, err);
 }
 
-uint8_t *epa_asm_compile_file(const char *path, size_t *out_len, char err[EPA_MAX_ERR]) {
-  if (err) err[0] = 0;
-  if (out_len) *out_len = 0;
+/* Two-pass assembler core: f must be seekable (rewindable between passes). */
+static uint8_t *compile_from_fp(FILE *f, size_t *out_len, char err[EPA_MAX_ERR])
+{
+  SStrVec ssv = {0};
+  char line[1024];
+  int line_no = 0;
 
   // -------------------------
   // PASS 1: collect .SSTR
   // -------------------------
-  FILE *f = fopen(path, "rb");
-  if (!f) { snprintf(err, EPA_MAX_ERR, "cannot open %s", path); return NULL; }
-
-  SStrVec ssv = {0};
-
-  char line[1024];
-  int line_no = 0;
   while (fgets(line, (int)sizeof(line), f)) {
     line_no++;
-
-    strip_comment(line); // your existing helper: removes // and ;
-
-    uint32_t id = 0;
-    uint8_t *bytes = NULL;
-    uint16_t slen = 0;
+    strip_comment(line);
+    uint32_t id = 0; uint8_t *bytes = NULL; uint16_t slen = 0;
     int r = parse_sstr_directive_line(line, &id, &bytes, &slen, line_no, err);
-    if (r < 0) {
-      fclose(f);
-      sstrvec_free(&ssv);
-      return NULL;
-    }
+    if (r < 0) { sstrvec_free(&ssv); return NULL; }
     if (r == 1) {
       if (!sstrvec_add(&ssv, id, bytes, slen, line_no, err)) {
-        fclose(f);
-        sstrvec_free(&ssv);
-        return NULL;
+        sstrvec_free(&ssv); return NULL;
       }
     }
   }
-  fclose(f);
+  fseek(f, 0, SEEK_SET);
 
   // -------------------------
   // PASS 2: emit blob
   // -------------------------
-  f = fopen(path, "rb");
-  if (!f) { snprintf(err, EPA_MAX_ERR, "cannot open %s", path); sstrvec_free(&ssv); return NULL; }
+  Out o; memset(&o, 0, sizeof(o));
+  AsmCtx ctx; memset(&ctx, 0, sizeof(ctx));
 
-  Out o;
-  memset(&o, 0, sizeof(o));
-
-  AsmCtx ctx;
-  memset(&ctx, 0, sizeof(ctx));
-
-  // (A) Emit DATA_BLOCK prefix (if any consts exist)
-  if (ssv.n > 0 /* || other const vecs later */) {
-
-    // Build STR chunk payload into a temporary Out buffer.
-    Out str_payload;
-    memset(&str_payload, 0, sizeof(str_payload));
-
-    // STR payload: u16 count, then (u32 id, u16 len, bytes[len])...
+  if (ssv.n > 0) {
+    Out str_payload; memset(&str_payload, 0, sizeof(str_payload));
     if (ssv.n > 65535u) { snprintf(err, EPA_MAX_ERR, "too many .SSTR/.CONST_STR entries"); goto fail; }
     if (!out_u16_le(&str_payload, (uint16_t)ssv.n)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
-
     for (size_t i = 0; i < ssv.n; i++) {
       if (!out_u32_le(&str_payload, ssv.v[i].id)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
       if (!out_u16_le(&str_payload, ssv.v[i].len)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
@@ -895,91 +868,83 @@ uint8_t *epa_asm_compile_file(const char *path, size_t *out_len, char err[EPA_MA
       memcpy(str_payload.buf + str_payload.len, ssv.v[i].bytes, ssv.v[i].len);
       str_payload.len += ssv.v[i].len;
     }
-
-    // Emit DATA_BLOCK opcode
     if (!out_u16_le(&o, EPA_OP_DATA_BLOCK)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
-
-    // chunk_count = 1 for now (STR only). When you add other const vecs,
-    // increment this and emit more chunks below.
     if (!out_u16_le(&o, 1)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
-
-    // Chunk header: kind, flags, payload_len
     if (!out_u16_le(&o, DB_STR)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     if (!out_u16_le(&o, 0)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     if (!out_u32_le(&o, (uint32_t)str_payload.len)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
-
-    // Chunk payload bytes
     if (!out_reserve(&o, str_payload.len)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     memcpy(o.buf + o.len, str_payload.buf, str_payload.len);
     o.len += str_payload.len;
-
-    // Optional 4-byte align padding
-    while (o.len & 3u) {
-      if (!out_u8(&o, 0)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
-    }
-
+    while (o.len & 3u) { if (!out_u8(&o, 0)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; } }
     free(str_payload.buf);
   }
 
-  // (B) Now assemble real instructions, skipping .SSTR lines
   line_no = 0;
   while (fgets(line, (int)sizeof(line), f)) {
     line_no++;
-
     strip_comment(line);
-
-    // If it's an .SSTR line, ignore it in pass 2
-    {
-      char tmp[1024];
-      strncpy(tmp, line, sizeof(tmp)-1);
-      tmp[sizeof(tmp)-1] = 0;
-      char *s = ltrim(tmp);
-      rtrim(s);
-      if (is_sstr_directive(s) || is_const_directive(s)) continue;
-    }
-
-    // Existing behavior
-    if (!emit_line(&ctx, &o, line_no, line, err)) {
-      goto fail;
-    }
+    { char tmp[1024]; strncpy(tmp, line, sizeof(tmp)-1); tmp[sizeof(tmp)-1] = 0;
+      char *s = ltrim(tmp); rtrim(s);
+      if (is_sstr_directive(s) || is_const_directive(s)) continue; }
+    if (!emit_line(&ctx, &o, line_no, line, err)) goto fail;
   }
-  fclose(f);
-  f = NULL;
 
-  // Patch fixups (unchanged)
   for (size_t i = 0; i < ctx.nfix; i++) {
     Fixup *F = &ctx.fixups[i];
     size_t label_pc = 0;
-
     if (!ctx_find_label(&ctx, F->name, &label_pc)) {
       snprintf(err, EPA_MAX_ERR, "line %d: unknown label '%s'", F->line_no, F->name);
       goto fail;
     }
-
     int64_t rel64 = (int64_t)label_pc - (int64_t)F->next_pc;
     if (rel64 < (int64_t)INT32_MIN || rel64 > (int64_t)INT32_MAX) {
       snprintf(err, EPA_MAX_ERR, "line %d: jump to '%s' out of rel32 range", F->line_no, F->name);
       goto fail;
     }
-
     int32_t r32 = (int32_t)rel64;
     size_t off = F->imm_off;
-    o.buf[off + 0] = (uint8_t)(r32 & 0xFF);
-    o.buf[off + 1] = (uint8_t)((r32 >> 8) & 0xFF);
-    o.buf[off + 2] = (uint8_t)((r32 >> 16) & 0xFF);
-    o.buf[off + 3] = (uint8_t)((r32 >> 24) & 0xFF);
+    o.buf[off+0] = (uint8_t)(r32 & 0xFF);
+    o.buf[off+1] = (uint8_t)((r32 >>  8) & 0xFF);
+    o.buf[off+2] = (uint8_t)((r32 >> 16) & 0xFF);
+    o.buf[off+3] = (uint8_t)((r32 >> 24) & 0xFF);
   }
 
   ctx_free(&ctx);
   sstrvec_free(&ssv);
-
   if (out_len) *out_len = o.len;
   return o.buf;
 
 fail:
-  if (f) fclose(f);
   free(o.buf);
   ctx_free(&ctx);
   sstrvec_free(&ssv);
   return NULL;
+}
+
+uint8_t *epa_asm_compile_src(const char *src, size_t *out_len, char err[EPA_MAX_ERR]) {
+  if (err) err[0] = 0;
+  if (out_len) *out_len = 0;
+  if (!src) { if (err) snprintf(err, EPA_MAX_ERR, "compile_src: null src"); return NULL; }
+  size_t slen = strlen(src);
+  char *buf = (char *)malloc(slen + 1u);
+  if (!buf) { if (err) snprintf(err, EPA_MAX_ERR, "compile_src: OOM"); return NULL; }
+  memcpy(buf, src, slen + 1u);
+  FILE *f = fmemopen(buf, slen + 1u, "r");
+  if (!f) { free(buf); if (err) snprintf(err, EPA_MAX_ERR, "compile_src: fmemopen failed"); return NULL; }
+  uint8_t *result = compile_from_fp(f, out_len, err);
+  fclose(f);
+  free(buf);
+  return result;
+}
+
+uint8_t *epa_asm_compile_file(const char *path, size_t *out_len, char err[EPA_MAX_ERR]) {
+  if (err) err[0] = 0;
+  if (out_len) *out_len = 0;
+
+  FILE *f = fopen(path, "rb");
+  if (!f) { snprintf(err, EPA_MAX_ERR, "cannot open %s", path); return NULL; }
+  uint8_t *result = compile_from_fp(f, out_len, err);
+  fclose(f);
+  return result;
 }

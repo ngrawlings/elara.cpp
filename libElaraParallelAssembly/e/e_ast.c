@@ -107,6 +107,21 @@ static void free_stmt(EStmt *s) {
     case E_STMT_RAW_EPA:
       free(s->as.raw_epa.text);
       break;
+    case E_STMT_FOREACH:
+      free_stmt(s->as.foreach_stmt.var_decl);
+      free(s->as.foreach_stmt.iter_name);
+      free_stmt(s->as.foreach_stmt.body);
+      break;
+    case E_STMT_DYNAMIC:
+      free(s->as.dynamic_decl.name);
+      free(s->as.dynamic_decl.element_type.name);
+      break;
+    case E_STMT_STATIC_BLOCK: {
+      size_t i;
+      for (i = 0; i < s->as.static_block.count; i++) free_stmt(s->as.static_block.items[i]);
+      free(s->as.static_block.items);
+      break;
+    }
   }
   free(s);
 }
@@ -373,6 +388,29 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
       indent(out, depth);
       fputs("}\n", out);
       break;
+    case E_STMT_FOREACH:
+      indent(out, depth);
+      fprintf(out, "foreach(%s = dynamic_next(%s))\n",
+              s->as.foreach_stmt.var_decl ? s->as.foreach_stmt.var_decl->as.decl.name : "?",
+              s->as.foreach_stmt.iter_name ? s->as.foreach_stmt.iter_name : "?");
+      dump_stmt(out, s->as.foreach_stmt.body, depth + 1);
+      break;
+    case E_STMT_DYNAMIC:
+      indent(out, depth);
+      fprintf(out, "dynamic %s(%s, %u, %u, %u);\n",
+              s->as.dynamic_decl.name ? s->as.dynamic_decl.name : "?",
+              s->as.dynamic_decl.element_type.name ? s->as.dynamic_decl.element_type.name : "?",
+              s->as.dynamic_decl.min_free, s->as.dynamic_decl.max_free, s->as.dynamic_decl.grow_by);
+      break;
+    case E_STMT_STATIC_BLOCK: {
+      size_t i;
+      indent(out, depth);
+      fputs("static {\n", out);
+      for (i = 0; i < s->as.static_block.count; i++) dump_stmt(out, s->as.static_block.items[i], depth + 1);
+      indent(out, depth);
+      fputs("}\n", out);
+      break;
+    }
   }
 }
 
