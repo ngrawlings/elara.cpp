@@ -99,7 +99,53 @@ void ElaraLabelWidget::draw(ElaraDrawContext* ctx) {
     }
 
     ctx->setColor(c.text.r, c.text.g, c.text.b);
-    ctx->drawText(textX(), textY(), text, font_size);
+
+    if(text.indexOf("\n") < 0) {
+        ctx->drawText(textX(), textY(), text, font_size);
+        return;
+    }
+
+    double line_height = font_size * 1.4;
+
+    int num_lines = 1;
+    int scan = 0;
+    while((scan = text.indexOf("\n", scan)) >= 0) {
+        num_lines++;
+        scan++;
+    }
+
+    double y_start;
+    if(vertical_align == ELARA_LABEL_ALIGN_TOP) {
+        y_start = padding_y + font_size;
+    } else if(vertical_align == ELARA_LABEL_ALIGN_BOTTOM) {
+        y_start = height - padding_y - (num_lines - 1) * line_height;
+    } else {
+        double total_height = (double)num_lines * line_height;
+        y_start = (height - total_height) / 2.0 + font_size;
+    }
+
+    int start = 0;
+    double y = y_start;
+    while(true) {
+        int nl = text.indexOf("\n", start);
+        String line = (nl < 0) ? text.substr(start) : text.substr(start, nl - start);
+
+        double lw = (double)line.length() * font_size * 0.58;
+        double lx;
+        if(horizontal_align == ELARA_LABEL_ALIGN_CENTER) {
+            lx = (width - lw) / 2.0;
+        } else if(horizontal_align == ELARA_LABEL_ALIGN_RIGHT) {
+            lx = width - lw - padding_x;
+        } else {
+            lx = padding_x;
+        }
+
+        ctx->drawText(lx, y, line, font_size);
+
+        if(nl < 0) break;
+        start = nl + 1;
+        y += line_height;
+    }
 }
 
 }

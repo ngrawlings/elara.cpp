@@ -151,7 +151,33 @@ public:
         ctx->setColor(c.base.r, c.base.g, c.base.b);
         ctx->fillRect(0, 0, width, height);
         ctx->setColor(c.text.r, c.text.g, c.text.b);
-        ctx->drawText(12, (height / 2) + (getFontSize() / 2) - 2, getText(), getFontSize());
+
+        String t = getText();
+        double fs = getFontSize();
+
+        if(t.indexOf("\n") < 0) {
+            ctx->drawText(12, (height / 2) + (fs / 2) - 2, t, fs);
+            return;
+        }
+
+        double line_height = fs * 1.4;
+        int num_lines = 1;
+        int scan = 0;
+        while((scan = t.indexOf("\n", scan)) >= 0) {
+            num_lines++;
+            scan++;
+        }
+        double total_height = (double)num_lines * line_height;
+        double y = (height - total_height) / 2.0 + fs;
+        int start = 0;
+        while(true) {
+            int nl = t.indexOf("\n", start);
+            String line = (nl < 0) ? t.substr(start) : t.substr(start, nl - start);
+            ctx->drawText(12, y, line, fs);
+            if(nl < 0) break;
+            start = nl + 1;
+            y += line_height;
+        }
     }
 };
 

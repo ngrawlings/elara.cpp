@@ -17,6 +17,18 @@ from elara_ui.repl_client import ElaraUiRepl
 
 from ai_rpc import AiRpcServer, IdeBindings
 
+# Elara Versioning — add versioning directory to path and import.
+try:
+    _ev_dir = Path(__file__).resolve().parent / "elara_versioning"
+    if str(_ev_dir) not in sys.path:
+        sys.path.insert(0, str(_ev_dir))
+    from elara_versioning.evmanager_core import ProjectRepo, PROJECT_DIR_NAME as EV_PROJECT_DIR
+    _EV_AVAILABLE = True
+except Exception:
+    _EV_AVAILABLE = False
+    ProjectRepo = None
+    EV_PROJECT_DIR = ".project"
+
 
 INITIAL_E_TABS = []
 
@@ -305,6 +317,7 @@ def build_document():
         ]}
     ])
     ui.create_tree_view("nav.tree")
+    ui.set_property_bool("nav.tree", "visible", False)
     ui.set_property_number("nav.tree", "font_size", 14)
     ui.set_section_json("nav.tree", "nodes", [
         {
@@ -410,6 +423,7 @@ def build_document():
     ui.place_grid_child("editor.welcome", "editor.welcome.message", 0, 1)
 
     ui.create_tabs("editor.tabs")
+    ui.set_property_bool("editor.tabs", "visible", False)
     for tab_id, title, source_text in INITIAL_E_TABS:
         _create_e_tab(ui, tab_id, title, source_text)
 
@@ -500,6 +514,7 @@ def build_document():
     ui.add_toolbar_item("app.toolbar", "toolbar.files", "Files")
     ui.add_toolbar_item("app.toolbar", "toolbar.search", "Search")
     ui.add_toolbar_item("app.toolbar", "toolbar.repo", "Repo")
+    ui.add_toolbar_item("app.toolbar", "toolbar.issues", "Issues")
     ui.add_toolbar_separator("app.toolbar")
     ui.add_toolbar_item("app.toolbar", "toolbar.debug", "Debug")
     ui.create_grid("nav.no_project")
@@ -529,9 +544,425 @@ def build_document():
     ui.place_grid_child("nav.panel", "nav.no_project", 0, 1)
     ui.place_grid_child("nav.panel", "nav.tree", 0, 1)
 
+    # ── Search panel ──────────────────────────────────────────────────────
+    ui.create_grid("nav.search_panel")
+    ui.add_grid_column_fill("nav.search_panel")
+    ui.add_grid_row_exact("nav.search_panel", 28)   # header
+    ui.add_grid_row_exact("nav.search_panel", 34)   # search input
+    ui.add_grid_row_fill("nav.search_panel")        # results
+
+    ui.create_grid("nav.search_header")
+    ui.add_grid_column_exact("nav.search_header", 8)
+    ui.add_grid_column_fill("nav.search_header")
+    ui.add_grid_row_fill("nav.search_header")
+    ui.create_label("nav.search_title", "SEARCH", 11)
+    ui.place_grid_child("nav.search_header", "nav.search_title", 1, 0)
+
+    ui.create_grid("nav.search_input_row")
+    ui.add_grid_column_exact("nav.search_input_row", 6)
+    ui.add_grid_column_fill("nav.search_input_row")
+    ui.add_grid_column_exact("nav.search_input_row", 6)
+    ui.add_grid_row_fill("nav.search_input_row")
+    ui.create_text_input("nav.search.input", "")
+    ui.set_property_string("nav.search.input", "placeholder", "Search files…")
+    ui.set_property_number("nav.search.input", "font_size", 13)
+    ui.place_grid_child("nav.search_input_row", "nav.search.input", 1, 0)
+
+    ui.create_list_view("nav.search.results")
+    ui.set_property_number("nav.search.results", "font_size", 12)
+    ui.set_section_json("nav.search.results", "items", [])
+
+    ui.place_grid_child("nav.search_panel", "nav.search_header",    0, 0)
+    ui.place_grid_child("nav.search_panel", "nav.search_input_row", 0, 1)
+    ui.place_grid_child("nav.search_panel", "nav.search.results",   0, 2)
+    ui.set_property_bool("nav.search_panel", "visible", False)
+
+    # ── Versioning panel (Git + EV tabs) ─────────────────────────────────
+    # -- Git tab content --
+    ui.create_grid("nav.git_panel")
+    ui.add_grid_column_fill("nav.git_panel")
+    ui.add_grid_row_exact("nav.git_panel", 24)    # status summary
+    ui.add_grid_row_fill("nav.git_panel")         # changed files list
+    ui.add_grid_row_exact("nav.git_panel", 60)    # commit message
+    ui.add_grid_row_exact("nav.git_panel", 34)    # buttons row
+
+    ui.create_grid("nav.git_status_row")
+    ui.add_grid_column_exact("nav.git_status_row", 6)
+    ui.add_grid_column_fill("nav.git_status_row")
+    ui.add_grid_column_exact("nav.git_status_row", 28)
+    ui.add_grid_row_fill("nav.git_status_row")
+    ui.create_label("nav.repo.status", "No changes", 11)
+    ui.set_property_bool("nav.repo.status", "enabled", False)
+    ui.create_button("nav.repo.refresh", "↺", "repo.refresh")
+    ui.place_grid_child("nav.git_status_row", "nav.repo.status",  1, 0)
+    ui.place_grid_child("nav.git_status_row", "nav.repo.refresh", 2, 0)
+
+    ui.create_list_view("nav.repo.changes")
+    ui.set_property_number("nav.repo.changes", "font_size", 12)
+    ui.set_section_json("nav.repo.changes", "items", [])
+
+    ui.create_text_input("nav.repo.commit_msg", "")
+    ui.set_property_string("nav.repo.commit_msg", "placeholder", "Commit message…")
+    ui.set_property_number("nav.repo.commit_msg", "font_size", 12)
+
+    ui.create_grid("nav.repo_buttons")
+    ui.add_grid_column_exact("nav.repo_buttons", 6)
+    ui.add_grid_column_weighted_fill("nav.repo_buttons", 1)
+    ui.add_grid_column_exact("nav.repo_buttons", 6)
+    ui.add_grid_column_weighted_fill("nav.repo_buttons", 1)
+    ui.add_grid_column_exact("nav.repo_buttons", 6)
+    ui.add_grid_row_fill("nav.repo_buttons")
+    ui.create_button("nav.repo.stage_all", "Stage All", "repo.stage_all")
+    ui.create_button("nav.repo.commit",    "Commit",    "repo.commit")
+    ui.set_property_number("nav.repo.stage_all", "font_size", 12)
+    ui.set_property_number("nav.repo.commit",    "font_size", 12)
+    ui.place_grid_child("nav.repo_buttons", "nav.repo.stage_all", 1, 0)
+    ui.place_grid_child("nav.repo_buttons", "nav.repo.commit",    3, 0)
+
+    ui.place_grid_child("nav.git_panel", "nav.git_status_row",  0, 0)
+    ui.place_grid_child("nav.git_panel", "nav.repo.changes",    0, 1)
+    ui.place_grid_child("nav.git_panel", "nav.repo.commit_msg", 0, 2)
+    ui.place_grid_child("nav.git_panel", "nav.repo_buttons",    0, 3)
+
+    # -- Elara Versioning tab content --
+    # ── EV repo content (shown when repo exists) ─────────────────────────
+    ui.create_grid("nav.ev_repo_content")
+    ui.add_grid_column_fill("nav.ev_repo_content")
+    ui.add_grid_row_exact("nav.ev_repo_content", 28)    # branch row
+    ui.add_grid_row_exact("nav.ev_repo_content", 24)    # status summary
+    ui.add_grid_row_fill("nav.ev_repo_content")          # changed files list
+    ui.add_grid_row_exact("nav.ev_repo_content", 60)    # commit message
+    ui.add_grid_row_exact("nav.ev_repo_content", 34)    # buttons row
+
+    ui.create_grid("nav.ev_branch_row")
+    ui.add_grid_column_exact("nav.ev_branch_row", 6)
+    ui.add_grid_column_fill("nav.ev_branch_row")
+    ui.add_grid_column_exact("nav.ev_branch_row", 50)
+    ui.add_grid_column_exact("nav.ev_branch_row", 4)
+    ui.add_grid_row_fill("nav.ev_branch_row")
+    ui.create_label("nav.ev.branch_label", "No repo", 11)
+    ui.set_property_bool("nav.ev.branch_label", "enabled", False)
+    ui.create_button("nav.ev.refresh", "↺", "ev.refresh")
+    ui.place_grid_child("nav.ev_branch_row", "nav.ev.branch_label", 1, 0)
+    ui.place_grid_child("nav.ev_branch_row", "nav.ev.refresh",      2, 0)
+
+    ui.create_label("nav.ev.status", "", 11)
+    ui.set_property_bool("nav.ev.status", "enabled", False)
+
+    ui.create_list_view("nav.ev.changes")
+    ui.set_property_number("nav.ev.changes", "font_size", 12)
+    ui.set_section_json("nav.ev.changes", "items", [])
+
+    ui.create_text_input("nav.ev.commit_msg", "")
+    ui.set_property_string("nav.ev.commit_msg", "placeholder", "Commit message…")
+    ui.set_property_number("nav.ev.commit_msg", "font_size", 12)
+
+    ui.create_grid("nav.ev_buttons")
+    ui.add_grid_column_exact("nav.ev_buttons", 4)
+    ui.add_grid_column_weighted_fill("nav.ev_buttons", 1)
+    ui.add_grid_column_exact("nav.ev_buttons", 4)
+    ui.add_grid_column_weighted_fill("nav.ev_buttons", 1)
+    ui.add_grid_column_exact("nav.ev_buttons", 4)
+    ui.add_grid_column_weighted_fill("nav.ev_buttons", 1)
+    ui.add_grid_column_exact("nav.ev_buttons", 4)
+    ui.add_grid_row_fill("nav.ev_buttons")
+    ui.create_button("nav.ev.commit", "Commit", "ev.commit")
+    ui.create_button("nav.ev.push",   "Push",   "ev.push")
+    ui.create_button("nav.ev.pull",   "Pull",   "ev.pull")
+    ui.set_property_number("nav.ev.commit", "font_size", 11)
+    ui.set_property_number("nav.ev.push",   "font_size", 11)
+    ui.set_property_number("nav.ev.pull",   "font_size", 11)
+    ui.place_grid_child("nav.ev_buttons", "nav.ev.commit", 1, 0)
+    ui.place_grid_child("nav.ev_buttons", "nav.ev.push",   3, 0)
+    ui.place_grid_child("nav.ev_buttons", "nav.ev.pull",   5, 0)
+
+    ui.place_grid_child("nav.ev_repo_content", "nav.ev_branch_row", 0, 0)
+    ui.place_grid_child("nav.ev_repo_content", "nav.ev.status",     0, 1)
+    ui.place_grid_child("nav.ev_repo_content", "nav.ev.changes",    0, 2)
+    ui.place_grid_child("nav.ev_repo_content", "nav.ev.commit_msg", 0, 3)
+    ui.place_grid_child("nav.ev_repo_content", "nav.ev_buttons",    0, 4)
+
+    # ── EV tab setup form (shown when no repo exists) ─────────────────────
+    ui.create_grid("nav.ev_tab_setup_form")
+    ui.add_grid_column_exact("nav.ev_tab_setup_form", 10)
+    ui.add_grid_column_fill("nav.ev_tab_setup_form")
+    ui.add_grid_column_exact("nav.ev_tab_setup_form", 10)
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 13)   # Project name label
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 26)   # Project name input
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 13)   # Sync server label
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 26)   # Sync server input
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 13)   # Remote root label
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 26)   # Remote root input
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 13)   # Branch label
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 26)   # Branch input
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 12)   # spacer
+    ui.add_grid_row_exact("nav.ev_tab_setup_form", 90)   # about note
+
+    _EV_ABOUT_NOTE = (
+        "Version control for high-security networks.\n"
+        "Designed for environments where only text-\n"
+        "based connections are permitted — air-gapped\n"
+        "labs, classified networks, and sites where\n"
+        "standard internet access is not available.\n"
+        "Simple by design. Ultra security friendly."
+    )
+
+    ui.create_label("nav.ev_tab_setup.lbl_name",   "Project name", 11)
+    ui.create_label("nav.ev_tab_setup.lbl_server", "Sync server",  11)
+    ui.create_label("nav.ev_tab_setup.lbl_root",   "Remote root",  11)
+    ui.create_label("nav.ev_tab_setup.lbl_branch", "Branch",       11)
+    ui.create_label("nav.ev_tab_setup.note", _EV_ABOUT_NOTE, 10)
+    ui.set_property_bool("nav.ev_tab_setup.note", "enabled", False)
+
+    ui.create_text_input("nav.ev_tab_setup.name",        "")
+    ui.create_text_input("nav.ev_tab_setup.server",      "")
+    ui.create_text_input("nav.ev_tab_setup.remote_root", "")
+    ui.create_text_input("nav.ev_tab_setup.branch",      "main")
+
+    ui.set_property_string("nav.ev_tab_setup.name",        "placeholder", "My Project")
+    ui.set_property_string("nav.ev_tab_setup.server",      "placeholder", "https://sync-server.example.com")
+    ui.set_property_string("nav.ev_tab_setup.remote_root", "placeholder", "/projects/myproject")
+    ui.set_property_string("nav.ev_tab_setup.branch",      "placeholder", "main")
+
+    ui.set_property_number("nav.ev_tab_setup.name",        "font_size", 12)
+    ui.set_property_number("nav.ev_tab_setup.server",      "font_size", 12)
+    ui.set_property_number("nav.ev_tab_setup.remote_root", "font_size", 12)
+    ui.set_property_number("nav.ev_tab_setup.branch",      "font_size", 12)
+
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.lbl_name",    1, 0)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.name",         1, 1)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.lbl_server",  1, 3)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.server",       1, 4)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.lbl_root",    1, 6)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.remote_root",  1, 7)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.lbl_branch",  1, 9)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.branch",       1, 10)
+    ui.place_grid_child("nav.ev_tab_setup_form", "nav.ev_tab_setup.note",         1, 12)
+
+    ui.create_grid("nav.ev_tab_setup_panel")
+    ui.add_grid_column_fill("nav.ev_tab_setup_panel")
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 14)   # top padding
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 30)   # description label
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 10)   # spacer
+    ui.add_grid_row_fill("nav.ev_tab_setup_panel")         # form
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 10)   # spacer
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 28)   # init button
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 22)   # error label
+    ui.add_grid_row_exact("nav.ev_tab_setup_panel", 10)   # bottom padding
+
+    ui.create_label("nav.ev_tab_setup.desc",     "Initialize Elara Versioning\nfor this project.", 11)
+    ui.create_button("nav.ev_tab_setup.init_btn", "Initialize Repo", "ev.tab.setup.init")
+    ui.set_property_number("nav.ev_tab_setup.init_btn", "font_size", 12)
+    ui.create_label("nav.ev_tab_setup.error", "", 11)
+
+    ui.place_grid_child("nav.ev_tab_setup_panel", "nav.ev_tab_setup.desc",     0, 1)
+    ui.place_grid_child("nav.ev_tab_setup_panel", "nav.ev_tab_setup_form",     0, 3)
+    ui.place_grid_child("nav.ev_tab_setup_panel", "nav.ev_tab_setup.init_btn", 0, 5)
+    ui.place_grid_child("nav.ev_tab_setup_panel", "nav.ev_tab_setup.error",    0, 6)
+
+    # ── EV panel (stacks repo content and setup form) ─────────────────────
+    ui.create_grid("nav.ev_panel")
+    ui.add_grid_column_fill("nav.ev_panel")
+    ui.add_grid_row_fill("nav.ev_panel")
+    ui.place_grid_child("nav.ev_panel", "nav.ev_repo_content",    0, 0)
+    ui.place_grid_child("nav.ev_panel", "nav.ev_tab_setup_panel", 0, 0)
+
+    # -- Tabs wrapper --
+    ui.create_tabs("nav.repo_panel")
+    ui.add_tab("nav.repo_panel", "Git", "nav.git_panel")
+    ui.add_tab("nav.repo_panel", "EV",  "nav.ev_panel")
+    ui.set_property_bool("nav.repo_panel", "visible", False)
+
+    # ── Issues panel ─────────────────────────────────────────────────────
+    ui.create_grid("nav.issues_panel")
+    ui.add_grid_column_fill("nav.issues_panel")
+    ui.add_grid_row_exact("nav.issues_panel", 28)    # header
+    ui.add_grid_row_fill("nav.issues_panel")         # content area (stacked)
+
+    ui.create_grid("nav.issues_header")
+    ui.add_grid_column_exact("nav.issues_header", 8)
+    ui.add_grid_column_fill("nav.issues_header")
+    ui.add_grid_column_exact("nav.issues_header", 28)
+    ui.add_grid_row_fill("nav.issues_header")
+    ui.create_label("nav.issues_title", "ISSUES", 11)
+    ui.create_button("nav.issues.refresh", "↺", "issues.refresh")
+    ui.place_grid_child("nav.issues_header", "nav.issues_title",   1, 0)
+    ui.place_grid_child("nav.issues_header", "nav.issues.refresh", 2, 0)
+
+    # ── Bug list content ──────────────────────────────────────────────────
+    ui.create_grid("nav.ev_issues_content")
+    ui.add_grid_column_fill("nav.ev_issues_content")
+    ui.add_grid_row_exact("nav.ev_issues_content", 26)   # filter row
+    ui.add_grid_row_exact("nav.ev_issues_content", 34)   # input row
+    ui.add_grid_row_fill("nav.ev_issues_content")         # list
+    ui.add_grid_row_exact("nav.ev_issues_content", 34)   # action buttons
+
+    ui.create_grid("nav.issues_filter_row")
+    ui.add_grid_column_exact("nav.issues_filter_row", 6)
+    ui.add_grid_column_weighted_fill("nav.issues_filter_row", 1)
+    ui.add_grid_column_exact("nav.issues_filter_row", 4)
+    ui.add_grid_column_weighted_fill("nav.issues_filter_row", 1)
+    ui.add_grid_column_exact("nav.issues_filter_row", 4)
+    ui.add_grid_column_weighted_fill("nav.issues_filter_row", 1)
+    ui.add_grid_column_exact("nav.issues_filter_row", 6)
+    ui.add_grid_row_fill("nav.issues_filter_row")
+    ui.create_button("nav.issues.filter_all",    "All",    "issues.filter.all")
+    ui.create_button("nav.issues.filter_open",   "Open",   "issues.filter.open")
+    ui.create_button("nav.issues.filter_closed", "Closed", "issues.filter.closed")
+    ui.set_property_number("nav.issues.filter_all",    "font_size", 11)
+    ui.set_property_number("nav.issues.filter_open",   "font_size", 11)
+    ui.set_property_number("nav.issues.filter_closed", "font_size", 11)
+    ui.place_grid_child("nav.issues_filter_row", "nav.issues.filter_all",    1, 0)
+    ui.place_grid_child("nav.issues_filter_row", "nav.issues.filter_open",   3, 0)
+    ui.place_grid_child("nav.issues_filter_row", "nav.issues.filter_closed", 5, 0)
+
+    ui.create_grid("nav.issues_input_row")
+    ui.add_grid_column_exact("nav.issues_input_row", 6)
+    ui.add_grid_column_fill("nav.issues_input_row")
+    ui.add_grid_column_exact("nav.issues_input_row", 34)
+    ui.add_grid_column_exact("nav.issues_input_row", 6)
+    ui.add_grid_row_fill("nav.issues_input_row")
+    ui.create_text_input("nav.issues.new_title", "")
+    ui.set_property_string("nav.issues.new_title", "placeholder", "New bug title…")
+    ui.set_property_number("nav.issues.new_title", "font_size", 13)
+    ui.create_button("nav.issues.add", "+", "issues.add")
+    ui.set_property_number("nav.issues.add", "font_size", 13)
+    ui.place_grid_child("nav.issues_input_row", "nav.issues.new_title", 1, 0)
+    ui.place_grid_child("nav.issues_input_row", "nav.issues.add",       2, 0)
+
+    ui.create_list_view("nav.issues.list")
+    ui.set_property_number("nav.issues.list", "font_size", 12)
+    ui.set_section_json("nav.issues.list", "items", [])
+
+    ui.create_grid("nav.issues_buttons")
+    ui.add_grid_column_exact("nav.issues_buttons", 6)
+    ui.add_grid_column_weighted_fill("nav.issues_buttons", 1)
+    ui.add_grid_column_exact("nav.issues_buttons", 6)
+    ui.add_grid_column_weighted_fill("nav.issues_buttons", 1)
+    ui.add_grid_column_exact("nav.issues_buttons", 6)
+    ui.add_grid_row_fill("nav.issues_buttons")
+    ui.create_button("nav.issues.close_btn", "Close Bug",  "issues.close")
+    ui.create_button("nav.issues.reopen_btn", "Reopen",    "issues.reopen")
+    ui.set_property_number("nav.issues.close_btn",  "font_size", 12)
+    ui.set_property_number("nav.issues.reopen_btn", "font_size", 12)
+    ui.place_grid_child("nav.issues_buttons", "nav.issues.close_btn",  1, 0)
+    ui.place_grid_child("nav.issues_buttons", "nav.issues.reopen_btn", 3, 0)
+
+    ui.place_grid_child("nav.ev_issues_content", "nav.issues_filter_row", 0, 0)
+    ui.place_grid_child("nav.ev_issues_content", "nav.issues_input_row",  0, 1)
+    ui.place_grid_child("nav.ev_issues_content", "nav.issues.list",       0, 2)
+    ui.place_grid_child("nav.ev_issues_content", "nav.issues_buttons",    0, 3)
+
+    # ── EV setup form (shown when no repo exists) ─────────────────────────
+    ui.create_grid("nav.ev_setup_form")
+    ui.add_grid_column_exact("nav.ev_setup_form", 10)
+    ui.add_grid_column_fill("nav.ev_setup_form")
+    ui.add_grid_column_exact("nav.ev_setup_form", 10)
+    ui.add_grid_row_exact("nav.ev_setup_form", 13)   # Project name label
+    ui.add_grid_row_exact("nav.ev_setup_form", 26)   # Project name input
+    ui.add_grid_row_exact("nav.ev_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_setup_form", 13)   # Sync server label
+    ui.add_grid_row_exact("nav.ev_setup_form", 26)   # Sync server input
+    ui.add_grid_row_exact("nav.ev_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_setup_form", 13)   # Remote root label
+    ui.add_grid_row_exact("nav.ev_setup_form", 26)   # Remote root input
+    ui.add_grid_row_exact("nav.ev_setup_form", 8)    # spacer
+    ui.add_grid_row_exact("nav.ev_setup_form", 13)   # Branch label
+    ui.add_grid_row_exact("nav.ev_setup_form", 26)   # Branch input
+    ui.add_grid_row_exact("nav.ev_setup_form", 12)   # spacer
+    ui.add_grid_row_exact("nav.ev_setup_form", 90)   # about note
+
+    ui.create_label("nav.ev_setup.lbl_name",   "Project name", 11)
+    ui.create_label("nav.ev_setup.lbl_server", "Sync server",  11)
+    ui.create_label("nav.ev_setup.lbl_root",   "Remote root",  11)
+    ui.create_label("nav.ev_setup.lbl_branch", "Branch",       11)
+    ui.create_label("nav.ev_setup.note", _EV_ABOUT_NOTE, 10)
+    ui.set_property_bool("nav.ev_setup.note", "enabled", False)
+
+    ui.create_text_input("nav.ev_setup.name",        "")
+    ui.create_text_input("nav.ev_setup.server",      "")
+    ui.create_text_input("nav.ev_setup.remote_root", "")
+    ui.create_text_input("nav.ev_setup.branch",      "main")
+
+    ui.set_property_string("nav.ev_setup.name",        "placeholder", "My Project")
+    ui.set_property_string("nav.ev_setup.server",      "placeholder", "https://sync-server.example.com")
+    ui.set_property_string("nav.ev_setup.remote_root", "placeholder", "/projects/myproject")
+    ui.set_property_string("nav.ev_setup.branch",      "placeholder", "main")
+
+    ui.set_property_number("nav.ev_setup.name",        "font_size", 12)
+    ui.set_property_number("nav.ev_setup.server",      "font_size", 12)
+    ui.set_property_number("nav.ev_setup.remote_root", "font_size", 12)
+    ui.set_property_number("nav.ev_setup.branch",      "font_size", 12)
+
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.lbl_name",    1, 0)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.name",         1, 1)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.lbl_server",  1, 3)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.server",       1, 4)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.lbl_root",    1, 6)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.remote_root",  1, 7)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.lbl_branch",  1, 9)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.branch",       1, 10)
+    ui.place_grid_child("nav.ev_setup_form", "nav.ev_setup.note",         1, 12)
+
+    ui.create_grid("nav.ev_setup_panel")
+    ui.add_grid_column_fill("nav.ev_setup_panel")
+    ui.add_grid_row_exact("nav.ev_setup_panel", 14)   # top padding
+    ui.add_grid_row_exact("nav.ev_setup_panel", 30)   # description label
+    ui.add_grid_row_exact("nav.ev_setup_panel", 10)   # spacer
+    ui.add_grid_row_fill("nav.ev_setup_panel")         # form
+    ui.add_grid_row_exact("nav.ev_setup_panel", 10)   # spacer
+    ui.add_grid_row_exact("nav.ev_setup_panel", 28)   # init button
+    ui.add_grid_row_exact("nav.ev_setup_panel", 22)   # error label
+    ui.add_grid_row_exact("nav.ev_setup_panel", 10)   # bottom padding
+
+    ui.create_label("nav.ev_setup.desc",     "Initialize Elara Versioning\nfor this project.", 11)
+    ui.create_button("nav.ev_setup.init_btn", "Initialize Repo", "ev.setup.init")
+    ui.set_property_number("nav.ev_setup.init_btn", "font_size", 12)
+    ui.create_label("nav.ev_setup.error", "", 11)
+
+    ui.place_grid_child("nav.ev_setup_panel", "nav.ev_setup.desc",     0, 1)
+    ui.place_grid_child("nav.ev_setup_panel", "nav.ev_setup_form",     0, 3)
+    ui.place_grid_child("nav.ev_setup_panel", "nav.ev_setup.init_btn", 0, 5)
+    ui.place_grid_child("nav.ev_setup_panel", "nav.ev_setup.error",    0, 6)
+
+    ui.place_grid_child("nav.issues_panel", "nav.issues_header",     0, 0)
+    ui.place_grid_child("nav.issues_panel", "nav.ev_issues_content", 0, 1)
+    ui.place_grid_child("nav.issues_panel", "nav.ev_setup_panel",    0, 1)
+    ui.set_property_bool("nav.issues_panel", "visible", False)
+
+    # ── Debug placeholder panel ───────────────────────────────────────────
+    ui.create_grid("nav.debug_panel")
+    ui.add_grid_column_weighted_fill("nav.debug_panel", 1)
+    ui.add_grid_row_exact("nav.debug_panel", 28)   # header
+    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)
+    ui.add_grid_row_exact("nav.debug_panel", 80)   # placeholder text
+    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)
+
+    ui.create_grid("nav.debug_header")
+    ui.add_grid_column_exact("nav.debug_header", 8)
+    ui.add_grid_column_fill("nav.debug_header")
+    ui.add_grid_row_fill("nav.debug_header")
+    ui.create_label("nav.debug_title", "DEBUG", 11)
+    ui.place_grid_child("nav.debug_header", "nav.debug_title", 1, 0)
+
+    ui.create_label("nav.debug.placeholder",
+                    "Debug panel coming soon.", 12)
+    ui.set_property_bool("nav.debug.placeholder", "enabled", False)
+
+    ui.place_grid_child("nav.debug_panel", "nav.debug_header",      0, 0)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.placeholder", 0, 2)
+    ui.set_property_bool("nav.debug_panel", "visible", False)
+
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
     ui.place_grid_child("app.shell", "app.toolbar", 0, 1)
-    ui.place_grid_child("app.shell", "nav.panel", 1, 1)
+    ui.place_grid_child("app.shell", "nav.panel",          1, 1)
+    ui.place_grid_child("app.shell", "nav.search_panel",  1, 1)
+    ui.place_grid_child("app.shell", "nav.repo_panel",    1, 1)
+    ui.place_grid_child("app.shell", "nav.issues_panel",  1, 1)
+    ui.place_grid_child("app.shell", "nav.debug_panel",   1, 1)
     ui.place_grid_child("app.shell", "editor.welcome", 2, 1)
     ui.place_grid_child("app.shell", "editor.tabs", 2, 1)
     ui.place_grid_child("app.shell", "ai.panel", 3, 1)
@@ -1639,6 +2070,7 @@ def main():
     editor_state = {}
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
+    app_state["nav_view"] = "files"
     tab_list = []                # [{"tab_id", "path", "index", "preview"}]
     tab_click_state = {}         # double-click detection: {"path", "time"}
     ai_state = {
@@ -2505,6 +2937,203 @@ def main():
             pass
         _close_open_project_window(client)
 
+    _NAV_PANELS = {
+        "files":  "nav.panel",
+        "search": "nav.search_panel",
+        "repo":   "nav.repo_panel",
+        "issues": "nav.issues_panel",
+        "debug":  "nav.debug_panel",
+    }
+
+    def _switch_nav_view(client, view: str):
+        if view not in _NAV_PANELS:
+            return
+        app_state["nav_view"] = view
+        for v, panel in _NAV_PANELS.items():
+            try:
+                client.call("ui.setVisible", {"target": panel, "visible": v == view})
+            except Exception:
+                pass
+        if view == "repo":
+            _refresh_repo_panel(client)
+            _refresh_ev_panel(client)
+        elif view == "issues":
+            _refresh_issues_panel(client)
+
+    def _refresh_repo_panel(client):
+        project_root = app_state.get("project_root", "")
+        if not project_root:
+            try:
+                client.set_text("nav.repo.status", "No project open")
+                client.replace_list_items("nav.repo.changes", [])
+            except Exception:
+                pass
+            return
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["git", "-C", project_root, "status", "--porcelain"],
+                capture_output=True, text=True, timeout=5
+            )
+            lines = [l for l in result.stdout.splitlines() if l.strip()]
+        except Exception:
+            lines = []
+        items = []
+        for line in lines:
+            status = line[:2].strip()
+            path = line[3:].strip()
+            label = f"[{status}]  {path}"
+            items.append({"id": f"repo.file.{path}", "label": label})
+        summary = f"{len(items)} change{'s' if len(items) != 1 else ''}" if items else "No changes"
+        try:
+            client.set_text("nav.repo.status", summary)
+            client.replace_list_items("nav.repo.changes", items)
+        except Exception:
+            pass
+
+    ev_state = {"commit_msg": ""}
+
+    def _ev_repo() -> "ProjectRepo | None":
+        if not _EV_AVAILABLE:
+            return None
+        project_root = app_state.get("project_root", "")
+        if not project_root:
+            return None
+        repo_dir = Path(project_root) / EV_PROJECT_DIR
+        if not repo_dir.is_dir():
+            return None
+        try:
+            return ProjectRepo(Path(project_root))
+        except Exception:
+            return None
+
+    def _refresh_ev_panel(client):
+        repo = _ev_repo()
+        has_repo = repo is not None
+        try:
+            client.set_visible("nav.ev_repo_content",    has_repo)
+            client.set_visible("nav.ev_tab_setup_panel", not has_repo)
+        except Exception:
+            pass
+        if not has_repo:
+            try:
+                project_root = app_state.get("project_root", "")
+                if project_root and not ev_setup_state.get("name"):
+                    suggested = Path(project_root).name
+                    ev_setup_state["name"] = suggested
+                    client.set_text("nav.ev_tab_setup.name", suggested)
+                client.set_text("nav.ev_tab_setup.error", "")
+            except Exception:
+                pass
+            return
+        try:
+            branch = repo.current_branch()
+            status = repo.status()
+        except Exception as exc:
+            try:
+                client.set_text("nav.ev.branch_label", f"Error: {exc}")
+                client.set_text("nav.ev.status", "")
+                client.replace_list_items("nav.ev.changes", [])
+            except Exception:
+                pass
+            return
+        added    = status.get("added", [])
+        modified = status.get("modified", [])
+        deleted  = status.get("deleted", [])
+        total = len(added) + len(modified) + len(deleted)
+        summary = f"{total} change{'s' if total != 1 else ''}" if total else "No changes"
+        items = []
+        for p in added:
+            items.append({"id": f"ev.file.{p}", "label": f"A  {p}"})
+        for p in modified:
+            items.append({"id": f"ev.file.{p}", "label": f"M  {p}"})
+        for p in deleted:
+            items.append({"id": f"ev.file.{p}", "label": f"D  {p}"})
+        try:
+            client.set_text("nav.ev.branch_label", f"Branch: {branch}")
+            client.set_text("nav.ev.status", summary)
+            client.replace_list_items("nav.ev.changes", items)
+        except Exception:
+            pass
+
+    ev_bugs_state = {"selected_id": None, "filter": "all", "new_title": ""}
+    ev_setup_state = {"name": "", "server": "", "remote_root": "", "branch": "main"}
+
+    def _issues_list_items() -> list:
+        repo = _ev_repo()
+        if not repo:
+            return []
+        try:
+            bugs = repo.list_bugs()
+        except Exception:
+            return [{"id": "issues.error", "label": "Error loading bugs"}]
+        filt = ev_bugs_state.get("filter", "all")
+        items = []
+        for bug in bugs:
+            status = bug.get("status", "open")
+            if filt == "open" and status != "open":
+                continue
+            if filt == "closed" and status != "closed":
+                continue
+            icon = "✓" if status == "closed" else "●"
+            severity = bug.get("severity", "medium")
+            bug_id = bug.get("bug_id", "")
+            title = bug.get("title", "")
+            items.append({"id": f"issue.{bug_id}", "label": f"{icon}  {bug_id}  [{severity}]  {title}"})
+        if not items:
+            items.append({"id": "issues.empty", "label": f"No {filt if filt != 'all' else ''} bugs".strip()})
+        return items
+
+    def _refresh_issues_panel(client):
+        repo = _ev_repo()
+        has_repo = repo is not None
+        try:
+            client.set_visible("nav.ev_issues_content", has_repo)
+            client.set_visible("nav.ev_setup_panel",    not has_repo)
+            if has_repo:
+                client.replace_list_items("nav.issues.list", _issues_list_items())
+            else:
+                project_root = app_state.get("project_root", "")
+                if project_root and not ev_setup_state.get("name"):
+                    suggested = Path(project_root).name
+                    ev_setup_state["name"] = suggested
+                    client.set_text("nav.ev_setup.name", suggested)
+                client.set_text("nav.ev_setup.error", "")
+        except Exception:
+            pass
+
+    def _run_search(client, query: str):
+        project_root = app_state.get("project_root", "")
+        if not query.strip() or not project_root:
+            try:
+                client.replace_list_items("nav.search.results", [])
+            except Exception:
+                pass
+            return
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["grep", "-rn", "--include=*.e", "--include=*.cpp",
+                 "--include=*.h", "--include=*.py", "-m", "5",
+                 "-F", query, project_root],
+                capture_output=True, text=True, timeout=10
+            )
+            raw_lines = result.stdout.splitlines()[:200]
+        except Exception:
+            raw_lines = []
+        items = []
+        for raw in raw_lines:
+            parts = raw.split(":", 2)
+            if len(parts) >= 3:
+                file_path, lineno, text = parts[0], parts[1], parts[2].strip()
+                rel = file_path[len(project_root):].lstrip("/")
+                label = f"{rel}:{lineno}  {text[:60]}"
+                items.append({"id": f"search.result.{file_path}:{lineno}", "label": label})
+        try:
+            client.replace_list_items("nav.search.results", items)
+        except Exception:
+            pass
+
     def _tab_id_for_path(path: str) -> str:
         import hashlib
         return "tab." + hashlib.md5(path.encode()).hexdigest()[:8]
@@ -2800,6 +3429,283 @@ def main():
         ):
             key = "tech_" + target.rsplit(".", 1)[-1]
             wizard_state[key] = payload.get("value", 0) > 0.5
+
+        if action == "action" and target == "app.toolbar" and client is not None:
+            btn = payload.get("action", "")
+            view_map = {
+                "toolbar.files":  "files",
+                "toolbar.search": "search",
+                "toolbar.repo":   "repo",
+                "toolbar.issues": "issues",
+                "toolbar.debug":  "debug",
+            }
+            if btn in view_map:
+                c = client
+                v = view_map[btn]
+                _deferred(lambda: _switch_nav_view(c, v))
+                return {"received": True}
+
+        if action == "textChanged" and target == "nav.search.input" and client is not None:
+            query = payload.get("text", "")
+            c = client
+            _deferred(lambda q=query: _run_search(c, q))
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "repo.refresh" and client is not None:
+            c = client
+            _deferred(lambda: _refresh_repo_panel(c))
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "repo.stage_all" and client is not None:
+            project_root = app_state.get("project_root", "")
+            if project_root:
+                import subprocess
+                c = client
+                def _do_stage_all():
+                    try:
+                        subprocess.run(["git", "-C", project_root, "add", "-A"],
+                                       timeout=10, capture_output=True)
+                    except Exception:
+                        pass
+                    _refresh_repo_panel(c)
+                _deferred(_do_stage_all)
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "repo.commit" and client is not None:
+            project_root = app_state.get("project_root", "")
+            if project_root:
+                import subprocess
+                c = client
+                commit_msg = app_state.get("repo_commit_msg", "").strip()
+                def _do_commit(msg=commit_msg):
+                    if not msg:
+                        return
+                    try:
+                        subprocess.run(
+                            ["git", "-C", project_root, "commit", "-m", msg],
+                            timeout=15, capture_output=True
+                        )
+                        app_state["repo_commit_msg"] = ""
+                        try:
+                            c.set_text("nav.repo.commit_msg", "")
+                        except Exception:
+                            pass
+                    except Exception:
+                        pass
+                    _refresh_repo_panel(c)
+                _deferred(_do_commit)
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.repo.commit_msg":
+            app_state["repo_commit_msg"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev.commit_msg":
+            ev_state["commit_msg"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "ev.refresh" and client is not None:
+            c = client
+            _deferred(lambda: _refresh_ev_panel(c))
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "ev.commit" and client is not None:
+            msg = ev_state.get("commit_msg", "").strip()
+            c = client
+            def _do_ev_commit(m=msg):
+                repo = _ev_repo()
+                if not repo or not m:
+                    return
+                try:
+                    repo.commit(m)
+                    ev_state["commit_msg"] = ""
+                    try:
+                        c.set_text("nav.ev.commit_msg", "")
+                    except Exception:
+                        pass
+                except Exception as exc:
+                    print(f"[ev.commit] {exc}", flush=True)
+                _refresh_ev_panel(c)
+            _deferred(_do_ev_commit)
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "ev.push" and client is not None:
+            c = client
+            def _do_ev_push():
+                repo = _ev_repo()
+                if not repo:
+                    return
+                try:
+                    result = repo.push_current_tree()
+                    print(json.dumps({"ev.push": result}, indent=2), flush=True)
+                except Exception as exc:
+                    print(f"[ev.push] {exc}", flush=True)
+                _refresh_ev_panel(c)
+            _deferred(_do_ev_push)
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "ev.pull" and client is not None:
+            c = client
+            def _do_ev_pull():
+                repo = _ev_repo()
+                if not repo:
+                    return
+                try:
+                    result = repo.pull_current_tree()
+                    print(json.dumps({"ev.pull": result}, indent=2), flush=True)
+                except Exception as exc:
+                    print(f"[ev.pull] {exc}", flush=True)
+                _refresh_ev_panel(c)
+            _deferred(_do_ev_pull)
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "issues.refresh" and client is not None:
+            c = client
+            _deferred(lambda: _refresh_issues_panel(c))
+            return {"received": True}
+
+        if action == "action" and payload.get("action", "").startswith("issues.filter.") and client is not None:
+            filt = payload.get("action")[len("issues.filter."):]
+            ev_bugs_state["filter"] = filt
+            c = client
+            _deferred(lambda: c.replace_list_items("nav.issues.list", _issues_list_items()))
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "issues.add" and client is not None:
+            title = ev_bugs_state.get("new_title", "").strip()
+            if title:
+                repo = _ev_repo()
+                if repo:
+                    try:
+                        import getpass
+                        author = getpass.getuser()
+                    except Exception:
+                        author = "user"
+                    try:
+                        repo.create_bug(title, severity="medium", author=author)
+                    except Exception:
+                        pass
+                ev_bugs_state["new_title"] = ""
+                c = client
+                def _after_add():
+                    try:
+                        c.set_text("nav.issues.new_title", "")
+                        c.replace_list_items("nav.issues.list", _issues_list_items())
+                    except Exception:
+                        pass
+                _deferred(_after_add)
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.issues.new_title":
+            ev_bugs_state["new_title"] = payload.get("text", "")
+            return {"received": True}
+
+        if action in ("action", "clicked") and target == "nav.issues.list":
+            sel = payload.get("action") or payload.get("id", "")
+            if sel.startswith("issue."):
+                ev_bugs_state["selected_id"] = sel[len("issue."):]
+            return {"received": True}
+
+        if action == "action" and payload.get("action") in ("issues.close", "issues.reopen") and client is not None:
+            sel_id = ev_bugs_state.get("selected_id")
+            if sel_id and not sel_id.startswith("issues."):
+                repo = _ev_repo()
+                if repo:
+                    new_status = "closed" if payload.get("action") == "issues.close" else "open"
+                    try:
+                        repo.update_bug(sel_id, status=new_status)
+                    except Exception:
+                        pass
+                c = client
+                _deferred(lambda: c.replace_list_items("nav.issues.list", _issues_list_items()))
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_setup.name":
+            ev_setup_state["name"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_setup.server":
+            ev_setup_state["server"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_setup.remote_root":
+            ev_setup_state["remote_root"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_setup.branch":
+            ev_setup_state["branch"] = payload.get("text", "") or "main"
+            return {"received": True}
+
+        if action in ("action",) and payload.get("action") in ("ev.setup.init", "ev.tab.setup.init") and client is not None:
+            from_tab = payload.get("action") == "ev.tab.setup.init"
+            error_target = "nav.ev_tab_setup.error" if from_tab else "nav.ev_setup.error"
+            if from_tab:
+                name        = ev_setup_state.get("tab_name",        ev_setup_state.get("name", "")).strip()
+                server      = ev_setup_state.get("tab_server",      ev_setup_state.get("server", "")).strip()
+                remote_root = ev_setup_state.get("tab_remote_root", ev_setup_state.get("remote_root", "")).strip()
+                branch      = (ev_setup_state.get("tab_branch",     ev_setup_state.get("branch", "main")).strip() or "main")
+            else:
+                name        = ev_setup_state.get("name", "").strip()
+                server      = ev_setup_state.get("server", "").strip()
+                remote_root = ev_setup_state.get("remote_root", "").strip()
+                branch      = ev_setup_state.get("branch", "main").strip() or "main"
+            project_root = app_state.get("project_root", "")
+            c = client
+            if not project_root:
+                return {"received": True}
+            if not name:
+                _deferred(lambda: c.set_text(error_target, "Project name is required."))
+                return {"received": True}
+            if not _EV_AVAILABLE or ProjectRepo is None:
+                _deferred(lambda: c.set_text(error_target, "EV module not available."))
+                return {"received": True}
+            err_tgt = error_target
+            def _do_init():
+                try:
+                    ProjectRepo.init_project(
+                        Path(project_root),
+                        name=name,
+                        server=server,
+                        remote_root=remote_root or "/",
+                        branch=branch,
+                    )
+                    _refresh_issues_panel(c)
+                    _refresh_ev_panel(c)
+                except Exception as exc:
+                    try:
+                        c.set_text(err_tgt, str(exc)[:100])
+                    except Exception:
+                        pass
+            _deferred(_do_init)
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_tab_setup.name":
+            ev_setup_state["tab_name"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_tab_setup.server":
+            ev_setup_state["tab_server"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_tab_setup.remote_root":
+            ev_setup_state["tab_remote_root"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "nav.ev_tab_setup.branch":
+            ev_setup_state["tab_branch"] = payload.get("text", "") or "main"
+            return {"received": True}
+
+        if action in ("action", "clicked") and target == "nav.search.results" and client is not None:
+            result_id = payload.get("action") or payload.get("id", "")
+            if result_id.startswith("search.result."):
+                loc = result_id[len("search.result."):]
+                parts = loc.rsplit(":", 1)
+                file_path = parts[0]
+                if Path(file_path).is_file():
+                    c = client
+                    fp = file_path
+                    _deferred(lambda: _open_file_tab(c, fp, True))
+            return {"received": True}
 
         if action == "valueChanged" and target == "wizard.python.multi_cpu":
             wizard_state["python_multi_cpu"] = payload.get("value", 0) > 0.5
@@ -3619,8 +4525,12 @@ def main():
                 pass
             if not app_state.get("project_root"):
                 try:
-                    client.call("ui.setVisible", {"target": "nav.tree", "visible": False})
                     client.call("ui.setVisible", {"target": "app.toolbar", "visible": False})
+                    for panel in _NAV_PANELS.values():
+                        client.call("ui.setVisible", {"target": panel, "visible": False})
+                    client.call("ui.setVisible", {"target": "nav.panel", "visible": True})
+                    client.call("ui.setVisible", {"target": "nav.tree", "visible": False})
+                    client.call("ui.setVisible", {"target": "nav.no_project", "visible": True})
                 except Exception:
                     pass
             for tab_id in editor_state:
