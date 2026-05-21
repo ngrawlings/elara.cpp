@@ -1823,6 +1823,47 @@ def main():
         except Exception:
             return {}
 
+    def _history_dir() -> Path | None:
+        project_root = app_state.get("project_root", "")
+        if not project_root:
+            return None
+        d = Path(project_root) / ".elaraproject" / "history"
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            return None
+        return d
+
+    def _save_history(tab_id: str):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        d = _history_dir()
+        if not d:
+            return
+        data = {
+            "undo_stack": state.get("undo_stack", [])[-100:],
+            "redo_stack": state.get("redo_stack", [])[-100:],
+        }
+        try:
+            (d / f"{tab_id}.json").write_text(json.dumps(data), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _load_history(tab_id: str):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        d = _history_dir()
+        if not d:
+            return
+        try:
+            data = json.loads((d / f"{tab_id}.json").read_text(encoding="utf-8"))
+            state["undo_stack"] = data.get("undo_stack", [])
+            state["redo_stack"] = data.get("redo_stack", [])
+        except Exception:
+            pass
+
     def _project_e_compile_units(project_root: Path) -> list[Path]:
         epa_root = project_root / "epa"
         if not epa_root.is_dir():
@@ -2298,6 +2339,10 @@ def main():
                 "debug_ingress_type": "",
                 "debug_worker_name": "",
                 "debug_started": False,
+                "undo_stack": [],
+                "redo_stack": [],
+                "last_undo_time": 0.0,
+                "in_undo_redo": False,
             }
 
     def _wizard_navigate(client, path: str):
@@ -2530,7 +2575,12 @@ def main():
                 "debug_ingress_type": "",
                 "debug_worker_name": "",
                 "debug_started": False,
+                "undo_stack": [],
+                "redo_stack": [],
+                "last_undo_time": 0.0,
+                "in_undo_redo": False,
             }
+            _load_history(tab_id)
         else:
             tab_ui = UiDocumentBuilder()
             tab_ui.create_code_editor(tab_id + ".container", source_text)
@@ -2702,7 +2752,20 @@ def main():
             ids = _editor_ids(tab_id)
             if action == "textChanged" and target == ids["source"]:
                 app_state["active_editor_tab"] = tab_id
-                state["source_text"] = payload.get("text", "")
+                prev_text = state.get("source_text", "")
+                new_text = payload.get("text", "")
+                if state.get("in_undo_redo"):
+                    state["in_undo_redo"] = False
+                elif prev_text != new_text:
+                    now = time.time()
+                    last_time = state.get("last_undo_time", 0.0)
+                    if now - last_time > 2.0 or not state.get("undo_stack"):
+                        state.setdefault("undo_stack", []).append({"text": prev_text})
+                        if len(state["undo_stack"]) > 100:
+                            state["undo_stack"] = state["undo_stack"][-100:]
+                    state["redo_stack"] = []
+                    state["last_undo_time"] = now
+                state["source_text"] = new_text
                 state["compile_seq"] = int(state.get("compile_seq", 0)) + 1
                 if client is not None:
                     c = client
@@ -2955,6 +3018,7 @@ def main():
                     close_index = entry["index"]
                     tab_list.remove(entry)
                     if close_tab_id in editor_state:
+                        _save_history(close_tab_id)
                         del editor_state[close_tab_id]
                     for t in tab_list:
                         if t["index"] > close_index:
@@ -2969,6 +3033,39 @@ def main():
                         except Exception:
                             pass
                     _deferred(_do_close_tab)
+                return {"received": True}
+
+            if target == "app.menu" and item_action in (
+                "edit.undo", "edit.redo"
+            ):
+                _undo_action = item_action
+                def _do_undo_redo(ua=_undo_action):
+                    tab_id = app_state.get("active_editor_tab", "")
+                    state = editor_state.get(tab_id) if tab_id else None
+                    if not state:
+                        return
+                    ids = _editor_ids(tab_id)
+                    undo_stack = state.setdefault("undo_stack", [])
+                    redo_stack = state.setdefault("redo_stack", [])
+                    current_text = state.get("source_text", "")
+                    if ua == "edit.undo":
+                        if not undo_stack:
+                            return
+                        entry = undo_stack.pop()
+                        redo_stack.append({"text": current_text})
+                        restored = entry["text"]
+                    else:
+                        if not redo_stack:
+                            return
+                        entry = redo_stack.pop()
+                        undo_stack.append({"text": current_text})
+                        restored = entry["text"]
+                    state["in_undo_redo"] = True
+                    try:
+                        c.set_text(ids["source"], restored)
+                    except Exception:
+                        state["in_undo_redo"] = False
+                _deferred(_do_undo_redo)
                 return {"received": True}
 
             if target == "app.menu" and item_action in (
