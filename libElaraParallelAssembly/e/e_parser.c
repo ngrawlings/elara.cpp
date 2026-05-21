@@ -530,47 +530,44 @@ static EStmt *parse_switch_stmt(Parser *p) {
 }
 
 static EStmt *parse_stmt(Parser *p) {
-  if (peek(p)->kind == E_TOK_LBRACE) return parse_block(p);
-  if (peek(p)->kind == E_TOK_RAW_EPA) {
-    EStmt *s = new_stmt(E_STMT_RAW_EPA);
+  int stmt_line = peek(p)->line;
+  EStmt *s = NULL;
+
+  if (peek(p)->kind == E_TOK_LBRACE) {
+    s = parse_block(p);
+  } else if (peek(p)->kind == E_TOK_RAW_EPA) {
+    s = new_stmt(E_STMT_RAW_EPA);
     s->as.raw_epa.text = xstrdup_local(peek(p)->text);
     p->pos++;
-    return s;
-  }
-  if (match(p, E_TOK_KW_IF)) return parse_if_stmt(p);
-  if (match(p, E_TOK_KW_WHILE)) return parse_while_stmt(p);
-  if (match(p, E_TOK_KW_FOR)) return parse_for_stmt(p);
-  if (match(p, E_TOK_KW_SWITCH)) return parse_switch_stmt(p);
-  if (match(p, E_TOK_KW_RETURN)) {
-    EStmt *s = new_stmt(E_STMT_RETURN);
+  } else if (match(p, E_TOK_KW_IF)) {
+    s = parse_if_stmt(p);
+  } else if (match(p, E_TOK_KW_WHILE)) {
+    s = parse_while_stmt(p);
+  } else if (match(p, E_TOK_KW_FOR)) {
+    s = parse_for_stmt(p);
+  } else if (match(p, E_TOK_KW_SWITCH)) {
+    s = parse_switch_stmt(p);
+  } else if (match(p, E_TOK_KW_RETURN)) {
+    s = new_stmt(E_STMT_RETURN);
     if (!match(p, E_TOK_SEMI)) {
       s->as.ret.value = parse_expr(p);
       if (!s->as.ret.value) return NULL;
       if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
     }
-    return s;
-  }
-  if (match(p, E_TOK_KW_BREAK)) {
-    EStmt *s = new_stmt(E_STMT_BREAK);
+  } else if (match(p, E_TOK_KW_BREAK)) {
+    s = new_stmt(E_STMT_BREAK);
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
-    return s;
-  }
-  if (match(p, E_TOK_KW_CONTINUE)) {
-    EStmt *s = new_stmt(E_STMT_CONTINUE);
+  } else if (match(p, E_TOK_KW_CONTINUE)) {
+    s = new_stmt(E_STMT_CONTINUE);
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
-    return s;
-  }
-  if (match(p, E_TOK_KW_NEXT)) {
-    EStmt *s = new_stmt(E_STMT_NEXT);
+  } else if (match(p, E_TOK_KW_NEXT)) {
+    s = new_stmt(E_STMT_NEXT);
     if (!expect(p, E_TOK_IDENT, "expected worker name after next")) return NULL;
     s->as.next_stmt.worker_name = xstrdup_local(p->tokens->items[p->pos - 1].text);
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
-    return s;
-  }
-
-  if (peek(p)->kind == E_TOK_KW_STATIC && peek_n(p, 1)->kind == E_TOK_LBRACE) {
+  } else if (peek(p)->kind == E_TOK_KW_STATIC && peek_n(p, 1)->kind == E_TOK_LBRACE) {
     p->pos++; /* consume 'static' */
-    EStmt *s = new_stmt(E_STMT_STATIC_BLOCK);
+    s = new_stmt(E_STMT_STATIC_BLOCK);
     if (!expect(p, E_TOK_LBRACE, "expected '{'")) return NULL;
     while (peek(p)->kind != E_TOK_RBRACE && peek(p)->kind != E_TOK_EOF) {
       EStmt *child = parse_stmt(p);
@@ -578,12 +575,9 @@ static EStmt *parse_stmt(Parser *p) {
       stmt_list_push(&s->as.static_block, child);
     }
     if (!expect(p, E_TOK_RBRACE, "expected '}'")) return NULL;
-    return s;
-  }
-
-  if (peek(p)->kind == E_TOK_KW_DYNAMIC) {
+  } else if (peek(p)->kind == E_TOK_KW_DYNAMIC) {
     p->pos++;
-    EStmt *s = new_stmt(E_STMT_DYNAMIC);
+    s = new_stmt(E_STMT_DYNAMIC);
     if (!expect(p, E_TOK_IDENT, "expected dynamic pool name")) return NULL;
     s->as.dynamic_decl.name = xstrdup_local(p->tokens->items[p->pos - 1].text);
     if (!expect(p, E_TOK_LPAREN, "expected '(' after dynamic pool name")) return NULL;
@@ -602,20 +596,17 @@ static EStmt *parse_stmt(Parser *p) {
     p->pos++;
     if (!expect(p, E_TOK_RPAREN, "expected ')' after dynamic declaration")) return NULL;
     if (!expect(p, E_TOK_SEMI, "expected ';' after dynamic declaration")) return NULL;
-    return s;
-  }
-
-  if (is_decl_start(p)) {
-    return parse_decl_stmt(p);
-  }
-
-  {
-    EStmt *s = new_stmt(E_STMT_EXPR);
+  } else if (is_decl_start(p)) {
+    s = parse_decl_stmt(p);
+  } else {
+    s = new_stmt(E_STMT_EXPR);
     s->as.expr = parse_expr(p);
     if (!s->as.expr) return NULL;
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
-    return s;
   }
+
+  if (s) s->line = stmt_line;
+  return s;
 }
 
 static int top_push(EProgram *prog, ETopDecl *d) {

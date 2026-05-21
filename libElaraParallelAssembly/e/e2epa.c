@@ -10,7 +10,7 @@
 #include <string.h>
 
 static void usage(const char *argv0) {
-  fprintf(stderr, "Usage: %s <input.e> <output.epaasm>\n", argv0);
+  fprintf(stderr, "Usage: %s <input.e> <output.epaasm> [output.epamap]\n", argv0);
 }
 
 int main(int argc, char **argv) {
@@ -20,8 +20,9 @@ int main(int argc, char **argv) {
   EProgram prog;
   ESemanticModel model;
   FILE *out;
+  FILE *map_out = NULL;
 
-  if (argc != 3) {
+  if (argc < 3 || argc > 4) {
     usage(argv[0]);
     return 2;
   }
@@ -53,7 +54,7 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  out = fopen(argv[2], "wb");
+  out = fopen(argv[2], "w+b");
   if (!out) {
     fprintf(stderr, "open failed: %s\n", argv[2]);
     e_semantic_model_free(&model);
@@ -63,9 +64,23 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (!e_emit_epa_asm(out, &prog, &model, err)) {
+  if (argc == 4) {
+    map_out = fopen(argv[3], "wb");
+    if (!map_out) {
+      fprintf(stderr, "open map failed: %s\n", argv[3]);
+      fclose(out);
+      e_semantic_model_free(&model);
+      e_program_free(&prog);
+      e_token_vec_free(&toks);
+      free(src);
+      return 1;
+    }
+  }
+
+  if (!e_emit_epa_asm(out, map_out, &prog, &model, err)) {
     fprintf(stderr, "emit: %s\n", err);
     fclose(out);
+    if (map_out) fclose(map_out);
     e_semantic_model_free(&model);
     e_program_free(&prog);
     e_token_vec_free(&toks);
@@ -74,6 +89,7 @@ int main(int argc, char **argv) {
   }
 
   fclose(out);
+  if (map_out) fclose(map_out);
   e_semantic_model_free(&model);
   e_program_free(&prog);
   e_token_vec_free(&toks);

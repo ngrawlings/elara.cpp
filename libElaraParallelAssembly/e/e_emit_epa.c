@@ -1339,6 +1339,10 @@ static void emit_verbatim_epa(FILE *out, const char *text, int depth) {
 static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, const char *break_label, const char *continue_label) {
   size_t i;
   if (!stmt) return;
+  if (stmt->line > 0) {
+    emit_indent(out, depth);
+    fprintf(out, "; !LINE %d\n", stmt->line);
+  }
   switch (stmt->kind) {
     case E_STMT_DECL:
     {
@@ -1804,7 +1808,43 @@ static unsigned int resolved_signal_mail_box_size(const ESemanticModel *model, c
   return model->default_signal_mail_box_size;
 }
 
-int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model, char err[256]) {
+static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
+  char buf[1024];
+  int current_e_line = 0;
+
+  rewind(asm_out);
+  while (fgets(buf, sizeof(buf), asm_out)) {
+    const char *p = buf;
+    int e_line = 0;
+
+    /* skip leading whitespace */
+    while (*p == ' ' || *p == '\t') p++;
+
+    if (*p == '\0' || *p == '\n' || *p == '\r') {
+      /* blank line */
+    } else if (strncmp(p, "; !LINE ", 8) == 0) {
+      /* source line marker — update current line, not itself an instruction */
+      current_e_line = atoi(p + 8);
+    } else if (*p == ';') {
+      /* plain comment */
+    } else if (*p == '.') {
+      /* assembler directive */
+    } else {
+      /* check for label: a token ending with ':' before any whitespace */
+      const char *tok_end = p;
+      while (*tok_end && *tok_end != ' ' && *tok_end != '\t' && *tok_end != '\n' && *tok_end != '\r') tok_end++;
+      if (tok_end > p && *(tok_end - 1) == ':') {
+        /* label line */
+      } else {
+        e_line = current_e_line;
+      }
+    }
+
+    fprintf(map_out, "%d\n", e_line);
+  }
+}
+
+int e_emit_epa_asm(FILE *out, FILE *map_out, const EProgram *prog, const ESemanticModel *model, char err[256]) {
   EmitCtx ctx;
   size_t i;
 
@@ -2043,5 +2083,11 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
   fputs("END\n", out);
   for (i = 0; i < ctx.string_count; i++) free(ctx.strings[i].literal);
   free(ctx.strings);
+
+  if (map_out) {
+    fflush(out);
+    e_write_epa_map(out, map_out);
+  }
+
   return 1;
 }

@@ -131,6 +131,7 @@ struct ESwitchCase {
 
 struct EStmt {
   EStmtKind kind;
+  int line;
   union {
     EDeclStmt decl;
     EExpr *expr;

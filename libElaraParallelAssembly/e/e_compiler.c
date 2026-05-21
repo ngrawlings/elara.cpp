@@ -32,7 +32,7 @@ char *e_compile_src_to_epaasm(const char *src, char err[256])
         if (err) snprintf(err, 256, "e_compile_src_to_epaasm: open_memstream failed");
         goto done;
     }
-    if (!e_emit_epa_asm(out_fp, &prog, &model, err)) {
+    if (!e_emit_epa_asm(out_fp, NULL, &prog, &model, err)) {
         fclose(out_fp); out_fp = NULL;
         free(out_buf);  out_buf = NULL;
         goto done;

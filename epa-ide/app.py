@@ -2510,19 +2510,27 @@ def main():
                 return idx
         return 0
 
-    def _debug_preview_text(epa_text: str, marker_line: int | None = None, radius: int = 5):
+    def _debug_preview_text(epa_text: str, marker_line: int | None = None, radius: int = 5,
+                            epa_map: list = None):
         if not epa_text.strip():
             return "# Debug Trace\n\nNo EPA output available.\n"
         lines = epa_text.splitlines()
         marker = _first_marker_line(epa_text) if marker_line is None else max(0, min(marker_line, len(lines) - 1))
+        e_source_line = 0
+        if epa_map and 0 <= marker < len(epa_map):
+            e_source_line = epa_map[marker]
         start = max(0, marker - radius)
         end = min(len(lines), marker + radius + 1)
-        out = [f"# Debug Trace", "", f"marker_line={marker + 1}", ""]
+        header = [f"# Debug Trace", "", f"epa_line={marker + 1}"]
+        if e_source_line > 0:
+            header.append(f"e_source_line={e_source_line}")
+        header.append("")
         width = len(str(end))
+        body = []
         for idx in range(start, end):
             prefix = ">>" if idx == marker else "  "
-            out.append(f"{prefix} {idx + 1:>{width}} | {lines[idx]}")
-        return "\n".join(out) + "\n"
+            body.append(f"{prefix} {idx + 1:>{width}} | {lines[idx]}")
+        return "\n".join(header + body) + "\n"
 
     def _analyze_e_source(source_text: str, ids: dict, source_dir: Path = None):
         semantic = _ensure_ec()
@@ -2603,10 +2611,11 @@ def main():
             else:
                 source_path = tmp_path / "buffer.e"
             output_path = tmp_path / "buffer.epaasm"
+            map_path = tmp_path / "buffer.epamap"
             source_path.write_text(source_text, encoding="utf-8")
             try:
                 proc = subprocess.run(
-                    [str(compiler), str(source_path), str(output_path)],
+                    [str(compiler), str(source_path), str(output_path), str(map_path)],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     text=True,
@@ -2616,11 +2625,19 @@ def main():
                     source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-                return {"ok": True, "epa_text": epa_text, "diagnostics": [], "message": ""}
+                epa_map: list[int] = []
+                if map_path.exists():
+                    for raw in map_path.read_text(encoding="utf-8").splitlines():
+                        try:
+                            epa_map.append(int(raw.strip()))
+                        except ValueError:
+                            epa_map.append(0)
+                return {"ok": True, "epa_text": epa_text, "epa_map": epa_map, "diagnostics": [], "message": ""}
             message = (proc.stderr or proc.stdout or "compile failed").strip()
             return {
                 "ok": False,
                 "epa_text": "",
+                "epa_map": [],
                 "diagnostics": _diagnostic_from_error(message),
                 "message": message,
             }
@@ -2708,6 +2725,7 @@ def main():
             if not current or current.get("compile_seq") != expected_seq:
                 return
         state["epa_text"] = result["epa_text"]
+        state["epa_map"] = result.get("epa_map", [])
         state["compile_error"] = result["message"]
         state["available_types"], state["available_workers"] = _extract_debug_candidates(source_text)
         if not state.get("debug_ingress_type") and state["available_types"]:
@@ -2716,7 +2734,8 @@ def main():
             state["debug_worker_name"] = state["available_workers"][0]
         state["debug_marker_line"] = _first_marker_line(result["epa_text"]) if result["ok"] else 0
         state["debug_text"] = (
-            _debug_preview_text(result["epa_text"], state.get("debug_marker_line"))
+            _debug_preview_text(result["epa_text"], state.get("debug_marker_line"),
+                                epa_map=state.get("epa_map"))
             if result["ok"] else
             "# Debug Trace\n\nEPA view is blank because compilation failed.\n"
         )
@@ -2758,6 +2777,7 @@ def main():
                 "title": title,
                 "source_text": source_text,
                 "epa_text": "",
+                "epa_map": [],
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -3191,6 +3211,7 @@ def main():
                 "title": title,
                 "source_text": source_text,
                 "epa_text": "",
+                "epa_map": [],
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -4570,6 +4591,7 @@ def main():
                         return {"tab_id": tab_id, "asm": "", "error": str(exc), "compiled_at": 0.0}
                     ts = time.time()
                     state["epa_text"] = result["epa_text"]
+                    state["epa_map"] = result.get("epa_map", [])
                     state["compile_error"] = result.get("message", "")
                     state["epa_compiled_at"] = ts
                     state["epa_error"] = result.get("message") if not result["ok"] else None
