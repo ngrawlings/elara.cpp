@@ -35,6 +35,11 @@ struct EmitCtx {
   /* Iterator variable → pool_id bindings, registered when dynamic_iterator() is emitted */
   struct { const char *iter_name; unsigned int pool_id; } iter_bindings[16];
   unsigned int iter_binding_count;
+  /* Current type layout when inside a type body (for GHS field ident resolution) */
+  const ETypeLayout *current_type_layout;
+  /* Pre-built name → func_id map for user-defined function CALL emission */
+  struct { const char *name; unsigned int func_id; } func_id_map[64];
+  unsigned int func_id_map_count;
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -462,6 +467,97 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
   return 0;
 }
 
+static void build_func_id_map(EmitCtx *ctx, const EProgram *prog) {
+  size_t i;
+  unsigned int next_id = 1u;
+  ctx->func_id_map_count = 0u;
+  for (i = 0; i < prog->count && ctx->func_id_map_count < 64u; i++) {
+    const ETopDecl *top = &prog->items[i];
+    if (top->kind == E_TOP_TYPE) {
+      ctx->func_id_map[ctx->func_id_map_count].name = top->as.tdecl.name;
+      ctx->func_id_map[ctx->func_id_map_count].func_id = next_id++;
+      ctx->func_id_map_count++;
+    } else if (top->kind == E_TOP_FUNCTION) {
+      ctx->func_id_map[ctx->func_id_map_count].name = top->as.func.name;
+      ctx->func_id_map[ctx->func_id_map_count].func_id = next_id++;
+      ctx->func_id_map_count++;
+    }
+  }
+}
+
+static int find_user_func_id(const EmitCtx *ctx, const char *name, unsigned int *out_id) {
+  size_t i;
+  for (i = 0; i < ctx->func_id_map_count; i++) {
+    if (strcmp(ctx->func_id_map[i].name, name) == 0) {
+      *out_id = ctx->func_id_map[i].func_id;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static int user_func_has_return_value(const EmitCtx *ctx, const char *name) {
+  size_t i;
+  for (i = 0; i < ctx->prog->count; i++) {
+    const ETopDecl *top = &ctx->prog->items[i];
+    if (top->kind != E_TOP_FUNCTION) continue;
+    if (strcmp(top->as.func.name, name) != 0) continue;
+    return top->as.func.return_type.name &&
+           top->as.func.return_type.name[0] != '\0' &&
+           strcmp(top->as.func.return_type.name, "void") != 0;
+  }
+  return 0;
+}
+
+static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+
+static int emit_user_func_call(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int func_id = 0u;
+  const EFunctionFrame *callee_frame;
+  size_t i;
+  if (!find_user_func_id(ctx, expr->as.call.callee, &func_id)) return 0;
+  callee_frame = find_frame(ctx->model, expr->as.call.callee);
+  for (i = 0; i < expr->as.call.arg_count; i++) {
+    size_t j;
+    int stored = 0;
+    for (j = 0; j < ctx->model->check_count; j++) {
+      const EFunctionParamCheck *check = &ctx->model->checks[j];
+      if (check->param_index != i) continue;
+      if (!callee_frame || check->function != callee_frame->function) continue;
+      if (check->vm_local_words == 1u) {
+        emit_expr(out, expr->as.call.args[i], ctx, depth);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", check->vm_local_slot);
+        stored = 1;
+      } else if (check->vm_local_words == 2u) {
+        emit_expr(out, expr->as.call.args[i], ctx, depth);
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", check->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "STORE_L %u\n", check->vm_local_slot);
+        stored = 1;
+      } else {
+        emit_indent(out, depth);
+        fprintf(out, "; arg %zu type-ref — no scalar slot\n", i);
+        stored = 1;
+      }
+      break;
+    }
+    if (!stored) {
+      emit_expr(out, expr->as.call.args[i], ctx, depth);
+      emit_indent(out, depth);
+      fprintf(out, "; arg %zu no param check\n", i);
+    }
+  }
+  emit_indent(out, depth);
+  fprintf(out, "CALL %u\n", func_id);
+  return 1;
+}
+
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   size_t i;
   if (!expr) {
@@ -482,6 +578,29 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         fprintf(out, "LOAD_L %u\n", slot + 1u);
       } else if (find_dynamic_pool(ctx->model, expr->as.ident)) {
         fprintf(out, "; dynamic pool ident %s\n", expr->as.ident);
+      } else if (ctx->current_type_layout) {
+        /* Inside a type body: resolve ident as a GHS field of this type (R0/R1 = GHS handle) */
+        size_t fi;
+        int found_field = 0;
+        for (fi = 0; fi < ctx->current_type_layout->field_count; fi++) {
+          if (strcmp(ctx->current_type_layout->fields[fi].name, expr->as.ident) == 0) {
+            const EGhsField *f = &ctx->current_type_layout->fields[fi];
+            if (f->ghs_size == 4u) {
+              fprintf(out, "SET_R 2 %zu\n", f->ghs_offset);
+              emit_indent(out, depth);
+              fputs("GR_MOV4 0\n", out);
+              emit_indent(out, depth);
+              fputs("PUSH R0\n", out);
+            } else {
+              fprintf(out, "; type field %s size=%zu (non-4-byte read pending)\n", expr->as.ident, f->ghs_size);
+            }
+            found_field = 1;
+            break;
+          }
+        }
+        if (!found_field) {
+          fprintf(out, "; expr ident %s\n", expr->as.ident);
+        }
       } else {
         fprintf(out, "; expr ident %s\n", expr->as.ident);
       }
@@ -554,9 +673,11 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       if (emit_call_builtin(out, expr, ctx, depth)) {
         break;
       }
+      if (emit_user_func_call(out, expr, ctx, depth)) {
+        break;
+      }
       emit_indent(out, depth);
-      fprintf(out, "; call %s argc=%zu pending lowering\n", expr->as.call.callee, expr->as.call.arg_count);
-      for (i = 0; i < expr->as.call.arg_count; i++) emit_expr(out, expr->as.call.args[i], ctx, depth);
+      fprintf(out, "; call %s argc=%zu — unknown callee\n", expr->as.call.callee, expr->as.call.arg_count);
       break;
     case E_EXPR_FIELD:
       if (expr->as.field.base && expr->as.field.base->kind == E_EXPR_IDENT &&
@@ -1298,7 +1419,8 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
     case E_STMT_EXPR:
       emit_expr(out, stmt->as.expr, ctx, depth);
       /* Assignment expressions leave the result on the stack for expression
-         chaining. As a statement the result is unused — discard it. */
+         chaining. As a statement the result is unused — discard it.
+         User-defined function calls always leave a return value on the stack via RET. */
       if (stmt->as.expr && stmt->as.expr->kind == E_EXPR_ASSIGN) {
         if (stmt->as.expr->as.assign.lhs &&
             stmt->as.expr->as.assign.lhs->kind == E_EXPR_IDENT) {
@@ -1315,6 +1437,13 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         } else if (expr_is_dynamic_index(stmt->as.expr->as.assign.lhs, ctx->model, NULL)) {
           emit_indent(out, depth);
           fputs("POP 0\n", out);
+          emit_indent(out, depth);
+          fputs("POP 0\n", out);
+        }
+      } else if (stmt->as.expr && stmt->as.expr->kind == E_EXPR_CALL) {
+        unsigned int dummy_id = 0u;
+        if (find_user_func_id(ctx, stmt->as.expr->as.call.callee, &dummy_id) &&
+            user_func_has_return_value(ctx, stmt->as.expr->as.call.callee)) {
           emit_indent(out, depth);
           fputs("POP 0\n", out);
         }
@@ -1502,31 +1631,86 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
     }
     case E_STMT_SWITCH: {
       unsigned int join_id = next_label(ctx);
-      emit_indent(out, depth);
-      fputs("; switch target\n", out);
-      emit_expr(out, stmt->as.switch_stmt.target, ctx, depth);
-      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
-        unsigned int case_id = next_label(ctx);
-        emit_indent(out, depth);
-        if (stmt->as.switch_stmt.cases[i].is_default) {
-          fprintf(out, "; default -> E_SWITCH_CASE_%u\n", case_id);
-        } else {
-          fprintf(out, "; case %lld -> E_SWITCH_CASE_%u\n",
-                  stmt->as.switch_stmt.cases[i].value, case_id);
-        }
-        emit_indent(out, depth);
-        fprintf(out, "E_SWITCH_CASE_%u:\n", case_id);
+      char join_label[64];
+      snprintf(join_label, sizeof(join_label), "E_SWITCH_JOIN_%u", join_id);
+      {
+        /* Determine whether the target is a scalar we can compare directly */
+        int target_is_scalar = 0;
         {
-          size_t j;
-          char join_label[64];
-          snprintf(join_label, sizeof(join_label), "E_SWITCH_JOIN_%u", join_id);
-          for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
-            emit_stmt(out, stmt->as.switch_stmt.cases[i].body.items[j], ctx, depth, join_label, continue_label);
+          unsigned int dummy = 0u;
+          const EExpr *tgt = stmt->as.switch_stmt.target;
+          if (tgt && tgt->kind == E_EXPR_INT) target_is_scalar = 1;
+          else if (tgt && tgt->kind == E_EXPR_IDENT &&
+                   scalar_vm_local_slot_for_name(ctx, tgt->as.ident, &dummy)) target_is_scalar = 1;
+        }
+        if (target_is_scalar && stmt->as.switch_stmt.case_count > 0u) {
+          /* Phase 1: pre-allocate a body label ID for each case (max 32) */
+          unsigned int case_body_ids[32];
+          size_t n_cases = stmt->as.switch_stmt.case_count;
+          int default_idx = -1;
+          size_t ci;
+          if (n_cases > 32u) n_cases = 32u;
+          for (ci = 0; ci < n_cases; ci++) {
+            case_body_ids[ci] = next_label(ctx);
+            if (stmt->as.switch_stmt.cases[ci].is_default) default_idx = (int)ci;
+          }
+          /* Phase 2: emit comparison chain for non-default cases */
+          for (ci = 0; ci < n_cases; ci++) {
+            if (stmt->as.switch_stmt.cases[ci].is_default) continue;
+            emit_expr(out, stmt->as.switch_stmt.target, ctx, depth);
+            emit_indent(out, depth);
+            fprintf(out, "PUSH %lld\n", stmt->as.switch_stmt.cases[ci].value);
+            emit_indent(out, depth);
+            fputs("EQ_I32\n", out);
+            emit_indent(out, depth);
+            fputs("POP 0\n", out);
+            emit_indent(out, depth);
+            fprintf(out, "JNZ E_SWITCH_CASE_%u\n", case_body_ids[ci]);
+          }
+          /* Fall through to default or join if no case matched */
+          emit_indent(out, depth);
+          if (default_idx >= 0) {
+            fprintf(out, "JMP E_SWITCH_CASE_%u\n", case_body_ids[default_idx]);
+          } else {
+            fprintf(out, "JMP %s\n", join_label);
+          }
+          /* Phase 3: emit case bodies */
+          for (ci = 0; ci < n_cases; ci++) {
+            size_t j;
+            emit_indent(out, depth);
+            fprintf(out, "E_SWITCH_CASE_%u:\n", case_body_ids[ci]);
+            for (j = 0; j < stmt->as.switch_stmt.cases[ci].body.count; j++) {
+              emit_stmt(out, stmt->as.switch_stmt.cases[ci].body.items[j], ctx, depth, join_label, continue_label);
+            }
+            if (ci < n_cases - 1u) {
+              emit_indent(out, depth);
+              fprintf(out, "JMP %s\n", join_label);
+            }
+          }
+        } else {
+          /* Non-scalar target (type-ref dispatch, etc.): emit descriptive comment */
+          emit_indent(out, depth);
+          fputs("; switch on non-scalar target — dispatch pending\n", out);
+          emit_expr(out, stmt->as.switch_stmt.target, ctx, depth);
+          for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+            unsigned int case_id = next_label(ctx);
+            size_t j;
+            emit_indent(out, depth);
+            if (stmt->as.switch_stmt.cases[i].is_default) {
+              fprintf(out, "; default:\n");
+            } else {
+              fprintf(out, "; case %lld:\n", stmt->as.switch_stmt.cases[i].value);
+            }
+            emit_indent(out, depth);
+            fprintf(out, "E_SWITCH_CASE_%u:\n", case_id);
+            for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+              emit_stmt(out, stmt->as.switch_stmt.cases[i].body.items[j], ctx, depth, join_label, continue_label);
+            }
           }
         }
       }
       emit_indent(out, depth);
-      fprintf(out, "E_SWITCH_JOIN_%u:\n", join_id);
+      fprintf(out, "%s:\n", join_label);
       break;
     }
     case E_STMT_BREAK:
@@ -1632,6 +1816,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
   ctx.next_string_id = 1u;
   ctx.prog = prog;
   ctx.model = model;
+  build_func_id_map(&ctx, prog);
   collect_program_strings(&ctx, prog);
 
   fputs("; E -> EPA ASM skeleton emitter\n", out);
@@ -1680,6 +1865,7 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
         break;
       case E_TOP_TYPE: {
         const ETypeLayout *layout = find_type_layout(model, top->as.tdecl.name);
+        int frame_words = frame_words_for_function(model, top->as.tdecl.name);
         size_t j;
         fprintf(out, "; type %s\n", top->as.tdecl.name);
         if (layout) {
@@ -1691,9 +1877,14 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
                     layout->fields[j].ghs_size);
           }
         }
-        fprintf(out, "FUNC_START %u 0\n", ctx.next_func_id++);
-        ctx.current_frame = NULL;
+        fprintf(out, "FUNC_START %u %d\n", ctx.next_func_id++, frame_words);
+        ctx.current_function = NULL;
+        ctx.current_worker = NULL;
+        ctx.current_frame = find_frame(model, top->as.tdecl.name);
+        ctx.current_type_layout = layout;
         emit_stmt(out, top->as.tdecl.body, &ctx, 1, NULL, NULL);
+        ctx.current_type_layout = NULL;
+        ctx.current_frame = NULL;
         fputs("FUNC_END\n\n", out);
         break;
       }

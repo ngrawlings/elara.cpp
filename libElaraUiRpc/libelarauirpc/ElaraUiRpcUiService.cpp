@@ -364,6 +364,7 @@ bool ElaraUiRpcUiService::setFocus(
     }
 
     root->setFocus(widget->getHandle());
+    widget->setFocused(true);
     result_json = "{\"updated\":true}";
     return true;
 }

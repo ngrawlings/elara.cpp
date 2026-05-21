@@ -1,11 +1,10 @@
 {
-    "Build": "./build.sh",
-    "Install": "sudo ./install.sh",
+    "Build & Install": "./build.sh && sudo ./install.sh",
     "UI Server": "/usr/local/bin/elaraui-server",
     "Debug UI Server": "gdb /usr/local/bin/elaraui-server",
     "UI Client": "cd /home/nyhl/workspace/elara.cpp/libElaraUiRpc && ./build/bin/libelarauirpc-client 127.0.0.1 18777 /home/nyhl/workspace/elara.cpp/libElaraUI/elara_ui_layout.json",
     "EPA IDE": "cd ./epa-ide && ./run-client.sh  --repl --snapshot-out snapshots/ui.json --event-log /tmp/client-events.jsonl",
     "Orange Exterminator": "cd /home/nyhl/workspace/elara.cpp/demos/orange-exterminator && ./launch-debug.sh",
     "Orange Exterminator GDB": "cd /home/nyhl/workspace/elara.cpp/demos/orange-exterminator && ./launch-gdb.sh",
-    "Kill all": "cd /home/nyhl/workspace/elara.cpp/demos/orange-exterminator && ./kill-all.sh"
+    "Kill all": "./killall.sh"
 }

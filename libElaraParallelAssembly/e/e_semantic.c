@@ -1450,6 +1450,25 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
     return 0;
   }
 
+  /* Build vm_local frames for type bodies so their local decls get slots.
+     Type params are GHS fields (addressed via SET_R/GR_MOV4), not call params. */
+  {
+    size_t ti;
+    for (ti = 0; ti < program->count; ti++) {
+      const ETopDecl *top = &program->items[ti];
+      EFunctionFrame frame;
+      if (top->kind != E_TOP_TYPE || !top->as.tdecl.body) continue;
+      memset(&frame, 0, sizeof(frame));
+      if (!collect_local_decls_in_stmt(top->as.tdecl.body, out_model, &frame, 0, err)) {
+        e_semantic_model_free(out_model);
+        return 0;
+      }
+      push_frame(out_model, top->as.tdecl.name, NULL, 0,
+                 frame.stack_local_size, frame.reserved_reg_words,
+                 frame.vm_local_count, frame.locals, frame.local_count);
+    }
+  }
+
   if (!validate_non_function_local_decls(program, out_model, err)) {
     e_semantic_model_free(out_model);
     return 0;

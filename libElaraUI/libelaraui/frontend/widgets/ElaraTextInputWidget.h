@@ -78,7 +78,7 @@ public:
 
     void setEnabled(bool value);
     bool isEnabled() const;
-    void setFocused(bool value);
+    virtual void setFocused(bool value) override;
     bool isFocused() const;
 
     void setFontSize(double size);

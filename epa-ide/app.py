@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -2686,6 +2687,17 @@ def main():
         _push_event("ui_event", action=action, target=target,
                     payload=_trim_for_log(payload) if isinstance(payload, dict) else payload)
 
+        if action == "valueChanged" and target == "editor.tabs" and client is not None:
+            new_index = int(payload.get("value", -1))
+            for tid, st in editor_state.items():
+                entry = next((t for t in tab_list if t.get("tab_id") == tid), None)
+                if entry and entry.get("index") == new_index:
+                    app_state["active_editor_tab"] = tid
+                    c = client
+                    _deferred(lambda t=tid, s=st: _focus_editor_widget(c, t, s))
+                    break
+            return {"received": True}
+
         for tab_id, state in editor_state.items():
             ids = _editor_ids(tab_id)
             if action == "textChanged" and target == ids["source"]:
@@ -2962,7 +2974,26 @@ def main():
             if target == "app.menu" and item_action in (
                 "edit.cut", "edit.copy", "edit.paste", "edit.select_all"
             ):
-                _deferred(lambda: c.perform_focused_action(item_action))
+                _action = item_action
+                def _do_edit_action(action=_action):
+                    tab_id = app_state.get("active_editor_tab", "")
+                    state = editor_state.get(tab_id) if tab_id else None
+                    if state:
+                        ids = _editor_ids(tab_id)
+                        view = state.get("view", "e")
+                        target_widget = ids["source"]
+                        if view == "epa":
+                            target_widget = ids["epa"]
+                        elif view == "debug":
+                            target_widget = ids["debug"]
+                        try:
+                            c.set_focus(target_widget)
+                            c.perform_action(target_widget, action)
+                            return
+                        except Exception:
+                            pass
+                    c.perform_focused_action(action)
+                _deferred(_do_edit_action)
 
             if item_action == "app.toggle_theme":
                 current_theme = app_state.get("theme", "dark")

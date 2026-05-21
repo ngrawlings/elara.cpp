@@ -56,6 +56,7 @@ int ElaraTabWidget::addTab(
 ) {
     if(widget) {
         widget->setPalette(palette);
+        widget->setParent(this);
     }
 
     Ref<ElaraTabPage> page(new ElaraTabPage(title, widget, button_glyph, button_action));
@@ -77,6 +78,7 @@ void ElaraTabWidget::removeTab(int index) {
 
     if(pages[index] && pages[index]->getWidget()) {
         pages[index]->getWidget()->setVisible(false);
+        pages[index]->getWidget()->setParent(0);
     }
 
     pages.remove(index);
@@ -98,6 +100,11 @@ void ElaraTabWidget::removeTab(int index) {
 }
 
 void ElaraTabWidget::clearChildren() {
+    for(int i = 0; i < (int)pages.length(); i++) {
+        if(pages[i] && pages[i]->getWidget()) {
+            pages[i]->getWidget()->setParent(0);
+        }
+    }
     pages.clear();
     active_index = -1;
     hover_index = -1;
@@ -118,6 +125,7 @@ void ElaraTabWidget::setActiveTab(int index) {
     }
 
     active_index = index;
+    emitValueChanged((double)index);
 }
 
 int ElaraTabWidget::getActiveTab() const { return active_index; }

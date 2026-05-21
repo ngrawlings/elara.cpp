@@ -218,6 +218,7 @@ public:
         }
 
         String line = timestampNow() + String(" [") + category + String("] ") + message + String("\n");
+        printf("%s\n", (const char*)line);
         fwrite((const char*)line, 1, line.byteLength(), event_log);
         fflush(event_log);
         event_count++;
@@ -418,6 +419,7 @@ bool targetsSpecificWidget(const String& method) {
         method == String("replaceChildren") ||
         method == String("clickWidget") ||
         method == String("typeWidget") ||
+        method == String("performAction") ||
         method == String("snapshotWidget");
 }
 
@@ -1330,6 +1332,11 @@ private:
     bool running;
     pthread_t accept_thread;
 
+    // Deferred listen: filled by queueListen(), started by first GTK tick.
+    String deferred_listen_addr;
+    unsigned short deferred_listen_port;
+    bool deferred_listen_pending;
+
 public:
     UiRpcHost(
         Ref<ElaraDrawSurface> surface,
@@ -1353,11 +1360,20 @@ public:
           debug_log(0),
           listen_fd(0),
           running(false),
-          accept_thread(0) {
+          accept_thread(0),
+          deferred_listen_pending(false),
+          deferred_listen_port(0) {
     }
 
     void setPersistent(bool value) {
         persistent = value;
+    }
+
+    bool queueListen(const String& bind_address, unsigned short port) {
+        deferred_listen_addr = bind_address;
+        deferred_listen_port = port;
+        deferred_listen_pending = true;
+        return true;
     }
 
     ~UiRpcHost() {
@@ -1503,6 +1519,16 @@ public:
     }
 
     bool tick() {
+        if(deferred_listen_pending) {
+            deferred_listen_pending = false;
+            if(!listen(deferred_listen_addr, deferred_listen_port)) {
+                logger.log("rpc.connection", "failed to start deferred RPC listen");
+                if(backend) { backend->quit(); }
+                return false;
+            }
+            logger.log("rpc.connection", String("listening for RPC clients on port ") + String((int)deferred_listen_port));
+        }
+
         if(client_connected_once && peer && !peer->isConnected()) {
             if(!persistent) {
                 logger.log("rpc.connection", "client disconnected — exiting");
@@ -1632,6 +1658,7 @@ private:
                 fcntl(client_fd, F_SETFL, flags & ~O_NONBLOCK);
             }
 
+            logger.log("rpc.connection", String("Attaching Client Connection") + String(client_fd));
             attachClient(client_fd);
         }
     }
@@ -1714,14 +1741,11 @@ int main(int argc, char** argv) {
         host.setPersistent(true);
     }
 
-    if(!host.listen("0.0.0.0", rpc_port)) {
-        printf("failed to listen for RPC clients on port %d\n", (int)rpc_port);
-        return 1;
-    }
+    host.queueListen("0.0.0.0", rpc_port);
 
     g_timeout_add(16, onHostTick, &host);
 
-    printf("libElaraUI RPC debug server listening on 0.0.0.0:%d and waiting for ui.loadDocument%s\n",
+    printf("libElaraUI RPC debug server starting, will listen on 0.0.0.0:%d after GTK init%s\n",
            (int)rpc_port,
            persistent_mode ? " (persistent)" : " (exits on disconnect)");
     printf("event trace artifact: %s\n", (const char*)host.getSessionDir());

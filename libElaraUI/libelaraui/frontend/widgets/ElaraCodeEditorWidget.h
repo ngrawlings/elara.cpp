@@ -174,7 +174,7 @@ public:
     void setReadOnly(bool v);
     bool isReadOnly() const;
 
-    void setFocused(bool v);
+    virtual void setFocused(bool v) override;
     bool isFocused() const;
 
     void setFontSize(double size);

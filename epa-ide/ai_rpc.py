@@ -405,6 +405,30 @@ HELP = {
             "params": {},
             "result": {"cleared": "int — number of entries removed"},
         },
+        # ---- Clipboard diagnostic -------------------------------------------
+        "probe_clipboard": {
+            "desc": (
+                "Step through select, copy, and paste operations on editor widgets "
+                "and return a step-by-step report of each UI call and its result. "
+                "Use this to diagnose why copy/paste is not working. "
+                "source_tab_id: the tab to copy from. "
+                "dest_tab_id: the tab to paste into (optional). "
+                "Each step records the UI method called, its params, and the result "
+                "or error returned. A snapshotWidget is taken of both editors so you "
+                "can inspect focus and selection state."
+            ),
+            "params": {
+                "source_tab_id": "str — tab to copy from",
+                "dest_tab_id": "str (optional) — tab to paste into",
+            },
+            "result": {
+                "steps": "list — each step: {step, ok, method?, params?, result?, error?}",
+                "source_tab_id": "str",
+                "source_editor_target": "str — UI widget id used for copy",
+                "dest_tab_id": "str or null",
+                "dest_editor_target": "str or null — UI widget id used for paste",
+            },
+        },
         # ---- Raw UI proxy ---------------------------------------------------
         "ui_call": {
             "desc": (
@@ -872,6 +896,118 @@ class AiRpcServer:
             from_off, to_off = to_off, from_off
         excerpt = text[from_off:to_off]
         return {"tab_id": t["tab_id"], "text": excerpt, "chars": len(excerpt)}
+
+    def _m_probe_clipboard(self, params):
+        import time as _time
+        source_tab_id = params.get("source_tab_id", "")
+        dest_tab_id = params.get("dest_tab_id", "")
+        if not source_tab_id:
+            raise _RpcError("missing_param: source_tab_id")
+
+        ide = self._ide
+        t_src, state_src = self._resolve_tab(source_tab_id, "")
+        src_view = state_src.get("view", "e")
+        src_target = f"{t_src['tab_id']}.{'epa' if src_view == 'epa' else 'source'}"
+
+        steps = []
+
+        def _step(name, method, call_params):
+            try:
+                result = ide.ui_call(method, call_params)
+                steps.append({"step": name, "ok": True, "method": f"ui.{method}",
+                               "params": call_params, "result": result})
+                return result
+            except Exception as exc:
+                steps.append({"step": name, "ok": False, "method": f"ui.{method}",
+                               "params": call_params, "error": str(exc)})
+                return None
+
+        # 1. Activate the source tab
+        _step("activate_source_tab", "setActiveTab",
+              {"target": "editor.tabs", "index": t_src["index"]})
+
+        # 2. Snapshot source editor widget before doing anything
+        _step("snapshot_source_before", "snapshotWidget", {"target": src_target})
+
+        # 3. Explicitly focus the source editor
+        _step("focus_source_editor", "setFocus", {"target": src_target})
+
+        # 4. select_all via focused action (same path as the menu shortcut)
+        _step("select_all_via_focused", "performFocusedAction", {"action": "edit.select_all"})
+
+        # 5. Copy via focused action (what the menu uses)
+        _step("copy_via_focused", "performFocusedAction", {"action": "edit.copy"})
+
+        # 6. Copy via explicit target (bypasses focus routing — compare result with step 5)
+        _step("copy_via_target", "performAction",
+              {"target": src_target, "action": "edit.copy"})
+
+        # 7. Snapshot source after copy attempt
+        _step("snapshot_source_after_copy", "snapshotWidget", {"target": src_target})
+
+        steps.append({
+            "step": "source_content_snapshot",
+            "ok": True,
+            "note": "logic-side source_text (may differ from UI widget if unsynchronised)",
+            "length": len(state_src.get("source_text", "")),
+            "preview": state_src.get("source_text", "")[:200],
+        })
+
+        dest_editor_target = None
+        if dest_tab_id:
+            t_dst, state_dst = self._resolve_tab(dest_tab_id, "")
+            dst_view = state_dst.get("view", "e")
+            dst_target = f"{t_dst['tab_id']}.{'epa' if dst_view == 'epa' else 'source'}"
+            dest_editor_target = dst_target
+
+            dst_before = state_dst.get("source_text", "")
+            steps.append({
+                "step": "dest_content_before_paste",
+                "ok": True,
+                "length": len(dst_before),
+                "preview": dst_before[:200],
+            })
+
+            # 8. Snapshot dest editor before paste
+            _step("snapshot_dest_before_paste", "snapshotWidget", {"target": dst_target})
+
+            # 9. Activate dest tab
+            _step("activate_dest_tab", "setActiveTab",
+                  {"target": "editor.tabs", "index": t_dst["index"]})
+
+            # 10. Explicitly focus dest editor
+            _step("focus_dest_editor", "setFocus", {"target": dst_target})
+
+            # 11. Paste via focused action
+            _step("paste_via_focused", "performFocusedAction", {"action": "edit.paste"})
+
+            # 12. Paste via explicit target
+            _step("paste_via_target", "performAction",
+                  {"target": dst_target, "action": "edit.paste"})
+
+            # 13. Snapshot dest after paste
+            _step("snapshot_dest_after_paste", "snapshotWidget", {"target": dst_target})
+
+            # Brief yield so any pending text_changed events can propagate
+            _time.sleep(0.3)
+
+            dst_after = state_dst.get("source_text", "")
+            steps.append({
+                "step": "dest_content_after_paste",
+                "ok": True,
+                "note": "logic-side source_text — only updates if a text_changed event fired",
+                "length": len(dst_after),
+                "changed": dst_after != dst_before,
+                "preview": dst_after[:200],
+            })
+
+        return {
+            "steps": steps,
+            "source_tab_id": t_src["tab_id"],
+            "source_editor_target": src_target,
+            "dest_tab_id": dest_tab_id or None,
+            "dest_editor_target": dest_editor_target,
+        }
 
     def _m_ui_call(self, params):
         method = params.get("method", "")
