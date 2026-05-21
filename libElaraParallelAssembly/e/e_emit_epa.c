@@ -464,8 +464,8 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
 
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   size_t i;
-  emit_indent(out, depth);
   if (!expr) {
+    emit_indent(out, depth);
     fputs("; <null-expr>\n", out);
     return;
   }
@@ -473,6 +473,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
     case E_EXPR_IDENT:
     {
       unsigned int slot = 0u;
+      emit_indent(out, depth);
       if (scalar_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
         fprintf(out, "LOAD_L %u\n", slot);
       } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
@@ -487,13 +488,14 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       break;
     }
     case E_EXPR_INT:
+      emit_indent(out, depth);
       fprintf(out, "PUSH %lld\n", expr->as.int_lit);
       break;
     case E_EXPR_STRING:
+      emit_indent(out, depth);
       fprintf(out, "; expr string %s\n", expr->as.string_lit);
       break;
     case E_EXPR_BINARY:
-      fprintf(out, "; expr binary\n");
       emit_expr(out, expr->as.binary.lhs, ctx, depth);
       emit_expr(out, expr->as.binary.rhs, ctx, depth);
       emit_indent(out, depth);
@@ -537,6 +539,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
             emit_indent(out, depth);
             fprintf(out, "LOAD_L %u\n", slot + 1u);
           } else {
+            emit_indent(out, depth);
             fprintf(out, "; assign target %s unsupported\n", expr->as.assign.lhs->as.ident);
           }
         }
@@ -551,6 +554,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       if (emit_call_builtin(out, expr, ctx, depth)) {
         break;
       }
+      emit_indent(out, depth);
       fprintf(out, "; call %s argc=%zu pending lowering\n", expr->as.call.callee, expr->as.call.arg_count);
       for (i = 0; i < expr->as.call.arg_count; i++) emit_expr(out, expr->as.call.args[i], ctx, depth);
       break;
@@ -559,12 +563,14 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
           emit_worker_field_load(out, expr->as.field.base->as.ident, expr->as.field.field, ctx, depth)) {
         break;
       }
+      emit_indent(out, depth);
       fputs("; field ", out);
       emit_field_path(out, expr, ctx->model);
       fputc('\n', out);
       break;
     case E_EXPR_INDEX:
       if (emit_dynamic_index_load(out, expr, ctx, depth)) break;
+      emit_indent(out, depth);
       fputs("; index pending lowering\n", out);
       break;
   }
@@ -1285,8 +1291,6 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       break;
     }
     case E_STMT_RETURN:
-      emit_indent(out, depth);
-      fputs("; return\n", out);
       if (stmt->as.ret.value) emit_expr(out, stmt->as.ret.value, ctx, depth);
       emit_indent(out, depth);
       fputs("RET\n", out);
@@ -1583,6 +1587,18 @@ static void emit_static_blocks_in_stmt(FILE *out, const EStmt *stmt, EmitCtx *ct
   }
 }
 
+static int pool_is_in_worker_body(const char *pool_name, const EStmt *stmt) {
+  size_t i;
+  if (!stmt) return 0;
+  if (stmt->kind == E_STMT_DYNAMIC && strcmp(stmt->as.dynamic_decl.name, pool_name) == 0) return 1;
+  if (stmt->kind == E_STMT_BLOCK) {
+    for (i = 0; i < stmt->as.block.count; i++) {
+      if (pool_is_in_worker_body(pool_name, stmt->as.block.items[i])) return 1;
+    }
+  }
+  return 0;
+}
+
 static int frame_words_for_function(const ESemanticModel *model, const char *name) {
   const EFunctionFrame *frame = find_frame(model, name);
   if (!frame) return 0;
@@ -1798,14 +1814,17 @@ int e_emit_epa_asm(FILE *out, const EProgram *prog, const ESemanticModel *model,
           fputs("WORKER_TRX_IN_R 0\n", out);
           emit_indent(out, 1);
           fputs("WORKER_TRX_IN_R 1\n", out);
-          emit_indent(out, 1);
-          fputs("; dynamic pool round-start maintenance prelude runs here\n", out);
-          emit_indent(out, 1);
-          fputs("; rule: replenish free slots up to min_free here, then allocations may consume them anywhere in this round\n", out);
-          emit_indent(out, 1);
-          fputs("; rule: no implicit mid-round growth; worker code uses only the prepared free capacity\n", out);
-          emit_indent(out, 1);
-          fputs("; E worker body begins after ingress wake-up\n", out);
+          /* Emit maintenance comment for each pool declared inline in this worker. */
+          {
+            size_t pi;
+            for (pi = 0; pi < ctx.model->dynamic_pool_count; pi++) {
+              const EDynamicPool *pool = &ctx.model->dynamic_pools[pi];
+              if (!pool_is_in_worker_body(pool->name, top->as.worker.body)) continue;
+              emit_indent(out, 1);
+              fprintf(out, "; dyn maintain pool %zu '%s' min_free=%u (round-start replenish)\n",
+                      pi, pool->name, pool->min_free);
+            }
+          }
           emit_stmt(out, top->as.worker.body, &ctx, 1, NULL, NULL);
           emit_indent(out, 1);
           fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);

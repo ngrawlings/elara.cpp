@@ -14,6 +14,8 @@ from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
 from elara_ui.snapshot_dumper import UiSnapshotDumper
 from elara_ui.repl_client import ElaraUiRepl
 
+from ai_rpc import AiRpcServer, IdeBindings
+
 
 INITIAL_E_TABS = []
 
@@ -74,12 +76,13 @@ def _editor_language_for_path(path: str) -> str:
     return "plain"
 
 
-def _focus_editor_widget(client, tab_id: str):
-    state = editor_state.get(tab_id, {})
+def _focus_editor_widget(client, tab_id: str, state: dict = None):
+    if state is None:
+        state = {}
     ids = _editor_ids(tab_id)
     view = state.get("view", "e")
     target = tab_id + ".container"
-    if tab_id in editor_state:
+    if state:
         target = ids["source"]
         if view == "epa":
             target = ids["epa"]
@@ -1621,6 +1624,7 @@ def main():
     parser.add_argument("--no-events", action="store_true", help="Do not subscribe to default UI events")
     parser.add_argument("--no-worker", action="store_true", help="Do not start the optional multi-core worker template")
     parser.add_argument("--event-log", default=None, help="Write all received UI events to this JSONL file")
+    parser.add_argument("--ai-rpc-port", default=18779, type=int, help="AI logic-side RPC port (0 to disable)")
     args = parser.parse_args()
 
     client_ref = {}
@@ -1646,6 +1650,104 @@ def main():
         "generating":   False,
         "cancel_event": None,
     }
+
+    # AI RPC bindings — callbacks are set later, once the inner closures exist.
+    ide_bindings = IdeBindings()
+    ide_bindings.tab_list = tab_list
+    ide_bindings.editor_state = editor_state
+    ide_bindings.app_state = app_state
+    ide_bindings.ai_state = ai_state
+    ide_bindings._language_for_path = _editor_language_for_path
+    ai_rpc_server: AiRpcServer | None = None
+
+    # --- Event log -----------------------------------------------------------
+    # Ring buffer of all significant IDE events. Each entry is a plain dict
+    # with at minimum {"ts": float, "type": str}. Written to a per-session
+    # JSONL file in artifacts/ so it survives process crashes.
+    _event_log: list = []
+    _event_log_lock = threading.Lock()
+    _event_log_max = 2000
+    _event_log_fh: list = [None]   # mutable ref so nested closures can reassign
+
+    def _push_event(event_type: str, **details):
+        entry = {"ts": time.time(), "type": event_type}
+        entry.update(details)
+        with _event_log_lock:
+            _event_log.append(entry)
+            if len(_event_log) > _event_log_max:
+                del _event_log[: len(_event_log) - _event_log_max]
+        fh = _event_log_fh[0]
+        if fh is not None:
+            try:
+                fh.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+                fh.flush()
+            except Exception:
+                pass
+
+    def _event_log_recent(n: int = 30) -> list:
+        with _event_log_lock:
+            return list(_event_log[-n:])
+
+    # Trim large string values before storing in event log (keeps log readable).
+    def _trim_for_log(params, max_str: int = 300):
+        if not isinstance(params, dict):
+            return params
+        out = {}
+        for k, v in params.items():
+            if isinstance(v, str) and len(v) > max_str:
+                out[k] = f"{v[:max_str]}…[{len(v)} chars]"
+            else:
+                out[k] = v
+        return out
+
+    # --- Exception log -------------------------------------------------------
+    _exception_log: list = []
+    _exception_log_lock = threading.Lock()
+    _exception_log_max = 200
+
+    def _push_exception(exc, context: str = "unknown"):
+        import traceback as _tb
+        tb_text = ("".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+                   if isinstance(exc, BaseException) else "")
+        recent = _event_log_recent(30)
+        entry = {
+            "ts": time.time(),
+            "context": context,
+            "type": type(exc).__name__ if isinstance(exc, BaseException) else "str",
+            "message": str(exc),
+            "traceback": tb_text,
+            "recent_events": recent,
+        }
+        with _exception_log_lock:
+            _exception_log.append(entry)
+            if len(_exception_log) > _exception_log_max:
+                del _exception_log[: len(_exception_log) - _exception_log_max]
+        _push_event("exception", context=context,
+                    exc_type=entry["type"], message=entry["message"],
+                    traceback=tb_text)
+
+    _orig_excepthook = sys.excepthook
+
+    def _excepthook(exc_type, exc_val, exc_tb):
+        _push_exception(exc_val, "uncaught")
+        _orig_excepthook(exc_type, exc_val, exc_tb)
+
+    sys.excepthook = _excepthook
+    threading.excepthook = lambda args: _push_exception(
+        args.exc_value if args.exc_value else RuntimeError(repr(args)),
+        f"thread:{getattr(args.thread, 'name', '?')}",
+    )
+
+    # --- UI server subprocess tracking ---------------------------------------
+    _ui_server: dict = {"proc": None, "cmd": [], "output_lines": []}
+
+    def _resolve_ui_server_cmd():
+        workspace = Path(__file__).resolve().parent.parent
+        local = workspace / "build" / "bin" / "elaraui-server"
+        default = Path("/usr/local/bin/elaraui-server")
+        import os as _os
+        binary = str(local) if local.is_file() and _os.access(str(local), _os.X_OK) else str(default)
+        return [binary, "--port", str(args.port), "--persistent"]
 
     def _compiler_root():
         return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
@@ -1948,18 +2050,25 @@ def main():
             out.append(f"{prefix} {idx + 1:>{width}} | {lines[idx]}")
         return "\n".join(out) + "\n"
 
-    def _analyze_e_source(source_text: str, ids: dict):
+    def _analyze_e_source(source_text: str, ids: dict, source_dir: Path = None):
         semantic = _ensure_ec()
         with tempfile.TemporaryDirectory(prefix="epa-ide-ec-") as tmp:
             tmp_path = Path(tmp)
-            source_path = tmp_path / "buffer.e"
+            if source_dir and source_dir.is_dir():
+                source_path = source_dir / f"._epa_ide_buf_{os.getpid()}.e"
+            else:
+                source_path = tmp_path / "buffer.e"
             source_path.write_text(source_text, encoding="utf-8")
-            proc = subprocess.run(
-                [str(semantic), str(source_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            try:
+                proc = subprocess.run(
+                    [str(semantic), str(source_path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            finally:
+                if source_dir and source_path.exists():
+                    source_path.unlink(missing_ok=True)
             if proc.returncode != 0:
                 message = (proc.stderr or proc.stdout or "semantic analysis failed").strip()
                 return {
@@ -2011,19 +2120,26 @@ def main():
             "message": message.strip(),
         }]
 
-    def _compile_e_source(source_text: str):
+    def _compile_e_source(source_text: str, source_dir: Path = None):
         compiler = _ensure_e2epa()
         with tempfile.TemporaryDirectory(prefix="epa-ide-e2epa-") as tmp:
             tmp_path = Path(tmp)
-            source_path = tmp_path / "buffer.e"
+            if source_dir and source_dir.is_dir():
+                source_path = source_dir / f"._epa_ide_buf_{os.getpid()}.e"
+            else:
+                source_path = tmp_path / "buffer.e"
             output_path = tmp_path / "buffer.epaasm"
             source_path.write_text(source_text, encoding="utf-8")
-            proc = subprocess.run(
-                [str(compiler), str(source_path), str(output_path)],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            try:
+                proc = subprocess.run(
+                    [str(compiler), str(source_path), str(output_path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+            finally:
+                if source_dir and source_path.exists():
+                    source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
                 return {"ok": True, "epa_text": epa_text, "diagnostics": [], "message": ""}
@@ -2035,7 +2151,7 @@ def main():
                 "message": message,
             }
 
-    def _apply_editor_view(client, tab_id: str):
+    def _apply_editor_view(client, tab_id: str, set_focus: bool = False):
         state = editor_state.get(tab_id)
         if not state:
             return
@@ -2052,7 +2168,8 @@ def main():
         client.set_read_only(ids["epa"], True)
         client.set_read_only(ids["debug"], True)
         client.set_read_only(ids["debug_meta"], True)
-        _focus_editor_widget(client, tab_id)
+        if set_focus:
+            _focus_editor_widget(client, tab_id, state)
 
     def _refresh_debug_controls(client, tab_id: str):
         state = editor_state.get(tab_id)
@@ -2095,14 +2212,16 @@ def main():
         _replace_tree_nodes(client, ids["debug_stack"], state.get("stack_nodes", _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root")))
         _replace_tree_nodes(client, ids["debug_local"], state.get("local_nodes", _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root")))
 
-    def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None):
+    def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None, focus: bool = False):
         state = editor_state.get(tab_id)
         if not state:
             return
         ids = _editor_ids(tab_id)
         source_text = state.get("source_text", "")
+        tab_entry = next((t for t in tab_list if t.get("tab_id") == tab_id), None)
+        source_dir = Path(tab_entry["path"]).parent if tab_entry and tab_entry.get("path") else None
         try:
-            result = _compile_e_source(source_text)
+            result = _compile_e_source(source_text, source_dir)
         except Exception as exc:
             result = {
                 "ok": False,
@@ -2129,7 +2248,7 @@ def main():
         )
         if result["ok"]:
             try:
-                semantic = _analyze_e_source(source_text, ids)
+                semantic = _analyze_e_source(source_text, ids, source_dir)
             except Exception as exc:
                 semantic = {
                     "ok": False,
@@ -2152,7 +2271,7 @@ def main():
         client.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
         client.set_text(ids["debug"], state["debug_text"])
         client.set_code_editor_diagnostics(ids["source"], result["diagnostics"])
-        _apply_editor_view(client, tab_id)
+        _apply_editor_view(client, tab_id, set_focus=focus)
         _refresh_debug_controls(client, tab_id)
         if app_state.get("active_editor_tab") == tab_id:
             _refresh_debug_sidebars(client, tab_id)
@@ -2309,6 +2428,7 @@ def main():
             "expanded": True,
             "children": children,
         }]
+        app_state["nav_tree_nodes"] = nodes
         document = json.dumps({"nodes": nodes}, separators=(",", ":"))
         try:
             client.call("ui.replaceChildren", {"target": "nav.tree", "document": document})
@@ -2439,7 +2559,7 @@ def main():
             client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
             if ext == ".e":
                 _refresh_e_tab(client, tab_id)
-            _focus_editor_widget(client, tab_id)
+            _focus_editor_widget(client, tab_id, editor_state.get(tab_id))
         except Exception:
             pass
 
@@ -2563,6 +2683,8 @@ def main():
         action = params.get("action")
         payload = params.get("payload") or {}
         target = params.get("target")
+        _push_event("ui_event", action=action, target=target,
+                    payload=_trim_for_log(payload) if isinstance(payload, dict) else payload)
 
         for tab_id, state in editor_state.items():
             ids = _editor_ids(tab_id)
@@ -2780,19 +2902,19 @@ def main():
                     app_state["active_editor_tab"] = tab_id
                     state["view"] = "e"
                     current_tab = tab_id
-                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
+                    _deferred(lambda: (_apply_editor_view(c, current_tab, set_focus=True), _refresh_debug_sidebars(c, current_tab)))
                     return {"received": True}
                 if item_action == ids["button_epa"]:
                     app_state["active_editor_tab"] = tab_id
                     state["view"] = "epa"
                     current_tab = tab_id
-                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
+                    _deferred(lambda: _refresh_e_tab(c, current_tab, focus=True))
                     return {"received": True}
                 if item_action == ids["button_debug"]:
                     app_state["active_editor_tab"] = tab_id
                     state["view"] = "debug"
                     current_tab = tab_id
-                    _deferred(lambda: (_apply_editor_view(c, current_tab), _refresh_debug_controls(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
+                    _deferred(lambda: (_apply_editor_view(c, current_tab, set_focus=True), _refresh_debug_controls(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
                     return {"received": True}
                 if item_action == ids["debug_start"]:
                     app_state["active_editor_tab"] = tab_id
@@ -2810,7 +2932,7 @@ def main():
                         c.set_text(_editor_ids(current_tab)["debug"], editor_state[current_tab]["debug_text"]),
                         _refresh_debug_controls(c, current_tab),
                         _refresh_debug_sidebars(c, current_tab),
-                        _apply_editor_view(c, current_tab),
+                        _apply_editor_view(c, current_tab, set_focus=True),
                     ))
                     return {"received": True}
 
@@ -3322,12 +3444,39 @@ def main():
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text(document_json, encoding="utf-8")
     worker = None
+    _first_connect = True
     try:
-        with ElaraUiRpcClient(args.host, args.port) as client:
+      while True:  # reconnect loop — continues only when _ui_server manages the process
+        try:
+          with ElaraUiRpcClient(args.host, args.port) as client:
             client_ref["client"] = client
             client.set_find_widget_artifact_root(str(artifact_root))
             if args.event_log:
                 client.set_event_log(args.event_log)
+            # Open per-session event log file.
+            _artifacts_dir = Path(__file__).resolve().parent / "artifacts"
+            _artifacts_dir.mkdir(exist_ok=True)
+            _session_log_path = _artifacts_dir / f"event-{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+            try:
+                _event_log_fh[0] = open(_session_log_path, "a", encoding="utf-8")
+            except Exception:
+                pass
+            _push_event("session_start", host=args.host, port=args.port,
+                        log_file=str(_session_log_path))
+
+            # Wrap client.call so every outgoing UI RPC call is logged.
+            # This is the single most useful trace for reproducing UI crashes.
+            _orig_client_call = client.call
+            def _logged_client_call(method, params=None, timeout=5.0):
+                _push_event("ui_rpc_out", method=method,
+                            params=_trim_for_log(params) if isinstance(params, dict) else params)
+                try:
+                    return _orig_client_call(method, params, timeout)
+                except Exception as _rpc_exc:
+                    _push_event("ui_rpc_out_error", method=method, error=str(_rpc_exc))
+                    raise
+            client.call = _logged_client_call
+
             client.add_handler("ui.event", on_ui_event)
             load_result = client.load_document(builder)
             print(json.dumps(load_result, indent=2))
@@ -3365,6 +3514,301 @@ def main():
             if not args.no_events:
                 for action in ("clicked", "keysTyped", "textChanged", "valueChanged", "keyDown", "keyUp", "action"):
                     client.enable_event(action)
+
+            # Wire AI RPC callbacks now that all closures exist and client is live.
+            # Only define and start once; across reconnects the callbacks stay valid
+            # because they all reference client_ref (the shared dict), not client directly.
+            if args.ai_rpc_port and _first_connect:
+                def _ai_rpc_compile_tab(tab_id: str) -> dict:
+                    state = editor_state.get(tab_id)
+                    if not state:
+                        return {"tab_id": tab_id, "asm": "", "error": "no_such_tab", "compiled_at": 0.0}
+                    source_text = state.get("source_text", "")
+                    tab_entry = next((t for t in tab_list if t.get("tab_id") == tab_id), None)
+                    source_dir = Path(tab_entry["path"]).parent if tab_entry and tab_entry.get("path") else None
+                    try:
+                        result = _compile_e_source(source_text, source_dir)
+                    except Exception as exc:
+                        return {"tab_id": tab_id, "asm": "", "error": str(exc), "compiled_at": 0.0}
+                    ts = time.time()
+                    state["epa_text"] = result["epa_text"]
+                    state["compile_error"] = result.get("message", "")
+                    state["epa_compiled_at"] = ts
+                    state["epa_error"] = result.get("message") if not result["ok"] else None
+                    c = client_ref.get("client")
+                    if c:
+                        try:
+                            ids = _editor_ids(tab_id)
+                            c.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
+                            c.set_code_editor_diagnostics(ids["source"], result.get("diagnostics", []))
+                        except Exception:
+                            pass
+                    return {
+                        "tab_id": tab_id,
+                        "asm": result["epa_text"],
+                        "error": result.get("message") if not result["ok"] else None,
+                        "compiled_at": ts,
+                    }
+
+                def _ai_rpc_open_file(path: str):
+                    c = client_ref.get("client")
+                    if not c:
+                        return None
+                    # Check if already open
+                    existing = next((t for t in tab_list if t.get("path") == path), None)
+                    if existing:
+                        return existing["tab_id"]
+                    _open_file_tab(c, path, True)
+                    found = next((t for t in tab_list if t.get("path") == path), None)
+                    return found["tab_id"] if found else None
+
+                def _ai_rpc_switch_view(tab_id: str, view: str):
+                    state = editor_state.get(tab_id)
+                    if state:
+                        state["view"] = view
+                    c = client_ref.get("client")
+                    if c:
+                        _deferred(lambda: _apply_editor_view(c, tab_id, set_focus=False))
+
+                def _ai_rpc_set_editor_content(tab_id: str, content: str):
+                    state = editor_state.get(tab_id)
+                    if state:
+                        state["source_text"] = content
+                    c = client_ref.get("client")
+                    if c:
+                        try:
+                            ids = _editor_ids(tab_id)
+                            c.set_text(ids["source"], content)
+                        except Exception:
+                            pass
+
+                def _ai_rpc_set_active_tab(tab_id: str):
+                    t = next((x for x in tab_list if x.get("tab_id") == tab_id), None)
+                    if not t:
+                        return
+                    c = client_ref.get("client")
+                    if c:
+                        try:
+                            c.call("ui.setActiveTab", {"target": "editor.tabs", "index": t["index"]})
+                        except Exception:
+                            pass
+                    app_state["active_editor_tab"] = tab_id
+
+                def _ai_rpc_close_tab(tab_id: str):
+                    t = next((x for x in tab_list if x.get("tab_id") == tab_id), None)
+                    if not t:
+                        return
+                    c = client_ref.get("client")
+                    if c:
+                        try:
+                            c.call("ui.removeTab", {"target": "editor.tabs", "index": t["index"]})
+                        except Exception:
+                            pass
+                    tab_list[:] = [x for x in tab_list if x.get("tab_id") != tab_id]
+                    editor_state.pop(tab_id, None)
+
+                def _ai_rpc_get_nav_tree() -> list:
+                    return app_state.get("nav_tree_nodes", [])
+
+                def _ai_rpc_set_node_expanded(node_id: str, expanded: bool) -> bool:
+                    nodes = app_state.get("nav_tree_nodes")
+                    if not nodes:
+                        return False
+
+                    def _toggle(node_list):
+                        for node in node_list:
+                            if node.get("id") == node_id:
+                                node["expanded"] = expanded
+                                return True
+                            if _toggle(node.get("children", [])):
+                                return True
+                        return False
+
+                    changed = _toggle(nodes)
+                    if changed:
+                        c = client_ref.get("client")
+                        if c:
+                            try:
+                                document = json.dumps({"nodes": nodes}, separators=(",", ":"))
+                                c.call("ui.replaceChildren", {"target": "nav.tree", "document": document})
+                            except Exception:
+                                pass
+                    return changed
+
+                def _ai_rpc_tree_open_file(path: str) -> str:
+                    c = client_ref.get("client")
+                    if not c:
+                        return ""
+                    _open_file_tab(c, path, True)
+                    found = next((t for t in tab_list if t.get("path") == path), None)
+                    return found["tab_id"] if found else ""
+
+                def _ai_rpc_editor_replace_range(
+                    tab_id: str,
+                    from_line: int, from_col: int,
+                    to_line: int, to_col: int,
+                    replacement: str,
+                ) -> dict:
+                    state = editor_state.get(tab_id)
+                    if not state:
+                        raise KeyError(f"no_such_tab: {tab_id}")
+                    text = state.get("source_text", "")
+                    lines = text.split("\n")
+
+                    def _to_offset(line_1, col_0):
+                        line_1 = max(1, min(line_1, len(lines)))
+                        col_0 = max(0, min(col_0, len(lines[line_1 - 1])))
+                        return sum(len(lines[i]) + 1 for i in range(line_1 - 1)) + col_0
+
+                    from_off = _to_offset(from_line, from_col)
+                    to_off = _to_offset(to_line, to_col)
+                    if from_off > to_off:
+                        from_off, to_off = to_off, from_off
+                    new_text = text[:from_off] + replacement + text[to_off:]
+                    state["source_text"] = new_text
+                    c = client_ref.get("client")
+                    if c:
+                        try:
+                            ids = _editor_ids(tab_id)
+                            c.set_text(ids["source"], new_text)
+                        except Exception:
+                            pass
+                    new_lines = new_text.split("\n")
+                    ins_chars = len(replacement)
+                    ins_end_off = from_off + ins_chars
+                    ins_end_line = new_text[:ins_end_off].count("\n") + 1
+                    ins_end_col = ins_end_off - new_text[:ins_end_off].rfind("\n") - 1
+                    return {
+                        "tab_id": tab_id,
+                        "lines_total": len(new_lines),
+                        "chars_total": len(new_text),
+                        "cursor_line": ins_end_line,
+                        "cursor_col": ins_end_col,
+                    }
+
+                def _ai_rpc_ui_call(method: str, params: dict):
+                    c = client_ref.get("client")
+                    if not c:
+                        raise RuntimeError("ui_unavailable: UI client not connected")
+                    return c.call(f"ui.{method}", params)
+
+                def _ai_rpc_open_project(path: str) -> dict:
+                    c = client_ref.get("client")
+                    if not c:
+                        raise RuntimeError("ui_unavailable: UI client not connected")
+                    _open_project(c, path)
+                    return {
+                        "project_root": app_state.get("project_root", ""),
+                        "project_name": app_state.get("project_name", ""),
+                    }
+
+                def _ai_rpc_get_exceptions(limit: int = 50) -> list:
+                    with _exception_log_lock:
+                        entries = list(_exception_log)
+                    return entries[-limit:] if limit > 0 else entries
+
+                def _ai_rpc_clear_exceptions() -> dict:
+                    with _exception_log_lock:
+                        count = len(_exception_log)
+                        _exception_log.clear()
+                    return {"cleared": count}
+
+                def _ai_rpc_get_ui_status() -> dict:
+                    c = client_ref.get("client")
+                    proc = _ui_server.get("proc")
+                    pid = proc.pid if proc else None
+                    alive = proc is not None and proc.poll() is None
+                    recent_output = list(_ui_server.get("output_lines", []))[-50:]
+                    return {
+                        "connected": bool(c and c._running),
+                        "managed_process": proc is not None,
+                        "process_alive": alive,
+                        "process_pid": pid,
+                        "server_cmd": _ui_server.get("cmd", []),
+                        "recent_output": recent_output,
+                    }
+
+                def _ai_rpc_restart_ui(use_gdb: bool = False) -> dict:
+                    proc = _ui_server.get("proc")
+                    if proc and proc.poll() is None:
+                        proc.terminate()
+                        try:
+                            proc.wait(timeout=4)
+                        except subprocess.TimeoutExpired:
+                            proc.kill()
+                            proc.wait()
+
+                    cmd = _resolve_ui_server_cmd()
+                    _ui_server["output_lines"] = []
+                    if use_gdb:
+                        cmd = [
+                            "gdb", "--batch",
+                            "-ex", "handle SIGPIPE nostop noprint",
+                            "-ex", "run",
+                            "-ex", "thread apply all bt full",
+                            "--args",
+                        ] + cmd
+
+                    out_lines = _ui_server["output_lines"]
+
+                    def _reader(stream, tag):
+                        for raw in stream:
+                            line = raw.decode(errors="replace").rstrip()
+                            out_lines.append(f"[{tag}] {line}")
+                            if len(out_lines) > 500:
+                                del out_lines[:len(out_lines) - 500]
+
+                    new_proc = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    threading.Thread(target=_reader, args=(new_proc.stdout, "stdout"), daemon=True).start()
+                    threading.Thread(target=_reader, args=(new_proc.stderr, "stderr"), daemon=True).start()
+                    _ui_server["proc"] = new_proc
+                    _ui_server["cmd"] = cmd
+                    app_state["_ui_reconnect_requested"] = True
+                    return {"pid": new_proc.pid, "cmd": cmd, "use_gdb": use_gdb}
+
+                def _ai_rpc_get_event_log(limit: int = 100, type_filter: str = "") -> list:
+                    with _event_log_lock:
+                        entries = list(_event_log)
+                    if type_filter:
+                        entries = [e for e in entries if e.get("type") == type_filter]
+                    if limit and len(entries) > limit:
+                        entries = entries[-limit:]
+                    return entries
+
+                def _ai_rpc_clear_event_log() -> dict:
+                    with _event_log_lock:
+                        n = len(_event_log)
+                        _event_log.clear()
+                    return {"cleared": n}
+
+                ide_bindings._compile_tab = _ai_rpc_compile_tab
+                ide_bindings._open_file = _ai_rpc_open_file
+                ide_bindings._switch_view = _ai_rpc_switch_view
+                ide_bindings._set_editor_content = _ai_rpc_set_editor_content
+                ide_bindings._set_active_tab = _ai_rpc_set_active_tab
+                ide_bindings._close_tab = _ai_rpc_close_tab
+                ide_bindings._get_nav_tree = _ai_rpc_get_nav_tree
+                ide_bindings._set_node_expanded = _ai_rpc_set_node_expanded
+                ide_bindings._tree_open_file = _ai_rpc_tree_open_file
+                ide_bindings._editor_replace_range = _ai_rpc_editor_replace_range
+                ide_bindings._ui_call = _ai_rpc_ui_call
+                ide_bindings._open_project = _ai_rpc_open_project
+                ide_bindings._get_exceptions = _ai_rpc_get_exceptions
+                ide_bindings._clear_exceptions = _ai_rpc_clear_exceptions
+                ide_bindings._get_ui_status = _ai_rpc_get_ui_status
+                ide_bindings._restart_ui = _ai_rpc_restart_ui
+                ide_bindings._get_event_log = _ai_rpc_get_event_log
+                ide_bindings._clear_event_log = _ai_rpc_clear_event_log
+                ide_bindings._log_event = _push_event
+
+                ai_rpc_server = AiRpcServer(port=args.ai_rpc_port, ide=ide_bindings)
+                ai_rpc_server.start()
+                _first_connect = False
+
             if args.once:
                 return
             if not args.no_worker:
@@ -3390,12 +3834,59 @@ def main():
                 return
             print("Connected to Elara UI RPC head. Press Ctrl+C to exit.", flush=True)
             next_layout_persist = 0.0
-            while True:
+            while client._running and not app_state.get("_ui_reconnect_requested"):
                 now = time.monotonic()
                 if now >= next_layout_persist:
                     _persist_runtime_layout_state(client)
                     next_layout_persist = now + 1.0
                 time.sleep(0.25)
+
+            if not client._running and not app_state.get("_ui_reconnect_requested"):
+                _push_event("ui_disconnect", reason="unexpected",
+                            note="See recent ui_rpc_out entries to reproduce crash under gdb")
+                _push_exception(Exception("UI RPC connection dropped unexpectedly"), "main_loop")
+            else:
+                _push_event("ui_disconnect", reason="requested")
+
+        except (OSError, ElaraUiRpcError) as _conn_exc:
+            _push_exception(_conn_exc, "ui_connect")
+            if _ui_server.get("proc") is None:
+                raise SystemExit(str(_conn_exc))
+
+        finally:
+            # Close the session log file; the next connect iteration opens a new one.
+            fh = _event_log_fh[0]
+            if fh is not None:
+                try:
+                    fh.close()
+                except Exception:
+                    pass
+                _event_log_fh[0] = None
+
+        # --- Decide whether to reconnect ---
+        client_ref["client"] = None
+        _reconnect = app_state.pop("_ui_reconnect_requested", False)
+        if not _reconnect and _ui_server.get("proc") is not None:
+            # UI dropped; if we're managing the process, stay alive and wait
+            proc = _ui_server["proc"]
+            if proc.poll() is None:
+                _reconnect = True  # managed proc still running (we asked it to restart)
+
+        if not _reconnect:
+            break
+
+        # Wait up to 10 s for the new server to start accepting connections.
+        print(json.dumps({"ui_reconnecting": True}), flush=True)
+        deadline = time.monotonic() + 10.0
+        while time.monotonic() < deadline:
+            try:
+                import socket as _sock
+                _s = _sock.create_connection((args.host, args.port), timeout=0.5)
+                _s.close()
+                break
+            except OSError:
+                time.sleep(0.5)
+
     except KeyboardInterrupt:
         if worker is not None:
             try:
@@ -3404,8 +3895,6 @@ def main():
             except Exception:
                 pass
         return
-    except ElaraUiRpcError as exc:
-        raise SystemExit(str(exc))
 
 
     finally:
@@ -3420,6 +3909,11 @@ def main():
             try:
                 worker.stop()
                 worker.wait(timeout_ms=2000)
+            except Exception:
+                pass
+        if ai_rpc_server is not None:
+            try:
+                ai_rpc_server.stop()
             except Exception:
                 pass
 

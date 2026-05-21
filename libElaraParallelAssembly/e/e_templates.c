@@ -302,7 +302,28 @@ static Region build_stmt(GraphBuild *gb, const EStmt *stmt) {
     }
     case E_STMT_NEXT: return build_simple(gb, E_TPL_SEQ, "next", 0);
     case E_STMT_RAW_EPA: return build_simple(gb, E_TPL_SEQ, "raw-epa", 0);
-    case E_STMT_FOREACH: return build_while(gb, stmt);
+    case E_STMT_FOREACH: {
+      Region out, body_region;
+      uint32_t eval_id, head_id, join_id, saved_break, saved_continue;
+      eval_id = add_block(gb, E_TPL_EXPR_EVAL, "foreach-cond", 0);
+      head_id = add_block(gb, E_TPL_WHILE_HEAD, "foreach-head", 1);
+      join_id = add_block(gb, E_TPL_LOOP_JOIN, "foreach-join", 0);
+      saved_break = gb->break_target;
+      saved_continue = gb->continue_target;
+      gb->break_target = join_id;
+      gb->continue_target = eval_id;
+      body_region = build_stmt(gb, stmt->as.foreach_stmt.body);
+      set_primary(gb->graph, eval_id, E_EDGE_FALLTHROUGH, head_id);
+      set_primary(gb->graph, head_id, E_EDGE_TRUE, body_region.entry_id);
+      set_secondary(gb->graph, head_id, E_EDGE_FALSE, join_id);
+      if (find_block(gb->graph, body_region.exit_id)->primary_edge.kind == E_EDGE_NONE)
+        set_primary(gb->graph, body_region.exit_id, E_EDGE_JUMP, eval_id);
+      gb->break_target = saved_break;
+      gb->continue_target = saved_continue;
+      out.entry_id = eval_id;
+      out.exit_id = join_id;
+      return out;
+    }
     case E_STMT_DYNAMIC: return build_simple(gb, E_TPL_SEQ, "dynamic-decl", 0);
     case E_STMT_STATIC_BLOCK: return build_block(gb, &stmt->as.static_block);
   }

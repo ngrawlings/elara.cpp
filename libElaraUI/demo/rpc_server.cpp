@@ -1544,6 +1544,12 @@ private:
             return;
         }
 
+        if(peer && peer->isConnected()) {
+            logger.log("rpc.connection", String("rejecting extra connection fd=") + String(fd));
+            ::close(fd);
+            return;
+        }
+
         if(peer) {
             peer->close();
         }
