@@ -81,6 +81,12 @@ private:
         String& error_code,
         String& error_message
     );
+    bool setEipLine(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool setBounds(
         const Json& params,
         String& result_json,

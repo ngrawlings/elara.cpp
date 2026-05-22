@@ -186,7 +186,8 @@ ElaraCodeEditorWidget::ElaraCodeEditorWidget(
     preferred_column(-1),
     scroll_x(0),
     scroll_y(0),
-    minimap_dragging(false) {
+    minimap_dragging(false),
+    eip_line(-1) {
 
     vertical_slider->setOrientation("vertical");
     vertical_slider->setStep(1);
@@ -552,6 +553,21 @@ void ElaraCodeEditorWidget::drawGutter(ElaraDrawContext* ctx) {
         int logical  = visible_line_map[vis_idx];
         double row_y = (double)i * line_height;
         double row_cy = row_y + line_height * 0.5;
+
+        // --- EIP arrow (left 12px zone, amber) ---
+        if (logical == eip_line) {
+            ctx->setColor(1.0, 0.78, 0.0);
+            double ax = 2.0, ay = row_cy;
+            double hw = 7.0, hh = 4.5, th = 2.5, tw = 4.0;
+            // arrowhead
+            ctx->line(ax + tw,      ay - hh, ax + tw + hw, ay,      1.0);
+            ctx->line(ax + tw + hw, ay,      ax + tw,      ay + hh, 1.0);
+            ctx->line(ax + tw,      ay + hh, ax + tw,      ay + th, 1.0);
+            ctx->line(ax + tw,      ay + th, ax,            ay + th, 1.0);
+            ctx->line(ax,           ay + th, ax,            ay - th, 1.0);
+            ctx->line(ax,           ay - th, ax + tw,      ay - th, 1.0);
+            ctx->line(ax + tw,      ay - th, ax + tw,      ay - hh, 1.0);
+        }
 
         // --- Breakpoint dot (left 12px zone) ---
         if (logical < (int)decorations.length() && decorations[logical].breakpoint) {
@@ -1314,6 +1330,14 @@ void ElaraCodeEditorWidget::setBookmark(int logical_line, bool v) {
 bool ElaraCodeEditorWidget::hasBookmark(int logical_line) const {
     if (logical_line >= (int)decorations.length()) return false;
     return decorations[logical_line].bookmark;
+}
+
+void ElaraCodeEditorWidget::setEipLine(int line) {
+    eip_line = line;
+}
+
+int ElaraCodeEditorWidget::getEipLine() const {
+    return eip_line;
 }
 
 void ElaraCodeEditorWidget::clearDiagnostics() {

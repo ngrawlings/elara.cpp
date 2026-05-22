@@ -240,6 +240,9 @@ class ElaraUiRpcClient:
             timeout=timeout,
         )
 
+    def set_eip_line(self, target: str, line: int, timeout: float = 5.0):
+        return self.call("ui.setEipLine", {"target": target, "line": int(line)}, timeout=timeout)
+
     def set_focus(self, target: str, timeout: float = 5.0):
         return self.call("ui.setFocus", {"target": target}, timeout=timeout)
 

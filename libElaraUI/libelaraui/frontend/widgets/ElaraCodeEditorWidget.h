@@ -15,6 +15,8 @@ private:
         LineDecoration() : breakpoint(false), bookmark(false) {}
     };
 
+    int eip_line;
+
     struct FoldRegion {
         int start_line;
         int end_line;
@@ -193,6 +195,9 @@ public:
 
     void clearDiagnostics();
     void addDiagnostic(int line, int column, int length, const String& message);
+
+    void setEipLine(int line);
+    int getEipLine() const;
 
     ElaraMouseCursor cursor() const;
     ElaraMouseCursor cursorAt(double px, double py) const;

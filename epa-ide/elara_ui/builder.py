@@ -71,6 +71,7 @@ class UiDocumentBuilder:
             "sections": {},
             "children": [],
             "grid_children": [],
+            "list_children": [],
             "tabs": [],
             "popup_items": [],
             "toolbar_items": [],
@@ -138,6 +139,19 @@ class UiDocumentBuilder:
             .set_property_number(widget_id, "value", value)
             .set_property_number(widget_id, "step", step)
         )
+
+    def create_list_layout(self, widget_id):
+        return self.create_widget(widget_id, "elara.layouts.list")
+
+    def place_list_layout_child(self, list_id, child_id, row_height=32):
+        lst = self._get_widget(list_id)
+        self._get_widget(child_id)
+        self._detach_child_reference(child_id)
+        lst["list_children"].append({
+            "child_id": child_id,
+            "entry_height": int(row_height),
+        })
+        return self
 
     def create_list_view(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.list_view")
@@ -473,6 +487,7 @@ class UiDocumentBuilder:
         for widget in self._widgets.values():
             widget["children"] = [item for item in widget["children"] if item["child_id"] != child_id]
             widget["grid_children"] = [item for item in widget["grid_children"] if item["child_id"] != child_id]
+            widget["list_children"] = [item for item in widget["list_children"] if item["child_id"] != child_id]
             widget["tabs"] = [item for item in widget["tabs"] if item["child_id"] != child_id]
 
     def _is_nested_widget(self, widget_id):
@@ -481,6 +496,9 @@ class UiDocumentBuilder:
                 if item["child_id"] == widget_id:
                     return True
             for item in widget["grid_children"]:
+                if item["child_id"] == widget_id:
+                    return True
+            for item in widget["list_children"]:
                 if item["child_id"] == widget_id:
                     return True
             for item in widget["tabs"]:
@@ -561,6 +579,12 @@ class UiDocumentBuilder:
                     "column_span": child["column_span"],
                     "row_span": child["row_span"],
                 }
+                result["children"].append(child_widget)
+        elif widget["list_children"]:
+            result["children"] = []
+            for child in widget["list_children"]:
+                child_widget = self._serialize_widget(self._get_widget(child["child_id"]))
+                child_widget["entry"] = {"height": child["entry_height"]}
                 result["children"].append(child_widget)
         elif widget["children"]:
             result["children"] = [

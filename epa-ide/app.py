@@ -63,16 +63,15 @@ def _editor_ids(tab_id: str):
         "source": f"{tab_id}.source",
         "epa": f"{tab_id}.epa",
         "debug_panel": f"{tab_id}.debug.panel",
-        "debug_form": f"{tab_id}.debug.form",
-        "debug_ingress": f"{tab_id}.debug.ingress",
-        "debug_worker": f"{tab_id}.debug.worker",
-        "debug_start": f"{tab_id}.debug.start",
-        "debug_meta": f"{tab_id}.debug.meta",
+        "debug_source_tabs": f"{tab_id}.debug.source_tabs",
+        "debug_e_view": f"{tab_id}.debug.e_view",
+        "debug_epa_view": f"{tab_id}.debug.epa_view",
         "debug": f"{tab_id}.debug.trace",
         "debug_tabs": f"{tab_id}.debug.tabs",
         "debug_ghs": f"{tab_id}.debug.ghs",
         "debug_stack": f"{tab_id}.debug.stack",
         "debug_local": f"{tab_id}.debug.local",
+        "debug_dynamic": f"{tab_id}.debug.dynamic",
     }
 
 
@@ -100,7 +99,7 @@ def _focus_editor_widget(client, tab_id: str, state: dict = None):
         if view == "epa":
             target = ids["epa"]
         elif view == "debug":
-            target = ids["debug"]
+            target = ids["debug_e_view"]
     try:
         client.set_focus(target)
     except Exception:
@@ -136,53 +135,66 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.add_grid_column_exact(ids["debug_panel"], 320)
     ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
     ui.add_grid_row_fill(ids["debug_panel"])
-    ui.create_grid(ids["debug_form"])
-    ui.add_grid_column_fill(ids["debug_form"])
-    ui.add_grid_column_fill(ids["debug_form"])
-    ui.add_grid_column_exact(ids["debug_form"], 110)
-    ui.add_grid_row_exact(ids["debug_form"], 22)
-    ui.add_grid_row_exact(ids["debug_form"], 28)
-    ui.add_grid_row_fill(ids["debug_form"])
-    ui.create_label(f"{ids['debug_ingress']}.label", "Ingress Type", 12)
-    ui.create_label(f"{ids['debug_worker']}.label", "Worker", 12)
-    ui.create_text_input(ids["debug_ingress"], "Packet", "")
-    ui.create_text_input(ids["debug_worker"], "worker_ingest", "")
-    ui.create_button(ids["debug_start"], "Start", ids["debug_start"])
-    ui.create_code_editor(ids["debug_meta"], "", font_size=12)
+    ui.create_tabs(ids["debug_source_tabs"])
+    ui.create_code_editor(ids["debug_e_view"], source_text, font_size=13)
+    ui.create_code_editor(ids["debug_epa_view"], "")
+    ui.add_tab(ids["debug_source_tabs"], "E", ids["debug_e_view"])
+    ui.add_tab(ids["debug_source_tabs"], "EPA", ids["debug_epa_view"])
     ui.create_tabs(ids["debug_tabs"])
-    ui.create_code_editor(ids["debug"], "", font_size=13)
+    ui.create_tree_view(ids["debug"])
     ui.create_tree_view(ids["debug_ghs"])
     ui.create_tree_view(ids["debug_stack"])
     ui.create_tree_view(ids["debug_local"])
+    ui.create_tree_view(ids["debug_dynamic"])
+    ui.set_section_json(ids["debug"], "nodes", [{"id": f"{ids['debug']}.root", "label": "Stack (LIFO)", "expanded": True, "children": [{"id": f"{ids['debug']}.root.empty", "label": "Stack empty"}]}])
     ui.set_section_json(ids["debug_ghs"], "nodes", [{"id": f"{ids['debug_ghs']}.root", "label": "GHS Layout", "expanded": True}])
     ui.set_section_json(ids["debug_stack"], "nodes", [{"id": f"{ids['debug_stack']}.root", "label": "Stack Interpretation", "expanded": True}])
     ui.set_section_json(ids["debug_local"], "nodes", [{"id": f"{ids['debug_local']}.root", "label": "Local Arena", "expanded": True}])
+    ui.set_section_json(ids["debug_dynamic"], "nodes", [{"id": f"{ids['debug_dynamic']}.root", "label": "Dynamic Memory", "expanded": True}])
     ui.add_tab(ids["debug_tabs"], "Trace", ids["debug"])
     ui.add_tab(ids["debug_tabs"], "GHS", ids["debug_ghs"])
     ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
     ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
-    ui.set_property_bool(ids["debug_meta"], "read_only", True)
+    ui.add_tab(ids["debug_tabs"], "Dynamic", ids["debug_dynamic"])
     ui.set_property_string(ids["source"], "language", "e")
     ui.set_property_string(ids["epa"], "language", "epa")
-    ui.set_property_string(ids["debug_meta"], "language", "plain")
-    ui.set_property_string(ids["debug"], "language", "plain")
+    ui.set_property_string(ids["debug_e_view"], "language", "e")
+    ui.set_property_string(ids["debug_epa_view"], "language", "epa")
     ui.set_property_bool(ids["epa"], "read_only", True)
-    ui.set_property_bool(ids["debug"], "read_only", True)
+    ui.set_property_bool(ids["debug_e_view"], "read_only", True)
+    ui.set_property_bool(ids["debug_epa_view"], "read_only", True)
     ui.set_property_bool(ids["epa"], "visible", False)
     ui.set_property_bool(ids["debug_panel"], "visible", False)
-    ui.place_grid_child(ids["debug_form"], f"{ids['debug_ingress']}.label", 0, 0)
-    ui.place_grid_child(ids["debug_form"], f"{ids['debug_worker']}.label", 1, 0)
-    ui.place_grid_child(ids["debug_form"], ids["debug_ingress"], 0, 1)
-    ui.place_grid_child(ids["debug_form"], ids["debug_worker"], 1, 1)
-    ui.place_grid_child(ids["debug_form"], ids["debug_start"], 2, 1)
-    ui.place_grid_child(ids["debug_form"], ids["debug_meta"], 0, 2, 3, 1)
-    ui.place_grid_child(ids["debug_panel"], ids["debug_form"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["debug_source_tabs"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
     ui.place_grid_child(ids["container"], ids["source"], 0, 1)
     ui.place_grid_child(ids["container"], ids["epa"], 0, 1)
     ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 1)
     ui.add_tab("editor.tabs", title, ids["container"],
                button_glyph="×", button_action=f"tab.close.{tab_id}")
+
+
+def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: str):
+    row_id = f"nav.debug.kernel.{tab_id}"
+    ui.create_grid(row_id)
+    ui.add_grid_column_exact(row_id, 6)
+    ui.add_grid_column_fill(row_id)
+    ui.add_grid_column_exact(row_id, 26)
+    ui.add_grid_column_exact(row_id, 32)
+    ui.add_grid_column_exact(row_id, 32)
+    ui.add_grid_column_exact(row_id, 4)
+    ui.add_grid_row_fill(row_id)
+    ui.create_label(f"{row_id}.name", kernel_name, 12)
+    ui.create_label(f"{row_id}.queue", "0", 11)
+    ui.set_property_bool(f"{row_id}.queue", "enabled", False)
+    ui.create_button(f"{row_id}.run",  "▶",  f"debug.kernel.run.{tab_id}")
+    ui.set_property_number(f"{row_id}.run",  "font_size", 11)
+    ui.create_button(f"{row_id}.step", "▶|", f"debug.kernel.step.{tab_id}")
+    ui.set_property_number(f"{row_id}.step", "font_size", 11)
+    ui.place_grid_child(row_id, f"{row_id}.name",  1, 0)
+    ui.place_grid_child(row_id, f"{row_id}.queue", 2, 0)
+    ui.place_grid_child(row_id, f"{row_id}.run",   3, 0)
+    ui.place_grid_child(row_id, f"{row_id}.step",  4, 0)
 
 
 def build_document():
@@ -933,13 +945,12 @@ def build_document():
     ui.place_grid_child("nav.issues_panel", "nav.ev_setup_panel",    0, 1)
     ui.set_property_bool("nav.issues_panel", "visible", False)
 
-    # ── Debug placeholder panel ───────────────────────────────────────────
+    # ── Debug left panel ─────────────────────────────────────────────────
     ui.create_grid("nav.debug_panel")
-    ui.add_grid_column_weighted_fill("nav.debug_panel", 1)
-    ui.add_grid_row_exact("nav.debug_panel", 28)   # header
-    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)
-    ui.add_grid_row_exact("nav.debug_panel", 80)   # placeholder text
-    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)
+    ui.add_grid_column_fill("nav.debug_panel")
+    ui.add_grid_row_exact("nav.debug_panel", 28)    # 0  header
+    ui.add_grid_row_exact("nav.debug_panel", 62)    # 1  ingress designer
+    ui.add_grid_row_fill("nav.debug_panel")         # 2  kernel list
 
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
@@ -948,12 +959,29 @@ def build_document():
     ui.create_label("nav.debug_title", "DEBUG", 11)
     ui.place_grid_child("nav.debug_header", "nav.debug_title", 1, 0)
 
-    ui.create_label("nav.debug.placeholder",
-                    "Debug panel coming soon.", 12)
-    ui.set_property_bool("nav.debug.placeholder", "enabled", False)
+    # Ingress designer
+    ui.create_grid("nav.debug.ingress")
+    ui.add_grid_column_exact("nav.debug.ingress", 8)
+    ui.add_grid_column_fill("nav.debug.ingress")
+    ui.add_grid_column_exact("nav.debug.ingress", 8)
+    ui.add_grid_row_exact("nav.debug.ingress", 22)   # section label
+    ui.add_grid_row_exact("nav.debug.ingress", 28)   # combo row
+    ui.create_label("nav.debug.ingress.title", "INGRESS DESIGNER", 10)
+    ui.set_property_bool("nav.debug.ingress.title", "enabled", False)
+    ui.create_combo_box("nav.debug.ingress_type", items=[], selected_id="")
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.title", 1, 0)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_type",  1, 1)
 
-    ui.place_grid_child("nav.debug_panel", "nav.debug_header",      0, 0)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.placeholder", 0, 2)
+    # Kernel list (one entry per .e tab / kernel)
+    ui.create_list_layout("nav.debug.kernels")
+    for tab_id, title, _ in INITIAL_E_TABS:
+        kernel_name = Path(title).stem if "." in title else title
+        _build_kernel_row_widgets(ui, tab_id, kernel_name)
+        ui.place_list_layout_child("nav.debug.kernels", f"nav.debug.kernel.{tab_id}", row_height=36)
+
+    ui.place_grid_child("nav.debug_panel", "nav.debug_header",  0, 0)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.ingress", 0, 1)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels", 0, 2)
     ui.set_property_bool("nav.debug_panel", "visible", False)
 
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
@@ -2477,6 +2505,16 @@ def main():
             stack.append((indent, node))
         return [root]
 
+    def _build_trace_nodes(values: list, root_id: str):
+        root = {"id": root_id, "label": "Stack (LIFO)", "expanded": True, "children": []}
+        if not values:
+            root["children"].append({"id": f"{root_id}.empty", "label": "Stack empty"})
+        else:
+            for i, v in enumerate(values):
+                label = f"0x{v & 0xFFFFFFFF:08X}" + (" ← TOS" if i == 0 else "")
+                root["children"].append({"id": f"{root_id}.{i}", "label": label})
+        return [root]
+
     def _extract_debug_candidates(source_text: str):
         type_names = re.findall(r"^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", source_text, flags=re.MULTILINE)
         worker_names = re.findall(r"^\s*worker\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", source_text, flags=re.MULTILINE)
@@ -2559,6 +2597,7 @@ def main():
                     "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
                     "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
                     "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                    "dynamic_nodes": _parse_tree_lines("", "Dynamic Memory", f"{ids['debug_dynamic']}.root"),
                 }
 
             stdout = proc.stdout or ""
@@ -2572,12 +2611,14 @@ def main():
                     local_lines.append(stripped)
                 elif stripped.startswith("local ") or stripped.startswith("func "):
                     stack_lines.append(stripped)
+            dynamic_block = _extract_section_block(stdout, "dynamic-memory")
             return {
                 "ok": True,
                 "message": "",
                 "ghs_nodes": _parse_tree_lines(ghs_block or "No declared GHS layouts.", "GHS Layout", f"{ids['debug_ghs']}.root"),
                 "stack_nodes": _parse_tree_lines("\n".join(stack_lines).strip() or "No stack frame data.", "Stack Interpretation", f"{ids['debug_stack']}.root"),
                 "local_nodes": _parse_tree_lines("\n".join(local_lines).strip() or "No local arena allocations.", "Local Arena", f"{ids['debug_local']}.root"),
+                "dynamic_nodes": _parse_tree_lines(dynamic_block or "No dynamic allocations.", "Dynamic Memory", f"{ids['debug_dynamic']}.root"),
             }
 
     def _diagnostic_from_error(message: str):
@@ -2657,8 +2698,6 @@ def main():
         client.set_enabled(ids["button_epa"], view != "epa")
         client.set_enabled(ids["button_debug"], view != "debug")
         client.set_read_only(ids["epa"], True)
-        client.set_read_only(ids["debug"], True)
-        client.set_read_only(ids["debug_meta"], True)
         if set_focus:
             _focus_editor_widget(client, tab_id, state)
 
@@ -2667,41 +2706,117 @@ def main():
         if not state:
             return
         ids = _editor_ids(tab_id)
-        meta_lines = [
-            "# Debug Setup",
-            "",
-            "Select the ingress type and the worker to inject after kernel startup.",
-            "",
-            "Available ingress types:",
-        ]
-        if state.get("available_types"):
-            meta_lines.extend(f"- {name}" for name in state["available_types"])
-        else:
-            meta_lines.append("- none discovered")
-        meta_lines.append("")
-        meta_lines.append("Available workers:")
-        if state.get("available_workers"):
-            meta_lines.extend(f"- {name}" for name in state["available_workers"])
-        else:
-            meta_lines.append("- none discovered")
-        if state.get("debug_started"):
-            meta_lines.extend([
-                "",
-                f"Prepared ingress type: {state.get('debug_ingress_type', '') or '(unset)'}",
-                f"Prepared worker: {state.get('debug_worker_name', '') or '(unset)'}",
-            ])
-        client.set_text(ids["debug_ingress"], state.get("debug_ingress_type", ""))
-        client.set_text(ids["debug_worker"], state.get("debug_worker_name", ""))
-        client.set_text(ids["debug_meta"], "\n".join(meta_lines) + "\n")
+        client.set_text(ids["debug_e_view"], state.get("source_text", ""))
+        client.set_text(ids["debug_epa_view"], state.get("epa_text", ""))
 
     def _refresh_debug_sidebars(client, tab_id: str):
         state = editor_state.get(tab_id)
         if not state:
             return
         ids = _editor_ids(tab_id)
+        _replace_tree_nodes(client, ids["debug"], state.get("trace_nodes", _build_trace_nodes([], f"{ids['debug']}.root")))
         _replace_tree_nodes(client, ids["debug_ghs"], state.get("ghs_nodes", _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root")))
         _replace_tree_nodes(client, ids["debug_stack"], state.get("stack_nodes", _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root")))
         _replace_tree_nodes(client, ids["debug_local"], state.get("local_nodes", _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root")))
+        _replace_tree_nodes(client, ids["debug_dynamic"], state.get("dynamic_nodes", _parse_tree_lines("", "Dynamic Memory", f"{ids['debug_dynamic']}.root")))
+
+    _WORKER_INGRESS_RE = re.compile(
+        r"^\s*worker\s+[A-Za-z_]\w*\s*\(\s*"
+        r"([A-Za-z_]\w*(?:\|[A-Za-z_]\w*)*)"   # type(s), possibly union A|B
+        r"\s+[A-Za-z_]",                         # followed by the variable name
+        re.MULTILINE,
+    )
+
+    def _ingress_types_from_project():
+        """Scan all epa/**/*.e and *.em files for worker parameter types."""
+        project_root = app_state.get("project_root", "")
+        epa_root = Path(project_root) / "epa" if project_root else None
+        seen = set()
+        type_names = []
+
+        def _collect(src: str):
+            for match in _WORKER_INGRESS_RE.finditer(src):
+                for name in match.group(1).split("|"):
+                    name = name.strip()
+                    if name and name not in seen:
+                        seen.add(name)
+                        type_names.append(name)
+
+        if epa_root and epa_root.is_dir():
+            for path in sorted(epa_root.rglob("*")):
+                if not path.is_file() or path.suffix not in (".e", ".em"):
+                    continue
+                try:
+                    _collect(path.read_text(encoding="utf-8", errors="replace"))
+                except Exception:
+                    pass
+
+        # also catch unsaved edits in open tabs
+        for state in editor_state.values():
+            _collect(state.get("source_text", ""))
+
+        return [{"id": n, "label": n} for n in type_names]
+
+    def _apply_ingress_types_combo(client, items):
+        try:
+            client.call("ui.setSectionJson", {
+                "target": "nav.debug.ingress_type",
+                "section": "items",
+                "value": items,
+            })
+        except Exception:
+            pass
+
+    def _refresh_debug_panel(client):
+        """Rebuild nav.debug.kernels and the ingress type combo."""
+        project_root = app_state.get("project_root", "")
+        epa_root = Path(project_root) / "epa" if project_root else None
+        kernel_paths = []
+        if epa_root and epa_root.is_dir():
+            entry = epa_root / "entry.e"
+            others = sorted(
+                p for p in epa_root.rglob("*.e")
+                if p.is_file() and p != entry
+            )
+            kernel_paths = ([entry] if entry.is_file() else []) + others
+
+        children = []
+        if kernel_paths:
+            list_ui = UiDocumentBuilder()
+            kernel_ids = []
+            for path in kernel_paths:
+                rel = path.relative_to(epa_root)
+                kernel_id = ".".join(rel.with_suffix("").parts)
+                kernel_label = str(rel.with_suffix(""))
+                _build_kernel_row_widgets(list_ui, kernel_id, kernel_label)
+                kernel_ids.append(kernel_id)
+            for kernel_id in kernel_ids:
+                child_dict = list_ui.widget_dict(f"nav.debug.kernel.{kernel_id}")
+                child_dict["entry"] = {"height": 36}
+                children.append(child_dict)
+
+        try:
+            client.call("ui.replaceChildren", {
+                "target": "nav.debug.kernels",
+                "document": json.dumps({"children": children}, separators=(",", ":"), ensure_ascii=False),
+            })
+        except Exception:
+            pass
+
+        # Populate ingress type combo: serve cache immediately, refresh in background
+        cached = app_state.get("debug_ingress_types_cache")
+        if cached is not None:
+            _apply_ingress_types_combo(client, cached)
+
+        def _bg_refresh_types():
+            items = _ingress_types_from_project()
+            app_state["debug_ingress_types_cache"] = items
+            c = client_ref.get("client")
+            if c:
+                _apply_ingress_types_combo(c, items)
+
+        import threading
+        threading.Thread(target=_bg_refresh_types, daemon=True).start()
 
     def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None, focus: bool = False):
         state = editor_state.get(tab_id)
@@ -2728,17 +2843,7 @@ def main():
         state["epa_map"] = result.get("epa_map", [])
         state["compile_error"] = result["message"]
         state["available_types"], state["available_workers"] = _extract_debug_candidates(source_text)
-        if not state.get("debug_ingress_type") and state["available_types"]:
-            state["debug_ingress_type"] = state["available_types"][0]
-        if not state.get("debug_worker_name") and state["available_workers"]:
-            state["debug_worker_name"] = state["available_workers"][0]
-        state["debug_marker_line"] = _first_marker_line(result["epa_text"]) if result["ok"] else 0
-        state["debug_text"] = (
-            _debug_preview_text(result["epa_text"], state.get("debug_marker_line"),
-                                epa_map=state.get("epa_map"))
-            if result["ok"] else
-            "# Debug Trace\n\nEPA view is blank because compilation failed.\n"
-        )
+        state["trace_nodes"] = _build_trace_nodes([], f"{ids['debug']}.root")
         if result["ok"]:
             try:
                 semantic = _analyze_e_source(source_text, ids, source_dir)
@@ -2749,6 +2854,7 @@ def main():
                     "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
                     "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
                     "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                    "dynamic_nodes": _parse_tree_lines("", "Dynamic Memory", f"{ids['debug_dynamic']}.root"),
                 }
         else:
             semantic = {
@@ -2757,12 +2863,15 @@ def main():
                 "ghs_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "GHS Layout", f"{ids['debug_ghs']}.root"),
                 "stack_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "Stack Interpretation", f"{ids['debug_stack']}.root"),
                 "local_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "Local Arena", f"{ids['debug_local']}.root"),
+                "dynamic_nodes": _parse_tree_lines("Unavailable while the source has compile errors.", "Dynamic Memory", f"{ids['debug_dynamic']}.root"),
             }
         state["ghs_nodes"] = semantic["ghs_nodes"]
         state["stack_nodes"] = semantic["stack_nodes"]
         state["local_nodes"] = semantic["local_nodes"]
-        client.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
-        client.set_text(ids["debug"], state["debug_text"])
+        state["dynamic_nodes"] = semantic["dynamic_nodes"]
+        epa_text_out = result["epa_text"] if result["ok"] else ""
+        client.set_text(ids["epa"], epa_text_out)
+        client.set_text(ids["debug_epa_view"], epa_text_out)
         client.set_code_editor_diagnostics(ids["source"], result["diagnostics"])
         _apply_editor_view(client, tab_id, set_focus=focus)
         _refresh_debug_controls(client, tab_id)
@@ -2781,16 +2890,13 @@ def main():
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
-                "debug_marker_line": 0,
-                "debug_text": "# Debug Trace\n\nNo EPA output available.\n",
+                "trace_nodes": None,
                 "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{ids['debug_ghs']}.root"),
                 "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{ids['debug_stack']}.root"),
                 "local_nodes": _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root"),
+                "dynamic_nodes": _parse_tree_lines("", "Dynamic Memory", f"{ids['debug_dynamic']}.root"),
                 "available_types": [],
                 "available_workers": [],
-                "debug_ingress_type": "",
-                "debug_worker_name": "",
-                "debug_started": False,
                 "undo_stack": [],
                 "redo_stack": [],
                 "last_undo_time": 0.0,
@@ -2979,6 +3085,8 @@ def main():
             _refresh_ev_panel(client)
         elif view == "issues":
             _refresh_issues_panel(client)
+        elif view == "debug":
+            _refresh_debug_panel(client)
 
     def _refresh_repo_panel(client):
         project_root = app_state.get("project_root", "")
@@ -3215,16 +3323,13 @@ def main():
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
-                "debug_marker_line": 0,
-                "debug_text": "# Debug Trace\n\nNo EPA output available.\n",
+                "trace_nodes": None,
                 "ghs_nodes": _parse_tree_lines("", "GHS Layout", f"{tab_id}.debug_ghs.root"),
                 "stack_nodes": _parse_tree_lines("", "Stack Interpretation", f"{tab_id}.debug_stack.root"),
                 "local_nodes": _parse_tree_lines("", "Local Arena", f"{tab_id}.debug_local.root"),
+                "dynamic_nodes": _parse_tree_lines("", "Dynamic Memory", f"{tab_id}.debug_dynamic.root"),
                 "available_types": [],
                 "available_workers": [],
-                "debug_ingress_type": "",
-                "debug_worker_name": "",
-                "debug_started": False,
                 "undo_stack": [],
                 "redo_stack": [],
                 "last_undo_time": 0.0,
@@ -3423,27 +3528,6 @@ def main():
                     seq = state["compile_seq"]
                     _deferred(lambda: _refresh_e_tab(c, current_tab, seq))
                 return {"received": True}
-            if action == "keysTyped" and target == ids["debug_ingress"]:
-                app_state["active_editor_tab"] = tab_id
-                state["debug_ingress_type"] = state.get("debug_ingress_type", "") + payload.get("text", "")
-                return {"received": True}
-            if action == "keysTyped" and target == ids["debug_worker"]:
-                app_state["active_editor_tab"] = tab_id
-                state["debug_worker_name"] = state.get("debug_worker_name", "") + payload.get("text", "")
-                return {"received": True}
-            if action == "keyDown" and target == ids["debug_ingress"] and payload.get("keyval", 0) == 0xff08:
-                app_state["active_editor_tab"] = tab_id
-                value = state.get("debug_ingress_type", "")
-                if value:
-                    state["debug_ingress_type"] = value[:-1]
-                return {"received": True}
-            if action == "keyDown" and target == ids["debug_worker"] and payload.get("keyval", 0) == 0xff08:
-                app_state["active_editor_tab"] = tab_id
-                value = state.get("debug_worker_name", "")
-                if value:
-                    state["debug_worker_name"] = value[:-1]
-                return {"received": True}
-
         # Track technology checkbox toggles from the wizard.
         if action == "valueChanged" and target in (
             "wizard.tech.epa", "wizard.tech.cpp", "wizard.tech.python"
@@ -3918,26 +4002,6 @@ def main():
                     current_tab = tab_id
                     _deferred(lambda: (_apply_editor_view(c, current_tab, set_focus=True), _refresh_debug_controls(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
                     return {"received": True}
-                if item_action == ids["debug_start"]:
-                    app_state["active_editor_tab"] = tab_id
-                    state["debug_started"] = True
-                    state["debug_text"] = (
-                        "# Debug Trace\n\n"
-                        "Debug startup prepared.\n\n"
-                        f"Ingress type: {state.get('debug_ingress_type', '') or '(unset)'}\n"
-                        f"Worker: {state.get('debug_worker_name', '') or '(unset)'}\n\n"
-                        "Kernel should run first, then the selected ingress payload can be injected into the selected worker.\n\n"
-                        "Runtime stepping/injection is not wired yet in this first pass."
-                    )
-                    current_tab = tab_id
-                    _deferred(lambda: (
-                        c.set_text(_editor_ids(current_tab)["debug"], editor_state[current_tab]["debug_text"]),
-                        _refresh_debug_controls(c, current_tab),
-                        _refresh_debug_sidebars(c, current_tab),
-                        _apply_editor_view(c, current_tab, set_focus=True),
-                    ))
-                    return {"received": True}
-
             if item_action and item_action.startswith("tab.close."):
                 close_tab_id = item_action[len("tab.close."):]
                 entry = next((t for t in tab_list if t["tab_id"] == close_tab_id), None)
@@ -4433,6 +4497,30 @@ def main():
                 tab_widget_id = item_action[len("tab.close."):]
                 print(json.dumps({"tab_closed": tab_widget_id}, indent=2), flush=True)
 
+            elif item_action and (
+                item_action.startswith("debug.kernel.run.")
+                or item_action.startswith("debug.kernel.step.")
+            ):
+                kernel_id = (
+                    item_action[len("debug.kernel.run."):]
+                    if item_action.startswith("debug.kernel.run.")
+                    else item_action[len("debug.kernel.step."):]
+                )
+                project_root_str = app_state.get("project_root", "")
+                if project_root_str:
+                    rel = kernel_id.replace(".", "/") + ".e"
+                    file_path = str(Path(project_root_str) / "epa" / rel)
+                    tab_id = _tab_id_for_path(file_path)
+                    source_tab_id = tab_id
+                    def _open_kernel_tab(fp=file_path, stid=source_tab_id):
+                        _open_file_tab(c, fp, make_permanent=True)
+                        try:
+                            c.set_eip_line(_editor_ids(stid)["source"], 0)
+                        except Exception:
+                            pass
+                    _deferred(_open_kernel_tab)
+                return {"received": True}
+
             elif item_action == "ai.send":
                 if not ai_state.get("generating") and ai_state.get("input_text", "").strip():
                     _deferred(_ai_send)
@@ -4599,7 +4687,9 @@ def main():
                     if c:
                         try:
                             ids = _editor_ids(tab_id)
-                            c.set_text(ids["epa"], result["epa_text"] if result["ok"] else "")
+                            epa_out = result["epa_text"] if result["ok"] else ""
+                            c.set_text(ids["epa"], epa_out)
+                            c.set_text(ids["debug_epa_view"], epa_out)
                             c.set_code_editor_diagnostics(ids["source"], result.get("diagnostics", []))
                         except Exception:
                             pass

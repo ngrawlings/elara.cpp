@@ -10,6 +10,7 @@
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/layouts/ElaraGridLayout.h>
+#include <libelaraui/frontend/layouts/ElaraListLayout.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCheckboxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
@@ -593,6 +594,25 @@ private:
         }
     }
 
+    void applyListLayoutChildren(ElaraWidgetRegister* root, ElaraListLayout* list, const Json& spec) {
+        Array< Ref<JsonValue> > children = spec.getArray("children");
+
+        for(int i = 0; i < (int)children.length(); i++) {
+            Json child_spec(children[i]);
+            ElaraWidget* child = createChildWidget(root, child_spec);
+
+            if(!child) {
+                continue;
+            }
+
+            String id = child_spec.getStringValue("id");
+            double row_height = (double)jsonInt(child_spec, "entry.height", 32);
+
+            list->addEntry(id, row_height);
+            list->addChild(Ref<ElaraWidget>(child));
+        }
+    }
+
     void applyLineChartDemoData(ElaraMultiAxisLineChartWidget* chart, const Json& spec) {
         if(!chart) {
             return;
@@ -655,6 +675,7 @@ public:
             type == String("elara.widgets.popup") ||
             type == String("elara.widgets.menu_bar") ||
             type == String("elara.layouts.grid") ||
+            type == String("elara.layouts.list") ||
             type == String("elara.widgets.button") ||
             type == String("elara.widgets.checkbox") ||
             type == String("elara.widgets.radio_button") ||
@@ -703,6 +724,10 @@ public:
             applyGridTracks(grid, spec);
             applyGridChildren(root, grid, spec);
             widget = grid;
+        } else if(type == String("elara.layouts.list")) {
+            ElaraListLayout* list_layout = new ElaraListLayout(root, id);
+            applyListLayoutChildren(root, list_layout, spec);
+            widget = list_layout;
         } else if(type == String("elara.widgets.button") || type == String("demo.widgets.button")) {
             widget = new ElaraButtonWidget(root, id);
         } else if(type == String("elara.widgets.checkbox")) {
@@ -1233,6 +1258,22 @@ bool ElaraJsonUiProtocol::replaceChildren(
             : spec_text
     );
 
+    ElaraListLayout* list_layout_check = dynamic_cast<ElaraListLayout*>(widget.getPtr());
+    if(list_layout_check) {
+        list_layout_check->clearEntryChildren();
+        Array< Ref<JsonValue> > ll_children = spec.getArray("children");
+        for(int i = 0; i < (int)ll_children.length(); i++) {
+            Json child_spec(ll_children[i]);
+            ElaraWidget* child = createWidget(child_spec);
+            if(!child) continue;
+            String child_id = child_spec.getStringValue("id");
+            double row_height = (double)jsonInt(child_spec, "entry.height", 32);
+            list_layout_check->addEntry(child_id, row_height);
+            list_layout_check->addChild(Ref<ElaraWidget>(child));
+        }
+        return true;
+    }
+
     widget->clearChildren();
     return replaceChildren(widget, spec);
 }
@@ -1432,6 +1473,21 @@ bool ElaraJsonUiProtocol::replaceChildren(
                 item_json.getStringValue("id"),
                 item_json.getStringValue("label")
             );
+        }
+        return true;
+    }
+
+    ElaraListLayout* list_layout = dynamic_cast<ElaraListLayout*>(target_widget.getPtr());
+    if(list_layout) {
+        Array< Ref<JsonValue> > ll_children = spec.getArray("children");
+        for(int i = 0; i < (int)ll_children.length(); i++) {
+            Json child_spec(ll_children[i]);
+            ElaraWidget* child = createWidget(child_spec);
+            if(!child) continue;
+            String child_id = child_spec.getStringValue("id");
+            double row_height = (double)jsonInt(child_spec, "entry.height", 32);
+            list_layout->addEntry(child_id, row_height);
+            list_layout->addChild(Ref<ElaraWidget>(child));
         }
         return true;
     }

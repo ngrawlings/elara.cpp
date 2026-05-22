@@ -19,6 +19,7 @@ int main(int argc, char **argv) {
   ETokenVec toks;
   EProgram prog;
   ESemanticModel model;
+  ELineMap line_map;
   FILE *out;
   FILE *map_out = NULL;
 
@@ -27,7 +28,9 @@ int main(int argc, char **argv) {
     return 2;
   }
 
-  src = e_load_translation_unit(argv[1], err);
+  memset(&line_map, 0, sizeof(line_map));
+
+  src = e_load_translation_unit_with_map(argv[1], &line_map, err);
   if (!src) {
     fprintf(stderr, "%s\n", err);
     return 1;
@@ -36,6 +39,7 @@ int main(int argc, char **argv) {
   if (!e_lex_source(src, &toks, err)) {
     fprintf(stderr, "lex: %s\n", err);
     free(src);
+    e_line_map_free(&line_map);
     return 1;
   }
 
@@ -43,6 +47,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "parse: %s\n", err);
     e_token_vec_free(&toks);
     free(src);
+    e_line_map_free(&line_map);
     return 1;
   }
 
@@ -51,6 +56,7 @@ int main(int argc, char **argv) {
     e_program_free(&prog);
     e_token_vec_free(&toks);
     free(src);
+    e_line_map_free(&line_map);
     return 1;
   }
 
@@ -61,6 +67,7 @@ int main(int argc, char **argv) {
     e_program_free(&prog);
     e_token_vec_free(&toks);
     free(src);
+    e_line_map_free(&line_map);
     return 1;
   }
 
@@ -73,11 +80,12 @@ int main(int argc, char **argv) {
       e_program_free(&prog);
       e_token_vec_free(&toks);
       free(src);
+      e_line_map_free(&line_map);
       return 1;
     }
   }
 
-  if (!e_emit_epa_asm(out, map_out, &prog, &model, err)) {
+  if (!e_emit_epa_asm(out, map_out, &prog, &model, &line_map, argv[1], err)) {
     fprintf(stderr, "emit: %s\n", err);
     fclose(out);
     if (map_out) fclose(map_out);
@@ -85,6 +93,7 @@ int main(int argc, char **argv) {
     e_program_free(&prog);
     e_token_vec_free(&toks);
     free(src);
+    e_line_map_free(&line_map);
     return 1;
   }
 
@@ -94,5 +103,6 @@ int main(int argc, char **argv) {
   e_program_free(&prog);
   e_token_vec_free(&toks);
   free(src);
+  e_line_map_free(&line_map);
   return 0;
 }

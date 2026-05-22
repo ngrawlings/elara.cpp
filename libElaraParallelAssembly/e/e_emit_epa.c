@@ -40,6 +40,9 @@ struct EmitCtx {
   /* Pre-built name → func_id map for user-defined function CALL emission */
   struct { const char *name; unsigned int func_id; } func_id_map[64];
   unsigned int func_id_map_count;
+  /* Source line map: translates flat preprocessed line → (file, original-line) */
+  const ELineMap *line_map;
+  const char *main_file;
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -1340,8 +1343,24 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
   size_t i;
   if (!stmt) return;
   if (stmt->line > 0) {
-    emit_indent(out, depth);
-    fprintf(out, "; !LINE %d\n", stmt->line);
+    int emit_line = stmt->line;
+    if (ctx->line_map && (size_t)stmt->line <= ctx->line_map->count) {
+      int idx = stmt->line - 1;
+      unsigned int fidx = ctx->line_map->file_indices[idx];
+      const char *fname = ctx->line_map->filenames[fidx];
+      int is_main = 0;
+      if (ctx->main_file) {
+        /* Compare full paths; fall back to basename comparison */
+        const char *a = strrchr(fname,          '/'); a = a ? a + 1 : fname;
+        const char *b = strrchr(ctx->main_file, '/'); b = b ? b + 1 : ctx->main_file;
+        is_main = (strcmp(fname, ctx->main_file) == 0) || (strcmp(a, b) == 0);
+      }
+      emit_line = is_main ? ctx->line_map->line_nums[idx] : 0;
+    }
+    if (emit_line > 0) {
+      emit_indent(out, depth);
+      fprintf(out, "; !LINE %d\n", emit_line);
+    }
   }
   switch (stmt->kind) {
     case E_STMT_DECL:
@@ -1844,7 +1863,10 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   }
 }
 
-int e_emit_epa_asm(FILE *out, FILE *map_out, const EProgram *prog, const ESemanticModel *model, char err[256]) {
+int e_emit_epa_asm(FILE *out, FILE *map_out,
+                   const EProgram *prog, const ESemanticModel *model,
+                   const ELineMap *line_map, const char *main_file,
+                   char err[256]) {
   EmitCtx ctx;
   size_t i;
 
@@ -1855,6 +1877,8 @@ int e_emit_epa_asm(FILE *out, FILE *map_out, const EProgram *prog, const ESemant
   ctx.next_func_id = 1u;
   ctx.next_string_id = 1u;
   ctx.prog = prog;
+  ctx.line_map = line_map;
+  ctx.main_file = main_file;
   ctx.model = model;
   build_func_id_map(&ctx, prog);
   collect_program_strings(&ctx, prog);

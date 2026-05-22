@@ -328,6 +328,27 @@ bool ElaraUiRpcUiService::setCodeEditorDiagnostics(
     return true;
 }
 
+bool ElaraUiRpcUiService::setEipLine(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if (!widget) return false;
+
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if (!code_editor) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget does not support setEipLine";
+        return false;
+    }
+
+    code_editor->setEipLine(params.getIntValue("line"));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::setBounds(
     const Json& params,
     String& result_json,
@@ -440,6 +461,25 @@ bool ElaraUiRpcUiService::setSectionJson(
                 item_json.getStringValue("id"),
                 item_json.getStringValue("label")
             ));
+        }
+        if(root && root->getGuiBackend()) {
+            root->getGuiBackend()->invalidate();
+        }
+        result_json = "{\"updated\":true}";
+        return true;
+    }
+
+    ElaraComboBoxWidget* combo = dynamic_cast<ElaraComboBoxWidget*>(widget.getPtr());
+    if(combo && section == String("items")) {
+        Json spec(String("{\"items\":") + value_json + String("}"));
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+        combo->clearItems();
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            combo->addItem(
+                item_json.getStringValue("id"),
+                item_json.getStringValue("label")
+            );
         }
         if(root && root->getGuiBackend()) {
             root->getGuiBackend()->invalidate();
@@ -1211,6 +1251,9 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setCodeEditorDiagnostics")) {
         return setCodeEditorDiagnostics(params, result_json, error_code, error_message);
+    }
+    if(method == String("setEipLine")) {
+        return setEipLine(params, result_json, error_code, error_message);
     }
 
     if(method == String("setBounds")) {
