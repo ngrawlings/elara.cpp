@@ -948,9 +948,9 @@ def build_document():
     # ── Debug left panel ─────────────────────────────────────────────────
     ui.create_grid("nav.debug_panel")
     ui.add_grid_column_fill("nav.debug_panel")
-    ui.add_grid_row_exact("nav.debug_panel", 28)    # 0  header
-    ui.add_grid_row_exact("nav.debug_panel", 62)    # 1  ingress designer
-    ui.add_grid_row_fill("nav.debug_panel")         # 2  kernel list
+    ui.add_grid_row_exact("nav.debug_panel", 28)         # 0  header
+    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 1  ingress designer
+    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 2  kernel list
 
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
@@ -964,13 +964,33 @@ def build_document():
     ui.add_grid_column_exact("nav.debug.ingress", 8)
     ui.add_grid_column_fill("nav.debug.ingress")
     ui.add_grid_column_exact("nav.debug.ingress", 8)
-    ui.add_grid_row_exact("nav.debug.ingress", 22)   # section label
-    ui.add_grid_row_exact("nav.debug.ingress", 28)   # combo row
+    ui.add_grid_row_exact("nav.debug.ingress", 22)   # 0  section label
+    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 1  kernel / worker row
+    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 2  type row
+    ui.add_grid_row_fill("nav.debug.ingress")         # 3  profile list
+    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 4  add profile button
     ui.create_label("nav.debug.ingress.title", "INGRESS DESIGNER", 10)
     ui.set_property_bool("nav.debug.ingress.title", "enabled", False)
+
+    # Kernel + worker side-by-side
+    ui.create_grid("nav.debug.ingress.kw")
+    ui.add_grid_column_fill("nav.debug.ingress.kw")
+    ui.add_grid_column_exact("nav.debug.ingress.kw", 4)
+    ui.add_grid_column_fill("nav.debug.ingress.kw")
+    ui.add_grid_row_fill("nav.debug.ingress.kw")
+    ui.create_combo_box("nav.debug.ingress_kernel", items=[], selected_id="")
+    ui.create_combo_box("nav.debug.ingress_worker", items=[], selected_id="")
+    ui.place_grid_child("nav.debug.ingress.kw", "nav.debug.ingress_kernel", 0, 0)
+    ui.place_grid_child("nav.debug.ingress.kw", "nav.debug.ingress_worker", 2, 0)
+
     ui.create_combo_box("nav.debug.ingress_type", items=[], selected_id="")
-    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.title", 1, 0)
-    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_type",  1, 1)
+    ui.create_list_view("nav.debug.ingress_profiles")
+    ui.create_button("nav.debug.ingress_add_btn", "+ Add Profile", "ingress.add_profile")
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.title",    1, 0)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.kw",       1, 1)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_type",     1, 2)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_profiles", 1, 3)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_add_btn",  1, 4)
 
     # Kernel list (one entry per .e tab / kernel)
     ui.create_list_layout("nav.debug.kernels")
@@ -2063,6 +2083,84 @@ def _folder_items(path: str) -> list:
     return entries
 
 
+def build_ingress_profile_editor(type_name: str, fields: list):
+    """Build the ingress profile editor window for type_name with the given field list."""
+    ui = UiDocumentBuilder()
+    ui.create_window(f"New {type_name} Profile", 640, 520, "org.elara.ui.epa-ide.ingress-profile-editor")
+    ui.set_theme_mode("dark")
+
+    # Root shell: name row | main area | button row
+    ui.create_grid("ipe.shell")
+    ui.add_grid_column_fill("ipe.shell")
+    ui.add_grid_row_exact("ipe.shell", 40)    # 0  profile name
+    ui.add_grid_row_fill("ipe.shell")          # 1  tree + form
+    ui.add_grid_row_exact("ipe.shell", 44)    # 2  buttons
+
+    # Name row
+    ui.create_grid("ipe.name_row")
+    ui.add_grid_column_exact("ipe.name_row", 110)
+    ui.add_grid_column_fill("ipe.name_row")
+    ui.add_grid_row_fill("ipe.name_row")
+    ui.create_label("ipe.name_label", "Profile name:", 13)
+    ui.create_text_input("ipe.name_input", "e.g. default", "")
+    ui.place_grid_child("ipe.name_row", "ipe.name_label", 0, 0)
+    ui.place_grid_child("ipe.name_row", "ipe.name_input", 1, 0)
+
+    # Main area: left tree | right form
+    ui.create_grid("ipe.main")
+    ui.add_grid_column_exact("ipe.main", 200)
+    ui.add_grid_column_exact("ipe.main", 4)   # divider gap
+    ui.add_grid_column_fill("ipe.main")
+    ui.add_grid_row_fill("ipe.main")
+
+    # Field tree
+    field_nodes = [
+        {"id": f"ipe.field.{f}", "label": f}
+        for f in fields
+    ]
+    ui.create_tree_view("ipe.tree")
+    ui.set_section_json("ipe.tree", "nodes", [
+        {"id": "ipe.tree.root", "label": type_name, "expanded": True, "children": field_nodes}
+    ])
+
+    # Field form (right side) — label + input stacked
+    ui.create_grid("ipe.form")
+    ui.add_grid_column_fill("ipe.form")
+    ui.add_grid_row_exact("ipe.form", 24)    # 0  field name label
+    ui.add_grid_row_exact("ipe.form", 36)    # 1  value input
+    ui.add_grid_row_fill("ipe.form")          # 2  spacer
+
+    first_field = fields[0] if fields else ""
+    ui.create_label("ipe.field_label", first_field if first_field else "Select a field", 13)
+    ui.create_text_input("ipe.field_input", "value", "0")
+
+    ui.place_grid_child("ipe.form", "ipe.field_label", 0, 0)
+    ui.place_grid_child("ipe.form", "ipe.field_input", 0, 1)
+
+    ui.place_grid_child("ipe.main", "ipe.tree",  0, 0)
+    ui.place_grid_child("ipe.main", "ipe.form",  2, 0)
+
+    # Button row
+    ui.create_grid("ipe.buttons")
+    ui.add_grid_column_fill("ipe.buttons")
+    ui.add_grid_column_exact("ipe.buttons", 100)
+    ui.add_grid_column_exact("ipe.buttons", 8)
+    ui.add_grid_column_exact("ipe.buttons", 100)
+    ui.add_grid_row_fill("ipe.buttons")
+    ui.create_button("ipe.cancel", "Cancel", "ipe.cancel")
+    ui.create_button("ipe.save",   "Save",   "ipe.save")
+    ui.place_grid_child("ipe.buttons", "ipe.cancel", 1, 0)
+    ui.place_grid_child("ipe.buttons", "ipe.save",   3, 0)
+
+    # Assemble root
+    ui.place_grid_child("ipe.shell", "ipe.name_row", 0, 0)
+    ui.place_grid_child("ipe.shell", "ipe.main",     0, 1)
+    ui.place_grid_child("ipe.shell", "ipe.buttons",  0, 2)
+    ui.set_root_content("ipe.shell")
+
+    return ui
+
+
 def start_background_worker():
     from elara_ui.multi_cpu import MultiCpuWorkerTemplate, ensure_multi_cpu_runtime
     ensure_multi_cpu_runtime(thread_count=2)
@@ -2096,6 +2194,7 @@ def main():
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
     editor_state = {}
+    ingress_editor_state = {}    # live state for the ingress profile editor window
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
     app_state["nav_view"] = "files"
@@ -2720,78 +2819,103 @@ def main():
         _replace_tree_nodes(client, ids["debug_local"], state.get("local_nodes", _parse_tree_lines("", "Local Arena", f"{ids['debug_local']}.root")))
         _replace_tree_nodes(client, ids["debug_dynamic"], state.get("dynamic_nodes", _parse_tree_lines("", "Dynamic Memory", f"{ids['debug_dynamic']}.root")))
 
-    _WORKER_INGRESS_RE = re.compile(
-        r"^\s*worker\s+[A-Za-z_]\w*\s*\(\s*"
-        r"([A-Za-z_]\w*(?:\|[A-Za-z_]\w*)*)"   # type(s), possibly union A|B
-        r"\s+[A-Za-z_]",                         # followed by the variable name
+    _WORKER_DEF_RE = re.compile(
+        r"^\s*worker\s+([A-Za-z_]\w*)\s*\(\s*"  # capture worker name
+        r"([A-Za-z_]\w*(?:\|[A-Za-z_]\w*)*)"    # capture type(s), possibly union A|B
+        r"\s+[A-Za-z_]",                          # followed by the variable name
         re.MULTILINE,
     )
 
-    def _ingress_types_from_project():
-        """Scan all epa/**/*.e and *.em files for worker parameter types."""
+    def _workers_in_file(path: Path) -> list:
+        """Return list of {"name": ..., "types": [...]} for each worker in a file."""
+        try:
+            src = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return []
+        result = []
+        for m in _WORKER_DEF_RE.finditer(src):
+            name = m.group(1)
+            types = [t.strip() for t in m.group(2).split("|") if t.strip()]
+            result.append({"name": name, "types": types})
+        return result
+
+    def _kernels_from_project() -> list:
+        """Return list of {"id": kernel_id, "label": kernel_label, "path": str} from epa/*.e files."""
         project_root = app_state.get("project_root", "")
         epa_root = Path(project_root) / "epa" if project_root else None
-        seen = set()
-        type_names = []
+        if not epa_root or not epa_root.is_dir():
+            return []
+        entry = epa_root / "entry.e"
+        others = sorted(p for p in epa_root.rglob("*.e") if p.is_file() and p != entry)
+        paths = ([entry] if entry.is_file() else []) + others
+        result = []
+        for path in paths:
+            rel = path.relative_to(epa_root)
+            kernel_id = ".".join(rel.with_suffix("").parts)
+            kernel_label = str(rel.with_suffix(""))
+            result.append({"id": kernel_id, "label": kernel_label, "path": str(path)})
+        return result
 
-        def _collect(src: str):
-            for match in _WORKER_INGRESS_RE.finditer(src):
-                for name in match.group(1).split("|"):
-                    name = name.strip()
-                    if name and name not in seen:
-                        seen.add(name)
-                        type_names.append(name)
+    def _ingress_types_from_project(kernel_id: str = "", worker_name: str = "") -> list:
+        """Scan epa/**/*.e and *.em files for worker parameter types, optionally filtered."""
+        project_root = app_state.get("project_root", "")
+        epa_root = Path(project_root) / "epa" if project_root else None
+        seen: set = set()
+        type_names: list = []
 
-        if epa_root and epa_root.is_dir():
+        def _collect_src(src: str, name_filter: str = ""):
+            for m in _WORKER_DEF_RE.finditer(src):
+                if name_filter and m.group(1) != name_filter:
+                    continue
+                for t in m.group(2).split("|"):
+                    t = t.strip()
+                    if t and t not in seen:
+                        seen.add(t)
+                        type_names.append(t)
+
+        if kernel_id and epa_root:
+            rel = kernel_id.replace(".", "/") + ".e"
+            kpath = epa_root / rel
+            if kpath.is_file():
+                _collect_src(kpath.read_text(encoding="utf-8", errors="replace"), worker_name)
+        elif epa_root and epa_root.is_dir():
             for path in sorted(epa_root.rglob("*")):
                 if not path.is_file() or path.suffix not in (".e", ".em"):
                     continue
                 try:
-                    _collect(path.read_text(encoding="utf-8", errors="replace"))
+                    _collect_src(path.read_text(encoding="utf-8", errors="replace"))
                 except Exception:
                     pass
-
-        # also catch unsaved edits in open tabs
-        for state in editor_state.values():
-            _collect(state.get("source_text", ""))
+            for state in editor_state.values():
+                _collect_src(state.get("source_text", ""))
 
         return [{"id": n, "label": n} for n in type_names]
 
-    def _apply_ingress_types_combo(client, items):
+    def _apply_combo_items(client, target: str, items: list):
         try:
             client.call("ui.setSectionJson", {
-                "target": "nav.debug.ingress_type",
+                "target": target,
                 "section": "items",
                 "value": items,
             })
         except Exception:
             pass
 
-    def _refresh_debug_panel(client):
-        """Rebuild nav.debug.kernels and the ingress type combo."""
-        project_root = app_state.get("project_root", "")
-        epa_root = Path(project_root) / "epa" if project_root else None
-        kernel_paths = []
-        if epa_root and epa_root.is_dir():
-            entry = epa_root / "entry.e"
-            others = sorted(
-                p for p in epa_root.rglob("*.e")
-                if p.is_file() and p != entry
-            )
-            kernel_paths = ([entry] if entry.is_file() else []) + others
+    def _apply_ingress_types_combo(client, items):
+        _apply_combo_items(client, "nav.debug.ingress_type", items)
 
+    def _refresh_debug_panel(client):
+        """Rebuild nav.debug.kernels, kernel combo, and ingress type combo."""
+        kernels = _kernels_from_project()
+
+        # Kernel list rows
         children = []
-        if kernel_paths:
+        if kernels:
             list_ui = UiDocumentBuilder()
-            kernel_ids = []
-            for path in kernel_paths:
-                rel = path.relative_to(epa_root)
-                kernel_id = ".".join(rel.with_suffix("").parts)
-                kernel_label = str(rel.with_suffix(""))
-                _build_kernel_row_widgets(list_ui, kernel_id, kernel_label)
-                kernel_ids.append(kernel_id)
-            for kernel_id in kernel_ids:
-                child_dict = list_ui.widget_dict(f"nav.debug.kernel.{kernel_id}")
+            for k in kernels:
+                _build_kernel_row_widgets(list_ui, k["id"], k["label"])
+            for k in kernels:
+                child_dict = list_ui.widget_dict(f"nav.debug.kernel.{k['id']}")
                 child_dict["entry"] = {"height": 36}
                 children.append(child_dict)
 
@@ -2803,13 +2927,26 @@ def main():
         except Exception:
             pass
 
-        # Populate ingress type combo: serve cache immediately, refresh in background
+        # Kernel combo
+        kernel_items = [{"id": k["id"], "label": k["label"]} for k in kernels]
+        _apply_combo_items(client, "nav.debug.ingress_kernel", kernel_items)
+
+        # Worker combo: use currently selected kernel, default to first kernel
+        sel_kernel = app_state.get("debug_ingress_kernel", "")
+        if not sel_kernel and kernels:
+            sel_kernel = kernels[0]["id"]
+            app_state["debug_ingress_kernel"] = sel_kernel
+        _refresh_ingress_worker_combo(client, sel_kernel)
+
+        # Type combo: serve cache immediately, refresh in background
         cached = app_state.get("debug_ingress_types_cache")
         if cached is not None:
             _apply_ingress_types_combo(client, cached)
 
         def _bg_refresh_types():
-            items = _ingress_types_from_project()
+            sel_k = app_state.get("debug_ingress_kernel", "")
+            sel_w = app_state.get("debug_ingress_worker", "")
+            items = _ingress_types_from_project(sel_k, sel_w)
             app_state["debug_ingress_types_cache"] = items
             c = client_ref.get("client")
             if c:
@@ -2817,6 +2954,93 @@ def main():
 
         import threading
         threading.Thread(target=_bg_refresh_types, daemon=True).start()
+
+    def _refresh_ingress_worker_combo(client, kernel_id: str):
+        """Populate the worker combo for the given kernel_id."""
+        workers = []
+        if kernel_id:
+            project_root = app_state.get("project_root", "")
+            epa_root = Path(project_root) / "epa" if project_root else None
+            if epa_root:
+                rel = kernel_id.replace(".", "/") + ".e"
+                kpath = epa_root / rel
+                workers = _workers_in_file(kpath)
+        items = [{"id": w["name"], "label": w["name"]} for w in workers]
+        _apply_combo_items(client, "nav.debug.ingress_worker", items)
+
+    _TYPE_DEF_RE = re.compile(
+        r"\btype\s+([A-Za-z_]\w*)\s*\(([^)]*)\)",
+        re.DOTALL,
+    )
+    _FIELD_RE = re.compile(r"\b([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:,|$)")
+
+    def _parse_type_defs() -> dict:
+        """Scan all .em files in epa/ and return {TypeName: [field_name, ...]}."""
+        project_root = app_state.get("project_root", "")
+        epa_root = Path(project_root) / "epa" if project_root else None
+        result: dict = {}
+        if not epa_root or not epa_root.is_dir():
+            return result
+        for path in sorted(epa_root.rglob("*.em")):
+            try:
+                src = path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            for m in _TYPE_DEF_RE.finditer(src):
+                type_name = m.group(1)
+                params_str = m.group(2)
+                fields = []
+                for fm in _FIELD_RE.finditer(params_str):
+                    fields.append(fm.group(2))
+                if type_name not in result:
+                    result[type_name] = fields
+        return result
+
+    def _profiles_dir(type_name: str) -> Path | None:
+        project_root = app_state.get("project_root", "")
+        if not project_root:
+            return None
+        return Path(project_root) / "epa" / "profiles" / type_name
+
+    def _profiles_for_type(type_name: str) -> list:
+        """Return list of {"id": name, "label": name} for saved profiles of type_name."""
+        d = _profiles_dir(type_name)
+        if not d or not d.is_dir():
+            return []
+        items = []
+        for p in sorted(d.glob("*.json")):
+            name = p.stem
+            items.append({"id": name, "label": name})
+        return items
+
+    def _save_ingress_profile(type_name: str, profile_name: str, field_values: dict):
+        d = _profiles_dir(type_name)
+        if d is None:
+            return
+        d.mkdir(parents=True, exist_ok=True)
+        out = {"type": type_name, "name": profile_name, "fields": field_values}
+        (d / f"{profile_name}.json").write_text(
+            json.dumps(out, indent=2), encoding="utf-8"
+        )
+
+    def _refresh_ingress_profiles_list(client, type_name: str):
+        items = _profiles_for_type(type_name) if type_name else []
+        try:
+            client.replace_list_items("nav.debug.ingress_profiles", items)
+        except Exception:
+            pass
+
+    def _open_ingress_profile_editor(client, type_name: str):
+        type_defs = _parse_type_defs()
+        fields = type_defs.get(type_name, [])
+        ingress_editor_state.clear()
+        ingress_editor_state["type_name"] = type_name
+        ingress_editor_state["fields"] = fields
+        ingress_editor_state["field_values"] = {f: "0" for f in fields}
+        ingress_editor_state["profile_name"] = ""
+        ingress_editor_state["selected_field"] = fields[0] if fields else ""
+        doc = build_ingress_profile_editor(type_name, fields)
+        client.open_window("ingress-profile-editor", f"New {type_name} Profile", 640, 520, doc)
 
     def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None, focus: bool = False):
         state = editor_state.get(tab_id)
@@ -4550,6 +4774,103 @@ def main():
         ):
             key = "ctx_" + target.rsplit(".", 1)[-1]
             ai_state[key] = payload.get("value", 0) > 0.5
+            return {"received": True}
+
+        # Ingress designer — kernel selection
+        if target == "nav.debug.ingress_kernel" and action in ("action", "valueChanged", "clicked") and client is not None:
+            kernel_id = payload.get("action") or ""
+            app_state["debug_ingress_kernel"] = kernel_id
+            app_state["debug_ingress_worker"] = ""
+            c = client
+            def _on_kernel_selected(kid=kernel_id):
+                _refresh_ingress_worker_combo(c, kid)
+                items = _ingress_types_from_project(kid, "")
+                app_state["debug_ingress_types_cache"] = items
+                _apply_ingress_types_combo(c, items)
+            _deferred(_on_kernel_selected)
+            return {"received": True}
+
+        # Ingress designer — worker selection
+        if target == "nav.debug.ingress_worker" and action in ("action", "valueChanged", "clicked") and client is not None:
+            worker_name = payload.get("action") or ""
+            app_state["debug_ingress_worker"] = worker_name
+            kernel_id = app_state.get("debug_ingress_kernel", "")
+            c = client
+            def _on_worker_selected(kid=kernel_id, wname=worker_name):
+                items = _ingress_types_from_project(kid, wname)
+                app_state["debug_ingress_types_cache"] = items
+                _apply_ingress_types_combo(c, items)
+            _deferred(_on_worker_selected)
+            return {"received": True}
+
+        # Ingress designer — type selection → refresh profiles list
+        if target == "nav.debug.ingress_type" and action in ("action", "valueChanged", "clicked") and client is not None:
+            type_name = payload.get("action") or ""
+            app_state["debug_ingress_type"] = type_name
+            c = client
+            _deferred(lambda tn=type_name: _refresh_ingress_profiles_list(c, tn))
+            return {"received": True}
+
+        # Ingress designer — add profile button
+        if target == "nav.debug.ingress_add_btn" and action in ("action", "clicked") and client is not None:
+            type_name = app_state.get("debug_ingress_type", "")
+            c = client
+            if type_name:
+                _deferred(lambda tn=type_name: _open_ingress_profile_editor(c, tn))
+            return {"received": True}
+
+        # Profile editor — field selected in tree
+        if target == "ipe.tree" and action == "action" and client is not None:
+            node_id = payload.get("action") or ""
+            if node_id.startswith("ipe.field."):
+                field_name = node_id[len("ipe.field."):]
+                ingress_editor_state["selected_field"] = field_name
+                cur_val = ingress_editor_state.get("field_values", {}).get(field_name, "0")
+                c = client
+                def _update_form(fname=field_name, fval=cur_val):
+                    try:
+                        c.set_text("ipe.field_label", fname)
+                        c.set_text("ipe.field_input", fval)
+                    except Exception:
+                        pass
+                _deferred(_update_form)
+            return {"received": True}
+
+        # Profile editor — field value changed
+        if target == "ipe.field_input" and action == "textChanged":
+            field_name = ingress_editor_state.get("selected_field", "")
+            if field_name:
+                fv = ingress_editor_state.setdefault("field_values", {})
+                fv[field_name] = payload.get("text", "")
+            return {"received": True}
+
+        # Profile editor — profile name changed
+        if target == "ipe.name_input" and action == "textChanged":
+            ingress_editor_state["profile_name"] = payload.get("text", "")
+            return {"received": True}
+
+        # Profile editor — save
+        if target == "ipe.save" and action in ("action", "clicked") and client is not None:
+            type_name = ingress_editor_state.get("type_name", "")
+            profile_name = ingress_editor_state.get("profile_name", "").strip()
+            field_values = ingress_editor_state.get("field_values", {})
+            c = client
+            def _do_save(tn=type_name, pn=profile_name, fv=dict(field_values)):
+                if not tn or not pn:
+                    return
+                _save_ingress_profile(tn, pn, fv)
+                try:
+                    c.close_window("ingress-profile-editor")
+                except Exception:
+                    pass
+                _refresh_ingress_profiles_list(c, tn)
+            _deferred(_do_save)
+            return {"received": True}
+
+        # Profile editor — cancel
+        if target == "ipe.cancel" and action in ("action", "clicked") and client is not None:
+            c = client
+            _deferred(lambda: c.close_window("ingress-profile-editor"))
             return {"received": True}
 
         # AI model selection (combo box fires action event with item id)
