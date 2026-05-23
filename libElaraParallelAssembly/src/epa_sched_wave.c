@@ -89,7 +89,7 @@ static int wave_run(EpaKernel *k,
           if (i == 0) return 1; // kernel ended
           // kernel continues; go to next worker
         } else if (frc == EPA_FLOW_NOT_FLOW) {
-          EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, k->vp, &k->prog, w, &w->vm.eip, err);
+          EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, &k->prog, w, &w->vm.eip, err);
 
           if (nrc == EPA_NF_EXEC_ERR) {
             w->faulted = 1;

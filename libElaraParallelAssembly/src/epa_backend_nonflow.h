@@ -29,16 +29,12 @@ static inline int epa_prog_resolve_view(
   return 0;
 }
 
-// Forward decls so the header doesn’t pull your whole world in
-typedef struct Viewport Viewport;
-
 // VTable for “backend under flow”
 typedef struct {
   EpaNonFlowRc (*exec_one)(
       void *impl,
-      Viewport *vp,
       const EpaProgramDesc *prog,
-      EpaWorkerState *w,     // current thread/worker context
+      EpaWorkerState *w,
       EpaEip *eip,
       char err[EPA_MAX_ERR]
   );

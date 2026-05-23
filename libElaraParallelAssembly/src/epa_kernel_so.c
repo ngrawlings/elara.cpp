@@ -12,7 +12,6 @@
 #include "epa_flow_glue.h"
 #include "epa_backend_nonflow.h"
 #include "epa_instruct_common.h"
-#include "gui/viewport.h"
 
 #include "memory/epa_ring_buffer.h"
 #include "vm/epa_worker_state.h"
@@ -22,6 +21,15 @@
 #ifndef EPA_AT_POOL_THREADS
 #define EPA_AT_POOL_THREADS 8u
 #endif
+
+static EpaNonFlowRc epa_null_nf_exec_one(void *impl, const EpaProgramDesc *prog,
+                                          EpaWorkerState *w, EpaEip *eip,
+                                          char err[EPA_MAX_ERR]) {
+  (void)impl; (void)prog; (void)w; (void)eip; (void)err;
+  return EPA_NF_EXEC_NOT_MINE;
+}
+static const EpaNonFlowBackendVTable epa_null_nf_vt = { epa_null_nf_exec_one };
+static const EpaNonFlowBackend epa_null_nf_backend = { &epa_null_nf_vt, NULL };
 
 #define EPA_BUNDLE_MAGIC "EPABNDL1"
 #define EPA_BUNDLE_VERSION 1u
@@ -218,8 +226,6 @@ void epa_kernel_destroy(EpaKernel *k) {
   epa_ring_free(&k->impl.syncq);
   pthread_mutex_destroy(&k->impl.syncq_mu);
   pthread_mutex_destroy(&k->state_mu);
-
-  if (k->vp) vp_destroy(k->vp);
 
   if (k->prog_loaded) epa_program_free(&k->prog);
   free(k->owned_blob);
@@ -454,8 +460,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
   // non-flow backend
-  extern EpaNonFlowBackend epa_opengl_nonflow_backend(void *impl);
-  k->nf = epa_opengl_nonflow_backend(&k->impl);
+  k->nf = epa_null_nf_backend;
 
   k->owned_blob = blob;
   k->owned_blob_len = blob_len;
@@ -514,8 +519,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->hooks.on_host_signal  = hook_host_signal;
   k->hooks.on_request_threads = hook_request_threads;
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
-  extern EpaNonFlowBackend epa_opengl_nonflow_backend(void *impl);
-  k->nf = epa_opengl_nonflow_backend(&k->impl);
+  k->nf = epa_null_nf_backend;
 
   k->owned_blob = owned;
   k->owned_blob_len = blob_len;
@@ -760,6 +764,7 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
 
 extern const EpaSchedulerVt EPA_SCHED_WAVE_VT;
 extern const EpaSchedulerVt EPA_SCHED_CPU_THREAD_VT;
+extern const EpaSchedulerVt EPA_SCHED_DEBUG_VT;
 
 static const EpaSchedulerVt *epa_sched_vt_for(EpaSchedProfile p) {
   switch (p) {
@@ -767,6 +772,8 @@ static const EpaSchedulerVt *epa_sched_vt_for(EpaSchedProfile p) {
       return &EPA_SCHED_WAVE_VT;
     case EPA_SCHED_CPU_THREAD:
       return &EPA_SCHED_CPU_THREAD_VT;
+    case EPA_SCHED_DEBUG:
+      return &EPA_SCHED_DEBUG_VT;
     default:
       return NULL;
   }

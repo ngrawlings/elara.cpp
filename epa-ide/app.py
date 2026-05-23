@@ -955,9 +955,18 @@ def build_document():
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
     ui.add_grid_column_fill("nav.debug_header")
+    ui.add_grid_column_exact("nav.debug_header", 32)
+    ui.add_grid_column_exact("nav.debug_header", 32)
+    ui.add_grid_column_exact("nav.debug_header", 4)
     ui.add_grid_row_fill("nav.debug_header")
     ui.create_label("nav.debug_title", "DEBUG", 11)
-    ui.place_grid_child("nav.debug_header", "nav.debug_title", 1, 0)
+    ui.create_button("nav.debug.vm_reset", "⟳", "debug.vm.reset")   # ⟳
+    ui.set_property_number("nav.debug.vm_reset", "font_size", 14)
+    ui.create_button("nav.debug.vm_stop",  "■", "debug.vm.stop")    # ■
+    ui.set_property_number("nav.debug.vm_stop",  "font_size", 11)
+    ui.place_grid_child("nav.debug_header", "nav.debug_title",    1, 0)
+    ui.place_grid_child("nav.debug_header", "nav.debug.vm_reset", 2, 0)
+    ui.place_grid_child("nav.debug_header", "nav.debug.vm_stop",  3, 0)
 
     # Ingress designer
     ui.create_grid("nav.debug.ingress")
@@ -985,12 +994,24 @@ def build_document():
 
     ui.create_combo_box("nav.debug.ingress_type", items=[], selected_id="")
     ui.create_list_view("nav.debug.ingress_profiles")
-    ui.create_button("nav.debug.ingress_add_btn", "+ Add Profile", "ingress.add_profile")
+
+    # Action buttons row: [+ Add Profile] [gap] [> Queue]
+    ui.create_grid("nav.debug.ingress.actions")
+    ui.add_grid_column_fill("nav.debug.ingress.actions")
+    ui.add_grid_column_exact("nav.debug.ingress.actions", 4)
+    ui.add_grid_column_exact("nav.debug.ingress.actions", 72)
+    ui.add_grid_row_fill("nav.debug.ingress.actions")
+    ui.create_button("nav.debug.ingress_add_btn",   "+ Add Profile", "ingress.add_profile")
+    ui.create_button("nav.debug.ingress_queue_btn", "> Queue",        "ingress.queue_packet")
+
+    ui.place_grid_child("nav.debug.ingress.actions", "nav.debug.ingress_add_btn",   0, 0)
+    ui.place_grid_child("nav.debug.ingress.actions", "nav.debug.ingress_queue_btn", 2, 0)
+
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.title",    1, 0)
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.kw",       1, 1)
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_type",     1, 2)
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_profiles", 1, 3)
-    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_add_btn",  1, 4)
+    ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.actions",  1, 4)
 
     # Kernel list (one entry per .e tab / kernel)
     ui.create_list_layout("nav.debug.kernels")
@@ -2309,6 +2330,122 @@ def main():
         binary = str(local) if local.is_file() and _os.access(str(local), _os.X_OK) else str(default)
         return [binary, "--port", str(args.port), "--persistent"]
 
+    # --- epa-dbg subprocess + client -----------------------------------------
+    _epa_dbg: dict = {"proc": None, "client": None, "output_lines": []}
+    _EPA_DBG_PORT = 18878
+
+    def _epa_dbg_binary():
+        workspace = Path(__file__).resolve().parent.parent
+        return workspace / "epa-dbg" / "build" / "epa-dbg"
+
+    def _epa_dbg_client() -> "EpaDbgClient | None":
+        return _epa_dbg.get("client")
+
+    def _epa_dbg_launch():
+        """Start epa-dbg if not already running, connect client."""
+        from epa_dbg_client import EpaDbgClient
+
+        proc = _epa_dbg.get("proc")
+        if proc and proc.poll() is None:
+            if _epa_dbg.get("client") and _epa_dbg["client"].connected:
+                return
+            # Process alive but client gone — reconnect.
+            try:
+                c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
+                c.connect_retry(timeout=5.0)
+                _epa_dbg["client"] = c
+            except Exception:
+                pass
+            return
+
+        binary = _epa_dbg_binary()
+        if not binary.is_file():
+            return
+
+        out_lines = _epa_dbg.setdefault("output_lines", [])
+        out_lines.clear()
+
+        def _reader(stream, tag):
+            for raw in stream:
+                line = raw.decode(errors="replace").rstrip()
+                out_lines.append(f"[{tag}] {line}")
+                if len(out_lines) > 500:
+                    del out_lines[: len(out_lines) - 500]
+
+        new_proc = subprocess.Popen(
+            [str(binary), "--port", str(_EPA_DBG_PORT), "--address", "127.0.0.1"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        threading.Thread(target=_reader, args=(new_proc.stdout, "stdout"), daemon=True).start()
+        threading.Thread(target=_reader, args=(new_proc.stderr, "stderr"), daemon=True).start()
+        _epa_dbg["proc"] = new_proc
+
+        try:
+            c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
+            c.connect_retry(timeout=8.0)
+            _epa_dbg["client"] = c
+        except Exception as exc:
+            _push_exception(exc, "epa_dbg_launch")
+
+    def _epa_dbg_stop():
+        """Terminate epa-dbg process and close client."""
+        c = _epa_dbg.get("client")
+        if c:
+            try:
+                c.close()
+            except Exception:
+                pass
+            _epa_dbg["client"] = None
+
+        proc = _epa_dbg.get("proc")
+        if proc and proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=4)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+        _epa_dbg["proc"] = None
+
+    def _epa_dbg_reset(kernel_id: int = 0) -> dict:
+        """Ensure epa-dbg is running and reset the kernel slot."""
+        _epa_dbg_launch()
+        c = _epa_dbg_client()
+        if not c:
+            return {"ok": False, "error": "epa-dbg not available"}
+        try:
+            result = c.reset(kernel_id)
+            return {"ok": True, "result": result}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def _epa_dbg_load_bundle(bundle_path: str, kernel_id: int = 0) -> dict:
+        """Load a compiled .epabin bundle into the debug kernel."""
+        _epa_dbg_launch()
+        c = _epa_dbg_client()
+        if not c:
+            return {"ok": False, "error": "epa-dbg not available"}
+        try:
+            reset_result = c.reset(kernel_id)
+            load_result = c.load_bundle(kernel_id, bundle_path)
+            return {"ok": True, "reset": reset_result, "load": load_result}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def _epa_dbg_load_asm(asm_text: str, kernel_id: int = 0) -> dict:
+        """Load EPA assembly text directly into the debug kernel."""
+        _epa_dbg_launch()
+        c = _epa_dbg_client()
+        if not c:
+            return {"ok": False, "error": "epa-dbg not available"}
+        try:
+            reset_result = c.reset(kernel_id)
+            load_result = c.load_asm(kernel_id, asm_text)
+            return {"ok": True, "reset": reset_result, "load": load_result}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def _compiler_root():
         return Path(__file__).resolve().parent.parent / "libElaraParallelAssembly" / "e"
 
@@ -3023,6 +3160,28 @@ def main():
             json.dumps(out, indent=2), encoding="utf-8"
         )
 
+    def _update_queue_counters(client, snapshot: dict):
+        """Read inq_count from snapshot workers and update kernel row queue labels."""
+        workers = snapshot.get("workers", [])
+        total_inq = sum(w.get("inq_count", 0) for w in workers)
+        loaded_bundle = app_state.get("debug_kernel_loaded", "")
+        # Derive the kernel tab_id from the bundle path, e.g. build/epa/foo/bar.epabin → foo.bar
+        kernel_tab_id = ""
+        if loaded_bundle:
+            try:
+                p = Path(loaded_bundle)
+                # Strip .epabin suffix and build/epa prefix
+                epa_build = Path(app_state.get("project_root", "")) / "build" / "epa"
+                rel = p.relative_to(epa_build).with_suffix("")
+                kernel_tab_id = ".".join(rel.parts)
+            except Exception:
+                pass
+        if kernel_tab_id:
+            try:
+                client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue", str(total_inq))
+            except Exception:
+                pass
+
     def _refresh_ingress_profiles_list(client, type_name: str):
         items = _profiles_for_type(type_name) if type_name else []
         try:
@@ -3031,16 +3190,19 @@ def main():
             pass
 
     def _open_ingress_profile_editor(client, type_name: str):
-        type_defs = _parse_type_defs()
-        fields = type_defs.get(type_name, [])
-        ingress_editor_state.clear()
-        ingress_editor_state["type_name"] = type_name
-        ingress_editor_state["fields"] = fields
-        ingress_editor_state["field_values"] = {f: "0" for f in fields}
-        ingress_editor_state["profile_name"] = ""
-        ingress_editor_state["selected_field"] = fields[0] if fields else ""
-        doc = build_ingress_profile_editor(type_name, fields)
-        client.open_window("ingress-profile-editor", f"New {type_name} Profile", 640, 520, doc)
+        try:
+            type_defs = _parse_type_defs()
+            fields = type_defs.get(type_name, [])
+            ingress_editor_state.clear()
+            ingress_editor_state["type_name"] = type_name
+            ingress_editor_state["fields"] = fields
+            ingress_editor_state["field_values"] = {f: "0" for f in fields}
+            ingress_editor_state["profile_name"] = ""
+            ingress_editor_state["selected_field"] = fields[0] if fields else ""
+            doc = build_ingress_profile_editor(type_name, fields)
+            client.open_window("ingress-profile-editor", f"New {type_name} Profile", 640, 520, doc)
+        except Exception as exc:
+            print(json.dumps({"ingress_profile_editor_error": str(exc)}), flush=True)
 
     def _refresh_e_tab(client, tab_id: str, expected_seq: int | None = None, focus: bool = False):
         state = editor_state.get(tab_id)
@@ -3285,7 +3447,9 @@ def main():
             client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
         except Exception:
             pass
+        app_state.pop("debug_kernel_loaded", None)
         _close_open_project_window(client)
+        threading.Thread(target=_epa_dbg_launch, daemon=True).start()
 
     _NAV_PANELS = {
         "files":  "nav.panel",
@@ -4725,14 +4889,15 @@ def main():
                 item_action.startswith("debug.kernel.run.")
                 or item_action.startswith("debug.kernel.step.")
             ):
-                kernel_id = (
+                is_run = item_action.startswith("debug.kernel.run.")
+                kernel_id_str = (
                     item_action[len("debug.kernel.run."):]
-                    if item_action.startswith("debug.kernel.run.")
+                    if is_run
                     else item_action[len("debug.kernel.step."):]
                 )
                 project_root_str = app_state.get("project_root", "")
                 if project_root_str:
-                    rel = kernel_id.replace(".", "/") + ".e"
+                    rel = kernel_id_str.replace(".", "/") + ".e"
                     file_path = str(Path(project_root_str) / "epa" / rel)
                     tab_id = _tab_id_for_path(file_path)
                     source_tab_id = tab_id
@@ -4743,6 +4908,37 @@ def main():
                         except Exception:
                             pass
                     _deferred(_open_kernel_tab)
+
+                    # Run: always reload (restart). Step: only load if not already live.
+                    bundle_path = str(
+                        Path(project_root_str) / "build" / "epa"
+                        / (kernel_id_str.replace(".", "/") + ".epabin")
+                    )
+                    kid = 0
+                    do_run = is_run
+                    ui_client = c
+                    def _dbg_run_or_step(bp=bundle_path, r=do_run, k=kid, uc=ui_client):
+                        dbg_c = _epa_dbg_client()
+                        already_loaded = app_state.get("debug_kernel_loaded") == bp
+                        if r or not already_loaded or not dbg_c:
+                            result = _epa_dbg_load_bundle(bp, kernel_id=k)
+                            if not result.get("ok"):
+                                return
+                            app_state["debug_kernel_loaded"] = bp
+                            dbg_c = _epa_dbg_client()
+                        if not dbg_c:
+                            return
+                        try:
+                            if r:
+                                resp = dbg_c.run(k)
+                            else:
+                                resp = dbg_c.step(k, ticks=1)
+                            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                            if snap and uc:
+                                _update_queue_counters(uc, snap)
+                        except Exception as exc:
+                            _push_exception(exc, "dbg_run_or_step")
+                    _deferred(_dbg_run_or_step)
                 return {"received": True}
 
             elif item_action == "ai.send":
@@ -4803,6 +4999,33 @@ def main():
             _deferred(_on_worker_selected)
             return {"received": True}
 
+        # Debug VM global controls
+        if action in ("action", "clicked") and target == "nav.debug.vm_reset":
+            def _do_vm_reset():
+                app_state.pop("debug_kernel_loaded", None)
+                _epa_dbg_launch()
+                dbg_c = _epa_dbg_client()
+                if dbg_c:
+                    try:
+                        dbg_c.reset(0)
+                    except Exception as exc:
+                        _push_exception(exc, "vm_reset")
+            _deferred(_do_vm_reset)
+            return {"received": True}
+
+        if action in ("action", "clicked") and target == "nav.debug.vm_stop":
+            def _do_vm_stop():
+                app_state.pop("debug_kernel_loaded", None)
+                _epa_dbg_stop()
+            _deferred(_do_vm_stop)
+            return {"received": True}
+
+        # Ingress designer — profile selected in list
+        if target == "nav.debug.ingress_profiles" and action in ("action", "clicked"):
+            profile_id = payload.get("action") or payload.get("id") or ""
+            app_state["debug_ingress_selected_profile"] = profile_id
+            return {"received": True}
+
         # Ingress designer — type selection → refresh profiles list
         if target == "nav.debug.ingress_type" and action in ("action", "valueChanged", "clicked") and client is not None:
             type_name = payload.get("action") or ""
@@ -4814,9 +5037,62 @@ def main():
         # Ingress designer — add profile button
         if target == "nav.debug.ingress_add_btn" and action in ("action", "clicked") and client is not None:
             type_name = app_state.get("debug_ingress_type", "")
+            if not type_name:
+                cached = app_state.get("debug_ingress_types_cache") or []
+                type_name = cached[0]["id"] if cached else ""
             c = client
             if type_name:
                 _deferred(lambda tn=type_name: _open_ingress_profile_editor(c, tn))
+            return {"received": True}
+
+        # Queue selected ingress packet into epa-dbg
+        if target == "nav.debug.ingress_queue_btn" and action in ("action", "clicked"):
+            selected_profile = app_state.get("debug_ingress_selected_profile", "")
+            type_name = app_state.get("debug_ingress_type", "")
+            if not type_name:
+                cached = app_state.get("debug_ingress_types_cache") or []
+                type_name = cached[0]["id"] if cached else ""
+            sel_worker = app_state.get("debug_ingress_worker", "")
+            c = client
+            def _do_queue(tn=type_name, pn=selected_profile, sw=sel_worker):
+                if not tn or not pn:
+                    return
+                profiles_dir = _profiles_dir(tn)
+                if not profiles_dir:
+                    return
+                profile_path = profiles_dir / f"{pn}.json"
+                if not profile_path.is_file():
+                    return
+                try:
+                    profile_data = json.loads(profile_path.read_text(encoding="utf-8"))
+                except Exception:
+                    return
+                field_values = profile_data.get("fields", profile_data)
+                # Encode fields as little-endian uint32 words then hex
+                import struct as _struct
+                parts = []
+                for v in field_values.values():
+                    try:
+                        parts.append(int(v, 0) if isinstance(v, str) else int(v))
+                    except Exception:
+                        parts.append(0)
+                hex_bytes = "".join(_struct.pack("<I", p & 0xFFFFFFFF).hex() for p in parts)
+                dbg_c = _epa_dbg_client()
+                if not dbg_c:
+                    _epa_dbg_launch()
+                    dbg_c = _epa_dbg_client()
+                if not dbg_c:
+                    return
+                # wid=1 is entry worker; map named worker later if needed
+                wid = 1
+                try:
+                    dbg_c.ingress_push_hex(hex_bytes, wid=wid)
+                    snap = dbg_c.snapshot(0)
+                    if c:
+                        _update_queue_counters(c, snap)
+                except Exception as exc:
+                    _push_exception(exc, "queue_ingress")
+            _deferred(_do_queue)
             return {"received": True}
 
         # Profile editor — field selected in tree
@@ -5387,6 +5663,10 @@ def main():
                 ai_rpc_server.stop()
             except Exception:
                 pass
+        try:
+            _epa_dbg_stop()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

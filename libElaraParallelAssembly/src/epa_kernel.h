@@ -80,8 +80,6 @@ typedef struct {
   EpaIngressQ inq[EPA_MAX_WORKERS]; // one queue per worker/entry id
 } EpaIngress;
 
-typedef struct Viewport Viewport;
-
 typedef struct EpaKernel {
   KernelImpl impl;
 
@@ -89,8 +87,6 @@ typedef struct EpaKernel {
   int prog_loaded;
 
   EpaIngress ingress;
-
-  Viewport *vp;
 
   EpaFlowHooks hooks;
   EpaFlowCtx   flow;

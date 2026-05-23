@@ -233,7 +233,6 @@ static int parse_f32(const char *t, float *out) {
 }
 
 static int parse_mode_tok(const char *t, uint8_t *mode) {
-  if (ieq(t, "opengl") || ieq(t, "gl")) { *mode = EPA_MODE_OPENGL; return 1; }
   if (ieq(t, "cuda") || ieq(t, "gpu")) { *mode = EPA_MODE_CUDA; return 1; }
   uint32_t v;
   if (parse_u32(t, &v) && (v == 0u || v == 1u)) { *mode = (uint8_t)v; return 1; }

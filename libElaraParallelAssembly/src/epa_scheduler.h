@@ -11,6 +11,7 @@ typedef enum {
   EPA_SCHED_WAVE = 1,
   EPA_SCHED_CPU_THREAD,
   EPA_SCHED_CUDA_HOTIDLE,
+  EPA_SCHED_DEBUG,   /* synchronous, host-driven, no autonomous execution */
 } EpaSchedProfile;
 
 /* Scheduler virtual table */

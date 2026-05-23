@@ -1,0 +1,215 @@
+"""TCP JSON-RPC client for epa-dbg (port 18878).
+
+Wire format: 4-byte big-endian length prefix + UTF-8 JSON body.
+
+Request:  {"id": "<uuid>", "method": "<name>", "params": <json>}
+Response: {"id": "...", "ok": true,  "result": <json>}
+       or {"id": "...", "ok": false, "error": {"code": "...", "message": "..."}}
+"""
+
+import json
+import socket
+import struct
+import threading
+import time
+import uuid
+
+
+class EpaDbgError(RuntimeError):
+    def __init__(self, code: str, message: str):
+        super().__init__(f"[{code}] {message}")
+        self.code = code
+        self.message = message
+
+
+class EpaDbgClient:
+    DEFAULT_PORT = 18878
+
+    def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT):
+        self._host = host
+        self._port = port
+        self._sock: socket.socket | None = None
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Connection lifecycle
+    # ------------------------------------------------------------------
+
+    def connect(self, timeout: float = 5.0) -> None:
+        with self._lock:
+            if self._sock:
+                return
+            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            s.settimeout(timeout)
+            s.connect((self._host, self._port))
+            s.settimeout(None)
+            self._sock = s
+
+    def connect_retry(self, timeout: float = 10.0, interval: float = 0.25) -> None:
+        deadline = time.monotonic() + timeout
+        last_exc: Exception | None = None
+        while time.monotonic() < deadline:
+            try:
+                self.connect()
+                return
+            except (ConnectionRefusedError, OSError) as exc:
+                last_exc = exc
+                time.sleep(interval)
+        raise TimeoutError(f"epa-dbg not reachable after {timeout}s: {last_exc}")
+
+    def close(self) -> None:
+        with self._lock:
+            if self._sock:
+                try:
+                    self._sock.close()
+                except Exception:
+                    pass
+                self._sock = None
+
+    def __enter__(self):
+        self.connect()
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+    @property
+    def connected(self) -> bool:
+        return self._sock is not None
+
+    # ------------------------------------------------------------------
+    # Low-level wire I/O
+    # ------------------------------------------------------------------
+
+    def _send_raw(self, data: bytes) -> None:
+        header = struct.pack(">I", len(data))
+        with self._lock:
+            if not self._sock:
+                raise RuntimeError("not connected")
+            self._sock.sendall(header + data)
+
+    def _recv_raw(self, timeout: float = 30.0) -> bytes:
+        with self._lock:
+            if not self._sock:
+                raise RuntimeError("not connected")
+            sock = self._sock
+        sock.settimeout(timeout)
+        try:
+            header = _recv_exactly(sock, 4)
+            length = struct.unpack(">I", header)[0]
+            return _recv_exactly(sock, length)
+        finally:
+            sock.settimeout(None)
+
+    # ------------------------------------------------------------------
+    # RPC
+    # ------------------------------------------------------------------
+
+    def call(self, method: str, params=None, timeout: float = 30.0) -> object:
+        req_id = str(uuid.uuid4())
+        body = {"id": req_id, "method": method}
+        if params is not None:
+            body["params"] = params
+        self._send_raw(json.dumps(body, ensure_ascii=False).encode())
+        raw = self._recv_raw(timeout=timeout)
+        resp = json.loads(raw.decode())
+        if resp.get("id") != req_id:
+            raise RuntimeError(f"response id mismatch: {resp.get('id')} != {req_id}")
+        if not resp.get("ok", False):
+            err = resp.get("error", {})
+            raise EpaDbgError(err.get("code", "unknown"), err.get("message", ""))
+        return resp.get("result")
+
+    # ------------------------------------------------------------------
+    # High-level API
+    # ------------------------------------------------------------------
+
+    def ping(self) -> str:
+        return self.call("ping")
+
+    # Kernel lifecycle
+
+    def create(self, kernel_id: int = 0) -> dict:
+        return self.call("epa.debug.create", {"kernel_id": kernel_id})
+
+    def destroy(self, kernel_id: int = 0) -> dict:
+        return self.call("epa.debug.destroy", {"kernel_id": kernel_id})
+
+    def reset(self, kernel_id: int = 0) -> dict:
+        """Destroy and recreate the kernel — equivalent to a clean reload."""
+        try:
+            self.destroy(kernel_id)
+        except EpaDbgError:
+            pass
+        return self.create(kernel_id)
+
+    def set_kernel_id(self, kernel_id: int, name: str) -> dict:
+        return self.call("epa.debug.setKernelId", {"kernel_id": kernel_id, "name": name})
+
+    # Loading programs
+
+    def load_asm(self, kernel_id: int, asm_text: str) -> dict:
+        return self.call("epa.debug.loadAsm", {"kernel_id": kernel_id, "asm": asm_text})
+
+    def load_bundle(self, kernel_id: int, bundle_path: str) -> dict:
+        return self.call("epa.debug.loadBundle",
+                         {"kernel_id": kernel_id, "path": bundle_path})
+
+    # Ingress
+
+    def ingress_push_hex(self, hex_bytes: str, wid: int = 1, tag: int = 0) -> dict:
+        return self.call("epa.debug.ingressPushHex",
+                         {"wid": wid, "tag": tag, "payload_hex": hex_bytes})
+
+    # Execution control
+
+    def step(self, kernel_id: int, ticks: int = 1) -> dict:
+        return self.call("epa.debug.step",
+                         {"kernel_id": kernel_id, "ticks": ticks},
+                         timeout=60.0)
+
+    def run(self, kernel_id: int, max_ticks: int = 0) -> dict:
+        return self.call("epa.debug.run",
+                         {"kernel_id": kernel_id, "max_ticks": max_ticks},
+                         timeout=120.0)
+
+    def interrupt(self, kernel_id: int) -> dict:
+        return self.call("epa.debug.interrupt", {"kernel_id": kernel_id})
+
+    # Inspection
+
+    def snapshot(self, kernel_id: int) -> dict:
+        return self.call("epa.debug.snapshot", {"kernel_id": kernel_id})
+
+    def events(self, kernel_id: int, clear: bool = False) -> list:
+        return self.call("epa.debug.events",
+                         {"kernel_id": kernel_id, "clear": clear})
+
+    # Breakpoints
+
+    def breakpoint_add(self, kernel_id: int, addr: int) -> dict:
+        return self.call("epa.debug.breakpointAdd",
+                         {"kernel_id": kernel_id, "addr": addr})
+
+    def breakpoint_clear(self, kernel_id: int, addr: int | None = None) -> dict:
+        params: dict = {"kernel_id": kernel_id}
+        if addr is not None:
+            params["addr"] = addr
+        return self.call("epa.debug.breakpointClear", params)
+
+    def breakpoint_list(self, kernel_id: int) -> list:
+        return self.call("epa.debug.breakpointList", {"kernel_id": kernel_id})
+
+
+# ------------------------------------------------------------------
+# Helpers
+# ------------------------------------------------------------------
+
+def _recv_exactly(sock: socket.socket, n: int) -> bytes:
+    buf = bytearray()
+    while len(buf) < n:
+        chunk = sock.recv(n - len(buf))
+        if not chunk:
+            raise EOFError("connection closed mid-message")
+        buf.extend(chunk)
+    return bytes(buf)

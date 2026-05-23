@@ -5,15 +5,8 @@
 //
 // Build (example):
 //   cc -O2 -std=c11 -pthread \
-//     epa_server.c epa_backend.c epa_backend_opengl.c epa_backend_cuda.c \
-//     epa_result_bundle.c mongoose.c \
+//     epa_server.c mongoose.c \
 //     -o epa_server
-//
-// Run RPC:
-//   ./epa_server --rpc --port 8080 --mode opengl
-//
-// Run local:
-//   ./epa_server --mode opengl --in program.epa --out result.epar0
 //
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +15,6 @@
 #include <dirent.h>
 
 #include "epa_asm_compiler.h"
-#include "gui/viewport.h"
 #include "rpc/mongoose.h"
 
 //#ifndef EPA_MAX_ERR

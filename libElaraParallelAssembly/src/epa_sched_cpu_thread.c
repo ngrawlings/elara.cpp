@@ -141,7 +141,7 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
   }
 
   if (frc == EPA_FLOW_NOT_FLOW) {
-    EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, k->vp, &k->prog, w, &w->vm.eip, err);
+    EpaNonFlowRc nrc = k->nf.vt->exec_one(k->nf.impl, &k->prog, w, &w->vm.eip, err);
 
     if (nrc == EPA_NF_EXEC_ERR) {
       w->faulted = 1;
