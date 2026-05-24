@@ -54,10 +54,27 @@ CONFIGURE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure
 BUILDABLE_DIRS := $(foreach dir,$(PROJECT_DIRS),$(if $(wildcard $(dir)/configure.ac)$(wildcard $(dir)/Makefile),$(dir)))
 BUILD_STATE_FILE := .build-state
 SMOKE_SCRIPT := ./tools/smoke_generated_projects.sh
+HEADER_STAGE_DIRS := \
+	libElaraCore/libelaracore:libelaracore \
+	libElaraDebug/libelaradebug:libelaradebug \
+	libElaraThreads/libelarathreads:libelarathreads \
+	libElaraEncryption/libelaraencryption:libelaraencryption \
+	libElaraEvent/libelaraevent:libelaraevent \
+	libElaraFormat/libelaraformat:libelaraformat \
+	libElaraIO/libelaraio:libelaraio \
+	libElaraData/libelaradata:libelaradata \
+	libElaraSockets/libelarasockets:libelarasockets \
+	libElaraVector/libelaravector:libelaravector \
+	libElaraVector/libelaravectorcpp:libelaravectorcpp \
+	libElaraUI/libelaraui:libelaraui \
+	libElaraUiRpc/libelarauirpc:libelarauirpc \
+	libElaraPythonThreads/libelarapythonthreads:libelarapythonthreads \
+	libElaraParallelAssembly/src:libelaraparallelassembly \
+	libElaraSerializer/elaraserializer:libelaraserializer
 
-.PHONY: all clean install remove cleanconf list preflight smoke smoke-project-builder-cli $(PROJECT_DIRS)
+.PHONY: all clean install remove cleanconf list preflight stage-headers smoke smoke-project-builder-cli $(PROJECT_DIRS)
 
-all: preflight $(BUILD_PROJECTS)
+all: preflight stage-headers $(BUILD_PROJECTS)
 
 libElaraThreads: libElaraCore
 libElaraIO: libElaraCore libElaraThreads
@@ -75,12 +92,31 @@ libElaraSerializer: libElaraCore
 ElaraUnitTests: libElaraCore libElaraDebug
 ElaraProjectBuilder: libElaraCore libElaraIO
 ElaraCppLint: libElaraCore libElaraIO
+$(PROJECT_DIRS): stage-headers
 
 preflight:
 	@if [ -n "$(DISABLED_PROJECTS)" ]; then \
 		echo "Disabled projects: $(DISABLED_PROJECTS)"; \
 	fi
 	@mkdir -p "$(ROOT_BUILD_DIR)/include" "$(ROOT_BUILD_DIR)/lib" "$(ROOT_BUILD_DIR)/bin"
+
+stage-headers: preflight
+	@for mapping in $(HEADER_STAGE_DIRS); do \
+		src="$${mapping%%:*}"; \
+		dst_name="$${mapping##*:}"; \
+		case " $(BUILD_PROJECTS) " in \
+			*" $${src%%/*} "*) ;; \
+			*) continue ;; \
+		esac; \
+		if [ -d "$$src" ]; then \
+			find "$$src" -type f -name '*.h' | while IFS= read -r header; do \
+				rel="$${header#$$src/}"; \
+				dst="$(ROOT_BUILD_DIR)/include/$$dst_name/$$rel"; \
+				mkdir -p "$$(dirname "$$dst")"; \
+				cp "$$header" "$$dst" || exit $$?; \
+			done || exit $$?; \
+		fi; \
+	done
 
 $(PROJECT_DIRS):
 	@if [ -f "$@/configure.ac" ]; then \

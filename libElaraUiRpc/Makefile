@@ -40,6 +40,12 @@ install: all
 	done
 	mkdir -p $(INSTALL_LIB_PATH)
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
+	@if [ -f ../libElaraUI/Makefile ]; then \
+		gtk_enabled="$$(awk -F= '/^GTK_BACKEND_ENABLED=/{print $$2}' ../libElaraUI/Makefile)"; \
+		if [ "$$gtk_enabled" = "1" ]; then \
+			$(MAKE) -C ../libElaraUI rpc-server ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" || exit $$?; \
+		fi; \
+	fi
 
 clean:
 	rm -Rf $(BUILDPATH)/*.o

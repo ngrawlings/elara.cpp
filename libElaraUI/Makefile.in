@@ -75,9 +75,6 @@ install: all
 	done
 	mkdir -p $(INSTALL_LIB_PATH)
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
-	@if [ "$(GTK_BACKEND_ENABLED)" = "1" ]; then \
-		$(MAKE) rpc-server ROOT_BUILD_DIR="$(ROOT_BUILD_DIR)" CFLAGS="$(CFLAGS)" LDFLAGS="$(LDFLAGS)" || exit $$?; \
-	fi
 
 clean:
 	rm -Rf $(BUILDPATH)/*.o

@@ -19,12 +19,19 @@
 using namespace elara;
 
 bool testByteArrayShift() {
-    ByteArray ba((char[]){0x01, 0x01, 0x01, 0x01}, 4);
+    char initial_bytes[] = {0x01, 0x01, 0x01, 0x01};
+    ByteArray ba(initial_bytes, 4);
     
     ba.shift(2);
     ba = ba.subBytes(1);
     
-    ByteArray ba_s1((char[]){static_cast<char>(0x40), static_cast<char>(0x40), static_cast<char>(0x40), static_cast<char>(0x40)}, 4);
+    char right_rotation_bytes[] = {
+        static_cast<char>(0x40),
+        static_cast<char>(0x40),
+        static_cast<char>(0x40),
+        static_cast<char>(0x40)
+    };
+    ByteArray ba_s1(right_rotation_bytes, 4);
     
     if (ba != ba_s1)
         UnitTests::fail("Right Rotation failed");
@@ -32,7 +39,8 @@ bool testByteArrayShift() {
     ba.shift(-2);
     ba = ba.subBytes(0, 4);
     
-    ByteArray ba_s2((char[]){0x01, 0x01, 0x01, 0x01}, 4);
+    char left_rotation_bytes[] = {0x01, 0x01, 0x01, 0x01};
+    ByteArray ba_s2(left_rotation_bytes, 4);
     if (ba != ba_s2)
         UnitTests::fail("Left Rotation failed");
     
