@@ -21,10 +21,10 @@
 /* Define to 1 if you have the <inttypes.h> header file. */
 #undef HAVE_INTTYPES_H
 
-/* Define to 1 if you have the 'crypto' library (-lcrypto). */
+/* Define to 1 if you have the `crypto' library (-lcrypto). */
 #undef HAVE_LIBCRYPTO
 
-/* Define to 1 if you have the 'event' library (-levent). */
+/* Define to 1 if you have the `event' library (-levent). */
 #undef HAVE_LIBEVENT
 
 /* Define to 1 if you have the <openssl/err.h> header file. */
@@ -90,7 +90,7 @@
 /* Define to 1 to disable sockets support */
 #undef SOCKETS_DISABLED
 
-/* Define to 1 if all of the C89 standard headers exist (not just the ones
+/* Define to 1 if all of the C90 standard headers exist (not just the ones
    required in a freestanding environment). This macro is provided for
    backward compatibility; new code need not use it. */
 #undef STDC_HEADERS

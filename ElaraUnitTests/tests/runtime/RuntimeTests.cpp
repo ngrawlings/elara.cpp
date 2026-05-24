@@ -129,8 +129,10 @@ namespace elara {
 
         ByteArray buildIndexedDataStoreValue(int seed, int length) {
             ByteArray value;
-            for (int i=0; i<length; i++)
-                value.append((char[]){(char)((seed + (i * 17)) & 0xFF)}, 1);
+            for (int i=0; i<length; i++) {
+                char byte = (char)((seed + (i * 17)) & 0xFF);
+                value.append(&byte, 1);
+            }
             return value;
         }
 
@@ -495,21 +497,27 @@ namespace elara {
         };
 
         bool testByteArrayShift() {
-            ByteArray ba((char[]){0x01, 0x01, 0x01, 0x01}, 4);
+            char initial_bytes[] = {0x01, 0x01, 0x01, 0x01};
+            ByteArray ba(initial_bytes, 4);
 
             ba.shift(2);
             ba = ba.subBytes(1);
 
-            ByteArray expected_right(
-                (char[]){static_cast<char>(0x40), static_cast<char>(0x40), static_cast<char>(0x40), static_cast<char>(0x40)},
-                4);
+            char expected_right_bytes[] = {
+                static_cast<char>(0x40),
+                static_cast<char>(0x40),
+                static_cast<char>(0x40),
+                static_cast<char>(0x40)
+            };
+            ByteArray expected_right(expected_right_bytes, 4);
             if (ba != expected_right)
                 UnitTests::fail("Right rotation failed");
 
             ba.shift(-2);
             ba = ba.subBytes(0, 4);
 
-            ByteArray expected_left((char[]){0x01, 0x01, 0x01, 0x01}, 4);
+            char expected_left_bytes[] = {0x01, 0x01, 0x01, 0x01};
+            ByteArray expected_left(expected_left_bytes, 4);
             if (ba != expected_left)
                 UnitTests::fail("Left rotation failed");
 
