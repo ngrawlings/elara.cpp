@@ -1,5 +1,11 @@
 #include <stdlib.h>
 #include <stdio.h>
+
+#include <libelarathreads/Task.h>
+#include <libelarathreads/Thread.h>
+#include <libelaraevent/EventBase.h>
+#include <libelarasockets/Socket.h>
+
 #include "EpaDbgServer.h"
 
 using namespace elara;
@@ -20,10 +26,21 @@ int main(int argc, const char *argv[]) {
     }
     if (argc > 2) address = String(argv[2]);
 
+    Task::staticInit();
+    Thread::init(4);
+
+    EventBase *ev = new EventBase();
+    Socket::init(ev);
+
     printf("epa-dbg: listening on %s:%d\n", address.operator char *(), port);
     fflush(stdout);
 
     EpaDbgServer server;
     server.start(port, address);
+
+    Thread::stopAllThreads();
+    Thread::staticCleanUp();
+    Task::staticCleanup();
+    delete ev;
     return 0;
 }

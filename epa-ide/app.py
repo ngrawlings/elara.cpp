@@ -177,24 +177,35 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
 def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: str):
     row_id = f"nav.debug.kernel.{tab_id}"
     ui.create_grid(row_id)
-    ui.add_grid_column_exact(row_id, 6)
-    ui.add_grid_column_fill(row_id)
-    ui.add_grid_column_exact(row_id, 26)
-    ui.add_grid_column_exact(row_id, 32)
-    ui.add_grid_column_exact(row_id, 32)
-    ui.add_grid_column_exact(row_id, 4)
-    ui.add_grid_row_fill(row_id)
+    ui.add_grid_column_exact(row_id, 6)    # col 0: left indent
+    ui.add_grid_column_exact(row_id, 14)   # col 1: status indicator (spans both rows)
+    ui.add_grid_column_fill(row_id)         # col 2: name (row 0) / worker combo (row 1)
+    ui.add_grid_column_exact(row_id, 64)   # col 3: queue badge "total / worker"
+    ui.add_grid_column_exact(row_id, 32)   # col 4: ▶  (row 1)
+    ui.add_grid_column_exact(row_id, 32)   # col 5: ▶| (row 1)
+    ui.add_grid_column_exact(row_id, 4)    # col 6: right margin
+    ui.add_grid_row_exact(row_id, 26)      # row 0: name + queue badge
+    ui.add_grid_row_exact(row_id, 26)      # row 1: worker combo + buttons
+    # Status indicator — spans both rows, grey until kernel reports a state
+    ui.create_label(f"{row_id}.ind", "●", 10)
+    ui.set_property_string(f"{row_id}.ind", "foreground_color", "#555555")
     ui.create_label(f"{row_id}.name", kernel_name, 12)
-    ui.create_label(f"{row_id}.queue", "0", 11)
+    ui.create_label(f"{row_id}.queue", "0 / 0", 10)
     ui.set_property_bool(f"{row_id}.queue", "enabled", False)
+    ui.create_combo_box(f"{row_id}.worker", items=[], selected_id="")
     ui.create_button(f"{row_id}.run",  "▶",  f"debug.kernel.run.{tab_id}")
     ui.set_property_number(f"{row_id}.run",  "font_size", 11)
     ui.create_button(f"{row_id}.step", "▶|", f"debug.kernel.step.{tab_id}")
     ui.set_property_number(f"{row_id}.step", "font_size", 11)
-    ui.place_grid_child(row_id, f"{row_id}.name",  1, 0)
-    ui.place_grid_child(row_id, f"{row_id}.queue", 2, 0)
-    ui.place_grid_child(row_id, f"{row_id}.run",   3, 0)
-    ui.place_grid_child(row_id, f"{row_id}.step",  4, 0)
+    # indicator spans rows 0-1 in col 1
+    ui.place_grid_child(row_id, f"{row_id}.ind",    1, 0, 1, 2)
+    # row 0: name + queue
+    ui.place_grid_child(row_id, f"{row_id}.name",   2, 0)
+    ui.place_grid_child(row_id, f"{row_id}.queue",  3, 0)
+    # row 1: worker combo + buttons
+    ui.place_grid_child(row_id, f"{row_id}.worker", 2, 1)
+    ui.place_grid_child(row_id, f"{row_id}.run",    4, 1)
+    ui.place_grid_child(row_id, f"{row_id}.step",   5, 1)
 
 
 def build_document():
@@ -949,35 +960,44 @@ def build_document():
     ui.create_grid("nav.debug_panel")
     ui.add_grid_column_fill("nav.debug_panel")
     ui.add_grid_row_exact("nav.debug_panel", 28)         # 0  header
-    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 1  ingress designer
-    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 2  kernel list
+    ui.add_grid_row_exact("nav.debug_panel", 246)        # 1  ingress designer (fixed)
+    ui.add_grid_row_exact("nav.debug_panel", 22)         # 2  kernels section label
+    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 3  kernel list
+    ui.add_grid_row_exact("nav.debug_panel", 36)         # 4  VM controls
 
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
     ui.add_grid_column_fill("nav.debug_header")
-    ui.add_grid_column_exact("nav.debug_header", 32)
-    ui.add_grid_column_exact("nav.debug_header", 32)
-    ui.add_grid_column_exact("nav.debug_header", 4)
     ui.add_grid_row_fill("nav.debug_header")
     ui.create_label("nav.debug_title", "DEBUG", 11)
-    ui.create_button("nav.debug.vm_reset", "⟳", "debug.vm.reset")   # ⟳
-    ui.set_property_number("nav.debug.vm_reset", "font_size", 14)
-    ui.create_button("nav.debug.vm_stop",  "■", "debug.vm.stop")    # ■
-    ui.set_property_number("nav.debug.vm_stop",  "font_size", 11)
-    ui.place_grid_child("nav.debug_header", "nav.debug_title",    1, 0)
-    ui.place_grid_child("nav.debug_header", "nav.debug.vm_reset", 2, 0)
-    ui.place_grid_child("nav.debug_header", "nav.debug.vm_stop",  3, 0)
+    ui.place_grid_child("nav.debug_header", "nav.debug_title", 1, 0)
+
+    # VM control strip at the bottom
+    ui.create_grid("nav.debug.vm_controls")
+    ui.add_grid_column_exact("nav.debug.vm_controls", 8)
+    ui.add_grid_column_fill("nav.debug.vm_controls")
+    ui.add_grid_column_exact("nav.debug.vm_controls", 4)
+    ui.add_grid_column_exact("nav.debug.vm_controls", 80)
+    ui.add_grid_column_exact("nav.debug.vm_controls", 8)
+    ui.add_grid_row_fill("nav.debug.vm_controls")
+    ui.create_button("nav.debug.vm_reset", "▶  Start", "debug.vm.reset")
+    ui.set_property_number("nav.debug.vm_reset", "font_size", 11)
+    ui.create_button("nav.debug.vm_stop", "■  Stop", "debug.vm.stop")
+    ui.set_property_number("nav.debug.vm_stop", "font_size", 11)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_reset", 1, 0)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_stop",  3, 0)
 
     # Ingress designer
     ui.create_grid("nav.debug.ingress")
     ui.add_grid_column_exact("nav.debug.ingress", 8)
     ui.add_grid_column_fill("nav.debug.ingress")
     ui.add_grid_column_exact("nav.debug.ingress", 8)
-    ui.add_grid_row_exact("nav.debug.ingress", 22)   # 0  section label
-    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 1  kernel / worker row
-    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 2  type row
-    ui.add_grid_row_fill("nav.debug.ingress")         # 3  profile list
-    ui.add_grid_row_exact("nav.debug.ingress", 28)   # 4  add profile button
+    ui.add_grid_row_exact("nav.debug.ingress", 22)    # 0  section label
+    ui.add_grid_row_exact("nav.debug.ingress", 28)    # 1  kernel / worker row
+    ui.add_grid_row_exact("nav.debug.ingress", 28)    # 2  type row
+    ui.add_grid_row_exact("nav.debug.ingress", 112)   # 3  profile list (5 × ~22 px)
+    ui.add_grid_row_exact("nav.debug.ingress", 28)    # 4  add / queue buttons
+    # 22 + 28 + 28 + 112 + 28 = 218 → panel row 1 is 246 for breathing room
     ui.create_label("nav.debug.ingress.title", "INGRESS DESIGNER", 10)
     ui.set_property_bool("nav.debug.ingress.title", "enabled", False)
 
@@ -1013,16 +1033,27 @@ def build_document():
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress_profiles", 1, 3)
     ui.place_grid_child("nav.debug.ingress", "nav.debug.ingress.actions",  1, 4)
 
+    # Kernels section header
+    ui.create_grid("nav.debug.kernels_header")
+    ui.add_grid_column_exact("nav.debug.kernels_header", 8)
+    ui.add_grid_column_fill("nav.debug.kernels_header")
+    ui.add_grid_row_fill("nav.debug.kernels_header")
+    ui.create_label("nav.debug.kernels_title", "KERNEL STEP", 10)
+    ui.set_property_bool("nav.debug.kernels_title", "enabled", False)
+    ui.place_grid_child("nav.debug.kernels_header", "nav.debug.kernels_title", 1, 0)
+
     # Kernel list (one entry per .e tab / kernel)
     ui.create_list_layout("nav.debug.kernels")
     for tab_id, title, _ in INITIAL_E_TABS:
         kernel_name = Path(title).stem if "." in title else title
         _build_kernel_row_widgets(ui, tab_id, kernel_name)
-        ui.place_list_layout_child("nav.debug.kernels", f"nav.debug.kernel.{tab_id}", row_height=36)
+        ui.place_list_layout_child("nav.debug.kernels", f"nav.debug.kernel.{tab_id}", row_height=52)
 
-    ui.place_grid_child("nav.debug_panel", "nav.debug_header",  0, 0)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.ingress", 0, 1)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels", 0, 2)
+    ui.place_grid_child("nav.debug_panel", "nav.debug_header",         0, 0)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.ingress",        0, 1)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels_header", 0, 2)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels",        0, 3)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.vm_controls",    0, 4)
     ui.set_property_bool("nav.debug_panel", "visible", False)
 
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
@@ -2104,6 +2135,32 @@ def _folder_items(path: str) -> list:
     return entries
 
 
+def build_error_dialog(title: str, message: str):
+    """Build a simple error message dialog."""
+    ui = UiDocumentBuilder()
+    ui.create_window(title, 520, 220, "org.elara.ui.epa-ide.error-dialog")
+    ui.set_theme_mode("dark")
+    ui.create_grid("err.shell")
+    ui.add_grid_column_exact("err.shell", 16)
+    ui.add_grid_column_fill("err.shell")
+    ui.add_grid_column_exact("err.shell", 16)
+    ui.add_grid_row_exact("err.shell", 16)
+    ui.add_grid_row_fill("err.shell")
+    ui.add_grid_row_exact("err.shell", 40)
+    ui.create_rich_text_edit("err.message", message)
+    ui.create_grid("err.buttons")
+    ui.add_grid_column_fill("err.buttons")
+    ui.add_grid_column_exact("err.buttons", 80)
+    ui.add_grid_column_exact("err.buttons", 8)
+    ui.add_grid_row_fill("err.buttons")
+    ui.create_button("err.ok", "OK", "error_dialog.close")
+    ui.place_grid_child("err.buttons", "err.ok", 1, 0)
+    ui.place_grid_child("err.shell", "err.message", 1, 1)
+    ui.place_grid_child("err.shell", "err.buttons", 1, 2)
+    ui.set_root_content("err.shell")
+    return ui
+
+
 def build_ingress_profile_editor(type_name: str, fields: list):
     """Build the ingress profile editor window for type_name with the given field list."""
     ui = UiDocumentBuilder()
@@ -2341,6 +2398,51 @@ def main():
     def _epa_dbg_client() -> "EpaDbgClient | None":
         return _epa_dbg.get("client")
 
+    def _epa_dbg_running() -> bool:
+        proc = _epa_dbg.get("proc")
+        return bool(proc and proc.poll() is None and _epa_dbg.get("client"))
+
+    def _epa_dbg_set_vm_button(running: bool):
+        """Update the Start/Reset button label to reflect current VM state."""
+        ui_c = client_ref.get("client")
+        if not ui_c:
+            return
+        label = "⟳  Reset" if running else "▶  Start"
+        try:
+            ui_c.call("ui.setProperty", {
+                "target":   "nav.debug.vm_reset",
+                "property": "text",
+                "value":    label,
+            })
+        except Exception:
+            pass
+
+    def _epa_dbg_show_error(title: str, message: str, artifact_lines: list | None = None):
+        """Write an error artifact and show an error dialog in the UI."""
+        artifacts_dir = Path(__file__).resolve().parent / "artifacts"
+        artifacts_dir.mkdir(exist_ok=True)
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        artifact_path = artifacts_dir / f"epa-dbg-error-{stamp}.txt"
+        try:
+            artifact_path.write_text(
+                f"{title}\n{'='*60}\n{message}\n"
+                + ("\n--- process output ---\n" + "\n".join(artifact_lines) if artifact_lines else ""),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        ui_c = client_ref.get("client")
+        if ui_c:
+            try:
+                ui_c.open_window(
+                    "epa-dbg-error",
+                    title,
+                    520, 220,
+                    build_error_dialog(title, f"{message}\n\nDetails written to:\n{artifact_path}"),
+                )
+            except Exception:
+                pass
+
     def _epa_dbg_launch():
         """Start epa-dbg if not already running, connect client."""
         from epa_dbg_client import EpaDbgClient
@@ -2348,18 +2450,28 @@ def main():
         proc = _epa_dbg.get("proc")
         if proc and proc.poll() is None:
             if _epa_dbg.get("client") and _epa_dbg["client"].connected:
+                _epa_dbg_set_vm_button(True)
                 return
             # Process alive but client gone — reconnect.
             try:
                 c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
                 c.connect_retry(timeout=5.0)
                 _epa_dbg["client"] = c
-            except Exception:
-                pass
+                _epa_dbg_set_vm_button(True)
+            except Exception as exc:
+                _epa_dbg_show_error(
+                    "epa-dbg: reconnect failed",
+                    f"Could not reconnect to epa-dbg on port {_EPA_DBG_PORT}.\n{exc}",
+                    list(_epa_dbg.get("output_lines", [])),
+                )
             return
 
         binary = _epa_dbg_binary()
         if not binary.is_file():
+            _epa_dbg_show_error(
+                "epa-dbg: binary not found",
+                f"Binary not found at:\n{binary}\n\nRun: make  in the epa-dbg directory.",
+            )
             return
 
         out_lines = _epa_dbg.setdefault("output_lines", [])
@@ -2372,21 +2484,49 @@ def main():
                 if len(out_lines) > 500:
                     del out_lines[: len(out_lines) - 500]
 
-        new_proc = subprocess.Popen(
-            [str(binary), "--port", str(_EPA_DBG_PORT), "--address", "127.0.0.1"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-        )
+        try:
+            new_proc = subprocess.Popen(
+                [str(binary), str(_EPA_DBG_PORT), "127.0.0.1"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+        except OSError as exc:
+            _epa_dbg_show_error(
+                "epa-dbg: failed to start",
+                f"Could not execute:\n{binary}\n\n{exc}",
+            )
+            return
+
         threading.Thread(target=_reader, args=(new_proc.stdout, "stdout"), daemon=True).start()
         threading.Thread(target=_reader, args=(new_proc.stderr, "stderr"), daemon=True).start()
         _epa_dbg["proc"] = new_proc
+
+        # Give process a moment then check it hasn't immediately exited
+        time.sleep(0.3)
+        exit_code = new_proc.poll()
+        if exit_code is not None:
+            time.sleep(0.5)   # let readers drain
+            _epa_dbg_show_error(
+                "epa-dbg: process exited immediately",
+                f"epa-dbg exited with code {exit_code} before accepting connections.",
+                list(out_lines),
+            )
+            _epa_dbg["proc"] = None
+            return
 
         try:
             c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
             c.connect_retry(timeout=8.0)
             _epa_dbg["client"] = c
+            _epa_dbg_set_vm_button(True)
         except Exception as exc:
-            _push_exception(exc, "epa_dbg_launch")
+            exit_code = new_proc.poll()
+            time.sleep(0.3)
+            _epa_dbg_show_error(
+                "epa-dbg: connection failed",
+                f"Process started (exit={exit_code}) but TCP connect to port {_EPA_DBG_PORT} failed.\n{exc}",
+                list(out_lines),
+            )
 
     def _epa_dbg_stop():
         """Terminate epa-dbg process and close client."""
@@ -2407,6 +2547,7 @@ def main():
                 proc.kill()
                 proc.wait()
         _epa_dbg["proc"] = None
+        _epa_dbg_set_vm_button(False)
 
     def _epa_dbg_reset(kernel_id: int = 0) -> dict:
         """Ensure epa-dbg is running and reset the kernel slot."""
@@ -3053,7 +3194,7 @@ def main():
                 _build_kernel_row_widgets(list_ui, k["id"], k["label"])
             for k in kernels:
                 child_dict = list_ui.widget_dict(f"nav.debug.kernel.{k['id']}")
-                child_dict["entry"] = {"height": 36}
+                child_dict["entry"] = {"height": 52}
                 children.append(child_dict)
 
         try:
@@ -3063,6 +3204,21 @@ def main():
             })
         except Exception:
             pass
+
+        # Populate per-kernel worker combos
+        project_root = app_state.get("project_root", "")
+        epa_root = Path(project_root) / "epa" if project_root else None
+        for k in kernels:
+            if not epa_root:
+                break
+            kpath = epa_root / (k["id"].replace(".", "/") + ".e")
+            workers = _workers_in_file(kpath)
+            items = [{"id": w["name"], "label": w["name"]} for w in workers]
+            app_state[f"debug_kernel_workers_{k['id']}"] = workers
+            try:
+                _apply_combo_items(client, f"nav.debug.kernel.{k['id']}.worker", items)
+            except Exception:
+                pass
 
         # Kernel combo
         kernel_items = [{"id": k["id"], "label": k["label"]} for k in kernels]
@@ -3160,27 +3316,89 @@ def main():
             json.dumps(out, indent=2), encoding="utf-8"
         )
 
+    _IND_GREY  = "#555555"
+    _IND_GREEN = "#22cc44"
+    _IND_RED   = "#cc2222"
+    _IND_AMBER = "#ccaa22"
+
+    def _set_kernel_indicator(client, kernel_tab_id: str, color: str):
+        try:
+            client.call("ui.setProperty", {
+                "target":   f"nav.debug.kernel.{kernel_tab_id}.ind",
+                "property": "foreground_color",
+                "value":    color,
+            })
+        except Exception:
+            pass
+
+    def _kernel_tab_id_from_bundle(bundle_path: str) -> str:
+        if not bundle_path:
+            return ""
+        try:
+            p = Path(bundle_path)
+            epa_build = Path(app_state.get("project_root", "")) / "build" / "epa"
+            rel = p.relative_to(epa_build).with_suffix("")
+            return ".".join(rel.parts)
+        except Exception:
+            return ""
+
+    def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
+        """Set indicator colour based on the selected worker's state in the snapshot."""
+        if not kernel_tab_id:
+            return
+        sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
+        workers_list    = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
+        sel_wid = None
+        for wi, w in enumerate(workers_list):
+            if w.get("name") == sel_worker_name:
+                sel_wid = wi
+                break
+        if sel_wid is None and workers_list:
+            sel_wid = 0   # default to first worker if nothing selected
+
+        color = _IND_GREY
+        if sel_wid is not None:
+            for w in snapshot.get("workers", []):
+                if w.get("wid") == sel_wid:
+                    if w.get("faulted"):
+                        color = _IND_AMBER
+                    elif w.get("halted"):
+                        color = _IND_GREY
+                    elif w.get("waiting_for_data"):
+                        color = _IND_GREEN
+                    else:
+                        color = _IND_RED   # still running
+                    break
+        _set_kernel_indicator(client, kernel_tab_id, color)
+
     def _update_queue_counters(client, snapshot: dict):
-        """Read inq_count from snapshot workers and update kernel row queue labels."""
+        """Update kernel row queue badge with 'total / selected-worker' inq counts."""
         workers = snapshot.get("workers", [])
         total_inq = sum(w.get("inq_count", 0) for w in workers)
-        loaded_bundle = app_state.get("debug_kernel_loaded", "")
-        # Derive the kernel tab_id from the bundle path, e.g. build/epa/foo/bar.epabin → foo.bar
-        kernel_tab_id = ""
-        if loaded_bundle:
-            try:
-                p = Path(loaded_bundle)
-                # Strip .epabin suffix and build/epa prefix
-                epa_build = Path(app_state.get("project_root", "")) / "build" / "epa"
-                rel = p.relative_to(epa_build).with_suffix("")
-                kernel_tab_id = ".".join(rel.parts)
-            except Exception:
-                pass
-        if kernel_tab_id:
-            try:
-                client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue", str(total_inq))
-            except Exception:
-                pass
+
+        kernel_tab_id = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+        if not kernel_tab_id:
+            return
+
+        sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
+        workers_list    = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
+        sel_wid = None
+        for wi, w in enumerate(workers_list):
+            if w.get("name") == sel_worker_name:
+                sel_wid = wi
+                break
+        sel_inq = 0
+        if sel_wid is not None:
+            for w in workers:
+                if w.get("wid") == sel_wid:
+                    sel_inq = w.get("inq_count", 0)
+                    break
+
+        try:
+            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue",
+                            f"{total_inq} / {sel_inq}")
+        except Exception:
+            pass
 
     def _refresh_ingress_profiles_list(client, type_name: str):
         items = _profiles_for_type(type_name) if type_name else []
@@ -4909,15 +5127,26 @@ def main():
                             pass
                     _deferred(_open_kernel_tab)
 
-                    # Run: always reload (restart). Step: only load if not already live.
                     bundle_path = str(
                         Path(project_root_str) / "build" / "epa"
                         / (kernel_id_str.replace(".", "/") + ".epabin")
                     )
+                    # Resolve selected worker → wid index (position in worker list)
+                    sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_id_str}", "")
+                    workers_list = app_state.get(f"debug_kernel_workers_{kernel_id_str}", [])
+                    worker_wid = 0
+                    for wi, w in enumerate(workers_list):
+                        if w.get("name") == sel_worker_name:
+                            worker_wid = wi
+                            break
+
                     kid = 0
                     do_run = is_run
                     ui_client = c
-                    def _dbg_run_or_step(bp=bundle_path, r=do_run, k=kid, uc=ui_client):
+                    tab_id_for_ind = kernel_id_str
+                    def _dbg_run_or_step(bp=bundle_path, r=do_run, k=kid,
+                                         uc=ui_client, wid=worker_wid,
+                                         ktid=tab_id_for_ind):
                         dbg_c = _epa_dbg_client()
                         already_loaded = app_state.get("debug_kernel_loaded") == bp
                         if r or not already_loaded or not dbg_c:
@@ -4928,15 +5157,21 @@ def main():
                             dbg_c = _epa_dbg_client()
                         if not dbg_c:
                             return
+                        # Mark as running before the call
+                        if uc:
+                            _set_kernel_indicator(uc, ktid, _IND_RED)
                         try:
                             if r:
-                                resp = dbg_c.run(k)
+                                resp = dbg_c.run_to_wait(wid=wid)
                             else:
                                 resp = dbg_c.step(k, ticks=1)
                             snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
                             if snap and uc:
                                 _update_queue_counters(uc, snap)
+                                _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                         except Exception as exc:
+                            if uc:
+                                _set_kernel_indicator(uc, ktid, _IND_GREY)
                             _push_exception(exc, "dbg_run_or_step")
                     _deferred(_dbg_run_or_step)
                 return {"received": True}
@@ -5001,8 +5236,12 @@ def main():
 
         # Debug VM global controls
         if action in ("action", "clicked") and target == "nav.debug.vm_reset":
+            c = client
             def _do_vm_reset():
+                ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                 app_state.pop("debug_kernel_loaded", None)
+                if ktid and c:
+                    _set_kernel_indicator(c, ktid, _IND_GREY)
                 _epa_dbg_launch()
                 dbg_c = _epa_dbg_client()
                 if dbg_c:
@@ -5014,11 +5253,31 @@ def main():
             return {"received": True}
 
         if action in ("action", "clicked") and target == "nav.debug.vm_stop":
+            c = client
             def _do_vm_stop():
+                ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                 app_state.pop("debug_kernel_loaded", None)
+                if ktid and c:
+                    _set_kernel_indicator(c, ktid, _IND_GREY)
                 _epa_dbg_stop()
             _deferred(_do_vm_stop)
             return {"received": True}
+
+        # Error dialog close button
+        if item_action == "error_dialog.close":
+            c = client
+            _deferred(lambda: c.close_window("epa-dbg-error") if c else None)
+            return {"received": True}
+
+        # Kernel step worker combo — track selection per kernel
+        if action in ("action", "valueChanged") and target and target.endswith(".worker"):
+            prefix = "nav.debug.kernel."
+            suffix = ".worker"
+            if target.startswith(prefix) and target.endswith(suffix):
+                kernel_id_str = target[len(prefix):-len(suffix)]
+                worker_name = payload.get("action") or payload.get("id") or ""
+                app_state[f"debug_kernel_worker_{kernel_id_str}"] = worker_name
+                return {"received": True}
 
         # Ingress designer — profile selected in list
         if target == "nav.debug.ingress_profiles" and action in ("action", "clicked"):
@@ -5088,8 +5347,11 @@ def main():
                 try:
                     dbg_c.ingress_push_hex(hex_bytes, wid=wid)
                     snap = dbg_c.snapshot(0)
+                    ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                     if c:
                         _update_queue_counters(c, snap)
+                        if ktid:
+                            _update_kernel_indicator_from_snapshot(c, ktid, snap)
                 except Exception as exc:
                     _push_exception(exc, "queue_ingress")
             _deferred(_do_queue)
@@ -5243,6 +5505,7 @@ def main():
                 _refresh_e_tab(client, tab_id)
             if app_state.get("active_editor_tab"):
                 _refresh_debug_sidebars(client, app_state["active_editor_tab"])
+            _epa_dbg_set_vm_button(_epa_dbg_running())
             try:
                 client.set_text("ai.history", _ai_format_history())
             except Exception:

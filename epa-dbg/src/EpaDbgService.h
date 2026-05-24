@@ -50,6 +50,8 @@ private:
 
     bool runTicks(uint32_t tick_count, bool stop_on_breakpoint,
                   String &stop_reason, uint32_t &ticks_ran, String &error_message);
+    bool runToWait(uint32_t target_wid, uint32_t max_ticks,
+                   String &stop_reason, uint32_t &ticks_ran, String &error_message);
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
 
     String buildSnapshotJson() const;

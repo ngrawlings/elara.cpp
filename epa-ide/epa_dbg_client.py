@@ -173,6 +173,12 @@ class EpaDbgClient:
                          {"kernel_id": kernel_id, "max_ticks": max_ticks},
                          timeout=120.0)
 
+    def run_to_wait(self, wid: int, max_ticks: int = 500000) -> dict:
+        """Run until the specified worker reaches waiting_for_data, halted, or faulted."""
+        return self.call("epa.debug.runToWait",
+                         {"wid": wid, "max_ticks": max_ticks},
+                         timeout=120.0)
+
     def interrupt(self, kernel_id: int) -> dict:
         return self.call("epa.debug.interrupt", {"kernel_id": kernel_id})
 

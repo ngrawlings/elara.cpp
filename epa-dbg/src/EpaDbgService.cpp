@@ -210,6 +210,44 @@ bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
     }
 }
 
+bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
+                               String &stop_reason, uint32_t &ticks_ran, String &error_message) {
+    EpaKernel *k = host.rawKernel();
+    char err[EPA_MAX_ERR];
+    if (!k) { error_message = String("kernel not created"); return false; }
+    ensureDebugCallback();
+    ticks_ran = 0;
+    for (;;) {
+        StdoutCapture cap;
+        err[0] = 0;
+        cap.begin();
+        int ok = epa_kernel_run(k, 1u, 1, err);
+        String captured = cap.end();
+        if (captured.length()) pushLog(captured.trim());
+        ticks_ran++;
+        if (!ok) {
+            String et(err);
+            if (et.substr(0, 36) != String("run: step complete returning to host")) {
+                error_message = et.length() ? et : host.lastError();
+                stop_reason = String("error");
+                return false;
+            }
+        }
+        EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
+        size_t wc = epa_dbg_capture_workers(k, ws, EPA_DBG_MAX_WORKERS);
+        for (size_t i = 0; i < wc; i++) {
+            if (ws[i].wid == target_wid) {
+                if (ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); return true; }
+                if (ws[i].halted)           { stop_reason = String("halted");         return true; }
+                if (ws[i].faulted)          { stop_reason = String("faulted");        return true; }
+                break;
+            }
+        }
+        if (!events.empty()) { stop_reason = events.back().kind; return true; }
+        if (max_ticks != 0 && ticks_ran >= max_ticks) { stop_reason = String("max_ticks"); return true; }
+    }
+}
+
 String EpaDbgService::buildSnapshotJson() const {
     String result("{");
     EpaDbgKernelSnapshot ks;
@@ -366,6 +404,19 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         parseUint(params_json, String("max_ticks"), 1000, &max_ticks);
         if (!runTicks(max_ticks, true, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_failed"); return false;
+        }
+        result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"stop_reason\":") + jq(stop_reason)
+                    + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
+        return true;
+    }
+    if (method == String("epa.debug.runToWait")) {
+        uint32_t wid = 0, max_ticks = 500000, ticks_ran = 0;
+        String stop_reason;
+        parseUint(params_json, String("wid"),       0,      &wid);
+        parseUint(params_json, String("max_ticks"), 500000, &max_ticks);
+        if (!runToWait(wid, max_ticks, stop_reason, ticks_ran, error_message)) {
+            error_code = String("run_to_wait_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
                     + String(",\"stop_reason\":") + jq(stop_reason)
