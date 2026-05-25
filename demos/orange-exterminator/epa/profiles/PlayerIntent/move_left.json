@@ -1,0 +1,1 @@
+{"type": "PlayerIntent", "name": "move_left", "fields": {"move_x": "-1", "move_y": "0", "fire_mode": "0", "look_dx": "0"}}

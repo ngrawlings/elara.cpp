@@ -429,7 +429,7 @@ Copyright (C) 2023 Free Software Foundation, Inc.
 This config.status script is free software; the Free Software Foundation
 gives unlimited permission to copy, distribute and modify it."
 
-ac_pwd='/home/elara/workspace/elara.cpp/libElaraUI'
+ac_pwd='/home/nyhl/workspace/elara.cpp/libElaraUI'
 srcdir='.'
 test -n "$AWK" || AWK=awk
 # The default lists apply if the user does not specify any file.
@@ -601,10 +601,10 @@ S["LIBOBJS"]=""
 S["GTK_BACKEND_EXCLUDE"]=""
 S["GTK_BACKEND_ENABLED"]="1"
 S["GTK_LIBS"]="-lgtk-4 -lpangocairo-1.0 -lpango-1.0 -lharfbuzz -lgdk_pixbuf-2.0 -lcairo-gobject -lcairo -lvulkan -lgraphene-1.0 -lgio-2.0 -lgobject-2.0 -lglib-2.0 "
-S["GTK_CFLAGS"]="-I/usr/include/gtk-4.0 -I/usr/include/pango-1.0 -I/usr/include/glib-2.0 -I/usr/lib/x86_64-linux-gnu/glib-2.0/include -I/usr/include/harfbuzz -I/usr/"\
-"include/freetype2 -I/usr/include/libpng16 -I/usr/include/libmount -I/usr/include/blkid -I/usr/include/fribidi -I/usr/include/cairo -I/usr/include/pi"\
-"xman-1 -I/usr/include/gdk-pixbuf-2.0 -I/usr/include/x86_64-linux-gnu -I/usr/include/webp -I/usr/include/graphene-1.0 -I/usr/lib/x86_64-linux-gnu/gra"\
-"phene-1.0/include -mfpmath=sse -msse -msse2 -pthread "
+S["GTK_CFLAGS"]="-I/usr/include/gtk-4.0 -I/usr/include/pango-1.0 -I/usr/include/glib-2.0 -I/usr/lib/aarch64-linux-gnu/glib-2.0/include -I/usr/include/sysprof-6 -I/us"\
+"r/include/harfbuzz -I/usr/include/freetype2 -I/usr/include/libpng16 -I/usr/include/libmount -I/usr/include/blkid -I/usr/include/fribidi -I/usr/inclu"\
+"de/cairo -I/usr/include/pixman-1 -I/usr/include/gdk-pixbuf-2.0 -I/usr/include/aarch64-linux-gnu -I/usr/include/webp -I/usr/include/graphene-1.0 -I/u"\
+"sr/lib/aarch64-linux-gnu/graphene-1.0/include -pthread "
 S["PKG_CONFIG"]="/usr/bin/pkg-config"
 S["ARCH"]=""
 S["DEBUG_FLAGS"]=""

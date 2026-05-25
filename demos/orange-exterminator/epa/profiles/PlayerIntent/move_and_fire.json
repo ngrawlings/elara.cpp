@@ -1,0 +1,1 @@
+{"type": "PlayerIntent", "name": "move_and_fire", "fields": {"move_x": "1", "move_y": "1", "fire_mode": "1", "look_dx": "5"}}

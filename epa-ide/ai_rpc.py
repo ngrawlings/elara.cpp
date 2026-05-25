@@ -313,6 +313,75 @@ HELP = {
             },
             "result": {"tab_id": "str", "text": "str", "chars": "int"},
         },
+        # ---- Ingress profiles -----------------------------------------------
+        "list_ingress_types": {
+            "desc": (
+                "Return all EPA message types discovered by scanning .em files in the "
+                "current project's epa/ directory, along with their fields. "
+                "Use this to know what types exist and what fields to fill."
+            ),
+            "params": {},
+            "result": [
+                {
+                    "type_name": "str — e.g. 'FrameTick'",
+                    "fields": "list[str] — field names in declaration order",
+                }
+            ],
+        },
+        "list_ingress_profiles": {
+            "desc": (
+                "Return all saved ingress profiles for a given type. "
+                "Profiles are stored as JSON files under "
+                "{project}/epa/profiles/{type_name}/."
+            ),
+            "params": {"type_name": "str"},
+            "result": [
+                {
+                    "name": "str — profile name (filename stem)",
+                    "path": "str — absolute path to the .json file",
+                }
+            ],
+        },
+        "get_ingress_profile": {
+            "desc": "Read the field values of a saved ingress profile.",
+            "params": {
+                "type_name": "str",
+                "profile_name": "str",
+            },
+            "result": {
+                "type_name": "str",
+                "profile_name": "str",
+                "fields": "dict — field_name → value (str)",
+                "path": "str",
+            },
+        },
+        "save_ingress_profile": {
+            "desc": (
+                "Create or overwrite an ingress profile. "
+                "Fields not present in the message type definition are ignored. "
+                "After saving, the UI profile list is refreshed automatically. "
+                "Values should be decimal or hex (0x…) integer strings, or plain integers."
+            ),
+            "params": {
+                "type_name": "str — e.g. 'FrameTick'",
+                "profile_name": "str — name for this profile, e.g. 'default' or 'stress_test'",
+                "fields": "dict — {field_name: value} — string or int values",
+            },
+            "result": {
+                "type_name": "str",
+                "profile_name": "str",
+                "path": "str — absolute path written",
+                "fields_written": "int",
+            },
+        },
+        "delete_ingress_profile": {
+            "desc": "Delete a saved ingress profile and refresh the UI list.",
+            "params": {
+                "type_name": "str",
+                "profile_name": "str",
+            },
+            "result": {"deleted": "bool", "path": "str"},
+        },
         # ---- Project management ---------------------------------------------
         "open_project": {
             "desc": (
@@ -1046,6 +1115,50 @@ class AiRpcServer:
     def _m_clear_event_log(self, _params):
         return self._ide.clear_event_log()
 
+    # ---- Ingress profiles -------------------------------------------------
+
+    def _m_list_ingress_types(self, _params):
+        types = self._ide.list_ingress_types()
+        return [{"type_name": name, "fields": fields} for name, fields in sorted(types.items())]
+
+    def _m_list_ingress_profiles(self, params):
+        type_name = params.get("type_name", "")
+        if not type_name:
+            raise _RpcError("missing_param: type_name")
+        return self._ide.list_ingress_profiles(type_name)
+
+    def _m_get_ingress_profile(self, params):
+        type_name = params.get("type_name", "")
+        profile_name = params.get("profile_name", "")
+        if not type_name:
+            raise _RpcError("missing_param: type_name")
+        if not profile_name:
+            raise _RpcError("missing_param: profile_name")
+        return self._ide.get_ingress_profile(type_name, profile_name)
+
+    def _m_save_ingress_profile(self, params):
+        type_name = params.get("type_name", "")
+        profile_name = params.get("profile_name", "")
+        fields = params.get("fields")
+        if not type_name:
+            raise _RpcError("missing_param: type_name")
+        if not profile_name:
+            raise _RpcError("missing_param: profile_name")
+        if not isinstance(fields, dict):
+            raise _RpcError("missing_param: fields must be a dict")
+        # Normalise values to strings
+        fields_str = {k: str(v) for k, v in fields.items()}
+        return self._ide.save_ingress_profile(type_name, profile_name, fields_str)
+
+    def _m_delete_ingress_profile(self, params):
+        type_name = params.get("type_name", "")
+        profile_name = params.get("profile_name", "")
+        if not type_name:
+            raise _RpcError("missing_param: type_name")
+        if not profile_name:
+            raise _RpcError("missing_param: profile_name")
+        return self._ide.delete_ingress_profile(type_name, profile_name)
+
     # -----------------------------------------------------------------------
     # Helpers
     # -----------------------------------------------------------------------
@@ -1110,6 +1223,11 @@ class IdeBindings:
         self._get_event_log = None          # (limit: int, type_filter: str) -> list
         self._clear_event_log = None        # () -> dict
         self._log_event = None              # (event_type: str, **details) -> None
+        self._list_ingress_types = None     # () -> dict {type_name: [fields]}
+        self._list_ingress_profiles = None  # (type_name: str) -> list[{name, path}]
+        self._get_ingress_profile = None    # (type_name, profile_name) -> dict
+        self._save_ingress_profile = None   # (type_name, profile_name, fields) -> dict
+        self._delete_ingress_profile = None # (type_name, profile_name) -> dict
 
     # Delegate to callbacks so callers use clean attribute access.
     def language_for_path(self, path: str) -> str:
@@ -1204,6 +1322,31 @@ class IdeBindings:
     def log_event(self, event_type: str, **details):
         if self._log_event:
             self._log_event(event_type, **details)
+
+    def list_ingress_types(self) -> dict:
+        if not self._list_ingress_types:
+            return {}
+        return self._list_ingress_types()
+
+    def list_ingress_profiles(self, type_name: str) -> list:
+        if not self._list_ingress_profiles:
+            raise _RpcError("ui_unavailable: ingress callbacks not set")
+        return self._list_ingress_profiles(type_name)
+
+    def get_ingress_profile(self, type_name: str, profile_name: str) -> dict:
+        if not self._get_ingress_profile:
+            raise _RpcError("ui_unavailable: ingress callbacks not set")
+        return self._get_ingress_profile(type_name, profile_name)
+
+    def save_ingress_profile(self, type_name: str, profile_name: str, fields: dict) -> dict:
+        if not self._save_ingress_profile:
+            raise _RpcError("ui_unavailable: ingress callbacks not set")
+        return self._save_ingress_profile(type_name, profile_name, fields)
+
+    def delete_ingress_profile(self, type_name: str, profile_name: str) -> dict:
+        if not self._delete_ingress_profile:
+            raise _RpcError("ui_unavailable: ingress callbacks not set")
+        return self._delete_ingress_profile(type_name, profile_name)
 
     def editor_replace_range(self, tab_id: str, from_line: int, from_col: int,
                              to_line: int, to_col: int, text: str) -> dict:

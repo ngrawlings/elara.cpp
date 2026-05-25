@@ -5798,6 +5798,7 @@ def main():
                 field_name = node_id[len("ipe.field."):]
                 ingress_editor_state["selected_field"] = field_name
                 cur_val = ingress_editor_state.get("field_values", {}).get(field_name, "0")
+                ingress_editor_state["field_input_text"] = cur_val
                 c = client
                 def _update_form(fname=field_name, fval=cur_val):
                     try:
@@ -5808,17 +5809,53 @@ def main():
                 _deferred(_update_form)
             return {"received": True}
 
-        # Profile editor — field value changed
-        if target == "ipe.field_input" and action == "textChanged":
+        # Profile editor — field input events (keysTyped fires; textChanged is fallback)
+        if target == "ipe.field_input":
             field_name = ingress_editor_state.get("selected_field", "")
-            if field_name:
-                fv = ingress_editor_state.setdefault("field_values", {})
-                fv[field_name] = payload.get("text", "")
+            if action == "keysTyped":
+                cur = ingress_editor_state.get("field_input_text", "")
+                new_text = cur + payload.get("text", "")
+                ingress_editor_state["field_input_text"] = new_text
+                if field_name:
+                    ingress_editor_state.setdefault("field_values", {})[field_name] = new_text
+            elif action == "keyDown" and payload.get("key") == "Backspace":
+                cur = ingress_editor_state.get("field_input_text", "")
+                new_text = cur[:-1] if cur else ""
+                ingress_editor_state["field_input_text"] = new_text
+                if field_name:
+                    ingress_editor_state.setdefault("field_values", {})[field_name] = new_text
+            elif action == "textChanged":
+                new_text = payload.get("text", "")
+                ingress_editor_state["field_input_text"] = new_text
+                if field_name:
+                    ingress_editor_state.setdefault("field_values", {})[field_name] = new_text
             return {"received": True}
 
-        # Profile editor — profile name changed
-        if target == "ipe.name_input" and action == "textChanged":
-            ingress_editor_state["profile_name"] = payload.get("text", "")
+        # Profile editor — profile name input events (keysTyped fires; textChanged is fallback)
+        if target == "ipe.name_input":
+            if action == "keysTyped":
+                ingress_editor_state["profile_name"] = (
+                    ingress_editor_state.get("profile_name", "") + payload.get("text", "")
+                )
+                if client and ingress_editor_state.get("name_label_error"):
+                    ingress_editor_state["name_label_error"] = False
+                    c = client
+                    def _reset_label():
+                        try:
+                            c.set_text("ipe.name_label", "Profile name:")
+                            c.call("ui.setProperty", {
+                                "target": "ipe.name_label",
+                                "property": "foreground_color",
+                                "value": "",
+                            })
+                        except Exception:
+                            pass
+                    _deferred(_reset_label)
+            elif action == "keyDown" and payload.get("key") == "Backspace":
+                pn = ingress_editor_state.get("profile_name", "")
+                ingress_editor_state["profile_name"] = pn[:-1] if pn else ""
+            elif action == "textChanged":
+                ingress_editor_state["profile_name"] = payload.get("text", "")
             return {"received": True}
 
         # Profile editor — save
@@ -5828,7 +5865,19 @@ def main():
             field_values = ingress_editor_state.get("field_values", {})
             c = client
             def _do_save(tn=type_name, pn=profile_name, fv=dict(field_values)):
-                if not tn or not pn:
+                if not tn:
+                    return
+                if not pn:
+                    ingress_editor_state["name_label_error"] = True
+                    try:
+                        c.set_text("ipe.name_label", "Profile name (required):")
+                        c.call("ui.setProperty", {
+                            "target": "ipe.name_label",
+                            "property": "foreground_color",
+                            "value": "#cc3333",
+                        })
+                    except Exception:
+                        pass
                     return
                 _save_ingress_profile(tn, pn, fv)
                 try:
@@ -6245,6 +6294,75 @@ def main():
                         _event_log.clear()
                     return {"cleared": n}
 
+                def _ai_rpc_list_ingress_types() -> dict:
+                    return _parse_type_defs()
+
+                def _ai_rpc_list_ingress_profiles(type_name: str) -> list:
+                    items = _profiles_for_type(type_name)
+                    d = _profiles_dir(type_name)
+                    return [
+                        {"name": it["id"], "path": str(d / f"{it['id']}.json") if d else ""}
+                        for it in items
+                    ]
+
+                def _ai_rpc_get_ingress_profile(type_name: str, profile_name: str) -> dict:
+                    d = _profiles_dir(type_name)
+                    if not d:
+                        raise RuntimeError("no_project: project must be open to read profiles")
+                    path = d / f"{profile_name}.json"
+                    if not path.is_file():
+                        raise RuntimeError(f"io_error: profile not found: {profile_name}")
+                    try:
+                        data = json.loads(path.read_text(encoding="utf-8"))
+                    except Exception as exc:
+                        raise RuntimeError(f"io_error: {exc}")
+                    return {
+                        "type_name": type_name,
+                        "profile_name": profile_name,
+                        "fields": data.get("fields", {}),
+                        "path": str(path),
+                    }
+
+                def _ai_rpc_save_ingress_profile(type_name: str, profile_name: str,
+                                                  fields: dict) -> dict:
+                    d = _profiles_dir(type_name)
+                    if not d:
+                        raise RuntimeError("no_project: project must be open to save profiles")
+                    d.mkdir(parents=True, exist_ok=True)
+                    out = {"type": type_name, "name": profile_name, "fields": fields}
+                    path = d / f"{profile_name}.json"
+                    path.write_text(json.dumps(out, indent=2), encoding="utf-8")
+                    # Refresh the UI list if the currently selected type matches
+                    ui_c = client_ref.get("client")
+                    if ui_c:
+                        cur_type = app_state.get("debug_ingress_type", "")
+                        if not cur_type or cur_type == type_name:
+                            _deferred(lambda tn=type_name: _refresh_ingress_profiles_list(ui_c, tn))
+                    return {
+                        "type_name": type_name,
+                        "profile_name": profile_name,
+                        "path": str(path),
+                        "fields_written": len(fields),
+                    }
+
+                def _ai_rpc_delete_ingress_profile(type_name: str, profile_name: str) -> dict:
+                    d = _profiles_dir(type_name)
+                    if not d:
+                        raise RuntimeError("no_project: project must be open")
+                    path = d / f"{profile_name}.json"
+                    deleted = path.is_file()
+                    if deleted:
+                        try:
+                            path.unlink()
+                        except OSError as exc:
+                            raise RuntimeError(f"io_error: {exc}")
+                    ui_c = client_ref.get("client")
+                    if ui_c and deleted:
+                        cur_type = app_state.get("debug_ingress_type", "")
+                        if not cur_type or cur_type == type_name:
+                            _deferred(lambda tn=type_name: _refresh_ingress_profiles_list(ui_c, tn))
+                    return {"deleted": deleted, "path": str(path)}
+
                 ide_bindings._compile_tab = _ai_rpc_compile_tab
                 ide_bindings._open_file = _ai_rpc_open_file
                 ide_bindings._switch_view = _ai_rpc_switch_view
@@ -6264,6 +6382,11 @@ def main():
                 ide_bindings._get_event_log = _ai_rpc_get_event_log
                 ide_bindings._clear_event_log = _ai_rpc_clear_event_log
                 ide_bindings._log_event = _push_event
+                ide_bindings._list_ingress_types = _ai_rpc_list_ingress_types
+                ide_bindings._list_ingress_profiles = _ai_rpc_list_ingress_profiles
+                ide_bindings._get_ingress_profile = _ai_rpc_get_ingress_profile
+                ide_bindings._save_ingress_profile = _ai_rpc_save_ingress_profile
+                ide_bindings._delete_ingress_profile = _ai_rpc_delete_ingress_profile
 
                 ai_rpc_server = AiRpcServer(port=args.ai_rpc_port, ide=ide_bindings)
                 ai_rpc_server.start()

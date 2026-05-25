@@ -1,0 +1,6 @@
+{"type": "WallSurface", "name": "floor_panel", "fields": {
+  "size_x": "600", "size_y": "20", "size_z": "1000",
+  "pos_x": "-150", "pos_y": "-200", "pos_z": "300",
+  "pitch": "90", "yaw": "0",
+  "color_r": "100", "color_g": "90", "color_b": "70"
+}}

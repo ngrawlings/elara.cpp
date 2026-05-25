@@ -1,0 +1,8 @@
+{"type": "ScenePoseInput", "name": "look_down_30", "fields": {
+  "cam_x": "0", "cam_z": "0", "depth": "0", "lane": "0", "yaw": "0", "pitch": "-30",
+  "end_wall_x": "0", "end_wall_y": "0", "end_wall_w": "0", "end_wall_h": "0", "end_wall_visible": "0",
+  "side_wall_x": "0", "side_wall_y": "0", "side_wall_w": "0", "side_wall_h": "0", "side_wall_visible": "0",
+  "marker0_x": "0", "marker0_y": "0", "marker0_visible": "0",
+  "marker1_x": "0", "marker1_y": "0", "marker1_visible": "0",
+  "marker2_x": "0", "marker2_y": "0", "marker2_visible": "0"
+}}

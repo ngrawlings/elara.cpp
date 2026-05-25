@@ -1,0 +1,6 @@
+{"type": "WallSurface", "name": "end_wall_near", "fields": {
+  "size_x": "300", "size_y": "400", "size_z": "20",
+  "pos_x": "110", "pos_y": "0", "pos_z": "700",
+  "pitch": "0", "yaw": "0",
+  "color_r": "180", "color_g": "140", "color_b": "100"
+}}

@@ -1,0 +1,1 @@
+{"type": "WeaponCommand", "name": "fire", "fields": {"mode": "0", "trigger": "1", "ammo_hint": "100"}}

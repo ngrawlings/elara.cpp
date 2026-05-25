@@ -1,0 +1,1 @@
+{"type": "HudCommand", "name": "ammo_warning", "fields": {"hud_mode": "1", "dirty_flags": "2", "selected_weapon": "1"}}

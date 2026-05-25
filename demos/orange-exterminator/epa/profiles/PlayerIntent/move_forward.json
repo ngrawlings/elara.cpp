@@ -1,0 +1,1 @@
+{"type": "PlayerIntent", "name": "move_forward", "fields": {"move_x": "0", "move_y": "1", "fire_mode": "0", "look_dx": "0"}}
