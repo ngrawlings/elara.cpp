@@ -343,20 +343,20 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     if (method == String("ping")) {
         result_json = String("{\"message\":\"pong\"}"); return true;
     }
-    if (method == String("epa.debug.create")) {
+    if (method == String("debug.create")) {
         if (!host.create()) { error_code = String("create_failed"); error_message = host.lastError(); return false; }
         ensureDebugCallback(); result_json = String("{\"created\":true}"); return true;
     }
-    if (method == String("epa.debug.destroy")) {
+    if (method == String("debug.destroy")) {
         host.destroy(); events.clear(); result_json = String("{\"destroyed\":true}"); return true;
     }
-    if (method == String("epa.debug.setKernelId")) {
+    if (method == String("debug.setKernelId")) {
         String id;
         if (!parseString(params_json, String("kernel_id"), id)) id = String("epa.debug.kernel");
         if (!host.setKernelId(id)) { error_code = String("set_kernel_id_failed"); error_message = host.lastError(); return false; }
         result_json = String("{\"ok\":true}"); return true;
     }
-    if (method == String("epa.debug.loadAsm")) {
+    if (method == String("debug.loadAsm")) {
         String path;
         if (!parseString(params_json, String("asm_path"), path) || !path.length()) {
             error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false;
@@ -364,7 +364,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         if (!host.loadAsmPath(path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; }
         ensureDebugCallback(); result_json = String("{\"loaded\":true}"); return true;
     }
-    if (method == String("epa.debug.loadBundle")) {
+    if (method == String("debug.loadBundle")) {
         String path;
         if (!parseString(params_json, String("bundle_path"), path) || !path.length()) {
             error_code = String("missing_bundle_path"); error_message = String("bundle_path is required"); return false;
@@ -372,7 +372,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         if (!host.loadBundlePath(path)) { error_code = String("load_bundle_failed"); error_message = host.lastError(); return false; }
         result_json = String("{\"loaded\":true}"); return true;
     }
-    if (method == String("epa.debug.ingressPushHex")) {
+    if (method == String("debug.ingressPushHex")) {
         uint32_t wid = 1, tag = 0;
         String hex;
         std::vector<unsigned char> bytes;
@@ -386,7 +386,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         }
         result_json = String("{\"queued\":true}"); return true;
     }
-    if (method == String("epa.debug.step")) {
+    if (method == String("debug.step")) {
         uint32_t ticks = 1, ticks_ran = 0;
         String stop_reason;
         parseUint(params_json, String("ticks"), 1, &ticks);
@@ -398,7 +398,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
                     + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
         return true;
     }
-    if (method == String("epa.debug.run")) {
+    if (method == String("debug.run")) {
         uint32_t max_ticks = 1000, ticks_ran = 0;
         String stop_reason;
         parseUint(params_json, String("max_ticks"), 1000, &max_ticks);
@@ -410,7 +410,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
                     + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
         return true;
     }
-    if (method == String("epa.debug.runToWait")) {
+    if (method == String("debug.runToWait")) {
         uint32_t wid = 0, max_ticks = 500000, ticks_ran = 0;
         String stop_reason;
         parseUint(params_json, String("wid"),       0,      &wid);
@@ -423,20 +423,20 @@ bool EpaDbgService::call(const String &method, const String &params_json,
                     + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
         return true;
     }
-    if (method == String("epa.debug.interrupt")) {
+    if (method == String("debug.interrupt")) {
         EpaKernel *k = host.rawKernel();
         if (k) epa_kernel_request_interrupt(k);
         result_json = String("{\"interrupt_requested\":true}"); return true;
     }
-    if (method == String("epa.debug.snapshot")) {
+    if (method == String("debug.snapshot")) {
         result_json = buildSnapshotJson(); return true;
     }
-    if (method == String("epa.debug.events")) {
+    if (method == String("debug.events")) {
         bool clear = true;
         parseBool(params_json, String("clear"), true, &clear);
         result_json = buildEventsJson(clear); return true;
     }
-    if (method == String("epa.debug.breakpointAdd")) {
+    if (method == String("debug.breakpointAdd")) {
         Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0;
         parseUint(params_json, String("block_type"), 0, (uint32_t *)&bp.block_type);
         parseUint(params_json, String("block_id"),   0, (uint32_t *)&bp.block_id);
@@ -444,7 +444,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         breakpoints.push_back(bp);
         result_json = buildBreakpointJson(); return true;
     }
-    if (method == String("epa.debug.breakpointClear")) {
+    if (method == String("debug.breakpointClear")) {
         uint32_t bt = 0, bi = 0, rpc = 0;
         parseUint(params_json, String("block_type"), 0, &bt);
         parseUint(params_json, String("block_id"),   0, &bi);
@@ -456,7 +456,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         }
         result_json = buildBreakpointJson(); return true;
     }
-    if (method == String("epa.debug.breakpointList")) {
+    if (method == String("debug.breakpointList")) {
         result_json = buildBreakpointJson(); return true;
     }
 

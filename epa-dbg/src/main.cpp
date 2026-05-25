@@ -36,7 +36,7 @@ int main(int argc, const char *argv[]) {
     fflush(stdout);
 
     EpaDbgServer server;
-    server.start(port, address);
+    server.start(port, address, ev);
 
     Thread::stopAllThreads();
     Thread::staticCleanUp();

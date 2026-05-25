@@ -11,6 +11,31 @@ BUILD_ROOT="${ROOT_DIR}/build"
 MANIFEST_DIR="${INSTALL_ROOT_DIR}/share/elara.cpp"
 MANIFEST_PATH="${MANIFEST_DIR}/install-manifest.txt"
 
+ensure_ui_server_staged() {
+  local server_path="${BUILD_ROOT}/bin/elaraui-server"
+  local gtk_enabled=""
+
+  if [[ -x "${server_path}" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${BUILD_ROOT}/lib/libelaraui.a" || ! -f "${BUILD_ROOT}/lib/libelarauirpc.a" ]]; then
+    return 0
+  fi
+
+  if [[ ! -f "${ROOT_DIR}/libElaraUI/Makefile" ]]; then
+    return 0
+  fi
+
+  gtk_enabled="$(awk -F= '/^GTK_BACKEND_ENABLED=/{print $2}' "${ROOT_DIR}/libElaraUI/Makefile")"
+  if [[ "${gtk_enabled}" != "1" ]]; then
+    return 0
+  fi
+
+  echo "Staging elaraui-server after library dependencies are available..."
+  make -C "${ROOT_DIR}/libElaraUI" rpc-server ROOT_BUILD_DIR="${BUILD_ROOT}"
+}
+
 write_manifest() {
   mkdir -p "${MANIFEST_DIR}"
   : > "${MANIFEST_PATH}"
@@ -57,5 +82,6 @@ if [[ ! -d "${BUILD_ROOT}/include" && ! -d "${BUILD_ROOT}/lib" && ! -d "${BUILD_
 fi
 
 echo "Installing into ${INSTALL_ROOT_DIR}..."
+ensure_ui_server_staged
 make install BUILD_PROFILE="${BUILD_PROFILE}" INSTALL_ROOT_DIR="${INSTALL_ROOT_DIR}"
 write_manifest

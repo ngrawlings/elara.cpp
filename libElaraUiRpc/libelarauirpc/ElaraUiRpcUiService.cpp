@@ -488,6 +488,32 @@ bool ElaraUiRpcUiService::setSectionJson(
         return true;
     }
 
+    ElaraToolBarWidget* toolbar = dynamic_cast<ElaraToolBarWidget*>(widget.getPtr());
+    if(toolbar && section == String("items")) {
+        Json spec(String("{\"items\":") + value_json + String("}"));
+        Array< Ref<JsonValue> > items = spec.getArray("items");
+        toolbar->clearItems();
+        for(int i = 0; i < (int)items.length(); i++) {
+            Json item_json(items[i]->toString());
+            if(jsonBool(item_json, "separator", false)) {
+                toolbar->addSeparator();
+                continue;
+            }
+            toolbar->addItem(
+                item_json.getStringValue("id"),
+                item_json.getStringValue("text"),
+                item_json.getStringValue("icon"),
+                jsonBool(item_json, "enabled", true),
+                item_json.getStringValue("tooltip")
+            );
+        }
+        if(root && root->getGuiBackend()) {
+            root->getGuiBackend()->invalidate();
+        }
+        result_json = "{\"updated\":true}";
+        return true;
+    }
+
     ElaraOpenClSurfaceWidget* opencl_surface = dynamic_cast<ElaraOpenClSurfaceWidget*>(widget.getPtr());
     if(opencl_surface && section == String("commands")) {
         Json spec(String("{\"commands\":") + value_json + String("}"));

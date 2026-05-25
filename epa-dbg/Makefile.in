@@ -6,6 +6,7 @@ FRAMEWORK_ROOT?=$(abspath ..)
 ELARA_ROOT?=$(if $(wildcard $(FRAMEWORK_ROOT)/build/include),$(FRAMEWORK_ROOT)/build,$(abspath ../build))
 ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include
 ELARA_LIB_DIR?=$(ELARA_ROOT)/lib
+STAGE_BIN_DIR?=$(ELARA_ROOT)/bin
 EPA_PARALLEL_SRC_DIR?=$(FRAMEWORK_ROOT)/libElaraParallelAssembly/src
 EPA_PARALLEL_OPCODES_DIR?=$(FRAMEWORK_ROOT)/libElaraParallelAssembly/src/opcodes
 
@@ -19,6 +20,7 @@ else
 PROFILE_CFLAGS=$(RELEASE_CFLAGS)
 endif
 STD_CCFLAGS=-std=gnu11 $(filter-out -std=gnu++11,$(PROFILE_CFLAGS))
+PROJECT_CFLAGS=$(filter-out -std=gnu++11,$(CFLAGS))
 STD_CFLAGS=-c $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR)
 STD_LDFLAGS=-L$(ELARA_LIB_DIR) \
     -lelarasockets -lelarathreads -lelaraevent \
@@ -35,7 +37,7 @@ CPP_OBJECTS=$(patsubst ./src/%.cpp,$(BUILDPATH)/src/%.o,$(CPP_SOURCES))
 C_OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.c.o,$(C_SOURCES))
 OBJECTS=$(CPP_OBJECTS) $(C_OBJECTS)
 
-.PHONY: all clean cleanconf
+.PHONY: all install remove clean cleanconf
 
 all: $(TARGET)
 
@@ -48,7 +50,14 @@ $(BUILDPATH)/src/%.o: ./src/%.cpp
 
 $(BUILDPATH)/src/%.c.o: ./src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -c $(STD_CCFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(CFLAGS) ./src/$*.c -o $@
+	$(CC) -c $(STD_CCFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(PROJECT_CFLAGS) ./src/$*.c -o $@
+
+install: all
+	mkdir -p $(STAGE_BIN_DIR)
+	cp $(BUILDPATH)/$(TARGET) $(STAGE_BIN_DIR)/$(TARGET)
+
+remove:
+	rm -f $(STAGE_BIN_DIR)/$(TARGET)
 
 clean:
 	rm -rf $(BUILDPATH)

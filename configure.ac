@@ -14,6 +14,7 @@ AC_ARG_ENABLE([libelaraui], [AS_HELP_STRING([--disable-libelaraui], [Skip buildi
 AC_ARG_ENABLE([libelarauirpc], [AS_HELP_STRING([--disable-libelarauirpc], [Skip building libElaraUiRpc])], [], [enable_libelarauirpc=yes])
 AC_ARG_ENABLE([libelarapythonthreads], [AS_HELP_STRING([--disable-libelarapythonthreads], [Skip building libElaraPythonThreads])], [], [enable_libelarapythonthreads=yes])
 AC_ARG_ENABLE([libelaraparallelassembly], [AS_HELP_STRING([--disable-libelaraparallelassembly], [Skip building libElaraParallelAssembly])], [], [enable_libelaraparallelassembly=yes])
+AC_ARG_ENABLE([epadbg], [AS_HELP_STRING([--disable-epadbg], [Skip building epa-dbg])], [], [enable_epadbg=yes])
 AC_ARG_ENABLE([libelaraserializer], [AS_HELP_STRING([--disable-libelaraserializer], [Skip building libElaraSerializer])], [], [enable_libelaraserializer=yes])
 AC_ARG_ENABLE([libelaravector], [AS_HELP_STRING([--disable-libelaravector], [Skip building libElaraVector])], [], [enable_libelaravector=yes])
 AC_ARG_ENABLE([elaraunittests], [AS_HELP_STRING([--disable-elaraunittests], [Skip building ElaraUnitTests])], [], [enable_elaraunittests=yes])
@@ -86,6 +87,14 @@ require_enabled [libElaraUiRpc] [$enable_libelarauirpc] [libElaraThreads] [$enab
 require_enabled [libElaraPythonThreads] [$enable_libelarapythonthreads] [libElaraCore] [$enable_libelaracore]
 require_enabled [libElaraPythonThreads] [$enable_libelarapythonthreads] [libElaraThreads] [$enable_libelarathreads]
 require_enabled [libElaraParallelAssembly] [$enable_libelaraparallelassembly] [libElaraCore] [$enable_libelaracore]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraCore] [$enable_libelaracore]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraDebug] [$enable_libelaradebug]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraThreads] [$enable_libelarathreads]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraEvent] [$enable_libelaraevent]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraFormat] [$enable_libelaraformat]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraIO] [$enable_libelaraio]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraSockets] [$enable_libelarasockets]
+require_enabled [epa-dbg] [$enable_epadbg] [libElaraParallelAssembly] [$enable_libelaraparallelassembly]
 require_enabled [libElaraSerializer] [$enable_libelaraserializer] [libElaraCore] [$enable_libelaracore]
 require_enabled [ElaraUnitTests] [$enable_elaraunittests] [libElaraCore] [$enable_libelaracore]
 require_enabled [ElaraUnitTests] [$enable_elaraunittests] [libElaraDebug] [$enable_libelaradebug]
@@ -107,6 +116,7 @@ AS_IF([test "x$enable_libelaraui" = "xyes"], [append_project libElaraUI], [appen
 AS_IF([test "x$enable_libelarauirpc" = "xyes"], [append_project libElaraUiRpc], [append_disabled libElaraUiRpc])
 AS_IF([test "x$enable_libelarapythonthreads" = "xyes"], [append_project libElaraPythonThreads], [append_disabled libElaraPythonThreads])
 AS_IF([test "x$enable_libelaraparallelassembly" = "xyes"], [append_project libElaraParallelAssembly], [append_disabled libElaraParallelAssembly])
+AS_IF([test "x$enable_epadbg" = "xyes"], [append_project epa-dbg], [append_disabled epa-dbg])
 AS_IF([test "x$enable_libelaraserializer" = "xyes"], [append_project libElaraSerializer], [append_disabled libElaraSerializer])
 AS_IF([test "x$enable_libelaravector" = "xyes"], [append_project libElaraVector], [append_disabled libElaraVector])
 AS_IF([test "x$enable_elaraunittests" = "xyes"], [append_project ElaraUnitTests], [append_disabled ElaraUnitTests])

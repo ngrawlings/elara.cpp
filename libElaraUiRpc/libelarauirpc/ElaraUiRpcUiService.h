@@ -14,6 +14,7 @@
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
+#include <libelaraui/frontend/widgets/ElaraToolBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraComboBoxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTextInputWidget.h>
 #include <libelaraui/frontend/widgets/ElaraVulkanSurfaceWidget.h>

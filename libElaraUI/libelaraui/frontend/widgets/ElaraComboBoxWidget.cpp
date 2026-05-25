@@ -4,6 +4,23 @@
 
 namespace elara {
 
+static String truncateText(ElaraDrawContext* ctx, const String& text, double max_width, double font_size) {
+    if(ctx->measureTextWidth(text, font_size) <= max_width) {
+        return text;
+    }
+    String ellipsis("\xe2\x80\xa6");  // UTF-8 for U+2026 HORIZONTAL ELLIPSIS
+    double ellipsis_w = ctx->measureTextWidth(ellipsis, font_size);
+    if(ellipsis_w >= max_width) {
+        return ellipsis;
+    }
+    double avail = max_width - ellipsis_w;
+    int len = (int)text.length();
+    while(len > 0 && ctx->measureTextWidth(text.substr(0, len), font_size) > avail) {
+        len--;
+    }
+    return text.substr(0, len) + ellipsis;
+}
+
 // ── Dropdown popup ────────────────────────────────────────────────────────────
 
 class ElaraComboDropdownWidget : public ElaraPopupWidget {
@@ -91,7 +108,8 @@ public:
             }
 
             ctx->setColor(c.text.r, c.text.g, c.text.b);
-            ctx->drawText(x + 10, iy + font_size + 4, (*source_items)[i].getText(), font_size);
+            double item_max_w = width - 20;  // 10px left pad + 10px right margin
+            ctx->drawText(x + 10, iy + font_size + 4, truncateText(ctx, (*source_items)[i].getText(), item_max_w, font_size), font_size);
         }
     }
 
@@ -320,10 +338,11 @@ void ElaraComboBoxWidget::draw(ElaraDrawContext* ctx) {
     ctx->line(arrow_cx - 4, arrow_cy - 2, arrow_cx, arrow_cy + 3, 1.5);
     ctx->line(arrow_cx, arrow_cy + 3, arrow_cx + 4, arrow_cy - 2, 1.5);
 
-    // Selected text
+    // Selected text — clipped to avoid overflowing into the arrow area
     ctx->setColor(c.text.r, c.text.g, c.text.b);
     double text_y = (height / 2) + (font_size / 2) - 2;
-    ctx->drawText(8, text_y, selected_text, font_size);
+    double text_max_w = width - arrow_width - 8 - 4;  // left pad, arrow zone, right margin
+    ctx->drawText(8, text_y, truncateText(ctx, selected_text, text_max_w, font_size), font_size);
 }
 
 ElaraMouseCursor ElaraComboBoxWidget::cursor() const {

@@ -125,7 +125,7 @@ class EpaDbgClient:
     # ------------------------------------------------------------------
 
     def ping(self) -> str:
-        return self.call("ping")
+        return self.call("epa.ping")
 
     # Kernel lifecycle
 
@@ -149,11 +149,11 @@ class EpaDbgClient:
     # Loading programs
 
     def load_asm(self, kernel_id: int, asm_text: str) -> dict:
-        return self.call("epa.debug.loadAsm", {"kernel_id": kernel_id, "asm": asm_text})
+        return self.call("epa.debug.loadAsm", {"kernel_id": kernel_id, "asm_path": asm_text})
 
     def load_bundle(self, kernel_id: int, bundle_path: str) -> dict:
         return self.call("epa.debug.loadBundle",
-                         {"kernel_id": kernel_id, "path": bundle_path})
+                         {"kernel_id": kernel_id, "bundle_path": bundle_path})
 
     # Ingress
 

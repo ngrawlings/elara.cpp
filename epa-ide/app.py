@@ -75,6 +75,38 @@ def _editor_ids(tab_id: str):
     }
 
 
+_PROJECT_TOOLBAR_ITEMS = [
+    ("toolbar.files", "Files"),
+    ("toolbar.search", "Search"),
+    ("toolbar.repo", "Repo"),
+    ("toolbar.issues", "Issues"),
+    None,
+    ("toolbar.debug", "Debug"),
+]
+
+
+def _project_toolbar_items(enabled: bool):
+    items = []
+    for entry in _PROJECT_TOOLBAR_ITEMS:
+        if entry is None:
+            items.append({"separator": True})
+        else:
+            item_id, text = entry
+            item = {"id": item_id, "text": text}
+            if not enabled:
+                item["enabled"] = False
+            items.append(item)
+    return items
+
+
+def _set_project_toolbar_enabled(client, enabled: bool):
+    client.call("ui.setSectionJson", {
+        "target": "app.toolbar",
+        "section": "items",
+        "value": _project_toolbar_items(enabled),
+    })
+
+
 def _editor_language_for_path(path: str) -> str:
     ext = Path(path).suffix.lower()
     if ext in (".cpp", ".cc", ".cxx", ".c", ".h", ".hpp", ".hh"):
@@ -534,12 +566,16 @@ def build_document():
     ui.set_property_number("app.toolbar", "item_padding_x", 6)
     ui.set_property_number("app.toolbar", "item_padding_y", 10)
     ui.set_property_number("app.toolbar", "item_spacing", 2)
-    ui.add_toolbar_item("app.toolbar", "toolbar.files", "Files")
-    ui.add_toolbar_item("app.toolbar", "toolbar.search", "Search")
-    ui.add_toolbar_item("app.toolbar", "toolbar.repo", "Repo")
-    ui.add_toolbar_item("app.toolbar", "toolbar.issues", "Issues")
-    ui.add_toolbar_separator("app.toolbar")
-    ui.add_toolbar_item("app.toolbar", "toolbar.debug", "Debug")
+    for item in _project_toolbar_items(False):
+        if item.get("separator"):
+            ui.add_toolbar_separator("app.toolbar")
+        else:
+            ui.add_toolbar_item(
+                "app.toolbar",
+                item["id"],
+                item["text"],
+                enabled=item.get("enabled", True),
+            )
     ui.create_grid("nav.no_project")
     ui.add_grid_column_weighted_fill("nav.no_project", 1)
     ui.add_grid_row_weighted_fill("nav.no_project", 1)
@@ -963,7 +999,7 @@ def build_document():
     ui.add_grid_row_exact("nav.debug_panel", 246)        # 1  ingress designer (fixed)
     ui.add_grid_row_exact("nav.debug_panel", 22)         # 2  kernels section label
     ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 3  kernel list
-    ui.add_grid_row_exact("nav.debug_panel", 36)         # 4  VM controls
+    ui.add_grid_row_exact("nav.debug_panel", 58)         # 4  VM status + controls
 
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
@@ -978,14 +1014,20 @@ def build_document():
     ui.add_grid_column_fill("nav.debug.vm_controls")
     ui.add_grid_column_exact("nav.debug.vm_controls", 4)
     ui.add_grid_column_exact("nav.debug.vm_controls", 80)
+    ui.add_grid_column_exact("nav.debug.vm_controls", 4)
+    ui.add_grid_column_exact("nav.debug.vm_controls", 80)
     ui.add_grid_column_exact("nav.debug.vm_controls", 8)
-    ui.add_grid_row_fill("nav.debug.vm_controls")
+    ui.add_grid_row_exact("nav.debug.vm_controls", 24)
+    ui.add_grid_row_exact("nav.debug.vm_controls", 30)
+    ui.create_label("nav.debug.vm_status", "●  VM idle", 10)
+    ui.set_property_string("nav.debug.vm_status", "foreground_color", "#777777")
     ui.create_button("nav.debug.vm_reset", "▶  Start", "debug.vm.reset")
     ui.set_property_number("nav.debug.vm_reset", "font_size", 11)
     ui.create_button("nav.debug.vm_stop", "■  Stop", "debug.vm.stop")
     ui.set_property_number("nav.debug.vm_stop", "font_size", 11)
-    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_reset", 1, 0)
-    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_stop",  3, 0)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_status", 1, 0, 5, 1)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_reset",  3, 1)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_stop",   5, 1)
 
     # Ingress designer
     ui.create_grid("nav.debug.ingress")
@@ -2402,6 +2444,27 @@ def main():
         proc = _epa_dbg.get("proc")
         return bool(proc and proc.poll() is None and _epa_dbg.get("client"))
 
+    def _epa_dbg_set_vm_status(state: str, detail: str = ""):
+        """Update the visible VM status indicator in the Debug panel."""
+        ui_c = client_ref.get("client")
+        if not ui_c:
+            return
+
+        labels = {
+            "idle":     ("●  VM idle", "#777777"),
+            "starting": ("●  VM starting", "#c7922b"),
+            "running":  ("●  VM running", "#3ea35f"),
+            "stopping": ("●  VM stopping", "#c7922b"),
+            "error":    ("●  VM error", "#c85151"),
+        }
+        text, color = labels.get(state, (f"●  VM {state}", "#777777"))
+        if detail:
+            text = f"{text}: {detail}"
+        try:
+            ui_c.set_text("nav.debug.vm_status", text)
+        except Exception:
+            pass
+
     def _epa_dbg_set_vm_button(running: bool):
         """Update the Start/Reset button label to reflect current VM state."""
         ui_c = client_ref.get("client")
@@ -2409,13 +2472,10 @@ def main():
             return
         label = "⟳  Reset" if running else "▶  Start"
         try:
-            ui_c.call("ui.setProperty", {
-                "target":   "nav.debug.vm_reset",
-                "property": "text",
-                "value":    label,
-            })
+            ui_c.set_text("nav.debug.vm_reset", label)
         except Exception:
             pass
+        _epa_dbg_set_vm_status("running" if running else "idle")
 
     def _epa_dbg_show_error(title: str, message: str, artifact_lines: list | None = None):
         """Write an error artifact and show an error dialog in the UI."""
@@ -2432,6 +2492,7 @@ def main():
         except Exception:
             pass
         ui_c = client_ref.get("client")
+        _epa_dbg_set_vm_status("error", title.replace("epa-dbg: ", ""))
         if ui_c:
             try:
                 ui_c.open_window(
@@ -2447,6 +2508,7 @@ def main():
         """Start epa-dbg if not already running, connect client."""
         from epa_dbg_client import EpaDbgClient
 
+        _epa_dbg_set_vm_status("starting")
         proc = _epa_dbg.get("proc")
         if proc and proc.poll() is None:
             if _epa_dbg.get("client") and _epa_dbg["client"].connected:
@@ -2468,6 +2530,7 @@ def main():
 
         binary = _epa_dbg_binary()
         if not binary.is_file():
+            _epa_dbg_set_vm_button(False)
             _epa_dbg_show_error(
                 "epa-dbg: binary not found",
                 f"Binary not found at:\n{binary}\n\nRun: make  in the epa-dbg directory.",
@@ -2491,6 +2554,7 @@ def main():
                 stderr=subprocess.PIPE,
             )
         except OSError as exc:
+            _epa_dbg_set_vm_button(False)
             _epa_dbg_show_error(
                 "epa-dbg: failed to start",
                 f"Could not execute:\n{binary}\n\n{exc}",
@@ -2530,6 +2594,7 @@ def main():
 
     def _epa_dbg_stop():
         """Terminate epa-dbg process and close client."""
+        _epa_dbg_set_vm_status("stopping")
         c = _epa_dbg.get("client")
         if c:
             try:
@@ -3663,6 +3728,7 @@ def main():
             client.call("ui.setVisible", {"target": "nav.no_project", "visible": False})
             client.call("ui.setVisible", {"target": "nav.tree", "visible": True})
             client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+            _set_project_toolbar_enabled(client, True)
         except Exception:
             pass
         app_state.pop("debug_kernel_loaded", None)
@@ -4094,6 +4160,7 @@ def main():
         client = client_ref.get("client")
         action = params.get("action")
         payload = params.get("payload") or {}
+        payload_action = payload.get("action", "") if isinstance(payload, dict) else ""
         target = params.get("target")
         _push_event("ui_event", action=action, target=target,
                     payload=_trim_for_log(payload) if isinstance(payload, dict) else payload)
@@ -4142,6 +4209,8 @@ def main():
             wizard_state[key] = payload.get("value", 0) > 0.5
 
         if action == "action" and target == "app.toolbar" and client is not None:
+            if not app_state.get("project_root"):
+                return {"received": True}
             btn = payload.get("action", "")
             view_map = {
                 "toolbar.files":  "files",
@@ -5235,7 +5304,10 @@ def main():
             return {"received": True}
 
         # Debug VM global controls
-        if action in ("action", "clicked") and target == "nav.debug.vm_reset":
+        if action == "action" and (
+            target in ("nav.debug.vm_reset", "debug.vm.reset")
+            or payload_action == "debug.vm.reset"
+        ):
             c = client
             def _do_vm_reset():
                 ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
@@ -5248,11 +5320,16 @@ def main():
                     try:
                         dbg_c.reset(0)
                     except Exception as exc:
+                        _epa_dbg_set_vm_status("error", "reset failed")
+                        _epa_dbg_set_vm_button(_epa_dbg_running())
                         _push_exception(exc, "vm_reset")
             _deferred(_do_vm_reset)
             return {"received": True}
 
-        if action in ("action", "clicked") and target == "nav.debug.vm_stop":
+        if action == "action" and (
+            target in ("nav.debug.vm_stop", "debug.vm.stop")
+            or payload_action == "debug.vm.stop"
+        ):
             c = client
             def _do_vm_stop():
                 ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
@@ -5493,14 +5570,30 @@ def main():
                 pass
             if not app_state.get("project_root"):
                 try:
-                    client.call("ui.setVisible", {"target": "app.toolbar", "visible": False})
-                    for panel in _NAV_PANELS.values():
+                    client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+                except Exception:
+                    pass
+                try:
+                    _set_project_toolbar_enabled(client, False)
+                except Exception:
+                    pass
+                for panel in _NAV_PANELS.values():
+                    try:
                         client.call("ui.setVisible", {"target": panel, "visible": False})
+                    except Exception:
+                        pass
+                try:
                     client.call("ui.setVisible", {"target": "nav.panel", "visible": True})
                     client.call("ui.setVisible", {"target": "nav.tree", "visible": False})
                     client.call("ui.setVisible", {"target": "nav.no_project", "visible": True})
                 except Exception:
                     pass
+            else:
+                try:
+                    _set_project_toolbar_enabled(client, True)
+                except Exception:
+                    pass
+                _switch_nav_view(client, app_state.get("nav_view", "files"))
             for tab_id in editor_state:
                 _refresh_e_tab(client, tab_id)
             if app_state.get("active_editor_tab"):
