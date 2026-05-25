@@ -188,6 +188,20 @@ class ElaraUiRpcClient:
     def get_grid_layout_state(self, target: str, timeout: float = 5.0):
         return self.call("ui.getGridLayoutState", {"target": target}, timeout=timeout)
 
+    def set_grid_column_exact_size(self, target: str, index: int, size: float, timeout: float = 5.0):
+        return self.call(
+            "ui.setGridColumnExactSize",
+            {"target": target, "index": int(index), "size": float(size)},
+            timeout=timeout,
+        )
+
+    def set_grid_row_exact_size(self, target: str, index: int, size: float, timeout: float = 5.0):
+        return self.call(
+            "ui.setGridRowExactSize",
+            {"target": target, "index": int(index), "size": float(size)},
+            timeout=timeout,
+        )
+
     def get_window_state(self, timeout: float = 5.0):
         return self.call("ui.getWindowState", {}, timeout=timeout)
 

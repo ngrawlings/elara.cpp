@@ -79,11 +79,13 @@ public:
     int addColumn(double width);
     int addFillColumn();
     int addWeightedFillColumn(double weight);
+    void setColumnExactSize(int index, double width);
     void setColumnBorderResizable(int index, bool enabled);
 
     int addRow(double height);
     int addFillRow();
     int addWeightedFillRow(double weight);
+    void setRowExactSize(int index, double height);
     void setRowBorderResizable(int index, bool enabled);
     int columnCount() const;
     int rowCount() const;

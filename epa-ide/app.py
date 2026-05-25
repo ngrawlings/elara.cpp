@@ -245,8 +245,11 @@ def build_document():
     layout_state = ide_state.get("layout", {}) if isinstance(ide_state, dict) else {}
     window_state = ide_state.get("window", {}) if isinstance(ide_state, dict) else {}
     use_system_window_header = _use_system_window_header(ide_state)
+    right_panel_visible = _right_panel_visible(ide_state)
+    bottom_panel_visible = _bottom_panel_visible(ide_state)
     nav_width = _layout_value(layout_state.get("nav_width"), 220)
     ai_width = _layout_value(layout_state.get("ai_width"), 320)
+    bottom_height = _layout_value(layout_state.get("bottom_height"), 220)
     window_width = _window_value(window_state.get("width"), 1080)
     window_height = _window_value(window_state.get("height"), 760, minimum=480)
 
@@ -258,17 +261,25 @@ def build_document():
     ui.add_grid_column_exact("app.shell", 56)
     ui.add_grid_column_exact("app.shell", nav_width)
     ui.add_grid_column_weighted_fill("app.shell", 3)
-    ui.add_grid_column_exact("app.shell", ai_width)
+    ui.add_grid_column_exact("app.shell", ai_width if right_panel_visible else 0)
     ui.set_grid_column_border_resizable("app.shell", 1, True)
     ui.set_grid_column_border_resizable("app.shell", 2, True)
     ui.add_grid_row_exact("app.shell", 32)
     ui.add_grid_row_fill("app.shell")
     ui.set_root_content("app.shell")
+
+    ui.create_grid("app.center")
+    ui.add_grid_column_fill("app.center")
+    ui.add_grid_row_fill("app.center")
+    ui.add_grid_row_exact("app.center", bottom_height if bottom_panel_visible else 0)
+    ui.set_grid_row_border_resizable("app.center", 0, True)
     ui.create_menu_bar("app.menu")
     ui.set_property_number("app.menu", "font_size", 14)
     ui.set_property_bool("app.menu", "custom_chrome", not use_system_window_header)
     ui.set_property_string("app.menu", "window_title", "EPA-IDE")
     ui.add_menu_bar_button("app.menu", "theme_toggle", "◑", "app.toggle_theme")
+    ui.add_menu_bar_button("app.menu", "right_panel_toggle", "◨", "app.toggle_right_panel")
+    ui.add_menu_bar_button("app.menu", "bottom_panel_toggle", "▤", "app.toggle_bottom_panel")
     ui.set_menu_bar_menus("app.menu", [
         {"id": "file", "label": "&File", "items": [
             {"id": "file.new_file", "label": "&New File", "shortcut": "Ctrl+N"},
@@ -1098,6 +1109,59 @@ def build_document():
     ui.place_grid_child("nav.debug_panel", "nav.debug.vm_controls",    0, 4)
     ui.set_property_bool("nav.debug_panel", "visible", False)
 
+    # -- Bottom tools panel -------------------------------------------------
+    ui.create_grid("bottom.panel")
+    ui.add_grid_column_fill("bottom.panel")
+    ui.add_grid_row_exact("bottom.panel", 30)
+    ui.add_grid_row_fill("bottom.panel")
+
+    ui.create_toolbar("bottom.toolbar", orientation="horizontal")
+    ui.set_property_number("bottom.toolbar", "font_size", 11)
+    ui.set_property_number("bottom.toolbar", "item_padding_x", 8)
+    ui.set_property_number("bottom.toolbar", "item_padding_y", 5)
+    ui.set_property_number("bottom.toolbar", "item_spacing", 2)
+    ui.add_toolbar_item("bottom.toolbar", "bottom.build", "Build Output")
+    ui.add_toolbar_item("bottom.toolbar", "bottom.terminal", "Terminal")
+    ui.add_toolbar_separator("bottom.toolbar")
+    ui.add_toolbar_item("bottom.toolbar", "bottom.clear", "Clear")
+
+    ui.create_rich_text_edit(
+        "bottom.build_output",
+        "Build output will appear here.",
+    )
+    ui.set_property_number("bottom.build_output", "font_size", 12)
+    ui.set_property_bool("bottom.build_output", "read_only", True)
+
+    ui.create_grid("bottom.terminal_panel")
+    ui.add_grid_column_fill("bottom.terminal_panel")
+    ui.add_grid_column_exact("bottom.terminal_panel", 132)
+    ui.set_grid_column_border_resizable("bottom.terminal_panel", 0, True)
+    ui.add_grid_row_fill("bottom.terminal_panel")
+    ui.add_grid_row_exact("bottom.terminal_panel", 28)
+    ui.create_rich_text_edit(
+        "bottom.terminal_output",
+        "Terminal ready. Open a project to set the working directory.",
+    )
+    ui.set_property_number("bottom.terminal_output", "font_size", 12)
+    ui.set_property_bool("bottom.terminal_output", "read_only", True)
+    ui.create_text_input("bottom.terminal_input", "")
+    ui.set_property_string("bottom.terminal_input", "placeholder", "command")
+    ui.set_property_number("bottom.terminal_input", "font_size", 12)
+    ui.create_list_view("bottom.terminal_instances")
+    ui.set_property_number("bottom.terminal_instances", "font_size", 11)
+    ui.set_section_json("bottom.terminal_instances", "items", [
+        {"id": "terminal.1", "label": "Terminal 1"},
+    ])
+    ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_output", 0, 0)
+    ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
+    ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
+
+    ui.set_property_bool("bottom.terminal_panel", "visible", False)
+    ui.place_grid_child("bottom.panel", "bottom.toolbar", 0, 0)
+    ui.place_grid_child("bottom.panel", "bottom.build_output", 0, 1)
+    ui.place_grid_child("bottom.panel", "bottom.terminal_panel", 0, 1)
+    ui.set_property_bool("bottom.panel", "visible", bottom_panel_visible)
+
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
     ui.place_grid_child("app.shell", "app.toolbar", 0, 1)
     ui.place_grid_child("app.shell", "nav.panel",          1, 1)
@@ -1105,9 +1169,12 @@ def build_document():
     ui.place_grid_child("app.shell", "nav.repo_panel",    1, 1)
     ui.place_grid_child("app.shell", "nav.issues_panel",  1, 1)
     ui.place_grid_child("app.shell", "nav.debug_panel",   1, 1)
-    ui.place_grid_child("app.shell", "editor.welcome", 2, 1)
-    ui.place_grid_child("app.shell", "editor.tabs", 2, 1)
+    ui.place_grid_child("app.shell", "app.center", 2, 1)
+    ui.place_grid_child("app.center", "editor.welcome", 0, 0)
+    ui.place_grid_child("app.center", "editor.tabs", 0, 0)
+    ui.place_grid_child("app.center", "bottom.panel", 0, 1)
     ui.place_grid_child("app.shell", "ai.panel", 3, 1)
+    ui.set_property_bool("ai.panel", "visible", right_panel_visible)
     return ui
 
 
@@ -1128,7 +1195,13 @@ def _save_ide_state(updates: dict):
     try:
         p.parent.mkdir(parents=True, exist_ok=True)
         state = _load_ide_state()
-        state.update(updates)
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(state.get(key), dict):
+                merged = dict(state[key])
+                merged.update(value)
+                state[key] = merged
+            else:
+                state[key] = value
         p.write_text(json.dumps(state, indent=2), encoding="utf-8")
     except Exception:
         pass
@@ -1162,18 +1235,41 @@ def _use_system_window_header(ide_state: dict | None = None) -> bool:
     return False
 
 
+def _right_panel_visible(ide_state: dict | None = None) -> bool:
+    state = ide_state if isinstance(ide_state, dict) else _load_ide_state()
+    ui_state = state.get("ui", {}) if isinstance(state, dict) else {}
+    if isinstance(ui_state, dict) and "right_panel_visible" in ui_state:
+        return bool(ui_state.get("right_panel_visible"))
+    return True
+
+
+def _bottom_panel_visible(ide_state: dict | None = None) -> bool:
+    state = ide_state if isinstance(ide_state, dict) else _load_ide_state()
+    ui_state = state.get("ui", {}) if isinstance(state, dict) else {}
+    if isinstance(ui_state, dict) and "bottom_panel_visible" in ui_state:
+        return bool(ui_state.get("bottom_panel_visible"))
+    return False
+
+
 def _persist_runtime_layout_state(client):
     try:
         shell = client.get_grid_layout_state("app.shell")
+        center = client.get_grid_layout_state("app.center")
         shell_snapshot = client.snapshot_widget("app.shell")
         window_state = client.get_window_state()
         columns = shell.get("columns") or []
+        center_rows = center.get("rows") or []
         nav_width = None
         ai_width = None
+        bottom_height = None
+        right_panel_visible = _right_panel_visible()
+        bottom_panel_visible = _bottom_panel_visible()
         if len(columns) > 1:
             nav_width = _layout_value(columns[1].get("computed_size"), 220)
-        if len(columns) > 3:
+        if len(columns) > 3 and right_panel_visible:
             ai_width = _layout_value(columns[3].get("computed_size"), 320)
+        if len(center_rows) > 1 and bottom_panel_visible:
+            bottom_height = _layout_value(center_rows[1].get("computed_size"), 220)
         bounds = (shell_snapshot or {}).get("bounds") or {}
         updates = {
             "window": {
@@ -1183,9 +1279,12 @@ def _persist_runtime_layout_state(client):
             },
             "layout": {
                 "nav_width": nav_width if nav_width is not None else 220,
-                "ai_width": ai_width if ai_width is not None else 320,
             },
         }
+        if ai_width is not None:
+            updates["layout"]["ai_width"] = ai_width
+        if bottom_height is not None:
+            updates["layout"]["bottom_height"] = bottom_height
         _save_ide_state(updates)
     except Exception:
         pass
@@ -2318,6 +2417,12 @@ def main():
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
     app_state["nav_view"] = "files"
+    initial_state = _current_layout_state()
+    initial_layout = initial_state.get("layout", {}) if isinstance(initial_state, dict) else {}
+    app_state["right_panel_visible"] = _right_panel_visible(initial_state)
+    app_state["right_panel_width"] = _layout_value(initial_layout.get("ai_width"), 320)
+    app_state["bottom_panel_visible"] = _bottom_panel_visible(initial_state)
+    app_state["bottom_panel_height"] = _layout_value(initial_layout.get("bottom_height"), 220)
     tab_list = []                # [{"tab_id", "path", "index", "preview"}]
     tab_click_state = {}         # double-click detection: {"path", "time"}
     ai_state = {
@@ -2329,6 +2434,11 @@ def main():
         "input_text":   "",
         "generating":   False,
         "cancel_event": None,
+    }
+    terminal_state = {
+        "cwd": "",
+        "input": "",
+        "output": "Terminal ready. Open a project to set the working directory.",
     }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
@@ -2794,12 +2904,17 @@ def main():
         project_root_text = app_state.get("project_root", "")
         if not project_root_text:
             print(json.dumps({"build": "skipped", "reason": "no_project_open"}, indent=2), flush=True)
+            try:
+                client.set_text("bottom.build_output", "Build skipped: no project open.")
+            except Exception:
+                pass
             return
 
         project_root = Path(project_root_text)
         meta = _project_meta(project_root)
         technologies = set(meta.get("technologies", []))
         build_steps = []
+        build_log = [f"Build started: {project_root}"]
 
         try:
             if "epa" in technologies:
@@ -2808,7 +2923,12 @@ def main():
                 build_dir.mkdir(parents=True, exist_ok=True)
                 units = _project_e_compile_units(project_root)
                 cmd = [str(bundle), "--out", str(build_dir / "epa.bin")] + [str(p) for p in units]
+                build_log.append("$ " + " ".join(cmd))
                 result = _run_subprocess(cmd, cwd=project_root)
+                if result.stdout.strip():
+                    build_log.append(result.stdout.strip())
+                if result.stderr.strip():
+                    build_log.append(result.stderr.strip())
                 build_steps.append({
                     "step": "epa_bundle",
                     "command": cmd,
@@ -2829,14 +2949,24 @@ def main():
                 if rebuild:
                     clean_script = cpp_root / "clean.sh"
                     if clean_script.is_file():
+                        build_log.append("$ " + str(clean_script))
                         clean_result = _run_subprocess([str(clean_script)], cwd=cpp_root)
+                        if clean_result.stdout.strip():
+                            build_log.append(clean_result.stdout.strip())
+                        if clean_result.stderr.strip():
+                            build_log.append(clean_result.stderr.strip())
                         build_steps.append({
                             "step": "cpp_clean",
                             "command": [str(clean_script)],
                             "stdout": clean_result.stdout.strip(),
                             "stderr": clean_result.stderr.strip(),
                         })
+                build_log.append("$ " + str(build_script))
                 cpp_result = _run_subprocess([str(build_script)], cwd=cpp_root)
+                if cpp_result.stdout.strip():
+                    build_log.append(cpp_result.stdout.strip())
+                if cpp_result.stderr.strip():
+                    build_log.append(cpp_result.stderr.strip())
                 build_steps.append({
                     "step": "cpp_build",
                     "command": [str(build_script)],
@@ -2849,6 +2979,11 @@ def main():
                 "project": str(project_root),
                 "steps": build_steps,
             }, indent=2), flush=True)
+            build_log.append("Build complete.")
+            try:
+                client.set_text("bottom.build_output", "\n\n".join(build_log))
+            except Exception:
+                pass
             _open_project(client, project_root)
         except (subprocess.CalledProcessError, RuntimeError) as exc:
             message = ""
@@ -2864,6 +2999,12 @@ def main():
                 "command": command,
                 "message": message,
             }, indent=2), flush=True)
+            build_log.append("Build failed.")
+            build_log.append(message)
+            try:
+                client.set_text("bottom.build_output", "\n\n".join(build_log))
+            except Exception:
+                pass
 
     def _clean_project():
         project_root_text = app_state.get("project_root", "")
@@ -3724,10 +3865,13 @@ def main():
             "project_root": str(project_path),
             "project_name": project_name,
         })
+        terminal_state["cwd"] = str(project_path)
+        terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
         try:
             client.call("ui.setVisible", {"target": "nav.no_project", "visible": False})
             client.call("ui.setVisible", {"target": "nav.tree", "visible": True})
             client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+            client.set_text("bottom.terminal_output", terminal_state["output"])
             _set_project_toolbar_enabled(client, True)
         except Exception:
             pass
@@ -3759,6 +3903,172 @@ def main():
             _refresh_issues_panel(client)
         elif view == "debug":
             _refresh_debug_panel(client)
+
+    def _apply_right_panel_visibility(client, visible: bool):
+        width = _layout_value(app_state.get("right_panel_width"), 320)
+        try:
+            shell = client.get_grid_layout_state("app.shell")
+            columns = shell.get("columns") or []
+            if len(columns) > 3:
+                current_width = columns[3].get("computed_size", 0)
+                if visible:
+                    saved_width = _layout_value(app_state.get("right_panel_width"), 320)
+                    width = saved_width
+                elif current_width and current_width >= 120:
+                    width = _layout_value(current_width, 320)
+                    app_state["right_panel_width"] = width
+                    _save_ide_state({"layout": {"ai_width": width}})
+        except Exception:
+            pass
+
+        try:
+            client.set_grid_column_exact_size("app.shell", 3, width if visible else 0)
+        except Exception:
+            try:
+                client.call(
+                    "ui.setGridColumnExactSize",
+                    {"target": "app.shell", "index": 3, "size": width if visible else 0},
+                )
+            except Exception:
+                pass
+
+        try:
+            client.set_visible("ai.panel", visible)
+        except Exception:
+            pass
+
+    def _toggle_right_panel(client):
+        visible = not bool(app_state.get("right_panel_visible", True))
+        app_state["right_panel_visible"] = visible
+        _save_ide_state({"ui": {"right_panel_visible": visible}})
+        _apply_right_panel_visibility(client, visible)
+
+    def _apply_bottom_panel_visibility(client, visible: bool):
+        height = _layout_value(app_state.get("bottom_panel_height"), 220)
+        try:
+            center = client.get_grid_layout_state("app.center")
+            rows = center.get("rows") or []
+            if len(rows) > 1:
+                current_height = rows[1].get("computed_size", 0)
+                if visible:
+                    saved_height = _layout_value(app_state.get("bottom_panel_height"), 220)
+                    height = saved_height
+                elif current_height and current_height >= 120:
+                    height = _layout_value(current_height, 220)
+                    app_state["bottom_panel_height"] = height
+                    _save_ide_state({"layout": {"bottom_height": height}})
+        except Exception:
+            pass
+
+        try:
+            client.set_grid_row_exact_size("app.center", 1, height if visible else 0)
+        except Exception:
+            try:
+                client.call(
+                    "ui.setGridRowExactSize",
+                    {"target": "app.center", "index": 1, "size": height if visible else 0},
+                )
+            except Exception:
+                pass
+
+        try:
+            client.set_visible("bottom.panel", visible)
+        except Exception:
+            pass
+
+    def _toggle_bottom_panel(client):
+        visible = not bool(app_state.get("bottom_panel_visible", False))
+        app_state["bottom_panel_visible"] = visible
+        _save_ide_state({"ui": {"bottom_panel_visible": visible}})
+        _apply_bottom_panel_visibility(client, visible)
+
+    def _set_bottom_view(client, view: str):
+        show_terminal = view == "terminal"
+        try:
+            client.set_visible("bottom.build_output", not show_terminal)
+            client.set_visible("bottom.terminal_panel", show_terminal)
+            if show_terminal:
+                client.set_focus("bottom.terminal_input")
+        except Exception:
+            pass
+
+    def _terminal_cwd() -> str:
+        cwd = terminal_state.get("cwd") or app_state.get("project_root") or os.getcwd()
+        try:
+            path = Path(cwd).expanduser()
+            if path.is_dir():
+                return str(path)
+        except Exception:
+            pass
+        return os.getcwd()
+
+    def _terminal_append(client, text: str):
+        terminal_state["output"] = (terminal_state.get("output", "") + text)[-24000:]
+        try:
+            client.set_text("bottom.terminal_output", terminal_state["output"])
+        except Exception:
+            pass
+
+    def _run_terminal_command(client, command: str):
+        command = command.strip()
+        cwd = _terminal_cwd()
+        terminal_state["cwd"] = cwd
+
+        if not command:
+            _terminal_append(client, "\n$ ")
+            return
+
+        _terminal_append(client, f"{command}\n")
+
+        if command == "clear":
+            terminal_state["output"] = "$ "
+            try:
+                client.set_text("bottom.terminal_output", terminal_state["output"])
+            except Exception:
+                pass
+            return
+
+        if command.startswith("cd"):
+            target = command[2:].strip() or str(Path.home())
+            next_cwd = Path(target).expanduser()
+            if not next_cwd.is_absolute():
+                next_cwd = Path(cwd) / next_cwd
+            try:
+                resolved = next_cwd.resolve()
+                if resolved.is_dir():
+                    terminal_state["cwd"] = str(resolved)
+                    _terminal_append(client, f"CWD: {terminal_state['cwd']}\n$ ")
+                else:
+                    _terminal_append(client, f"cd: no such directory: {target}\n$ ")
+            except Exception as exc:
+                _terminal_append(client, f"cd: {exc}\n$ ")
+            return
+
+        def _worker(cmd=command, run_cwd=cwd):
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    cwd=run_cwd,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    timeout=120,
+                    env=os.environ.copy(),
+                )
+                output = proc.stdout or ""
+                if proc.returncode:
+                    output += f"[exit {proc.returncode}]\n"
+            except subprocess.TimeoutExpired:
+                output = "[command timed out after 120s]\n"
+            except Exception as exc:
+                output = f"{exc}\n"
+
+            def _update():
+                _terminal_append(client, output + "$ ")
+            _deferred(_update)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _refresh_repo_panel(client):
         project_root = app_state.get("project_root", "")
@@ -4223,6 +4533,45 @@ def main():
                 c = client
                 v = view_map[btn]
                 _deferred(lambda: _switch_nav_view(c, v))
+                return {"received": True}
+
+        if action == "action" and target == "bottom.toolbar" and client is not None:
+            btn = payload.get("action", "")
+            c = client
+            if btn == "bottom.build":
+                _deferred(lambda: _set_bottom_view(c, "build"))
+                return {"received": True}
+            if btn == "bottom.terminal":
+                _deferred(lambda: _set_bottom_view(c, "terminal"))
+                return {"received": True}
+            if btn == "bottom.clear":
+                def _clear_bottom():
+                    try:
+                        c.set_text("bottom.build_output", "")
+                        terminal_state["output"] = "$ "
+                        c.set_text("bottom.terminal_output", terminal_state["output"])
+                    except Exception:
+                        pass
+                _deferred(_clear_bottom)
+                return {"received": True}
+
+        if action == "textChanged" and target == "bottom.terminal_input":
+            terminal_state["input"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "keyDown" and target == "bottom.terminal_input" and client is not None:
+            keyval = payload.get("keyval", 0)
+            if keyval in (0xff0d, 0x0000ff0d, 65293, 13):
+                command = terminal_state.get("input", "")
+                terminal_state["input"] = ""
+                c = client
+                def _submit_terminal():
+                    try:
+                        c.set_text("bottom.terminal_input", "")
+                    except Exception:
+                        pass
+                    _run_terminal_command(c, command)
+                _deferred(_submit_terminal)
                 return {"received": True}
 
         if action == "textChanged" and target == "nav.search.input" and client is not None:
@@ -4763,6 +5112,14 @@ def main():
                 next_theme = "light" if current_theme == "dark" else "dark"
                 app_state["theme"] = next_theme
                 _deferred(lambda t=next_theme: c.set_theme_mode(t))
+                return {"received": True}
+
+            if item_action == "app.toggle_right_panel":
+                _deferred(lambda: _toggle_right_panel(c))
+                return {"received": True}
+
+            if item_action == "app.toggle_bottom_panel":
+                _deferred(lambda: _toggle_bottom_panel(c))
                 return {"received": True}
 
             if target == "app.menu" and item_action == "view.appearance.toggle_window_header":

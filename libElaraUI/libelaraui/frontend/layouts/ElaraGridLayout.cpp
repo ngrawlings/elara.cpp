@@ -72,6 +72,13 @@ int ElaraGridLayout::addWeightedFillColumn(double weight) {
     return (int)columns.length() - 1;
 }
 
+void ElaraGridLayout::setColumnExactSize(int index, double width) {
+    if(index >= 0 && index < (int)columns.length()) {
+        columns[index].mode = ELARA_GRID_SIZE_EXACT;
+        columns[index].size = width > 0 ? width : 0;
+    }
+}
+
 void ElaraGridLayout::setColumnBorderResizable(int index, bool enabled) {
     if(index >= 0 && index < (int)columns.length()) {
         columns[index].resizable_after = enabled;
@@ -91,6 +98,13 @@ int ElaraGridLayout::addFillRow() {
 int ElaraGridLayout::addWeightedFillRow(double weight) {
     rows.push(ElaraGridTrack::fill(weight));
     return (int)rows.length() - 1;
+}
+
+void ElaraGridLayout::setRowExactSize(int index, double height) {
+    if(index >= 0 && index < (int)rows.length()) {
+        rows[index].mode = ELARA_GRID_SIZE_EXACT;
+        rows[index].size = height > 0 ? height : 0;
+    }
 }
 
 void ElaraGridLayout::setRowBorderResizable(int index, bool enabled) {

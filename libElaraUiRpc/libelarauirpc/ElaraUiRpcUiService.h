@@ -226,6 +226,18 @@ private:
         String& error_code,
         String& error_message
     );
+    bool setGridColumnExactSize(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setGridRowExactSize(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool getWindowState(
         const Json& params,
         String& result_json,

@@ -1127,6 +1127,80 @@ bool ElaraUiRpcUiService::getGridLayoutState(
     return true;
 }
 
+bool ElaraUiRpcUiService::setGridColumnExactSize(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraGridLayout* grid = dynamic_cast<ElaraGridLayout*>(widget.getPtr());
+    if(!grid) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget is not a grid layout";
+        return false;
+    }
+
+    int index = (int)jsonNumber(params, "index", -1);
+    if(index < 0 || index >= grid->columnCount()) {
+        error_code = "invalid_column";
+        error_message = "The requested grid column index is out of range";
+        return false;
+    }
+
+    double size = jsonNumber(params, "size", 0.0);
+    grid->setColumnExactSize(index, size);
+
+    if(root && root->getGuiBackend()) {
+        root->getGuiBackend()->invalidate();
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setGridRowExactSize(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraGridLayout* grid = dynamic_cast<ElaraGridLayout*>(widget.getPtr());
+    if(!grid) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget is not a grid layout";
+        return false;
+    }
+
+    int index = (int)jsonNumber(params, "index", -1);
+    if(index < 0 || index >= grid->rowCount()) {
+        error_code = "invalid_row";
+        error_message = "The requested grid row index is out of range";
+        return false;
+    }
+
+    double size = jsonNumber(params, "size", 0.0);
+    grid->setRowExactSize(index, size);
+
+    if(root && root->getGuiBackend()) {
+        root->getGuiBackend()->invalidate();
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::getWindowState(
     const Json& params,
     String& result_json,
@@ -1380,6 +1454,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("getGridLayoutState")) {
         return getGridLayoutState(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setGridColumnExactSize")) {
+        return setGridColumnExactSize(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setGridRowExactSize")) {
+        return setGridRowExactSize(params, result_json, error_code, error_message);
     }
 
     if(method == String("getWindowState")) {
