@@ -25,7 +25,7 @@
 typedef enum { EPA_BLOCK_ENTRY = 0, EPA_BLOCK_FUNC = 1 } EpaBlockType;
 typedef struct {
   uint8_t  block_type;   // entry or func
-  uint16_t block_id;     // slot or func index
+  uint32_t block_id;     // slot or func index
   uint32_t rel_pc;       // byte offset inside that block
 } EpaEip;
 

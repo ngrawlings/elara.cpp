@@ -10,7 +10,7 @@
 
 static inline int epa_prog_resolve_view(
     const EpaProgramDesc *p,
-    uint8_t block_type, uint16_t block_id,
+    uint8_t block_type, uint32_t block_id,
     const uint8_t **out_code, size_t *out_len
 ) {
   if (!p || !out_code || !out_len) return 0;

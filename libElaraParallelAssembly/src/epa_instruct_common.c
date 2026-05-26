@@ -22,17 +22,10 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
                                    uint32_t ghs_handle_count,
                                    char err[EPA_MAX_ERR]);
 
-static uint32_t pack_eip(const EpaEip *e) {
-  return ((uint32_t)e->block_type & 0xFFu) | (((uint32_t)e->block_id & 0xFFFFu) << 8);
-}
-static void unpack_eip(uint32_t packed, EpaEip *e) {
-  e->block_type = (uint8_t)(packed & 0xFFu);
-  e->block_id   = (uint16_t)((packed >> 8) & 0xFFFFu);
-}
-
 int epa_flow_push_ret_frame(EpaStack *st, const EpaEip *ret, uint16_t argc, char err[EPA_MAX_ERR]) {
   if (!epa_stack_push(st, EPA_CALL_MAGIC0) ||
-      !epa_stack_push(st, pack_eip(ret)) ||
+      !epa_stack_push(st, (uint32_t)ret->block_type) ||
+      !epa_stack_push(st, ret->block_id) ||
       !epa_stack_push(st, ret->rel_pc) ||
       !epa_stack_push(st, (uint32_t)argc) ||
       !epa_stack_push(st, EPA_CALL_MAGIC1)) {
@@ -43,11 +36,12 @@ int epa_flow_push_ret_frame(EpaStack *st, const EpaEip *ret, uint16_t argc, char
 }
 
 int epa_flow_pop_ret_frame(EpaStack *st, EpaEip *out_ret, uint16_t *out_argc, char err[EPA_MAX_ERR]) {
-  uint32_t m1, argc_w, pc_w, packed, m0;
+  uint32_t m1, argc_w, pc_w, block_id_w, block_type_w, m0;
   if (!epa_stack_pop(st, &m1) ||
       !epa_stack_pop(st, &argc_w) ||
       !epa_stack_pop(st, &pc_w) ||
-      !epa_stack_pop(st, &packed) ||
+      !epa_stack_pop(st, &block_id_w) ||
+      !epa_stack_pop(st, &block_type_w) ||
       !epa_stack_pop(st, &m0)) {
     if (err) snprintf(err, EPA_MAX_ERR, "stack underflow popping call frame");
     return 0;
@@ -56,8 +50,9 @@ int epa_flow_pop_ret_frame(EpaStack *st, EpaEip *out_ret, uint16_t *out_argc, ch
     if (err) snprintf(err, EPA_MAX_ERR, "call frame magic mismatch (corrupt stack)");
     return 0;
   }
-  unpack_eip(packed, out_ret);
-  out_ret->rel_pc = pc_w;
+  out_ret->block_type = (uint8_t)(block_type_w & 0xFFu);
+  out_ret->block_id   = block_id_w;
+  out_ret->rel_pc     = pc_w;
   if (out_argc) *out_argc = (uint16_t)(argc_w & 0xFFFFu);
   return 1;
 }
@@ -754,6 +749,24 @@ case EPA_OP_LOAD_L: {
   return EPA_FLOW_YIELDED;
 }
 
+case EPA_OP_STORE_LW: {
+  uint32_t idx = EPA_READ_U32_LE(code, pc + 2);
+  if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "STORE_LW idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
+  uint32_t u = 0;
+  if (!epa_stack_pop(st, &u)) { snprintf(err, EPA_MAX_ERR, "STORE_LW: stack underflow"); return EPA_FLOW_ERR; }
+  w->vm.locals[idx] = (int32_t)u;
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_LOAD_LW: {
+  uint32_t idx = EPA_READ_U32_LE(code, pc + 2);
+  if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "LOAD_LW idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
+  if (!epa_stack_push(st, (uint32_t)w->vm.locals[idx])) { snprintf(err, EPA_MAX_ERR, "LOAD_LW: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
 // ---- Bulk transfers (ring <-> locals) ----
 case EPA_OP_KERNEL_TRX_IN_L: {
   if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_IN_L only valid in kernel"); return EPA_FLOW_ERR; }
@@ -973,7 +986,7 @@ case EPA_OP_CALL: {
   // encoding: [u16 op][u32 func_id]
   uint32_t func_id = EPA_READ_U32_LE(code, pc + 2);
 
-  uint16_t func_index = 0;
+  uint32_t func_index = 0;
   uint16_t frame_words = 0;
   if (!epa_prog_find_func(ctx->prog, func_id, &func_index, &frame_words)) {
     snprintf(err, EPA_MAX_ERR, "CALL: unknown func_id=%u", (unsigned)func_id);

@@ -62,7 +62,7 @@ size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, siz
     return count;
 }
 
-int epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint16_t block_id, uint32_t rel_pc, uint32_t *out_wid) {
+int epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint32_t block_id, uint32_t rel_pc, uint32_t *out_wid) {
     uint32_t wid;
     if (!kernel) return 0;
     for (wid = 0; wid < EPA_MAX_WORKERS; wid++) {

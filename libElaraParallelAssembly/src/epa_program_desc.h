@@ -70,7 +70,7 @@ typedef struct {
 
 static inline int epa_prog_resolve(
     const EpaProgramDesc *p,
-    uint8_t block_type, uint16_t block_id,
+    uint8_t block_type, uint32_t block_id,
     const uint8_t **out_code, size_t *out_len
 ) {
   if (!p || !out_code || !out_len) return 0;
@@ -94,13 +94,13 @@ static inline int epa_prog_resolve(
 static inline int epa_prog_find_func(
     const EpaProgramDesc *p,
     uint32_t func_id,
-    uint16_t *out_func_index,
+    uint32_t *out_func_index,
     uint16_t *out_frame_words
 ) {
   if (!p) return 0;
   for (size_t i = 0; i < p->nfuncs; i++) {
     if (p->funcs[i].func_id == func_id) {
-      if (out_func_index) *out_func_index = (uint16_t)i;
+      if (out_func_index) *out_func_index = (uint32_t)i;
       if (out_frame_words) *out_frame_words = p->funcs[i].frame_words;
       return 1;
     }

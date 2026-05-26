@@ -16,7 +16,7 @@ typedef struct EpaKernel EpaKernel;
 
 typedef struct {
     uint8_t  block_type;
-    uint16_t block_id;
+    uint32_t block_id;
     uint32_t rel_pc;
 } EpaDbgEip;
 
@@ -54,7 +54,7 @@ typedef struct {
 
 int    epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out);
 size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, size_t max_workers);
-int    epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint16_t block_id, uint32_t rel_pc, uint32_t *out_wid);
+int    epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint32_t block_id, uint32_t rel_pc, uint32_t *out_wid);
 
 #ifdef __cplusplus
 }

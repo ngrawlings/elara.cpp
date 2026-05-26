@@ -64,8 +64,10 @@ X(GT_I32,     0x0217u, "GT_I32",   0)   // Pop a,b → push (a>b ? 1 : 0)
 X(GE_I32,     0x0218u, "GE_I32",   0)   // Pop a,b → push (a>=b ? 1 : 0)
 X(DIV_I32,    0x0219u, "DIV_I32",  0)   // Pop a,b → push (a/b), b==0 yields 0
 
-X(STORE_L,    0x0220u, "STORE_L",  1)   // Store top-of-stack into local slot (u8 idx)
-X(LOAD_L,     0x0221u, "LOAD_L",   1)   // Load local slot and push to stack (u8 idx)
+X(STORE_L,    0x0220u, "STORE_L",  1)   // Store top-of-stack into local slot (u8 idx)  — worker use
+X(LOAD_L,     0x0221u, "LOAD_L",   1)   // Load local slot and push to stack (u8 idx)   — worker use
+X(STORE_LW,   0x0227u, "STORE_LW", 4)   // Store top-of-stack into local slot (u32 idx) — function use
+X(LOAD_LW,    0x0228u, "LOAD_LW",  4)   // Load local slot and push to stack (u32 idx)  — function use
 
 X(CMP,        0x0230u, "CMP",      0)   // Compare top two stack values (sets flags)
 X(CMPZ,       0x0231u, "CMPZ",     0)   // Compare stack value against zero

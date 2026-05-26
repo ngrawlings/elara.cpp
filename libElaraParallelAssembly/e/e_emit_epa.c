@@ -6,6 +6,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* Functions use 4-byte (u32) local slot indices; workers use 1-byte (u8). */
+#define EMIT_LOAD_L(out, ctx, slot) \
+    fprintf((out), "%s %u\n", (ctx)->current_function ? "LOAD_LW" : "LOAD_L", (slot))
+#define EMIT_STORE_L(out, ctx, slot) \
+    fprintf((out), "%s %u\n", (ctx)->current_function ? "STORE_LW" : "STORE_L", (slot))
+
 typedef struct {
   char *literal;
   unsigned int id;
@@ -404,36 +410,36 @@ static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rh
   emit_indent(out, depth);
   fputs("POP R0\n", out);
   emit_indent(out, depth);
-  fprintf(out, "STORE_L %u\n", id_slot);
+  EMIT_STORE_L(out, ctx, id_slot);
 
   emit_expr(out, rhs, ctx, depth);
   emit_indent(out, depth);
   fputs("POP R1\n", out);
   emit_indent(out, depth);
-  fprintf(out, "STORE_L %u\n", ref_slot + 1u);
+  EMIT_STORE_L(out, ctx, ref_slot + 1u);
   emit_indent(out, depth);
   fputs("POP R1\n", out);
   emit_indent(out, depth);
-  fprintf(out, "STORE_L %u\n", ref_slot);
+  EMIT_STORE_L(out, ctx, ref_slot);
 
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", id_slot);
+  EMIT_LOAD_L(out, ctx, id_slot);
   emit_indent(out, depth);
   fputs("POP R0\n", out);
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", ref_slot);
+  EMIT_LOAD_L(out, ctx, ref_slot);
   emit_indent(out, depth);
   fputs("POP R1\n", out);
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", ref_slot + 1u);
+  EMIT_LOAD_L(out, ctx, ref_slot + 1u);
   emit_indent(out, depth);
   fputs("POP R2\n", out);
   emit_indent(out, depth);
   fprintf(out, "DYN_STORE %u\n", dynamic_pool_id(ctx, pool));
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", ref_slot);
+  EMIT_LOAD_L(out, ctx, ref_slot);
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", ref_slot + 1u);
+  EMIT_LOAD_L(out, ctx, ref_slot + 1u);
   return 1;
 }
 
@@ -530,18 +536,18 @@ static int emit_user_func_call(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
       if (check->vm_local_words == 1u) {
         emit_expr(out, expr->as.call.args[i], ctx, depth);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", check->vm_local_slot);
+        EMIT_STORE_L(out, ctx, check->vm_local_slot);
         stored = 1;
       } else if (check->vm_local_words == 2u) {
         emit_expr(out, expr->as.call.args[i], ctx, depth);
         emit_indent(out, depth);
         fputs("POP R1\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", check->vm_local_slot + 1u);
+        EMIT_STORE_L(out, ctx, check->vm_local_slot + 1u);
         emit_indent(out, depth);
         fputs("POP R0\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", check->vm_local_slot);
+        EMIT_STORE_L(out, ctx, check->vm_local_slot);
         stored = 1;
       } else {
         emit_indent(out, depth);
@@ -574,11 +580,11 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       unsigned int slot = 0u;
       emit_indent(out, depth);
       if (scalar_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
-        fprintf(out, "LOAD_L %u\n", slot);
+        EMIT_LOAD_L(out, ctx, slot);
       } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.ident, &slot)) {
-        fprintf(out, "LOAD_L %u\n", slot);
+        EMIT_LOAD_L(out, ctx, slot);
         emit_indent(out, depth);
-        fprintf(out, "LOAD_L %u\n", slot + 1u);
+        EMIT_LOAD_L(out, ctx, slot + 1u);
       } else if (find_dynamic_pool(ctx->model, expr->as.ident)) {
         fprintf(out, "; dynamic pool ident %s\n", expr->as.ident);
       } else if (ctx->current_type_layout) {
@@ -646,20 +652,20 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
           if (scalar_vm_local_slot_for_name(ctx, expr->as.assign.lhs->as.ident, &slot)) {
             emit_scalar_store(out, expr->as.assign.lhs->as.ident, ctx, depth);
             emit_indent(out, depth);
-            fprintf(out, "LOAD_L %u\n", slot);
+            EMIT_LOAD_L(out, ctx, slot);
           } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.assign.lhs->as.ident, &slot)) {
             emit_indent(out, depth);
             fputs("POP R1\n", out);
             emit_indent(out, depth);
-            fprintf(out, "STORE_L %u\n", slot + 1u);
+            EMIT_STORE_L(out, ctx, slot + 1u);
             emit_indent(out, depth);
             fputs("POP R0\n", out);
             emit_indent(out, depth);
-            fprintf(out, "STORE_L %u\n", slot);
+            EMIT_STORE_L(out, ctx, slot);
             emit_indent(out, depth);
-            fprintf(out, "LOAD_L %u\n", slot);
+            EMIT_LOAD_L(out, ctx, slot);
             emit_indent(out, depth);
-            fprintf(out, "LOAD_L %u\n", slot + 1u);
+            EMIT_LOAD_L(out, ctx, slot + 1u);
           } else {
             emit_indent(out, depth);
             fprintf(out, "; assign target %s unsupported\n", expr->as.assign.lhs->as.ident);
@@ -704,7 +710,7 @@ static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int dept
   unsigned int slot = 0u;
   emit_indent(out, depth);
   if (scalar_vm_local_slot_for_name(ctx, name, &slot)) {
-    fprintf(out, "STORE_L %u\n", slot);
+    EMIT_STORE_L(out, ctx, slot);
     return 1;
   }
   fprintf(out, "; store %s unsupported\n", name);
@@ -740,7 +746,7 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
       field = find_field_layout(ctx->model, binding->type_name, field_name);
       if (field && field->ghs_size == 4u) {
         emit_indent(out, depth);
-        fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);  /* push element base off */
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot);  /* push element base off */
         if (field->ghs_offset > 0u) {
           emit_indent(out, depth);
           fprintf(out, "PUSH %zu\n", field->ghs_offset);
@@ -769,11 +775,11 @@ static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, 
   emit_indent(out, depth);
   fprintf(out, "PUSH R0\n");
   emit_indent(out, depth);
-  fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+  EMIT_STORE_L(out, ctx, binding->vm_local_slot);
   emit_indent(out, depth);
   fprintf(out, "PUSH R1\n");
   emit_indent(out, depth);
-  fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
+  EMIT_STORE_L(out, ctx, binding->vm_local_slot + 1u);
   emit_indent(out, depth);
   fputs("SET_R 2 0\n", out);
   emit_indent(out, depth);
@@ -811,11 +817,11 @@ static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, 
   emit_indent(out, depth);
   fprintf(out, "E_STATIC_ZERO_DONE_%u:\n", done_id);
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
   emit_indent(out, depth);
   fputs("POP R0\n", out);
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot + 1u);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
   emit_indent(out, depth);
   fputs("POP R1\n", out);
 }
@@ -1035,7 +1041,7 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
     return 0;
   }
   emit_indent(out, depth);
-  fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
   emit_indent(out, depth);
   fputs("POP R3\n", out);
   validator = find_validator_binding(ctx->model, binding->type_name);
@@ -1082,11 +1088,11 @@ static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx 
     binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.ident);
     if (binding && binding->vm_local_words == 2u) {
       emit_indent(out, depth);
-      fprintf(out, "LOAD_L %u\n", binding->vm_local_slot);
+      EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
       emit_indent(out, depth);
       fputs("POP R0\n", out);
       emit_indent(out, depth);
-      fprintf(out, "LOAD_L %u\n", binding->vm_local_slot + 1u);
+      EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
       emit_indent(out, depth);
       fputs("POP R1\n", out);
       emit_indent(out, depth);
@@ -1127,7 +1133,7 @@ static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
     emit_indent(out, depth);
     fputs("POP R0\n", out);
     emit_indent(out, depth);
-    fprintf(out, "STORE_L %u\n", temp_slot);
+    EMIT_STORE_L(out, ctx, temp_slot);
     emit_indent(out, depth);
     fprintf(out, "KERNEL_GHS_IN_R %u\n", temp_slot);
   }
@@ -1160,11 +1166,11 @@ static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
     local = find_local_binding_by_name(frame, name);
     if (local && local->vm_local_words == 2u) {
       emit_indent(out, depth);
-      fprintf(out, "LOAD_L %u\n", local->vm_local_slot);
+      EMIT_LOAD_L(out, ctx, local->vm_local_slot);
       emit_indent(out, depth);
       fputs("POP R0\n", out);
       emit_indent(out, depth);
-      fprintf(out, "LOAD_L %u\n", local->vm_local_slot + 1u);
+      EMIT_LOAD_L(out, ctx, local->vm_local_slot + 1u);
       emit_indent(out, depth);
       fputs("POP R1\n", out);
       emit_indent(out, depth);
@@ -1407,16 +1413,16 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         }
         if (binding && binding->vm_local_words == 1u) {
           emit_indent(out, depth);
-          fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+          EMIT_STORE_L(out, ctx, binding->vm_local_slot);
         } else if (binding && binding->vm_local_words == 2u) {
           emit_indent(out, depth);
           fprintf(out, "POP R1\n");
           emit_indent(out, depth);
-          fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
+          EMIT_STORE_L(out, ctx, binding->vm_local_slot + 1u);
           emit_indent(out, depth);
           fprintf(out, "POP R0\n");
           emit_indent(out, depth);
-          fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+          EMIT_STORE_L(out, ctx, binding->vm_local_slot);
         }
       } else if (binding && binding->storage == E_LOCAL_ARENA_SCOPED && binding->vm_local_words == 2u) {
         emit_indent(out, depth);
@@ -1426,11 +1432,11 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         emit_indent(out, depth);
         fputs("PUSH R0\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", binding->vm_local_slot);
+        EMIT_STORE_L(out, ctx, binding->vm_local_slot);
         emit_indent(out, depth);
         fputs("PUSH R1\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", binding->vm_local_slot + 1u);
+        EMIT_STORE_L(out, ctx, binding->vm_local_slot + 1u);
       }
       break;
     }
@@ -1605,7 +1611,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       fputs("L_SCOPE_ENTER\n", out);
       /* Load current iterator ordinal into csc[0] for DYN_ITER_NEXT */
       emit_indent(out, depth);
-      fprintf(out, "LOAD_L %u\n", iter_binding->vm_local_slot);
+      EMIT_LOAD_L(out, ctx, iter_binding->vm_local_slot);
       emit_indent(out, depth);
       fputs("POP R0\n", out);
       /* Advance: r0=next_id, r1=ok, r2=off, r3=size */
@@ -1615,7 +1621,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       emit_indent(out, depth);
       fputs("PUSH R0\n", out);
       emit_indent(out, depth);
-      fprintf(out, "STORE_L %u\n", iter_binding->vm_local_slot);
+      EMIT_STORE_L(out, ctx, iter_binding->vm_local_slot);
       /* Check ok flag */
       emit_indent(out, depth);
       fputs("PUSH R1\n", out);
@@ -1628,11 +1634,11 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
         emit_indent(out, depth);
         fputs("PUSH R2\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", var_binding->vm_local_slot);
+        EMIT_STORE_L(out, ctx, var_binding->vm_local_slot);
         emit_indent(out, depth);
         fputs("PUSH R3\n", out);
         emit_indent(out, depth);
-        fprintf(out, "STORE_L %u\n", var_binding->vm_local_slot + 1u);
+        EMIT_STORE_L(out, ctx, var_binding->vm_local_slot + 1u);
       }
       /* Body: break → cleanup, continue → cont (scope leave + jmp head) */
       emit_stmt(out, stmt->as.foreach_stmt.body, ctx, depth, cleanup_label, cont_label);
@@ -2044,7 +2050,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
                 emit_indent(out, 1);
                 fputs("PUSH 0\n", out);
                 emit_indent(out, 1);
-                fprintf(out, "STORE_L %u\n", sb->vm_local_slot);
+                EMIT_STORE_L(out, ctx, sb->vm_local_slot);
               } else {
                 /* Declared type: L_ALLOC once, then zero-fill and persist the 2-word reference. */
                 emit_indent(out, 1);

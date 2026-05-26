@@ -26,13 +26,13 @@ private:
         uint32_t wid;
         uint32_t code;
         uint8_t  block_type;
-        uint16_t block_id;
+        uint32_t block_id;
         uint32_t rel_pc;
         String   message;
     };
     struct Breakpoint {
         uint8_t  block_type;
-        uint16_t block_id;
+        uint32_t block_id;
         uint32_t rel_pc;
     };
 

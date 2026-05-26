@@ -676,8 +676,10 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     // Stack + locals
     {"PUSH",       0,                            1,1, 0,{0}, helper_emit_push, "PUSH <Rn|i32>"},
     {"POP",        EPA_OP_POP_R,                 1,1, 1,{AK_REG4_OR_U8}, NULL, "POP <Rn|u8>"},
-    {"STORE_L",    EPA_OP_STORE_L,               1,1, 1,{AK_U8}, NULL, "STORE_L <u8_idx>"},
-    {"LOAD_L",     EPA_OP_LOAD_L,                1,1, 1,{AK_U8}, NULL, "LOAD_L <u8_idx>"},
+    {"STORE_L",    EPA_OP_STORE_L,               1,1, 1,{AK_U8},  NULL, "STORE_L <u8_idx>"},
+    {"LOAD_L",     EPA_OP_LOAD_L,                1,1, 1,{AK_U8},  NULL, "LOAD_L <u8_idx>"},
+    {"STORE_LW",   EPA_OP_STORE_LW,              1,1, 1,{AK_U32}, NULL, "STORE_LW <u32_idx>"},
+    {"LOAD_LW",    EPA_OP_LOAD_LW,               1,1, 1,{AK_U32}, NULL, "LOAD_LW <u32_idx>"},
 
     // ALU / compare
     {"ADD_I32",    EPA_OP_ADD_I32,               0,0, 0,{0}, NULL, "ADD_I32 takes no params"},

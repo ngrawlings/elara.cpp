@@ -44,6 +44,7 @@ libElaraUI/artifacts
 epa-ide/artifacts
 demos/orange-exterminator/artifacts
 demos/orange-exterminator/cpp/artifacts
+demos/orange-exterminator/.elaraproject/history
 
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile
