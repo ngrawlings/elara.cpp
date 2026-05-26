@@ -3,6 +3,7 @@ import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -210,17 +211,20 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     row_id = f"nav.debug.kernel.{tab_id}"
     ui.create_grid(row_id)
     ui.add_grid_column_exact(row_id, 6)    # col 0: left indent
-    ui.add_grid_column_exact(row_id, 14)   # col 1: status indicator (spans both rows)
-    ui.add_grid_column_fill(row_id)         # col 2: name (row 0) / worker combo (row 1)
-    ui.add_grid_column_exact(row_id, 64)   # col 3: queue badge "total / worker"
-    ui.add_grid_column_exact(row_id, 32)   # col 4: ▶  (row 1)
-    ui.add_grid_column_exact(row_id, 32)   # col 5: ▶| (row 1)
-    ui.add_grid_column_exact(row_id, 4)    # col 6: right margin
+    ui.add_grid_column_fill(row_id)        # col 1: name (row 0) / worker combo (row 1)
+    ui.add_grid_column_exact(row_id, 20)   # col 2: load indicator
+    ui.add_grid_column_exact(row_id, 20)   # col 3: run indicator
+    ui.add_grid_column_exact(row_id, 12)   # col 4: spacer before queue
+    ui.add_grid_column_exact(row_id, 72)   # col 5: queue badge "total / worker"
+    ui.add_grid_column_exact(row_id, 32)   # col 6: ▶  (row 1)
+    ui.add_grid_column_exact(row_id, 32)   # col 7: ▶| (row 1)
+    ui.add_grid_column_exact(row_id, 4)    # col 8: right margin
     ui.add_grid_row_exact(row_id, 26)      # row 0: name + queue badge
     ui.add_grid_row_exact(row_id, 26)      # row 1: worker combo + buttons
-    # Status indicator — spans both rows, grey until kernel reports a state
-    ui.create_label(f"{row_id}.ind", "●", 10)
-    ui.set_property_string(f"{row_id}.ind", "foreground_color", "#555555")
+    for dot_name in ("load_ind", "run_ind"):
+        dot_id = f"{row_id}.{dot_name}"
+        ui.create_widget(dot_id, "demo.widgets.status_dot")
+        ui.set_property_string(dot_id, "foreground_color", "#666666")
     ui.create_label(f"{row_id}.name", kernel_name, 12)
     ui.create_label(f"{row_id}.queue", "0 / 0", 10)
     ui.set_property_bool(f"{row_id}.queue", "enabled", False)
@@ -229,15 +233,15 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.set_property_number(f"{row_id}.run",  "font_size", 11)
     ui.create_button(f"{row_id}.step", "▶|", f"debug.kernel.step.{tab_id}")
     ui.set_property_number(f"{row_id}.step", "font_size", 11)
-    # indicator spans rows 0-1 in col 1
-    ui.place_grid_child(row_id, f"{row_id}.ind",    1, 0, 1, 2)
+    ui.place_grid_child(row_id, f"{row_id}.load_ind", 2, 0)
+    ui.place_grid_child(row_id, f"{row_id}.run_ind",  3, 0)
     # row 0: name + queue
-    ui.place_grid_child(row_id, f"{row_id}.name",   2, 0)
-    ui.place_grid_child(row_id, f"{row_id}.queue",  3, 0)
+    ui.place_grid_child(row_id, f"{row_id}.name",   1, 0)
+    ui.place_grid_child(row_id, f"{row_id}.queue",  5, 0)
     # row 1: worker combo + buttons
-    ui.place_grid_child(row_id, f"{row_id}.worker", 2, 1)
-    ui.place_grid_child(row_id, f"{row_id}.run",    4, 1)
-    ui.place_grid_child(row_id, f"{row_id}.step",   5, 1)
+    ui.place_grid_child(row_id, f"{row_id}.worker", 1, 1, 3, 1)
+    ui.place_grid_child(row_id, f"{row_id}.run",    6, 1)
+    ui.place_grid_child(row_id, f"{row_id}.step",   7, 1)
 
 
 def build_document():
@@ -1036,6 +1040,7 @@ def build_document():
     ui.set_property_number("nav.debug.vm_reset", "font_size", 11)
     ui.create_button("nav.debug.vm_stop", "■  Stop", "debug.vm.stop")
     ui.set_property_number("nav.debug.vm_stop", "font_size", 11)
+    ui.set_property_bool("nav.debug.vm_stop", "enabled", False)
     ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_status", 1, 0, 5, 1)
     ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_reset",  3, 1)
     ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_stop",   5, 1)
@@ -2417,6 +2422,7 @@ def main():
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
     app_state["nav_view"] = "files"
+    app_state["debug_vm_started"] = False
     initial_state = _current_layout_state()
     initial_layout = initial_state.get("layout", {}) if isinstance(initial_state, dict) else {}
     app_state["right_panel_visible"] = _right_panel_visible(initial_state)
@@ -2533,19 +2539,35 @@ def main():
 
     def _resolve_ui_server_cmd():
         workspace = Path(__file__).resolve().parent.parent
-        local = workspace / "build" / "bin" / "elaraui-server"
+        candidates = [
+            workspace / "libElaraUI" / "build" / "bin" / "elaraui-server",
+            workspace / "build" / "bin" / "elaraui-server",
+        ]
         default = Path("/usr/local/bin/elaraui-server")
         import os as _os
-        binary = str(local) if local.is_file() and _os.access(str(local), _os.X_OK) else str(default)
+        binary = str(default)
+        for candidate in candidates:
+            if candidate.is_file() and _os.access(str(candidate), _os.X_OK):
+                binary = str(candidate)
+                break
         return [binary, "--port", str(args.port), "--persistent"]
 
     # --- epa-dbg subprocess + client -----------------------------------------
-    _epa_dbg: dict = {"proc": None, "client": None, "output_lines": []}
-    _EPA_DBG_PORT = 18878
+    _epa_dbg: dict = {"proc": None, "client": None, "output_lines": [], "port": None}
 
     def _epa_dbg_binary():
         workspace = Path(__file__).resolve().parent.parent
         return workspace / "epa-dbg" / "build" / "epa-dbg"
+
+    def _epa_dbg_port() -> int | None:
+        port = _epa_dbg.get("port")
+        return int(port) if port else None
+
+    def _allocate_epa_dbg_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return int(s.getsockname()[1])
 
     def _epa_dbg_client() -> "EpaDbgClient | None":
         return _epa_dbg.get("client")
@@ -2583,6 +2605,7 @@ def main():
         label = "⟳  Reset" if running else "▶  Start"
         try:
             ui_c.set_text("nav.debug.vm_reset", label)
+            ui_c.set_enabled("nav.debug.vm_stop", running)
         except Exception:
             pass
         _epa_dbg_set_vm_status("running" if running else "idle")
@@ -2625,15 +2648,23 @@ def main():
                 _epa_dbg_set_vm_button(True)
                 return
             # Process alive but client gone — reconnect.
+            port = _epa_dbg_port()
+            if not port:
+                _epa_dbg_show_error(
+                    "epa-dbg: reconnect failed",
+                    "epa-dbg is running but no port was recorded for this session.",
+                    list(_epa_dbg.get("output_lines", [])),
+                )
+                return
             try:
-                c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
+                c = EpaDbgClient("127.0.0.1", port)
                 c.connect_retry(timeout=5.0)
                 _epa_dbg["client"] = c
                 _epa_dbg_set_vm_button(True)
             except Exception as exc:
                 _epa_dbg_show_error(
                     "epa-dbg: reconnect failed",
-                    f"Could not reconnect to epa-dbg on port {_EPA_DBG_PORT}.\n{exc}",
+                    f"Could not reconnect to epa-dbg on port {port}.\n{exc}",
                     list(_epa_dbg.get("output_lines", [])),
                 )
             return
@@ -2649,6 +2680,8 @@ def main():
 
         out_lines = _epa_dbg.setdefault("output_lines", [])
         out_lines.clear()
+        port = _allocate_epa_dbg_port()
+        _epa_dbg["port"] = port
 
         def _reader(stream, tag):
             for raw in stream:
@@ -2659,7 +2692,7 @@ def main():
 
         try:
             new_proc = subprocess.Popen(
-                [str(binary), str(_EPA_DBG_PORT), "127.0.0.1"],
+                [str(binary), str(port), "127.0.0.1"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -2686,10 +2719,11 @@ def main():
                 list(out_lines),
             )
             _epa_dbg["proc"] = None
+            _epa_dbg["port"] = None
             return
 
         try:
-            c = EpaDbgClient("127.0.0.1", _EPA_DBG_PORT)
+            c = EpaDbgClient("127.0.0.1", port)
             c.connect_retry(timeout=8.0)
             _epa_dbg["client"] = c
             _epa_dbg_set_vm_button(True)
@@ -2698,9 +2732,11 @@ def main():
             time.sleep(0.3)
             _epa_dbg_show_error(
                 "epa-dbg: connection failed",
-                f"Process started (exit={exit_code}) but TCP connect to port {_EPA_DBG_PORT} failed.\n{exc}",
+                f"Process started on port {port} (exit={exit_code}) but TCP connect failed.\n{exc}",
                 list(out_lines),
             )
+            _epa_dbg["proc"] = None
+            _epa_dbg["port"] = None
 
     def _epa_dbg_stop():
         """Terminate epa-dbg process and close client."""
@@ -2722,6 +2758,7 @@ def main():
                 proc.kill()
                 proc.wait()
         _epa_dbg["proc"] = None
+        _epa_dbg["port"] = None
         _epa_dbg_set_vm_button(False)
 
     def _epa_dbg_reset(kernel_id: int = 0) -> dict:
@@ -3387,6 +3424,12 @@ def main():
 
     def _apply_ingress_types_combo(client, items):
         _apply_combo_items(client, "nav.debug.ingress_type", items)
+        cur = app_state.get("debug_ingress_type", "")
+        valid_ids = [it["id"] for it in items]
+        if items and (not cur or cur not in valid_ids):
+            first_type = items[0]["id"]
+            app_state["debug_ingress_type"] = first_type
+            _refresh_ingress_profiles_list(client, first_type)
 
     def _refresh_debug_panel(client):
         """Rebuild nav.debug.kernels, kernel combo, and ingress type combo."""
@@ -3423,6 +3466,8 @@ def main():
             app_state[f"debug_kernel_workers_{k['id']}"] = workers
             try:
                 _apply_combo_items(client, f"nav.debug.kernel.{k['id']}.worker", items)
+                _apply_cached_kernel_indicator_state(client, k["id"])
+                _apply_cached_kernel_queue_state(client, k["id"])
             except Exception:
                 pass
 
@@ -3522,20 +3567,49 @@ def main():
             json.dumps(out, indent=2), encoding="utf-8"
         )
 
-    _IND_GREY  = "#555555"
-    _IND_GREEN = "#22cc44"
-    _IND_RED   = "#cc2222"
-    _IND_AMBER = "#ccaa22"
+    _IND_OFF = "off"
+    _IND_GREEN = "green"
+    _IND_RED = "red"
 
-    def _set_kernel_indicator(client, kernel_tab_id: str, color: str):
+    _IND_COLORS = {
+        _IND_OFF: "#666666",
+        _IND_GREEN: "#2da44e",
+        _IND_RED: "#d73a49",
+    }
+
+    def _set_kernel_dot(client, kernel_tab_id: str, dot_name: str, state: str):
+        if not client:
+            return
+        color = _IND_COLORS.get(state, _IND_COLORS[_IND_OFF])
         try:
-            client.call("ui.setProperty", {
-                "target":   f"nav.debug.kernel.{kernel_tab_id}.ind",
-                "property": "foreground_color",
-                "value":    color,
-            })
+            client.call(
+                "ui.setForegroundColor",
+                {
+                    "target": f"nav.debug.kernel.{kernel_tab_id}.{dot_name}",
+                    "color": color,
+                },
+            )
         except Exception:
             pass
+
+    def _set_kernel_load_indicator(client, kernel_tab_id: str, symbol: str):
+        state = app_state.setdefault("debug_kernel_indicator_state", {}).setdefault(kernel_tab_id, {})
+        state["load"] = symbol
+        if client:
+            _set_kernel_dot(client, kernel_tab_id, "load_ind", symbol)
+
+    def _set_kernel_run_indicator(client, kernel_tab_id: str, symbol: str):
+        state = app_state.setdefault("debug_kernel_indicator_state", {}).setdefault(kernel_tab_id, {})
+        state["run"] = symbol
+        if client:
+            _set_kernel_dot(client, kernel_tab_id, "run_ind", symbol)
+
+    def _apply_cached_kernel_indicator_state(client, kernel_tab_id: str):
+        if not client or not kernel_tab_id:
+            return
+        state = app_state.get("debug_kernel_indicator_state", {}).get(kernel_tab_id, {})
+        _set_kernel_dot(client, kernel_tab_id, "load_ind", state.get("load", _IND_OFF))
+        _set_kernel_dot(client, kernel_tab_id, "run_ind", state.get("run", _IND_OFF))
 
     def _kernel_tab_id_from_bundle(bundle_path: str) -> str:
         if not bundle_path:
@@ -3548,66 +3622,168 @@ def main():
         except Exception:
             return ""
 
+    def _bundle_path_for_kernel_id(kernel_id: str) -> str:
+        project_root = app_state.get("project_root", "")
+        if not project_root or not kernel_id:
+            return ""
+        root = Path(project_root)
+        candidates = [
+            root / "build" / "epa" / (kernel_id.replace(".", "/") + ".epabin"),
+            root / "build" / "epa" / (kernel_id.replace(".", "/") + ".epa.bin"),
+            root / "build" / "epa.bin",
+        ]
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+        return str(candidates[0])
+
+    def _selected_worker_wid_for_kernel(kernel_tab_id: str) -> int | None:
+        workers_list = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
+        if not workers_list:
+            return None
+        sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
+        for wi, w in enumerate(workers_list):
+            if w.get("name") == sel_worker_name:
+                return wi + 1
+        return 1
+
+    def _set_kernel_queue_badge(client, kernel_tab_id: str, total_inq: int, sel_inq: int):
+        try:
+            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue", f"{total_inq} / {sel_inq}")
+        except Exception:
+            pass
+
+    def _clear_kernel_queue_state(client, kernel_tab_id: str):
+        if not kernel_tab_id:
+            return
+        queue_state = app_state.setdefault("debug_kernel_queue_state", {})
+        queue_state[kernel_tab_id] = {"total_inq": 0, "worker_inq": {}}
+        if client:
+            _set_kernel_queue_badge(client, kernel_tab_id, 0, 0)
+
+    def _apply_cached_kernel_queue_state(client, kernel_tab_id: str):
+        if not client or not kernel_tab_id:
+            return
+        queue_state = app_state.get("debug_kernel_queue_state", {}).get(kernel_tab_id, {})
+        total_inq = int(queue_state.get("total_inq", 0) or 0)
+        worker_inq = queue_state.get("worker_inq", {}) or {}
+        sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+        sel_inq = int(worker_inq.get(sel_wid, 0) or 0) if sel_wid is not None else 0
+        _set_kernel_queue_badge(client, kernel_tab_id, total_inq, sel_inq)
+
+    def _update_kernel_queue_state_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
+        if not kernel_tab_id:
+            return
+        app_state.setdefault("debug_kernel_snapshot_state", {})[kernel_tab_id] = snapshot
+        workers = snapshot.get("workers", [])
+        total_inq = sum(w.get("inq_count", 0) for w in workers)
+        worker_inq = {}
+        for w in workers:
+            worker_inq[w.get("wid")] = w.get("inq_count", 0)
+        app_state.setdefault("debug_kernel_queue_state", {})[kernel_tab_id] = {
+            "total_inq": total_inq,
+            "worker_inq": worker_inq,
+        }
+        if client:
+            sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+            sel_inq = worker_inq.get(sel_wid, 0) if sel_wid is not None else 0
+            _set_kernel_queue_badge(client, kernel_tab_id, total_inq, sel_inq)
+
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
         """Set indicator colour based on the selected worker's state in the snapshot."""
         if not kernel_tab_id:
             return
-        sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
-        workers_list    = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
-        sel_wid = None
-        for wi, w in enumerate(workers_list):
-            if w.get("name") == sel_worker_name:
-                sel_wid = wi
-                break
-        if sel_wid is None and workers_list:
-            sel_wid = 0   # default to first worker if nothing selected
+        sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
 
-        color = _IND_GREY
+        color = _IND_OFF
         if sel_wid is not None:
             for w in snapshot.get("workers", []):
                 if w.get("wid") == sel_wid:
                     if w.get("faulted"):
-                        color = _IND_AMBER
+                        color = _IND_RED
                     elif w.get("halted"):
-                        color = _IND_GREY
+                        color = _IND_OFF
                     elif w.get("waiting_for_data"):
                         color = _IND_GREEN
                     else:
                         color = _IND_RED   # still running
                     break
-        _set_kernel_indicator(client, kernel_tab_id, color)
+        _set_kernel_run_indicator(client, kernel_tab_id, color)
 
     def _update_queue_counters(client, snapshot: dict):
         """Update kernel row queue badge with 'total / selected-worker' inq counts."""
-        workers = snapshot.get("workers", [])
-        total_inq = sum(w.get("inq_count", 0) for w in workers)
-
         kernel_tab_id = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
         if not kernel_tab_id:
             return
+        _update_kernel_queue_state_from_snapshot(client, kernel_tab_id, snapshot)
 
-        sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
-        workers_list    = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
-        sel_wid = None
-        for wi, w in enumerate(workers_list):
-            if w.get("name") == sel_worker_name:
-                sel_wid = wi
-                break
-        sel_inq = 0
-        if sel_wid is not None:
-            for w in workers:
-                if w.get("wid") == sel_wid:
-                    sel_inq = w.get("inq_count", 0)
-                    break
+    def _reset_all_kernel_debug_state(client):
+        for kernel in _kernels_from_project():
+            kernel_id = kernel["id"]
+            _set_kernel_load_indicator(client, kernel_id, _IND_OFF)
+            _set_kernel_run_indicator(client, kernel_id, _IND_OFF)
+            _clear_kernel_queue_state(client, kernel_id)
+        app_state["debug_kernel_snapshot_state"] = {}
 
-        try:
-            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue",
-                            f"{total_inq} / {sel_inq}")
-        except Exception:
-            pass
+    def _start_debug_vm(client, force_restart: bool = False) -> bool:
+        if force_restart and _epa_dbg_running():
+            _epa_dbg_stop()
+        _epa_dbg_launch()
+        dbg_c = _epa_dbg_client()
+        if not dbg_c:
+            return False
+
+        kernels = _kernels_from_project()
+        failures = []
+        last_loaded = ""
+        if client:
+            _reset_all_kernel_debug_state(client)
+
+        bundle_targets: dict[str, list[str]] = {}
+        for kernel in kernels:
+            kernel_id = kernel["id"]
+            bundle_path = _bundle_path_for_kernel_id(kernel_id)
+            if not bundle_path or not Path(bundle_path).is_file():
+                failures.append(kernel_id)
+                _set_kernel_load_indicator(client, kernel_id, _IND_RED)
+                continue
+            bundle_targets.setdefault(bundle_path, []).append(kernel_id)
+
+        for bundle_path, kernel_ids in bundle_targets.items():
+            result = _epa_dbg_load_bundle(bundle_path, kernel_id=0)
+            if result.get("ok"):
+                for kernel_id in kernel_ids:
+                    _set_kernel_load_indicator(client, kernel_id, _IND_GREEN)
+                last_loaded = bundle_path
+            else:
+                for kernel_id in kernel_ids:
+                    failures.append(kernel_id)
+                    _set_kernel_load_indicator(client, kernel_id, _IND_RED)
+
+        if last_loaded:
+            app_state["debug_kernel_loaded"] = last_loaded
+        else:
+            app_state.pop("debug_kernel_loaded", None)
+        app_state["debug_vm_started"] = True
+        _epa_dbg_set_vm_button(True)
+
+        if failures:
+            detail = f"{len(failures)} kernel load failure(s)"
+            state = "error" if len(failures) == len(kernels) and kernels else "running"
+            _epa_dbg_set_vm_status(state, detail)
+        else:
+            _epa_dbg_set_vm_status("running", "ready")
+        return True
 
     def _refresh_ingress_profiles_list(client, type_name: str):
         items = _profiles_for_type(type_name) if type_name else []
+        app_state["debug_ingress_profiles_cache"] = items
+        cur = app_state.get("debug_ingress_selected_profile", "")
+        valid_ids = {it["id"] for it in items}
+        if items and (not cur or cur not in valid_ids):
+            app_state["debug_ingress_selected_profile"] = items[0]["id"]
+        elif not items:
+            app_state["debug_ingress_selected_profile"] = ""
         try:
             client.replace_list_items("nav.debug.ingress_profiles", items)
         except Exception:
@@ -3876,8 +4052,12 @@ def main():
         except Exception:
             pass
         app_state.pop("debug_kernel_loaded", None)
+        app_state["debug_vm_started"] = False
+        app_state["debug_kernel_indicator_state"] = {}
+        app_state["debug_kernel_queue_state"] = {}
+        app_state["debug_kernel_snapshot_state"] = {}
+        _epa_dbg_set_vm_button(False)
         _close_open_project_window(client)
-        threading.Thread(target=_epa_dbg_launch, daemon=True).start()
 
     _NAV_PANELS = {
         "files":  "nav.panel",
@@ -5557,14 +5737,9 @@ def main():
                         Path(project_root_str) / "build" / "epa"
                         / (kernel_id_str.replace(".", "/") + ".epabin")
                     )
-                    # Resolve selected worker → wid index (position in worker list)
-                    sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_id_str}", "")
-                    workers_list = app_state.get(f"debug_kernel_workers_{kernel_id_str}", [])
-                    worker_wid = 0
-                    for wi, w in enumerate(workers_list):
-                        if w.get("name") == sel_worker_name:
-                            worker_wid = wi
-                            break
+                    worker_wid = _selected_worker_wid_for_kernel(kernel_id_str)
+                    if worker_wid is None:
+                        worker_wid = 1
 
                     kid = 0
                     do_run = is_run
@@ -5574,18 +5749,28 @@ def main():
                                          uc=ui_client, wid=worker_wid,
                                          ktid=tab_id_for_ind):
                         dbg_c = _epa_dbg_client()
+                        if not _epa_dbg_running() or not dbg_c:
+                            if not _start_debug_vm(uc, force_restart=False):
+                                return
+                            dbg_c = _epa_dbg_client()
                         already_loaded = app_state.get("debug_kernel_loaded") == bp
                         if r or not already_loaded or not dbg_c:
+                            prev_ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+                            if prev_ktid and prev_ktid != ktid and uc:
+                                _clear_kernel_queue_state(uc, prev_ktid)
+                                _set_kernel_run_indicator(uc, prev_ktid, _IND_OFF)
                             result = _epa_dbg_load_bundle(bp, kernel_id=k)
                             if not result.get("ok"):
+                                _set_kernel_load_indicator(uc, ktid, _IND_RED)
                                 return
                             app_state["debug_kernel_loaded"] = bp
+                            _set_kernel_load_indicator(uc, ktid, _IND_GREEN)
                             dbg_c = _epa_dbg_client()
                         if not dbg_c:
                             return
                         # Mark as running before the call
                         if uc:
-                            _set_kernel_indicator(uc, ktid, _IND_RED)
+                            _set_kernel_run_indicator(uc, ktid, _IND_RED)
                         try:
                             if r:
                                 resp = dbg_c.run_to_wait(wid=wid)
@@ -5597,7 +5782,7 @@ def main():
                                 _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                         except Exception as exc:
                             if uc:
-                                _set_kernel_indicator(uc, ktid, _IND_GREY)
+                                _set_kernel_run_indicator(uc, ktid, _IND_OFF)
                             _push_exception(exc, "dbg_run_or_step")
                     _deferred(_dbg_run_or_step)
                 return {"received": True}
@@ -5667,19 +5852,10 @@ def main():
         ):
             c = client
             def _do_vm_reset():
-                ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                 app_state.pop("debug_kernel_loaded", None)
-                if ktid and c:
-                    _set_kernel_indicator(c, ktid, _IND_GREY)
-                _epa_dbg_launch()
-                dbg_c = _epa_dbg_client()
-                if dbg_c:
-                    try:
-                        dbg_c.reset(0)
-                    except Exception as exc:
-                        _epa_dbg_set_vm_status("error", "reset failed")
-                        _epa_dbg_set_vm_button(_epa_dbg_running())
-                        _push_exception(exc, "vm_reset")
+                app_state["debug_vm_started"] = False
+                if not _start_debug_vm(c, force_restart=True):
+                    _epa_dbg_set_vm_status("error", "start failed")
             _deferred(_do_vm_reset)
             return {"received": True}
 
@@ -5689,10 +5865,9 @@ def main():
         ):
             c = client
             def _do_vm_stop():
-                ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                 app_state.pop("debug_kernel_loaded", None)
-                if ktid and c:
-                    _set_kernel_indicator(c, ktid, _IND_GREY)
+                app_state["debug_vm_started"] = False
+                _reset_all_kernel_debug_state(c)
                 _epa_dbg_stop()
             _deferred(_do_vm_stop)
             return {"received": True}
@@ -5711,18 +5886,32 @@ def main():
                 kernel_id_str = target[len(prefix):-len(suffix)]
                 worker_name = payload.get("action") or payload.get("id") or ""
                 app_state[f"debug_kernel_worker_{kernel_id_str}"] = worker_name
+                if client:
+                    _apply_cached_kernel_queue_state(client, kernel_id_str)
+                    snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
+                    if snapshot:
+                        _update_kernel_indicator_from_snapshot(client, kernel_id_str, snapshot)
                 return {"received": True}
 
         # Ingress designer — profile selected in list
-        if target == "nav.debug.ingress_profiles" and action in ("action", "clicked"):
-            profile_id = payload.get("action") or payload.get("id") or ""
-            app_state["debug_ingress_selected_profile"] = profile_id
+        if target == "nav.debug.ingress_profiles":
+            if action == "valueChanged":
+                # List view reports selection as a float index — look up in cached items
+                idx = int(payload.get("value", 0))
+                items = app_state.get("debug_ingress_profiles_cache", [])
+                if 0 <= idx < len(items):
+                    app_state["debug_ingress_selected_profile"] = items[idx]["id"]
+            elif action in ("action", "clicked"):
+                profile_id = payload.get("action") or payload.get("id") or ""
+                if profile_id:
+                    app_state["debug_ingress_selected_profile"] = profile_id
             return {"received": True}
 
         # Ingress designer — type selection → refresh profiles list
         if target == "nav.debug.ingress_type" and action in ("action", "valueChanged", "clicked") and client is not None:
             type_name = payload.get("action") or ""
             app_state["debug_ingress_type"] = type_name
+            app_state["debug_ingress_selected_profile"] = ""
             c = client
             _deferred(lambda tn=type_name: _refresh_ingress_profiles_list(c, tn))
             return {"received": True}
@@ -5745,10 +5934,11 @@ def main():
             if not type_name:
                 cached = app_state.get("debug_ingress_types_cache") or []
                 type_name = cached[0]["id"] if cached else ""
+            kernel_id = app_state.get("debug_ingress_kernel", "")
             sel_worker = app_state.get("debug_ingress_worker", "")
             c = client
-            def _do_queue(tn=type_name, pn=selected_profile, sw=sel_worker):
-                if not tn or not pn:
+            def _do_queue(tn=type_name, pn=selected_profile, kid=kernel_id, sw=sel_worker):
+                if not tn or not pn or not kid:
                     return
                 profiles_dir = _profiles_dir(tn)
                 if not profiles_dir:
@@ -5761,7 +5951,7 @@ def main():
                 except Exception:
                     return
                 field_values = profile_data.get("fields", profile_data)
-                # Encode fields as little-endian uint32 words then hex
+                # Encode fields as little-endian uint32 words (little-endian)
                 import struct as _struct
                 parts = []
                 for v in field_values.values():
@@ -5771,21 +5961,40 @@ def main():
                         parts.append(0)
                 hex_bytes = "".join(_struct.pack("<I", p & 0xFFFFFFFF).hex() for p in parts)
                 dbg_c = _epa_dbg_client()
-                if not dbg_c:
-                    _epa_dbg_launch()
+                if not _epa_dbg_running() or not dbg_c:
+                    if not _start_debug_vm(c, force_restart=False):
+                        return
                     dbg_c = _epa_dbg_client()
                 if not dbg_c:
                     return
-                # wid=1 is entry worker; map named worker later if needed
-                wid = 1
+                bundle_path = _bundle_path_for_kernel_id(kid)
+                if not bundle_path or not Path(bundle_path).is_file():
+                    return
+                if app_state.get("debug_kernel_loaded") != bundle_path:
+                    previously_loaded = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+                    if previously_loaded and previously_loaded != kid and c:
+                        _clear_kernel_queue_state(c, previously_loaded)
+                        _set_kernel_run_indicator(c, previously_loaded, _IND_OFF)
+                    result = _epa_dbg_load_bundle(bundle_path, kernel_id=0)
+                    if not result.get("ok"):
+                        _set_kernel_load_indicator(c, kid, _IND_RED)
+                        raise RuntimeError(result.get("error", "failed to load debug bundle"))
+                    app_state["debug_kernel_loaded"] = bundle_path
+                    _set_kernel_load_indicator(c, kid, _IND_GREEN)
+                # Resolve wid from selected worker name (wid=0 is coordinator, workers start at 1)
+                workers = app_state.get(f"debug_kernel_workers_{kid}", [])
+                wid = 1  # default to first worker
+                if sw:
+                    for idx, w in enumerate(workers):
+                        if w.get("name") == sw:
+                            wid = idx + 1
+                            break
                 try:
                     dbg_c.ingress_push_hex(hex_bytes, wid=wid)
                     snap = dbg_c.snapshot(0)
-                    ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
-                    if c:
-                        _update_queue_counters(c, snap)
-                        if ktid:
-                            _update_kernel_indicator_from_snapshot(c, ktid, snap)
+                    if c and kid:
+                        _update_kernel_queue_state_from_snapshot(c, kid, snap)
+                        _update_kernel_indicator_from_snapshot(c, kid, snap)
                 except Exception as exc:
                     _push_exception(exc, "queue_ingress")
             _deferred(_do_queue)

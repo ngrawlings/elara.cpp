@@ -9,6 +9,8 @@ ElaraLabelWidget::ElaraLabelWidget(
     text(""),
     palette_master("label"),
     palette_sub("default"),
+    has_text_color_override(false),
+    text_color_override(),
     font_size(14),
     padding_x(8),
     padding_y(6),
@@ -50,6 +52,23 @@ void ElaraLabelWidget::setVerticalAlign(ElaraLabelVerticalAlign align) {
 void ElaraLabelWidget::setPaletteProfile(const String& master, const String& sub) {
     palette_master = master;
     palette_sub = sub;
+}
+
+void ElaraLabelWidget::setTextColorOverride(const ElaraColor& color) {
+    text_color_override = color;
+    has_text_color_override = true;
+}
+
+void ElaraLabelWidget::setForegroundColorOverride(const ElaraColor& color) {
+    setTextColorOverride(color);
+}
+
+void ElaraLabelWidget::clearTextColorOverride() {
+    has_text_color_override = false;
+}
+
+void ElaraLabelWidget::clearForegroundColorOverride() {
+    clearTextColorOverride();
 }
 
 void ElaraLabelWidget::setDrawBackground(bool enabled) {
@@ -98,7 +117,15 @@ void ElaraLabelWidget::draw(ElaraDrawContext* ctx) {
         ctx->fillRect(0, 0, width, height);
     }
 
-    ctx->setColor(c.text.r, c.text.g, c.text.b);
+    if(has_text_color_override) {
+        ctx->setColor(
+            text_color_override.r,
+            text_color_override.g,
+            text_color_override.b
+        );
+    } else {
+        ctx->setColor(c.text.r, c.text.g, c.text.b);
+    }
 
     if(text.indexOf("\n") < 0) {
         ctx->drawText(textX(), textY(), text, font_size);

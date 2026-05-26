@@ -64,6 +64,12 @@ private:
         String& error_code,
         String& error_message
     );
+    bool setForegroundColor(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool setEnabled(
         const Json& params,
         String& result_json,

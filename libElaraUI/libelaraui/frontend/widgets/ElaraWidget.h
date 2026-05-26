@@ -122,6 +122,8 @@ public:
 
     virtual void setVisible(bool is_visible);
     virtual bool isVisible() const;
+    virtual void setForegroundColorOverride(const ElaraColor& color);
+    virtual void clearForegroundColorOverride();
 
     virtual double getMarginLeft() const;
     virtual double getMarginTop() const;

@@ -290,6 +290,12 @@ bool ElaraWidget::isVisible() const {
     return visible;
 }
 
+void ElaraWidget::setForegroundColorOverride(const ElaraColor& color) {
+    (void)color;
+}
+
+void ElaraWidget::clearForegroundColorOverride() {}
+
 void ElaraWidget::setMargin(double left, double top, double right, double bottom) {
     margin_left = left;
     margin_top = top;

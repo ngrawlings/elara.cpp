@@ -120,6 +120,60 @@ String jsonBoolean(bool value) {
     return value ? String("true") : String("false");
 }
 
+bool parseHexNibble(char c, int* value_out) {
+    if(c >= '0' && c <= '9') {
+        *value_out = c - '0';
+        return true;
+    }
+    if(c >= 'a' && c <= 'f') {
+        *value_out = 10 + (c - 'a');
+        return true;
+    }
+    if(c >= 'A' && c <= 'F') {
+        *value_out = 10 + (c - 'A');
+        return true;
+    }
+    return false;
+}
+
+bool parseHexByte(const String& text, int offset, int* value_out) {
+    int hi = 0;
+    int lo = 0;
+    const char* chars = (const char*)text;
+    if(offset + 1 >= text.length()) {
+        return false;
+    }
+    if(!parseHexNibble(chars[offset], &hi) || !parseHexNibble(chars[offset + 1], &lo)) {
+        return false;
+    }
+    *value_out = (hi << 4) | lo;
+    return true;
+}
+
+bool jsonColor(const Json& json, const String& path, ElaraColor* color_out) {
+    String value = json.getStringValue(path).trim();
+    const char* chars = (const char*)value;
+    if((value.length() != 7 && value.length() != 9) || chars[0] != '#') {
+        return false;
+    }
+
+    int r = 0, g = 0, b = 0, a = 255;
+    if(!parseHexByte(value, 1, &r) || !parseHexByte(value, 3, &g) || !parseHexByte(value, 5, &b)) {
+        return false;
+    }
+    if(value.length() == 9 && !parseHexByte(value, 7, &a)) {
+        return false;
+    }
+
+    *color_out = ElaraColor(
+        (double)r / 255.0,
+        (double)g / 255.0,
+        (double)b / 255.0,
+        (double)a / 255.0
+    );
+    return true;
+}
+
 }
 
 ElaraUiRpcUiService::ElaraUiRpcUiService(
@@ -232,6 +286,30 @@ bool ElaraUiRpcUiService::setVisible(
     }
 
     widget->setVisible(jsonBool(params, "visible", true));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::setForegroundColor(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraColor color;
+    if(!jsonColor(params, "color", &color)) {
+        error_code = "invalid_color";
+        error_message = "color must be a #RRGGBB or #RRGGBBAA string";
+        return false;
+    }
+
+    widget->setForegroundColorOverride(color);
     result_json = "{\"updated\":true}";
     return true;
 }
@@ -1339,6 +1417,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setVisible")) {
         return setVisible(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setForegroundColor")) {
+        return setForegroundColor(params, result_json, error_code, error_message);
     }
 
     if(method == String("setEnabled")) {

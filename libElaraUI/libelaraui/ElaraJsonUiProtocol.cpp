@@ -118,6 +118,63 @@ static bool jsonBool(const Json& json, const String& path, bool fallback) {
     return fallback;
 }
 
+static bool parseHexNibble(char c, int* value_out) {
+    if(c >= '0' && c <= '9') {
+        *value_out = c - '0';
+        return true;
+    }
+    if(c >= 'a' && c <= 'f') {
+        *value_out = 10 + (c - 'a');
+        return true;
+    }
+    if(c >= 'A' && c <= 'F') {
+        *value_out = 10 + (c - 'A');
+        return true;
+    }
+    return false;
+}
+
+static bool parseHexByte(const String& text, int offset, int* value_out) {
+    int hi = 0;
+    int lo = 0;
+    const char* chars = (const char*)text;
+    if(offset + 1 >= text.length()) {
+        return false;
+    }
+    if(!parseHexNibble(chars[offset], &hi) || !parseHexNibble(chars[offset + 1], &lo)) {
+        return false;
+    }
+    *value_out = (hi << 4) | lo;
+    return true;
+}
+
+static bool jsonColor(const Json& json, const String& path, ElaraColor* color_out) {
+    String value = jsonString(json, path, String("")).trim();
+    const char* chars = (const char*)value;
+    if(value.length() != 7 && value.length() != 9) {
+        return false;
+    }
+    if(chars[0] != '#') {
+        return false;
+    }
+
+    int r = 0, g = 0, b = 0, a = 255;
+    if(!parseHexByte(value, 1, &r) || !parseHexByte(value, 3, &g) || !parseHexByte(value, 5, &b)) {
+        return false;
+    }
+    if(value.length() == 9 && !parseHexByte(value, 7, &a)) {
+        return false;
+    }
+
+    *color_out = ElaraColor(
+        (double)r / 255.0,
+        (double)g / 255.0,
+        (double)b / 255.0,
+        (double)a / 255.0
+    );
+    return true;
+}
+
 static String handleString(const ElaraWidgetHandle& handle) {
     Memory memory = handle.getHandle();
     return String((const char*)memory.getPtr(), memory.length());
@@ -179,6 +236,33 @@ public:
             start = nl + 1;
             y += line_height;
         }
+    }
+};
+
+class ElaraJsonStatusDotWidget : public ElaraWidget {
+private:
+    ElaraColor dot_color;
+
+public:
+    ElaraJsonStatusDotWidget(ElaraWidgetRegister* root, ElaraWidgetHandle handle)
+        : ElaraWidget(root, handle),
+          dot_color(0.40, 0.40, 0.40, 1.0) {}
+
+    void setDotColor(const ElaraColor& color) {
+        dot_color = color;
+    }
+
+    void setForegroundColorOverride(const ElaraColor& color) {
+        setDotColor(color);
+    }
+
+    void draw(ElaraDrawContext* ctx) {
+        double radius = (width < height ? width : height) / 2.0 - 1.0;
+        if(radius < 2.0) {
+            radius = 2.0;
+        }
+        ctx->setColor(dot_color.r, dot_color.g, dot_color.b);
+        ctx->fillCircle(width / 2.0, height / 2.0, radius);
     }
 };
 
@@ -760,6 +844,8 @@ public:
             widget = toolbar;
         } else if(type == String("elara.widgets.label") || type == String("demo.widgets.label")) {
             widget = new ElaraJsonLabelWidget(root, id);
+        } else if(type == String("demo.widgets.status_dot")) {
+            widget = new ElaraJsonStatusDotWidget(root, id);
         } else if(type == String("elara.widgets.text_input") || type == String("demo.widgets.text_input")) {
             widget = new ElaraTextInputWidget(root, id);
         } else if(type == String("elara.widgets.surface_panel") || type == String("demo.widgets.surface_panel")) {
@@ -874,12 +960,50 @@ public:
         if(label) {
             String text = spec.getStringValue("properties.text");
             int font_size = jsonInt(spec, "properties.font_size", 16);
+            ElaraColor text_color;
+            double padding_x = jsonDouble(spec, "properties.padding_x", -1.0);
+            double padding_y = jsonDouble(spec, "properties.padding_y", -1.0);
+            String horizontal_align = jsonString(spec, "properties.horizontal_align", String(""));
+            String vertical_align = jsonString(spec, "properties.vertical_align", String(""));
 
             if(text.length() > 0) {
                 label->setText(text);
             }
 
             label->setFontSize((double)font_size);
+            if(padding_x >= 0.0 || padding_y >= 0.0) {
+                label->setPadding(
+                    padding_x >= 0.0 ? padding_x : 8.0,
+                    padding_y >= 0.0 ? padding_y : 6.0
+                );
+            }
+            if(horizontal_align == String("center")) {
+                label->setHorizontalAlign(ELARA_LABEL_ALIGN_CENTER);
+            } else if(horizontal_align == String("right")) {
+                label->setHorizontalAlign(ELARA_LABEL_ALIGN_RIGHT);
+            } else if(horizontal_align == String("left")) {
+                label->setHorizontalAlign(ELARA_LABEL_ALIGN_LEFT);
+            }
+            if(vertical_align == String("top")) {
+                label->setVerticalAlign(ELARA_LABEL_ALIGN_TOP);
+            } else if(vertical_align == String("bottom")) {
+                label->setVerticalAlign(ELARA_LABEL_ALIGN_BOTTOM);
+            } else if(vertical_align == String("middle")) {
+                label->setVerticalAlign(ELARA_LABEL_ALIGN_MIDDLE);
+            }
+            if(jsonColor(spec, "properties.foreground_color", &text_color)) {
+                label->setTextColorOverride(text_color);
+            } else {
+                label->clearTextColorOverride();
+            }
+        }
+
+        ElaraJsonStatusDotWidget* status_dot = dynamic_cast<ElaraJsonStatusDotWidget*>(widget);
+        if(status_dot) {
+            ElaraColor dot_color;
+            if(jsonColor(spec, "properties.foreground_color", &dot_color)) {
+                status_dot->setDotColor(dot_color);
+            }
         }
 
         ElaraTextInputWidget* input = dynamic_cast<ElaraTextInputWidget*>(widget);

@@ -23,6 +23,8 @@ private:
 
     String palette_master;
     String palette_sub;
+    bool has_text_color_override;
+    ElaraColor text_color_override;
 
     double font_size;
     double padding_x;
@@ -57,6 +59,10 @@ public:
     void setVerticalAlign(ElaraLabelVerticalAlign align);
 
     void setPaletteProfile(const String& master, const String& sub);
+    void setTextColorOverride(const ElaraColor& color);
+    void clearTextColorOverride();
+    void setForegroundColorOverride(const ElaraColor& color);
+    void clearForegroundColorOverride();
 
     void setDrawBackground(bool enabled);
     bool getDrawBackground() const;
