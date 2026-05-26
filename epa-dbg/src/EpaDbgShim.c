@@ -48,7 +48,7 @@ size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, siz
             size_t src = w->vm.stack.sp - dst->stack_preview_count + i;
             dst->stack_preview[i] = w->vm.stack.words ? w->vm.stack.words[src] : 0u;
         }
-        dst->inq_count  = epa_ring_count(&w->inq);
+        dst->inq_count  = kernel->ingress.inq[wid].count;
         dst->outq_count = epa_ring_count(&w->outq);
         memcpy(dst->locals, w->vm.locals, sizeof(dst->locals));
         dst->lbytes_top   = w->vm.lbytes_top;

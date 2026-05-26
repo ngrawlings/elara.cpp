@@ -86,6 +86,15 @@ bool EpaDbgVmHost::loadBundlePath(const String &bundle_path) {
     destroy();
     module = epa_kernel_module_load_bundle(text.operator char *(), err);
     if (!module) { setError("epa_kernel_module_load_bundle failed", err); return false; }
+    // Initialise worker structures so ingress queues and debug capture work.
+    // Does NOT start execution — kernels stay paused until step/run is called.
+    size_t count = epa_kernel_module_count(module);
+    for (size_t i = 0; i < count; i++) {
+        EpaKernel *k = epa_kernel_module_kernel(module, i);
+        if (!k) continue;
+        uint32_t n = epa_kernel_worker_count(k);
+        if (n > 0) epa_kernel_module_add_kernel_threads(module, i, n, err);
+    }
     error_text = String();
     return true;
 }

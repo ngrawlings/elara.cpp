@@ -54,7 +54,7 @@ private:
                    String &stop_reason, uint32_t &ticks_ran, String &error_message);
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
 
-    String buildSnapshotJson() const;
+    String buildSnapshotJson(const String &path_id = String()) const;
     String buildEventsJson(bool clear_after_read);
     String buildBreakpointJson() const;
 

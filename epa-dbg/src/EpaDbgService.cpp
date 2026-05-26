@@ -248,16 +248,25 @@ bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
     }
 }
 
-String EpaDbgService::buildSnapshotJson() const {
+String EpaDbgService::buildSnapshotJson(const String &path_id) const {
     String result("{");
     EpaDbgKernelSnapshot ks;
     EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
     size_t wc = 0;
     memset(&ks, 0, sizeof(ks));
     memset(ws, 0, sizeof(ws));
-    if (host.rawKernel()) {
-        epa_dbg_capture_kernel(host.rawKernel(), &ks);
-        wc = epa_dbg_capture_workers(host.rawKernel(), ws, EPA_DBG_MAX_WORKERS);
+    EpaKernel *snap_kernel = host.rawKernel();
+    if (!snap_kernel && host.kernelCount() > 0) {
+        int idx = 0;
+        if (path_id.length()) {
+            int found = host.findKernelIndex(path_id);
+            if (found >= 0) idx = found;
+        }
+        snap_kernel = host.rawKernelAt((size_t)idx);
+    }
+    if (snap_kernel) {
+        epa_dbg_capture_kernel(snap_kernel, &ks);
+        wc = epa_dbg_capture_workers(snap_kernel, ws, EPA_DBG_MAX_WORKERS);
     }
     result += String("\"kernel\":{");
     result += String("\"prog_loaded\":") + String((int)ks.prog_loaded);
@@ -374,16 +383,28 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     }
     if (method == String("debug.ingressPushHex")) {
         uint32_t wid = 1, tag = 0;
-        String hex;
+        String hex, path_id;
         std::vector<unsigned char> bytes;
         parseUint(params_json, String("wid"), 1, &wid);
         parseUint(params_json, String("tag"), 0, &tag);
+        parseString(params_json, String("path_id"), path_id);
         if (!parseString(params_json, String("payload_hex"), hex) || !parseHexBytes(hex, bytes)) {
             error_code = String("invalid_payload_hex"); error_message = String("payload_hex must be an even-length hex string"); return false;
         }
-        if (!host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size())) {
-            error_code = String("ingress_push_failed"); error_message = host.lastError(); return false;
+        bool ok = false;
+        if (host.rawKernel()) {
+            ok = host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size());
+        } else if (host.kernelCount() > 0) {
+            int idx = 0;
+            if (path_id.length()) {
+                int found = host.findKernelIndex(path_id);
+                if (found >= 0) idx = found;
+            }
+            ok = host.ingressPushTaggedToKernel((size_t)idx, wid, tag, bytes.data(), (uint32_t)bytes.size());
+        } else {
+            error_code = String("ingress_push_failed"); error_message = String("no kernel or module loaded"); return false;
         }
+        if (!ok) { error_code = String("ingress_push_failed"); error_message = host.lastError(); return false; }
         result_json = String("{\"queued\":true}"); return true;
     }
     if (method == String("debug.step")) {
@@ -429,7 +450,9 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         result_json = String("{\"interrupt_requested\":true}"); return true;
     }
     if (method == String("debug.snapshot")) {
-        result_json = buildSnapshotJson(); return true;
+        String path_id;
+        parseString(params_json, String("path_id"), path_id);
+        result_json = buildSnapshotJson(path_id); return true;
     }
     if (method == String("debug.events")) {
         bool clear = true;

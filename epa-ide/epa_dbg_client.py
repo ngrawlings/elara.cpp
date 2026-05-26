@@ -157,9 +157,11 @@ class EpaDbgClient:
 
     # Ingress
 
-    def ingress_push_hex(self, hex_bytes: str, wid: int = 1, tag: int = 0) -> dict:
-        return self.call("epa.debug.ingressPushHex",
-                         {"wid": wid, "tag": tag, "payload_hex": hex_bytes})
+    def ingress_push_hex(self, hex_bytes: str, wid: int = 1, tag: int = 0, path_id: str = "") -> dict:
+        params: dict = {"wid": wid, "tag": tag, "payload_hex": hex_bytes}
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.ingressPushHex", params)
 
     # Execution control
 
@@ -184,8 +186,11 @@ class EpaDbgClient:
 
     # Inspection
 
-    def snapshot(self, kernel_id: int) -> dict:
-        return self.call("epa.debug.snapshot", {"kernel_id": kernel_id})
+    def snapshot(self, kernel_id: int, path_id: str = "") -> dict:
+        params: dict = {"kernel_id": kernel_id}
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.snapshot", params)
 
     def events(self, kernel_id: int, clear: bool = False) -> list:
         return self.call("epa.debug.events",

@@ -2780,9 +2780,8 @@ def main():
         if not c:
             return {"ok": False, "error": "epa-dbg not available"}
         try:
-            reset_result = c.reset(kernel_id)
             load_result = c.load_bundle(kernel_id, bundle_path)
-            return {"ok": True, "reset": reset_result, "load": load_result}
+            return {"ok": True, "load": load_result}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -5990,8 +5989,8 @@ def main():
                             wid = idx + 1
                             break
                 try:
-                    dbg_c.ingress_push_hex(hex_bytes, wid=wid)
-                    snap = dbg_c.snapshot(0)
+                    dbg_c.ingress_push_hex(hex_bytes, wid=wid, path_id=kid)
+                    snap = dbg_c.snapshot(0, path_id=kid)
                     if c and kid:
                         _update_kernel_queue_state_from_snapshot(c, kid, snap)
                         _update_kernel_indicator_from_snapshot(c, kid, snap)
