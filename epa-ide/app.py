@@ -2682,6 +2682,9 @@ def main():
         out_lines.clear()
         port = _allocate_epa_dbg_port()
         _epa_dbg["port"] = port
+        # A fresh debugger process starts empty, so invalidate any prior load/kernel selection state.
+        app_state.pop("debug_kernel_loaded", None)
+        app_state.pop("debug_active_kernel", None)
 
         def _reader(stream, tag):
             for raw in stream:
@@ -2765,6 +2768,8 @@ def main():
                 proc.wait()
         _epa_dbg["proc"] = None
         _epa_dbg["port"] = None
+        app_state.pop("debug_kernel_loaded", None)
+        app_state.pop("debug_active_kernel", None)
         _epa_dbg_set_vm_button(False)
 
     def _epa_dbg_reset(kernel_id: int = 0) -> dict:
@@ -3291,6 +3296,7 @@ def main():
                     source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
+                epa_map_text = map_path.read_text(encoding="utf-8") if map_path.exists() else ""
                 epa_block_map: dict = {}  # {(block_type, block_id): [{"offset":..., "epa_line":..., "e_line":..., "epa_col":...}, ...]}
                 if map_path.exists():
                     cur_block = None
@@ -3338,15 +3344,34 @@ def main():
                                     })
                                 except ValueError:
                                     pass
-                return {"ok": True, "epa_text": epa_text, "epa_block_map": epa_block_map, "diagnostics": [], "message": ""}
+                return {
+                    "ok": True,
+                    "epa_text": epa_text,
+                    "epa_map_text": epa_map_text,
+                    "epa_block_map": epa_block_map,
+                    "diagnostics": [],
+                    "message": "",
+                }
             message = (proc.stderr or proc.stdout or "compile failed").strip()
             return {
                 "ok": False,
                 "epa_text": "",
+                "epa_map_text": "",
                 "epa_block_map": {},
                 "diagnostics": _diagnostic_from_error(message),
                 "message": message,
             }
+
+    def _debug_map_cache_path(tab_id: str) -> Path:
+        return Path("/tmp/epa-ide-debug-maps") / f"{tab_id}.epamap"
+
+    def _persist_debug_map(tab_id: str, map_text: str) -> str:
+        if not tab_id or not map_text:
+            return ""
+        path = _debug_map_cache_path(tab_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(map_text, encoding="utf-8")
+        return str(path)
 
     def _apply_editor_view(client, tab_id: str, set_focus: bool = False):
         state = editor_state.get(tab_id)
@@ -4013,9 +4038,24 @@ def main():
             return "waiting_for_data"
         return ""
 
-    def _dbg_step_one_tick(dbg_c, kernel_id: int, kernel_tab_id: str) -> tuple[dict, str]:
+    def _dbg_step_for_active_view(dbg_c, kernel_id: int, kernel_tab_id: str, wid: int, max_ticks: int = 4096) -> tuple[dict, str]:
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        map_path = str((st or {}).get("epa_map_path", "") or "")
+        step_mode = _debug_step_mode_for_kernel(kernel_tab_id)
+        if map_path:
+            resp = dbg_c.step_boundary(
+                wid=wid,
+                map_path=map_path,
+                step_mode=step_mode,
+                path_id=kernel_tab_id,
+                max_ticks=max_ticks,
+            )
+            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+            stop_reason = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
+            return snap, stop_reason
         try:
-            resp = dbg_c.step(kernel_id, ticks=1)
+            resp = dbg_c.step(kernel_id, ticks=1, path_id=kernel_tab_id)
             snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
             stop_reason = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
             return snap, stop_reason
@@ -4031,25 +4071,14 @@ def main():
                     return {}, "step"
             raise
 
-    def _dbg_step_for_active_view(dbg_c, kernel_id: int, kernel_tab_id: str, max_ticks: int = 4096) -> tuple[dict, str]:
-        step_mode = _debug_step_mode_for_kernel(kernel_tab_id)
-        before_snap = dbg_c.snapshot(kernel_id, path_id=kernel_tab_id)
-        before_state = _selected_worker_marker_state(kernel_tab_id, before_snap)
-        if not before_state:
-            return before_snap, "no_selected_worker"
-        last_snap = before_snap
-        last_state = before_state
-        for _ in range(max_ticks):
-            last_snap, _ = _dbg_step_one_tick(dbg_c, kernel_id, kernel_tab_id)
-            if not last_snap:
-                continue
-            last_state = _selected_worker_marker_state(kernel_tab_id, last_snap)
-            if _step_boundary_crossed(step_mode, before_state, last_state):
-                return last_snap, "boundary"
-            stalled = _step_stalled_reason(step_mode, before_state, last_state)
-            if stalled:
-                return last_snap, stalled
-        return last_snap, "max_ticks"
+    def _retry_after_forced_bundle_load(dbg_c, bundle_path: str, kernel_id: int, kernel_tab_id: str) -> bool:
+        result = _epa_dbg_load_bundle(bundle_path, kernel_id=kernel_id)
+        if not result.get("ok"):
+            _epa_dbg_log(f"[error] forced load_bundle failed: {result.get('error', 'unknown')}")
+            return False
+        app_state["debug_kernel_loaded"] = bundle_path
+        app_state["debug_active_kernel"] = kernel_tab_id
+        return True
 
     def _reset_all_kernel_debug_state(client):
         for kernel in _kernels_from_project():
@@ -4162,6 +4191,7 @@ def main():
                 return
         state["epa_text"] = result["epa_text"]
         state["epa_block_map"] = result.get("epa_block_map", {})
+        state["epa_map_path"] = _persist_debug_map(tab_id, result.get("epa_map_text", "")) if result.get("ok") else ""
         state["compile_error"] = result["message"]
         state["available_types"], state["available_workers"] = _extract_debug_candidates(source_text)
         state["trace_nodes"] = _build_trace_nodes([], f"{ids['debug']}.root")
@@ -4207,6 +4237,7 @@ def main():
                 "source_text": source_text,
                 "epa_text": "",
                 "epa_block_map": {},
+                "epa_map_path": "",
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -4817,6 +4848,7 @@ def main():
                 "source_text": source_text,
                 "epa_text": "",
                 "epa_block_map": {},
+                "epa_map_path": "",
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -6111,10 +6143,11 @@ def main():
                             _set_kernel_run_indicator(uc, ktid, _IND_RED)
                         try:
                             if r:
-                                resp = dbg_c.run_to_wait(wid=wid)
+                                resp = dbg_c.run_to_wait(wid=wid, path_id=ktid)
                                 snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                                step_status = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
                             else:
-                                snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid)
+                                snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid, wid)
                             if snap and uc:
                                 _update_queue_counters(uc, snap, ktid)
                                 _update_kernel_indicator_from_snapshot(uc, ktid, snap)
@@ -6123,6 +6156,30 @@ def main():
                                 if step_status not in ("boundary", ""):
                                     _epa_dbg_log(f"[step-status] {ktid} wid={wid} {step_status}")
                         except Exception as exc:
+                            should_retry_load = (
+                                "kernel not created" in str(exc).lower()
+                                and bp
+                                and _retry_after_forced_bundle_load(dbg_c, bp, k, ktid)
+                            )
+                            if should_retry_load:
+                                try:
+                                    dbg_c = _epa_dbg_client()
+                                    if r:
+                                        resp = dbg_c.run_to_wait(wid=wid, path_id=ktid)
+                                        snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                                        step_status = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
+                                    else:
+                                        snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid, wid)
+                                    if snap and uc:
+                                        _update_queue_counters(uc, snap, ktid)
+                                        _update_kernel_indicator_from_snapshot(uc, ktid, snap)
+                                    if snap and not r:
+                                        _epa_dbg_log(_format_step_eip_log(ktid, snap))
+                                        if step_status not in ("boundary", ""):
+                                            _epa_dbg_log(f"[step-status] {ktid} wid={wid} {step_status}")
+                                    return
+                                except Exception as retry_exc:
+                                    exc = retry_exc
                             is_step_complete = (
                                 not r
                                 and getattr(exc, "code", "") == "step_failed"
@@ -6612,6 +6669,7 @@ def main():
                     ts = time.time()
                     state["epa_text"] = result["epa_text"]
                     state["epa_block_map"] = result.get("epa_block_map", {})
+                    state["epa_map_path"] = _persist_debug_map(tab_id, result.get("epa_map_text", "")) if result.get("ok") else ""
                     state["compile_error"] = result.get("message", "")
                     state["epa_compiled_at"] = ts
                     state["epa_error"] = result.get("message") if not result["ok"] else None
