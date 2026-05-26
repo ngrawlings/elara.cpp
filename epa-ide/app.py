@@ -2690,6 +2690,10 @@ def main():
                 if len(out_lines) > 500:
                     del out_lines[: len(out_lines) - 500]
                 _epa_dbg_log(f"[{tag}] {line}")
+                if tag == "stderr":
+                    fault_detail = _format_fault_marker_detail(line)
+                    if fault_detail:
+                        _epa_dbg_log(fault_detail)
 
         try:
             new_proc = subprocess.Popen(
@@ -3612,6 +3616,12 @@ def main():
         _IND_RED: "#d73a49",
     }
 
+    _EPA_FAULT_RE = re.compile(
+        r"\[EPA-FAULT\]\s+kernel=(entry|func)\s+wid=(\d+)\s+"
+        r"(entry|func)\[(\d+)\]\s+pc=(\d+)\s+op=([A-Z0-9_]+)",
+        re.IGNORECASE,
+    )
+
     def _set_kernel_dot(client, kernel_tab_id: str, dot_name: str, state: str):
         if not client:
             return
@@ -3794,6 +3804,46 @@ def main():
             result = entries[0]
         return result
 
+    def _resolve_eip_marker(st: dict, block_type: int, block_id: int, rel_pc: int) -> dict:
+        """Resolve EPA-first marker info, then translate to E using the .epamap entry."""
+        epa_block_map = st.get("epa_block_map", {})
+        source_text = st.get("source_text", "")
+        decl_lines = _block_decl_lines(source_text) if source_text else {}
+        marker = _eip_to_map_entry(epa_block_map, block_type, block_id, rel_pc)
+        src_line = int(marker.get("e_line", 0) or 0)
+        epa_line = int(marker.get("epa_line", 0) or 0)
+        if src_line == 0 and decl_lines:
+            src_line = int(decl_lines.get((int(block_type), int(block_id)), 0) or 0)
+        return {
+            "marker": marker,
+            "epa_line": epa_line,
+            "src_line": src_line,
+        }
+
+    def _format_fault_marker_detail(line: str) -> str:
+        """Translate an EPA fault line into current-kernel EPA/E source coordinates when possible."""
+        match = _EPA_FAULT_RE.search(line or "")
+        if not match:
+            return ""
+        block_label = match.group(3).lower()
+        block_type = 0 if block_label == "entry" else 1
+        block_id = int(match.group(4))
+        rel_pc = int(match.group(5))
+        op = match.group(6)
+        kernel_tab_id = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        if not st:
+            return f"[fault] {block_label}[{block_id}] +0x{rel_pc:x} op={op}"
+        resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc)
+        epa_line = int(resolved.get("epa_line", 0) or 0)
+        src_line = int(resolved.get("src_line", 0) or 0)
+        return (
+            f"[fault] {kernel_tab_id or '?'} {block_label}[{block_id}] +0x{rel_pc:x} "
+            f"op={op} -> EPA:{epa_line if epa_line > 0 else '?'} "
+            f"E:{src_line if src_line > 0 else '?'}"
+        )
+
     def _update_eip_marker(client, kernel_tab_id: str, snapshot: dict):
         """Move the EIP marker in both E and EPA editors for the selected worker."""
         if not client or not kernel_tab_id:
@@ -3812,22 +3862,68 @@ def main():
             st = editor_state.get(stid)
             if not st:
                 return
-            epa_block_map = st.get("epa_block_map", {})
-            source_text = st.get("source_text", "")
-            decl_lines = _block_decl_lines(source_text) if source_text else {}
-            marker = _eip_to_map_entry(epa_block_map, block_type, block_id, rel_pc)
-            src_line = int(marker.get("e_line", 0) or 0)
-            epa_line = int(marker.get("epa_line", 0) or 0)
-            if src_line == 0 and decl_lines:
-                src_line = decl_lines.get((int(block_type), int(block_id)), 0)
+            if not st.get("epa_block_map") or not st.get("epa_text", ""):
+                _refresh_e_tab(client, stid)
+                st = editor_state.get(stid)
+                if not st:
+                    return
+            resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc)
+            src_line = resolved["src_line"]
+            epa_line = resolved["epa_line"]
             try:
                 if src_line > 0:
                     client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
                 if epa_line > 0:
                     client.set_eip_line(_editor_ids(stid)["epa"], max(0, epa_line - 1))
-            except Exception:
-                pass
+            except Exception as exc:
+                _epa_dbg_log(
+                    f"[marker-error] {kernel_tab_id} "
+                    f"entry[{block_id}] +0x{int(rel_pc):x} "
+                    f"-> EPA:{epa_line if epa_line > 0 else '?'} "
+                    f"E:{src_line if src_line > 0 else '?'}: {exc}"
+                )
+                return
+            _epa_dbg_log(
+                f"[marker] {kernel_tab_id} "
+                f"{'entry' if int(block_type) == 0 else 'func'}[{block_id}] +0x{int(rel_pc):x} "
+                f"-> EPA:{epa_line if epa_line > 0 else '?'} "
+                f"E:{src_line if src_line > 0 else '?'}"
+            )
             return
+
+    def _selected_worker_snapshot(kernel_tab_id: str, snapshot: dict) -> dict | None:
+        sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+        if sel_wid is None:
+            return None
+        for worker in snapshot.get("workers", []):
+            if worker.get("wid") == sel_wid:
+                return worker
+        return None
+
+    def _format_step_eip_log(kernel_tab_id: str, snapshot: dict) -> str:
+        worker = _selected_worker_snapshot(kernel_tab_id, snapshot)
+        if not worker:
+            return f"[step] {kernel_tab_id}: no selected worker snapshot"
+        eip = worker.get("eip", {}) or {}
+        block_type = int(eip.get("block_type", 0) or 0)
+        block_id = int(eip.get("block_id", 0) or 0)
+        rel_pc = int(eip.get("rel_pc", 0) or 0)
+        block_label = "entry" if block_type == 0 else "func" if block_type == 1 else f"type{block_type}"
+        marker_suffix = ""
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        if st:
+            resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc)
+            epa_line = int(resolved.get("epa_line", 0) or 0)
+            src_line = int(resolved.get("src_line", 0) or 0)
+            if epa_line > 0 or src_line > 0:
+                marker_suffix = f" -> EPA:{epa_line if epa_line > 0 else '?'} E:{src_line if src_line > 0 else '?'}"
+        return (
+            f"[step] {kernel_tab_id} "
+            f"wid={worker.get('wid', '?')} "
+            f"{block_label}[{block_id}] +0x{rel_pc:x}"
+            f"{marker_suffix}"
+        )
 
     def _reset_all_kernel_debug_state(client):
         for kernel in _kernels_from_project():
@@ -5835,32 +5931,31 @@ def main():
                     file_path = str(Path(project_root_str) / "epa" / rel)
                     tab_id = _tab_id_for_path(file_path)
                     source_tab_id = tab_id
-                    def _open_kernel_tab(fp=file_path, stid=source_tab_id):
+                    def _debug_kernel_action(fp=file_path, stid=source_tab_id):
                         _open_file_tab(c, fp, make_permanent=True)
                         st = editor_state.get(stid)
+                        if st:
+                            _refresh_e_tab(c, stid)
+                            st = editor_state.get(stid)
                         if st and not st.get("debug", False):
                             st["debug"] = True
                             _apply_editor_view(c, stid)
                             _refresh_debug_sidebars(c, stid)
-                        try:
-                            c.set_eip_line(_editor_ids(stid)["source"], 0)
-                            c.set_eip_line(_editor_ids(stid)["epa"], 0)
-                        except Exception:
-                            pass
-                    _deferred(_open_kernel_tab)
+                        bundle_path = _bundle_path_for_kernel_id(kernel_id_str)
+                        worker_wid = _selected_worker_wid_for_kernel(kernel_id_str)
+                        if worker_wid is None:
+                            worker_wid = 1
 
-                    bundle_path = _bundle_path_for_kernel_id(kernel_id_str)
-                    worker_wid = _selected_worker_wid_for_kernel(kernel_id_str)
-                    if worker_wid is None:
-                        worker_wid = 1
-
-                    kid = 0
-                    do_run = is_run
-                    ui_client = c
-                    tab_id_for_ind = kernel_id_str
-                    def _dbg_run_or_step(bp=bundle_path, r=do_run, k=kid,
-                                         uc=ui_client, wid=worker_wid,
-                                         ktid=tab_id_for_ind):
+                        kid = 0
+                        do_run = is_run
+                        ui_client = c
+                        tab_id_for_ind = kernel_id_str
+                        bp = bundle_path
+                        r = do_run
+                        k = kid
+                        uc = ui_client
+                        ktid = tab_id_for_ind
+                        wid = worker_wid
                         dbg_c = _epa_dbg_client()
                         if not _epa_dbg_running() or not dbg_c:
                             if not _start_debug_vm(uc, force_restart=False):
@@ -5894,12 +5989,30 @@ def main():
                             if snap and uc:
                                 _update_queue_counters(uc, snap)
                                 _update_kernel_indicator_from_snapshot(uc, ktid, snap)
+                            if snap and not r:
+                                _epa_dbg_log(_format_step_eip_log(ktid, snap))
                         except Exception as exc:
+                            is_step_complete = (
+                                not r
+                                and getattr(exc, "code", "") == "step_failed"
+                                and "step complete returning to host" in str(exc)
+                            )
+                            if is_step_complete:
+                                try:
+                                    snap = dbg_c.snapshot(k)
+                                except Exception:
+                                    snap = {}
+                                if snap and uc:
+                                    _update_queue_counters(uc, snap)
+                                    _update_kernel_indicator_from_snapshot(uc, ktid, snap)
+                                if snap:
+                                    _epa_dbg_log(_format_step_eip_log(ktid, snap))
+                                return
                             if uc:
                                 _set_kernel_run_indicator(uc, ktid, _IND_OFF)
                             _epa_dbg_log(f"[error] dbg_run_or_step: {exc}")
                             _push_exception(exc, "dbg_run_or_step")
-                    _deferred(_dbg_run_or_step)
+                    _deferred(_debug_kernel_action)
                 return {"received": True}
 
             elif item_action == "ai.send":

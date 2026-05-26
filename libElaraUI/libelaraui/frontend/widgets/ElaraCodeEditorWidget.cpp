@@ -1333,7 +1333,43 @@ bool ElaraCodeEditorWidget::hasBookmark(int logical_line) const {
 }
 
 void ElaraCodeEditorWidget::setEipLine(int line) {
-    eip_line = line;
+    if (line < 0) {
+        eip_line = -1;
+    } else {
+        int max_line = logicalLineCount() - 1;
+        if (line > max_line) line = max_line;
+        eip_line = line;
+    }
+
+    if (visible_line_map.length() == 0) {
+        rebuildVisibleLineMap();
+    }
+
+    if (eip_line >= 0) {
+        int vis_idx = -1;
+        for (int i = 0; i < (int)visible_line_map.length(); i++) {
+            if (visible_line_map[i] == eip_line) {
+                vis_idx = i;
+                break;
+            }
+        }
+        if (vis_idx >= 0) {
+            if (vis_idx < scroll_y) {
+                scroll_y = vis_idx;
+            } else if (vis_idx >= scroll_y + viewportLineCount()) {
+                scroll_y = vis_idx - viewportLineCount() + 1;
+            }
+        }
+    }
+
+    clampScroll();
+    updateScrollbars();
+
+    ElaraRootWidget* root = rootWidget();
+    ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
+    if (backend) {
+        backend->invalidate();
+    }
 }
 
 int ElaraCodeEditorWidget::getEipLine() const {

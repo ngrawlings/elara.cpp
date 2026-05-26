@@ -13,6 +13,10 @@ type Cell(int id, int val) {
     return id;
 }
 
+type MarkerProbe(int seed, int limit, int stride) {
+    return seed;
+}
+
 kernel(VM vm) {
     int wid = 0;
     while (1) {
@@ -86,5 +90,40 @@ worker grow_worker(Cell trigger) {
         phase = 0;
     }
 
+    signal();
+}
+
+// Worker 3: compact deterministic stepping target for E/EPA marker validation.
+// Exercises:
+// - static init block
+// - straight-line EPA before loop
+// - loop body with multiple arithmetic updates
+worker marker_probe(MarkerProbe probe) {
+    static int seen_rounds;
+    static int carried_total;
+    static int last_stride;
+
+    static {
+        seen_rounds = 10;
+        carried_total = 100;
+        last_stride = 1;
+    }
+
+    seen_rounds = seen_rounds + 1;
+    last_stride = probe.stride;
+
+    int cursor = probe.seed + last_stride;
+    int limit = probe.limit + seen_rounds;
+    int checksum = carried_total + cursor;
+
+    while (cursor < limit) {
+        checksum = checksum + cursor;
+        cursor = cursor + last_stride;
+        if (checksum > 5000) {
+            checksum = checksum - 97;
+        }
+    }
+
+    carried_total = checksum;
     signal();
 }

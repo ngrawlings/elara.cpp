@@ -1,0 +1,9 @@
+{
+  "type": "MarkerProbe",
+  "name": "marker_walk",
+  "fields": {
+    "seed": "2",
+    "limit": "14",
+    "stride": "3"
+  }
+}
