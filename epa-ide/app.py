@@ -3287,7 +3287,7 @@ def main():
                     source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-                epa_block_map: dict = {}  # {(block_type, block_id): [(byte_offset, src_line), ...]}
+                epa_block_map: dict = {}  # {(block_type, block_id): [{"offset":..., "epa_line":..., "e_line":...}, ...]}
                 if map_path.exists():
                     cur_block = None
                     for raw in map_path.read_text(encoding="utf-8").splitlines():
@@ -3306,7 +3306,20 @@ def main():
                             parts = raw.split()
                             if len(parts) == 2:
                                 try:
-                                    epa_block_map[cur_block].append((int(parts[0]), int(parts[1])))
+                                    epa_block_map[cur_block].append({
+                                        "offset": int(parts[0]),
+                                        "epa_line": 0,
+                                        "e_line": int(parts[1]),
+                                    })
+                                except ValueError:
+                                    pass
+                            elif len(parts) == 3:
+                                try:
+                                    epa_block_map[cur_block].append({
+                                        "offset": int(parts[0]),
+                                        "epa_line": int(parts[1]),
+                                        "e_line": int(parts[2]),
+                                    })
                                 except ValueError:
                                     pass
                 return {"ok": True, "epa_text": epa_text, "epa_block_map": epa_block_map, "diagnostics": [], "message": ""}
@@ -3532,17 +3545,12 @@ def main():
     _FIELD_RE = re.compile(r"\b([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:,|$)")
 
     def _parse_type_defs() -> dict:
-        """Scan all .em files in epa/ and return {TypeName: [field_name, ...]}."""
+        """Scan all .e/.em files in epa/ and open editor buffers, returning {TypeName: [field_name, ...]}."""
         project_root = app_state.get("project_root", "")
         epa_root = Path(project_root) / "epa" if project_root else None
         result: dict = {}
-        if not epa_root or not epa_root.is_dir():
-            return result
-        for path in sorted(epa_root.rglob("*.em")):
-            try:
-                src = path.read_text(encoding="utf-8", errors="replace")
-            except Exception:
-                continue
+
+        def _collect_src(src: str):
             for m in _TYPE_DEF_RE.finditer(src):
                 type_name = m.group(1)
                 params_str = m.group(2)
@@ -3551,6 +3559,20 @@ def main():
                     fields.append(fm.group(2))
                 if type_name not in result:
                     result[type_name] = fields
+
+        if epa_root and epa_root.is_dir():
+            for path in sorted(epa_root.rglob("*")):
+                if not path.is_file() or path.suffix not in (".e", ".em"):
+                    continue
+                try:
+                    _collect_src(path.read_text(encoding="utf-8", errors="replace"))
+                except Exception:
+                    continue
+
+        for state in editor_state.values():
+            src = state.get("source_text", "")
+            if src:
+                _collect_src(src)
         return result
 
     def _profiles_dir(type_name: str) -> Path | None:
@@ -3758,26 +3780,22 @@ def main():
                 worker_idx += 1
         return result
 
-    def _eip_to_source_line(epa_block_map: dict, block_type: int, block_id: int, rel_pc: int,
-                             block_decl_lines: dict | None = None) -> int:
-        """Return 1-based source line for the given EIP, or 0 if not found.
-
-        When the map has no annotation for a prologue instruction (src_line == 0),
-        falls back to the declaration line of the entry/worker block.
-        """
+    def _eip_to_map_entry(epa_block_map: dict, block_type: int, block_id: int, rel_pc: int) -> dict:
+        """Return the closest map entry at or before rel_pc within the current block."""
         entries = epa_block_map.get((int(block_type), int(block_id)), [])
-        result = 0
-        for (offset, src_line) in entries:
+        result = {}
+        for entry in entries:
+            offset = int(entry.get("offset", -1))
             if offset <= rel_pc:
-                result = src_line
+                result = entry
             else:
                 break
-        if result == 0 and block_decl_lines:
-            result = block_decl_lines.get((int(block_type), int(block_id)), 0)
+        if not result and entries:
+            result = entries[0]
         return result
 
     def _update_eip_marker(client, kernel_tab_id: str, snapshot: dict):
-        """Move the EIP marker in the source editor to the selected worker's current line."""
+        """Move the EIP marker in both E and EPA editors for the selected worker."""
         if not client or not kernel_tab_id:
             return
         sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
@@ -3797,9 +3815,16 @@ def main():
             epa_block_map = st.get("epa_block_map", {})
             source_text = st.get("source_text", "")
             decl_lines = _block_decl_lines(source_text) if source_text else {}
-            src_line = _eip_to_source_line(epa_block_map, block_type, block_id, rel_pc, decl_lines)
+            marker = _eip_to_map_entry(epa_block_map, block_type, block_id, rel_pc)
+            src_line = int(marker.get("e_line", 0) or 0)
+            epa_line = int(marker.get("epa_line", 0) or 0)
+            if src_line == 0 and decl_lines:
+                src_line = decl_lines.get((int(block_type), int(block_id)), 0)
             try:
-                client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
+                if src_line > 0:
+                    client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
+                if epa_line > 0:
+                    client.set_eip_line(_editor_ids(stid)["epa"], max(0, epa_line - 1))
             except Exception:
                 pass
             return
@@ -5819,6 +5844,7 @@ def main():
                             _refresh_debug_sidebars(c, stid)
                         try:
                             c.set_eip_line(_editor_ids(stid)["source"], 0)
+                            c.set_eip_line(_editor_ids(stid)["epa"], 0)
                         except Exception:
                             pass
                     _deferred(_open_kernel_tab)

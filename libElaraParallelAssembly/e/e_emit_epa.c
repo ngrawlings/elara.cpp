@@ -1837,7 +1837,10 @@ static unsigned int resolved_signal_mail_box_size(const ESemanticModel *model, c
 
 /* Emit block-offset map for the IDE debugger.
  * Format: "B <block_type> <block_id>\n" for block headers,
- *         "<byte_offset> <source_line>\n" for each instruction inside a block body.
+ *         "<byte_offset> <epa_line> <source_line>\n" for each instruction in a block body.
+ * byte_offset is the EIP-relative offset within the current entry/function body.
+ * epa_line is the 1-based line in the emitted .epaasm file.
+ * source_line is the 1-based E source line, or 0 when the instruction has no direct source line.
  * block_type 0 = entry, 1 = func. block_id for funcs is the dense index (0, 1, …). */
 static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   char buf[1024];
@@ -1845,9 +1848,11 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   int in_body = 0;
   int body_offset = 0;
   int func_dense_idx = 0;
+  int epa_line = 0;
 
   rewind(asm_out);
   while (fgets(buf, sizeof(buf), asm_out)) {
+    epa_line++;
     const char *p = buf;
     while (*p == ' ' || *p == '\t') p++;
     if (*p == '\0' || *p == '\n' || *p == '\r') continue;
@@ -1904,12 +1909,12 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
     int instr_bytes = epa_asm_instr_total_bytes(token, first_arg[0] ? first_arg : NULL);
     if (instr_bytes == -2) {
       /* Variable-length: emit once and stop tracking offsets for this block */
-      fprintf(map_out, "%d %d\n", body_offset, current_e_line);
+      fprintf(map_out, "%d %d %d\n", body_offset, epa_line, current_e_line);
       in_body = 0;
       continue;
     }
     if (instr_bytes < 0) continue; /* unknown mnemonic — skip, don't advance offset */
-    fprintf(map_out, "%d %d\n", body_offset, current_e_line);
+    fprintf(map_out, "%d %d %d\n", body_offset, epa_line, current_e_line);
     body_offset += instr_bytes;
   }
 }
