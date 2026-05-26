@@ -1837,10 +1837,12 @@ static unsigned int resolved_signal_mail_box_size(const ESemanticModel *model, c
 
 /* Emit block-offset map for the IDE debugger.
  * Format: "B <block_type> <block_id>\n" for block headers,
- *         "<byte_offset> <epa_line> <source_line>\n" for each instruction in a block body.
+ *         "<byte_offset> <epa_line> <source_line> <epa_column>\n" for each byte position
+ *         in an instruction line inside the current block body.
  * byte_offset is the EIP-relative offset within the current entry/function body.
  * epa_line is the 1-based line in the emitted .epaasm file.
  * source_line is the 1-based E source line, or 0 when the instruction has no direct source line.
+ * epa_column is the 1-based visual column to place the EPA marker for this byte position.
  * block_type 0 = entry, 1 = func. block_id for funcs is the dense index (0, 1, …). */
 static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   char buf[1024];
@@ -1907,15 +1909,34 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
 
     /* Look up instruction size using kDesc (assembler-text mnemonics) */
     int instr_bytes = epa_asm_instr_total_bytes(token, first_arg[0] ? first_arg : NULL);
-    if (instr_bytes == -2) {
-      /* Variable-length: emit once and stop tracking offsets for this block */
-      fprintf(map_out, "%d %d %d\n", body_offset, epa_line, current_e_line);
-      in_body = 0;
-      continue;
+    {
+      int line_len = (int)strlen(buf);
+      int instr_col = (int)(p - buf) + 1;
+      int line_end_col = instr_col;
+      int display_span = 1;
+      int i;
+      while (line_len > 0 && (buf[line_len - 1] == '\n' || buf[line_len - 1] == '\r')) line_len--;
+      line_end_col = line_len > 0 ? line_len : instr_col;
+      if (line_end_col < instr_col) line_end_col = instr_col;
+      display_span = (line_end_col - instr_col) + 1;
+      if (display_span < 1) display_span = 1;
+
+      if (instr_bytes == -2) {
+        /* Variable-length: emit once and stop tracking offsets for this block */
+        fprintf(map_out, "%d %d %d %d\n", body_offset, epa_line, current_e_line, instr_col);
+        in_body = 0;
+        continue;
+      }
+      if (instr_bytes < 0) continue; /* unknown mnemonic — skip, don't advance offset */
+      for (i = 0; i < instr_bytes; i++) {
+        int col = instr_col;
+        if (instr_bytes > 1 && display_span > 1) {
+          col = instr_col + (i * (display_span - 1)) / (instr_bytes - 1);
+        }
+        fprintf(map_out, "%d %d %d %d\n", body_offset + i, epa_line, current_e_line, col);
+      }
+      body_offset += instr_bytes;
     }
-    if (instr_bytes < 0) continue; /* unknown mnemonic — skip, don't advance offset */
-    fprintf(map_out, "%d %d %d\n", body_offset, epa_line, current_e_line);
-    body_offset += instr_bytes;
   }
 }
 

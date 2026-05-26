@@ -16,6 +16,7 @@ private:
     };
 
     int eip_line;
+    int eip_column;
 
     struct FoldRegion {
         int start_line;
@@ -197,6 +198,7 @@ public:
     void addDiagnostic(int line, int column, int length, const String& message);
 
     void setEipLine(int line);
+    void setEipPosition(int line, int column);
     int getEipLine() const;
 
     ElaraMouseCursor cursor() const;

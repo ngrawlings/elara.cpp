@@ -165,21 +165,41 @@ class EpaDbgClient:
 
     # Execution control
 
-    def step(self, kernel_id: int, ticks: int = 1) -> dict:
+    def step(self, kernel_id: int, ticks: int = 1, path_id: str = "") -> dict:
+        params: dict = {"kernel_id": kernel_id, "ticks": ticks}
+        if path_id:
+            params["path_id"] = path_id
         return self.call("epa.debug.step",
-                         {"kernel_id": kernel_id, "ticks": ticks},
+                         params,
                          timeout=60.0)
 
-    def run(self, kernel_id: int, max_ticks: int = 0) -> dict:
+    def run(self, kernel_id: int, max_ticks: int = 0, path_id: str = "") -> dict:
+        params: dict = {"kernel_id": kernel_id, "max_ticks": max_ticks}
+        if path_id:
+            params["path_id"] = path_id
         return self.call("epa.debug.run",
-                         {"kernel_id": kernel_id, "max_ticks": max_ticks},
+                         params,
                          timeout=120.0)
 
-    def run_to_wait(self, wid: int, max_ticks: int = 500000) -> dict:
+    def run_to_wait(self, wid: int, max_ticks: int = 500000, path_id: str = "") -> dict:
         """Run until the specified worker reaches waiting_for_data, halted, or faulted."""
+        params: dict = {"wid": wid, "max_ticks": max_ticks}
+        if path_id:
+            params["path_id"] = path_id
         return self.call("epa.debug.runToWait",
-                         {"wid": wid, "max_ticks": max_ticks},
+                         params,
                          timeout=120.0)
+
+    def step_boundary(self, wid: int, map_path: str, step_mode: str, path_id: str = "", max_ticks: int = 4096) -> dict:
+        params: dict = {
+            "wid": wid,
+            "map_path": map_path,
+            "step_mode": step_mode,
+            "max_ticks": max_ticks,
+        }
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.stepBoundary", params, timeout=120.0)
 
     def interrupt(self, kernel_id: int) -> dict:
         return self.call("epa.debug.interrupt", {"kernel_id": kernel_id})

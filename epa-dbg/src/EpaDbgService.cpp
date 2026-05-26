@@ -6,6 +6,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <vector>
+#include <map>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
 
 extern "C" {
@@ -24,6 +25,11 @@ namespace {
 
 static String jq(const String &v) {
     return String("\"") + JsonRPCCodec::escapeJsonString(v) + String("\"");
+}
+
+static bool startsWith(const String &value, const char *prefix) {
+    String cmp(prefix);
+    return value.substr(0, cmp.length()) == cmp;
 }
 
 class StdoutCapture {
@@ -89,6 +95,16 @@ EpaKernel *EpaDbgService::activeKernel() const {
     return NULL;
 }
 
+EpaKernel *EpaDbgService::kernelForPath(const String &path_id) const {
+    if (!path_id.length()) return activeKernel();
+    if (host.rawKernel()) return host.rawKernel();
+    if (host.kernelCount() > 0) {
+        int found = host.findKernelIndex(path_id);
+        if (found >= 0) return host.rawKernelAt((size_t)found);
+    }
+    return NULL;
+}
+
 void EpaDbgService::ensureDebugCallback() {
     // Set callback on single kernel or every module kernel.
     EpaKernel *k = host.rawKernel();
@@ -123,7 +139,38 @@ void EpaDbgService::pushLog(const String &message) {
 }
 
 bool EpaDbgService::parseString(const String &json, const String &field, String &out) const {
-    return JsonRPCCodec::getStringField(json, field, out);
+    if (JsonRPCCodec::getStringField(json, field, out)) return true;
+    String text(json);
+    String key = String("\"") + field + String("\"");
+    int start = text.indexOf(key);
+    if (start < 0) return false;
+    start = text.indexOf(String(":"), start);
+    if (start < 0) return false;
+    start++;
+    while (start < text.length() && isspace(text.operator char *()[start])) start++;
+    if (start >= text.length() || text.operator char *()[start] != '"') return false;
+    start++;
+    String value;
+    bool escaped = false;
+    const char *p = text.operator char *();
+    for (int i = start; i < text.length(); i++) {
+        char ch = p[i];
+        if (escaped) {
+            value += String(ch);
+            escaped = false;
+            continue;
+        }
+        if (ch == '\\') {
+            escaped = true;
+            continue;
+        }
+        if (ch == '"') {
+            out = value;
+            return true;
+        }
+        value += String(ch);
+    }
+    return false;
 }
 
 bool EpaDbgService::parseUint(const String &json, const String &field, uint32_t def, uint32_t *out) const {
@@ -192,9 +239,9 @@ bool EpaDbgService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) cons
     return false;
 }
 
-bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
+bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool stop_on_bp,
                               String &stop_reason, uint32_t &ticks_ran, String &error_message) {
-    EpaKernel *k = activeKernel();
+    EpaKernel *k = kernelForPath(path_id);
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     ensureDebugCallback();
@@ -210,7 +257,7 @@ bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
         ticks_ran++;
         if (!ok) {
             String et(err);
-            if (et.substr(0, 36) != String("run: step complete returning to host")) {
+            if (!startsWith(et, "run: step complete returning to host")) {
                 error_message = et.length() ? et : host.lastError();
                 stop_reason   = String("error");
                 return false;
@@ -230,9 +277,9 @@ bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
     }
 }
 
-bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
+bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
                                String &stop_reason, uint32_t &ticks_ran, String &error_message) {
-    EpaKernel *k = activeKernel();
+    EpaKernel *k = kernelForPath(path_id);
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     ensureDebugCallback();
@@ -247,7 +294,7 @@ bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
         ticks_ran++;
         if (!ok) {
             String et(err);
-            if (et.substr(0, 36) != String("run: step complete returning to host")) {
+            if (!startsWith(et, "run: step complete returning to host")) {
                 error_message = et.length() ? et : host.lastError();
                 stop_reason = String("error");
                 return false;
@@ -266,6 +313,188 @@ bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
         if (!events.empty()) { stop_reason = events.back().kind; return true; }
         if (max_ticks != 0 && ticks_ran >= max_ticks) { stop_reason = String("max_ticks"); return true; }
     }
+}
+
+std::string EpaDbgService::blockKey(uint8_t block_type, uint32_t block_id) const {
+    return std::to_string((int)block_type) + ":" + std::to_string((unsigned int)block_id);
+}
+
+bool EpaDbgService::loadEpaMap(const String &map_path, std::map<std::string, std::vector<MapEntry> > &out_map, String &error_message) const {
+    String path_text(map_path);
+    FILE *f = fopen(path_text.operator char *(), "r");
+    if (!f) {
+        error_message = String("could not open map: ") + map_path;
+        return false;
+    }
+    out_map.clear();
+    char line[512];
+    std::string current_key;
+    while (fgets(line, sizeof(line), f)) {
+        int block_type = 0;
+        unsigned int block_id = 0;
+        unsigned int offset = 0;
+        int epa_line = 0;
+        int e_line = 0;
+        int epa_col = 1;
+        if (sscanf(line, "B %d %u", &block_type, &block_id) == 2) {
+            current_key = blockKey((uint8_t)block_type, (uint32_t)block_id);
+            continue;
+        }
+        if (!current_key.length()) continue;
+        int count = sscanf(line, "%u %d %d %d", &offset, &epa_line, &e_line, &epa_col);
+        if (count >= 3) {
+            MapEntry entry;
+            entry.offset = (uint32_t)offset;
+            entry.epa_line = epa_line;
+            entry.e_line = e_line;
+            entry.epa_col = (count >= 4) ? epa_col : 1;
+            out_map[current_key].push_back(entry);
+        }
+    }
+    fclose(f);
+    error_message = String();
+    return true;
+}
+
+EpaDbgService::WorkerMarkerState EpaDbgService::markerStateForWorker(
+    EpaKernel *kernel,
+    const std::map<std::string, std::vector<MapEntry> > &map,
+    uint32_t target_wid
+) const {
+    WorkerMarkerState state;
+    memset(&state, 0, sizeof(state));
+    state.epa_col = 1;
+    if (!kernel) return state;
+    EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
+    size_t wc = epa_dbg_capture_workers(kernel, ws, EPA_DBG_MAX_WORKERS);
+    for (size_t i = 0; i < wc; i++) {
+        if (ws[i].wid != target_wid) continue;
+        state.valid = true;
+        state.wid = ws[i].wid;
+        state.block_type = ws[i].eip.block_type;
+        state.block_id = ws[i].eip.block_id;
+        state.rel_pc = ws[i].eip.rel_pc;
+        state.waiting_for_data = ws[i].waiting_for_data != 0;
+        state.halted = ws[i].halted != 0;
+        state.faulted = ws[i].faulted != 0;
+        std::map<std::string, std::vector<MapEntry> >::const_iterator it = map.find(blockKey(state.block_type, state.block_id));
+        if (it != map.end() && !it->second.empty()) {
+            const MapEntry *best = &it->second.front();
+            for (size_t j = 0; j < it->second.size(); j++) {
+                if (it->second[j].offset <= state.rel_pc) best = &it->second[j];
+                else break;
+            }
+            state.epa_line = best->epa_line;
+            state.e_line = best->e_line;
+            state.epa_col = best->epa_col > 0 ? best->epa_col : 1;
+        }
+        break;
+    }
+    return state;
+}
+
+bool EpaDbgService::boundaryCrossed(bool use_epa_mode, const WorkerMarkerState &before, const WorkerMarkerState &after) const {
+    if (!before.valid || !after.valid) return true;
+    if (before.block_type != after.block_type || before.block_id != after.block_id) return true;
+    if (use_epa_mode) {
+        if (before.epa_line > 0 && after.epa_line > 0) return before.epa_line != after.epa_line;
+        if (before.epa_line <= 0 && after.epa_line > 0) return true;
+    } else {
+        if (before.e_line <= 0) return after.e_line > 0;
+        if (after.e_line <= 0) return false;
+        return before.e_line != after.e_line;
+    }
+    return before.rel_pc != after.rel_pc;
+}
+
+String EpaDbgService::stalledReason(bool use_epa_mode, const WorkerMarkerState &before, const WorkerMarkerState &after) const {
+    if (!after.valid) return String("no_selected_worker");
+    if (after.faulted) return String("faulted");
+    if (after.halted) return String("halted");
+    if (after.waiting_for_data && !boundaryCrossed(use_epa_mode, before, after)) return String("waiting_for_data");
+    return String();
+}
+
+bool EpaDbgService::stepBoundary(
+    const String &path_id,
+    const String &map_path,
+    uint32_t target_wid,
+    const String &step_mode,
+    uint32_t max_ticks,
+    String &stop_reason,
+    uint32_t &ticks_ran,
+    WorkerMarkerState &out_state,
+    String &error_message
+) {
+    std::map<std::string, std::vector<MapEntry> > map;
+    EpaKernel *k = kernelForPath(path_id);
+    char err[EPA_MAX_ERR];
+    if (!k) { error_message = String("kernel not created"); return false; }
+    if (!loadEpaMap(map_path, map, error_message)) return false;
+    ensureDebugCallback();
+    WorkerMarkerState before = markerStateForWorker(k, map, target_wid);
+    if (!before.valid) {
+        stop_reason = String("no_selected_worker");
+        ticks_ran = 0;
+        out_state = before;
+        return true;
+    }
+    ticks_ran = 0;
+    out_state = before;
+    bool use_epa_mode = false;
+    if (step_mode == String("epa")) use_epa_mode = true;
+    for (;;) {
+        StdoutCapture cap;
+        err[0] = 0;
+        cap.begin();
+        int ok = epa_kernel_run(k, 1u, 1, err);
+        String captured = cap.end();
+        if (captured.length()) pushLog(captured.trim());
+        ticks_ran++;
+        if (!ok) {
+            String et(err);
+            if (!startsWith(et, "run: step complete returning to host")) {
+                error_message = et.length() ? et : host.lastError();
+                stop_reason = String("error");
+                return false;
+            }
+        }
+        out_state = markerStateForWorker(k, map, target_wid);
+        if (boundaryCrossed(use_epa_mode, before, out_state)) {
+            stop_reason = String("boundary");
+            return true;
+        }
+        String stalled = stalledReason(use_epa_mode, before, out_state);
+        if (stalled.length()) {
+            stop_reason = stalled;
+            return true;
+        }
+        if (!events.empty()) {
+            stop_reason = events.back().kind;
+            return true;
+        }
+        if (max_ticks != 0 && ticks_ran >= max_ticks) {
+            stop_reason = String("max_ticks");
+            return true;
+        }
+    }
+}
+
+String EpaDbgService::buildMarkerJson(const WorkerMarkerState &state) const {
+    String result("{");
+    result += String("\"valid\":") + String(state.valid ? "true" : "false");
+    result += String(",\"wid\":") + String((int)state.wid);
+    result += String(",\"block_type\":") + String((int)state.block_type);
+    result += String(",\"block_id\":") + String((int)state.block_id);
+    result += String(",\"rel_pc\":") + String((int)state.rel_pc);
+    result += String(",\"epa_line\":") + String(state.epa_line);
+    result += String(",\"e_line\":") + String(state.e_line);
+    result += String(",\"epa_col\":") + String(state.epa_col);
+    result += String(",\"waiting_for_data\":") + String(state.waiting_for_data ? 1 : 0);
+    result += String(",\"halted\":") + String(state.halted ? 1 : 0);
+    result += String(",\"faulted\":") + String(state.faulted ? 1 : 0);
+    result += String("}");
+    return result;
 }
 
 String EpaDbgService::buildSnapshotJson(const String &path_id) const {
@@ -430,38 +659,75 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     if (method == String("debug.step")) {
         uint32_t ticks = 1, ticks_ran = 0;
         String stop_reason;
+        String path_id;
         parseUint(params_json, String("ticks"), 1, &ticks);
-        if (!runTicks(ticks, false, stop_reason, ticks_ran, error_message)) {
+        parseString(params_json, String("path_id"), path_id);
+        if (!runTicks(path_id, ticks, false, stop_reason, ticks_ran, error_message)) {
             error_code = String("step_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
                     + String(",\"stop_reason\":") + jq(stop_reason)
-                    + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
+                    + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.run")) {
         uint32_t max_ticks = 1000, ticks_ran = 0;
         String stop_reason;
+        String path_id;
         parseUint(params_json, String("max_ticks"), 1000, &max_ticks);
-        if (!runTicks(max_ticks, true, stop_reason, ticks_ran, error_message)) {
+        parseString(params_json, String("path_id"), path_id);
+        if (!runTicks(path_id, max_ticks, true, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
                     + String(",\"stop_reason\":") + jq(stop_reason)
-                    + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
+                    + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.runToWait")) {
         uint32_t wid = 0, max_ticks = 500000, ticks_ran = 0;
         String stop_reason;
+        String path_id;
         parseUint(params_json, String("wid"),       0,      &wid);
         parseUint(params_json, String("max_ticks"), 500000, &max_ticks);
-        if (!runToWait(wid, max_ticks, stop_reason, ticks_ran, error_message)) {
+        parseString(params_json, String("path_id"), path_id);
+        if (!runToWait(path_id, wid, max_ticks, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_to_wait_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
                     + String(",\"stop_reason\":") + jq(stop_reason)
-                    + String(",\"snapshot\":") + buildSnapshotJson() + String("}");
+                    + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
+        return true;
+    }
+    if (method == String("debug.stepBoundary")) {
+        uint32_t wid = 0, max_ticks = 4096, ticks_ran = 0;
+        String path_id, map_path, step_mode, stop_reason;
+        WorkerMarkerState marker;
+        parseUint(params_json, String("wid"), 0, &wid);
+        parseUint(params_json, String("max_ticks"), 4096, &max_ticks);
+        parseString(params_json, String("path_id"), path_id);
+        parseString(params_json, String("map_path"), map_path);
+        parseString(params_json, String("step_mode"), step_mode);
+        if (String(params_json).indexOf(String("\"step_mode\":\"epa\"")) >= 0
+            || String(params_json).indexOf(String("\"step_mode\": \"epa\"")) >= 0) {
+            step_mode = String("epa");
+        } else if (String(params_json).indexOf(String("\"step_mode\":\"e\"")) >= 0
+                   || String(params_json).indexOf(String("\"step_mode\": \"e\"")) >= 0) {
+            step_mode = String("e");
+        }
+        if (!map_path.length()) {
+            error_code = String("missing_map_path");
+            error_message = String("map_path is required");
+            return false;
+        }
+        if (!stepBoundary(path_id, map_path, wid, step_mode, max_ticks, stop_reason, ticks_ran, marker, error_message)) {
+            error_code = String("step_boundary_failed");
+            return false;
+        }
+        result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"stop_reason\":") + jq(stop_reason)
+                    + String(",\"marker\":") + buildMarkerJson(marker)
+                    + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.interrupt")) {

@@ -427,6 +427,27 @@ bool ElaraUiRpcUiService::setEipLine(
     return true;
 }
 
+bool ElaraUiRpcUiService::setEipPosition(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if (!widget) return false;
+
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if (!code_editor) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget does not support setEipPosition";
+        return false;
+    }
+
+    code_editor->setEipPosition(params.getIntValue("line"), params.getIntValue("column"));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::setBounds(
     const Json& params,
     String& result_json,
@@ -1436,6 +1457,9 @@ bool ElaraUiRpcUiService::call(
     }
     if(method == String("setEipLine")) {
         return setEipLine(params, result_json, error_code, error_message);
+    }
+    if(method == String("setEipPosition")) {
+        return setEipPosition(params, result_json, error_code, error_message);
     }
 
     if(method == String("setBounds")) {

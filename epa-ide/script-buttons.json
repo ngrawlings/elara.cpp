@@ -1,4 +1,4 @@
 {
     "server": "./run-ui-head.sh --event-log /tmp/server-events.jsonl",
-    "client": "./run-client.sh  --repl --snapshot-out snapshots/ui.json --event-log /tmp/client-events.jsonl"
+    "client": "./run-client.sh --ai-rpc-port 18792 --repl --snapshot-out snapshots/ui.json --event-log /tmp/client-events.jsonl"
 }

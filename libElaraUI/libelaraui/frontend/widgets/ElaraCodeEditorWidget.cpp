@@ -187,7 +187,8 @@ ElaraCodeEditorWidget::ElaraCodeEditorWidget(
     scroll_x(0),
     scroll_y(0),
     minimap_dragging(false),
-    eip_line(-1) {
+    eip_line(-1),
+    eip_column(-1) {
 
     vertical_slider->setOrientation("vertical");
     vertical_slider->setStep(1);
@@ -729,6 +730,20 @@ void ElaraCodeEditorWidget::drawEditor(ElaraDrawContext* ctx) {
                     ElaraPaletteTriplet sc = syntaxColors(span.style);
                     ctx->setColor(sc.text.r, sc.text.g, sc.text.b);
                     ctx->drawText(seg_x, ty, segment, font_size);
+                }
+            }
+        }
+
+        if (m.logical_line == eip_line && eip_column >= 0) {
+            int vis_col = eip_column - scroll_x;
+            if (vis_col >= 0) {
+                int idx = vis_col;
+                if (idx >= (int)m.caret_positions.length()) idx = (int)m.caret_positions.length() - 1;
+                if (idx >= 0) {
+                    double marker_x = ex + padding_x + m.caret_positions[idx];
+                    double row_y = (double)i * line_height;
+                    ctx->setColor(1.0, 0.78, 0.0);
+                    ctx->line(marker_x, row_y + 2.0, marker_x, row_y + line_height - 2.0, 2.0);
                 }
             }
         }
@@ -1335,10 +1350,12 @@ bool ElaraCodeEditorWidget::hasBookmark(int logical_line) const {
 void ElaraCodeEditorWidget::setEipLine(int line) {
     if (line < 0) {
         eip_line = -1;
+        eip_column = -1;
     } else {
         int max_line = logicalLineCount() - 1;
         if (line > max_line) line = max_line;
         eip_line = line;
+        if (eip_column < 0) eip_column = 0;
     }
 
     if (visible_line_map.length() == 0) {
@@ -1365,6 +1382,23 @@ void ElaraCodeEditorWidget::setEipLine(int line) {
     clampScroll();
     updateScrollbars();
 
+    ElaraRootWidget* root = rootWidget();
+    ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
+    if (backend) {
+        backend->invalidate();
+    }
+}
+
+void ElaraCodeEditorWidget::setEipPosition(int line, int column) {
+    eip_column = column < 0 ? 0 : column;
+    setEipLine(line);
+    if (eip_column < scroll_x) {
+        scroll_x = eip_column;
+    } else if (eip_column >= scroll_x + viewportCharCount()) {
+        scroll_x = eip_column - viewportCharCount() + 1;
+    }
+    clampScroll();
+    updateScrollbars();
     ElaraRootWidget* root = rootWidget();
     ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
     if (backend) {

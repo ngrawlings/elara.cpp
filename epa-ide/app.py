@@ -3291,7 +3291,7 @@ def main():
                     source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-                epa_block_map: dict = {}  # {(block_type, block_id): [{"offset":..., "epa_line":..., "e_line":...}, ...]}
+                epa_block_map: dict = {}  # {(block_type, block_id): [{"offset":..., "epa_line":..., "e_line":..., "epa_col":...}, ...]}
                 if map_path.exists():
                     cur_block = None
                     for raw in map_path.read_text(encoding="utf-8").splitlines():
@@ -3314,6 +3314,7 @@ def main():
                                         "offset": int(parts[0]),
                                         "epa_line": 0,
                                         "e_line": int(parts[1]),
+                                        "epa_col": 1,
                                     })
                                 except ValueError:
                                     pass
@@ -3323,6 +3324,17 @@ def main():
                                         "offset": int(parts[0]),
                                         "epa_line": int(parts[1]),
                                         "e_line": int(parts[2]),
+                                        "epa_col": 1,
+                                    })
+                                except ValueError:
+                                    pass
+                            elif len(parts) >= 4:
+                                try:
+                                    epa_block_map[cur_block].append({
+                                        "offset": int(parts[0]),
+                                        "epa_line": int(parts[1]),
+                                        "e_line": int(parts[2]),
+                                        "epa_col": int(parts[3]),
                                     })
                                 except ValueError:
                                     pass
@@ -3755,9 +3767,15 @@ def main():
                     break
         _set_kernel_run_indicator(client, kernel_tab_id, color)
 
-    def _update_queue_counters(client, snapshot: dict):
+    def _active_debug_kernel_id() -> str:
+        kernel_tab_id = str(app_state.get("debug_active_kernel", "") or "")
+        if kernel_tab_id:
+            return kernel_tab_id
+        return _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+
+    def _update_queue_counters(client, snapshot: dict, kernel_tab_id: str | None = None):
         """Update kernel row queue badge with 'total / selected-worker' inq counts."""
-        kernel_tab_id = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+        kernel_tab_id = kernel_tab_id or _active_debug_kernel_id()
         if not kernel_tab_id:
             return
         _update_kernel_queue_state_from_snapshot(client, kernel_tab_id, snapshot)
@@ -3818,6 +3836,7 @@ def main():
             "marker": marker,
             "epa_line": epa_line,
             "src_line": src_line,
+            "epa_col": int(marker.get("epa_col", 1) or 1),
         }
 
     def _format_fault_marker_detail(line: str) -> str:
@@ -3830,7 +3849,7 @@ def main():
         block_id = int(match.group(4))
         rel_pc = int(match.group(5))
         op = match.group(6)
-        kernel_tab_id = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
+        kernel_tab_id = _active_debug_kernel_id()
         stid = _editor_tab_id_for_kernel(kernel_tab_id)
         st = editor_state.get(stid) if stid else None
         if not st:
@@ -3870,23 +3889,28 @@ def main():
             resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc)
             src_line = resolved["src_line"]
             epa_line = resolved["epa_line"]
+            epa_col = int(resolved.get("epa_col", 1) or 1)
             try:
                 if src_line > 0:
                     client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
                 if epa_line > 0:
-                    client.set_eip_line(_editor_ids(stid)["epa"], max(0, epa_line - 1))
+                    client.call("ui.setEipPosition", {
+                        "target": _editor_ids(stid)["epa"],
+                        "line": max(0, epa_line - 1),
+                        "column": max(0, epa_col - 1),
+                    })
             except Exception as exc:
                 _epa_dbg_log(
                     f"[marker-error] {kernel_tab_id} "
                     f"entry[{block_id}] +0x{int(rel_pc):x} "
-                    f"-> EPA:{epa_line if epa_line > 0 else '?'} "
+                    f"-> EPA:{epa_line if epa_line > 0 else '?'}:{epa_col if epa_col > 0 else '?'} "
                     f"E:{src_line if src_line > 0 else '?'}: {exc}"
                 )
                 return
             _epa_dbg_log(
                 f"[marker] {kernel_tab_id} "
                 f"{'entry' if int(block_type) == 0 else 'func'}[{block_id}] +0x{int(rel_pc):x} "
-                f"-> EPA:{epa_line if epa_line > 0 else '?'} "
+                f"-> EPA:{epa_line if epa_line > 0 else '?'}:{epa_col if epa_col > 0 else '?'} "
                 f"E:{src_line if src_line > 0 else '?'}"
             )
             return
@@ -3915,15 +3939,117 @@ def main():
         if st:
             resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc)
             epa_line = int(resolved.get("epa_line", 0) or 0)
+            epa_col = int(resolved.get("epa_col", 1) or 1)
             src_line = int(resolved.get("src_line", 0) or 0)
             if epa_line > 0 or src_line > 0:
-                marker_suffix = f" -> EPA:{epa_line if epa_line > 0 else '?'} E:{src_line if src_line > 0 else '?'}"
+                marker_suffix = (
+                    f" -> EPA:{epa_line if epa_line > 0 else '?'}:{epa_col if epa_col > 0 else '?'} "
+                    f"E:{src_line if src_line > 0 else '?'}"
+                )
         return (
             f"[step] {kernel_tab_id} "
             f"wid={worker.get('wid', '?')} "
             f"{block_label}[{block_id}] +0x{rel_pc:x}"
             f"{marker_suffix}"
         )
+
+    def _debug_step_mode_for_kernel(kernel_tab_id: str) -> str:
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        view = str((st or {}).get("view", "e") or "e").lower()
+        return "epa" if view == "epa" else "e"
+
+    def _selected_worker_marker_state(kernel_tab_id: str, snapshot: dict) -> dict:
+        worker = _selected_worker_snapshot(kernel_tab_id, snapshot)
+        if not worker:
+            return {}
+        eip = worker.get("eip", {}) or {}
+        block_type = int(eip.get("block_type", 0) or 0)
+        block_id = int(eip.get("block_id", 0) or 0)
+        rel_pc = int(eip.get("rel_pc", 0) or 0)
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        resolved = _resolve_eip_marker(st, block_type, block_id, rel_pc) if st else {}
+        return {
+            "wid": int(worker.get("wid", 0) or 0),
+            "block_type": block_type,
+            "block_id": block_id,
+            "rel_pc": rel_pc,
+            "epa_line": int(resolved.get("epa_line", 0) or 0),
+            "src_line": int(resolved.get("src_line", 0) or 0),
+            "waiting_for_data": bool(worker.get("waiting_for_data")),
+            "faulted": bool(worker.get("faulted")),
+            "halted": bool(worker.get("halted")),
+        }
+
+    def _step_boundary_crossed(step_mode: str, before: dict, after: dict) -> bool:
+        if not before or not after:
+            return True
+        if (
+            before.get("block_type") != after.get("block_type")
+            or before.get("block_id") != after.get("block_id")
+        ):
+            return True
+        if step_mode == "epa":
+            before_line = int(before.get("epa_line", 0) or 0)
+            after_line = int(after.get("epa_line", 0) or 0)
+            if before_line > 0 and after_line > 0:
+                return before_line != after_line
+        else:
+            before_line = int(before.get("src_line", 0) or 0)
+            after_line = int(after.get("src_line", 0) or 0)
+            if before_line > 0 and after_line > 0:
+                return before_line != after_line
+        return int(before.get("rel_pc", -1)) != int(after.get("rel_pc", -1))
+
+    def _step_stalled_reason(step_mode: str, before: dict, after: dict) -> str:
+        if not after:
+            return "no selected worker snapshot"
+        if after.get("faulted"):
+            return "faulted"
+        if after.get("halted"):
+            return "halted"
+        if after.get("waiting_for_data") and not _step_boundary_crossed(step_mode, before, after):
+            return "waiting_for_data"
+        return ""
+
+    def _dbg_step_one_tick(dbg_c, kernel_id: int, kernel_tab_id: str) -> tuple[dict, str]:
+        try:
+            resp = dbg_c.step(kernel_id, ticks=1)
+            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+            stop_reason = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
+            return snap, stop_reason
+        except Exception as exc:
+            is_step_complete = (
+                getattr(exc, "code", "") == "step_failed"
+                and "step complete returning to host" in str(exc)
+            )
+            if is_step_complete:
+                try:
+                    return dbg_c.snapshot(kernel_id, path_id=kernel_tab_id), "step"
+                except Exception:
+                    return {}, "step"
+            raise
+
+    def _dbg_step_for_active_view(dbg_c, kernel_id: int, kernel_tab_id: str, max_ticks: int = 4096) -> tuple[dict, str]:
+        step_mode = _debug_step_mode_for_kernel(kernel_tab_id)
+        before_snap = dbg_c.snapshot(kernel_id, path_id=kernel_tab_id)
+        before_state = _selected_worker_marker_state(kernel_tab_id, before_snap)
+        if not before_state:
+            return before_snap, "no_selected_worker"
+        last_snap = before_snap
+        last_state = before_state
+        for _ in range(max_ticks):
+            last_snap, _ = _dbg_step_one_tick(dbg_c, kernel_id, kernel_tab_id)
+            if not last_snap:
+                continue
+            last_state = _selected_worker_marker_state(kernel_tab_id, last_snap)
+            if _step_boundary_crossed(step_mode, before_state, last_state):
+                return last_snap, "boundary"
+            stalled = _step_stalled_reason(step_mode, before_state, last_state)
+            if stalled:
+                return last_snap, stalled
+        return last_snap, "max_ticks"
 
     def _reset_all_kernel_debug_state(client):
         for kernel in _kernels_from_project():
@@ -3972,6 +4098,7 @@ def main():
             app_state["debug_kernel_loaded"] = last_loaded
         else:
             app_state.pop("debug_kernel_loaded", None)
+        app_state.pop("debug_active_kernel", None)
         app_state["debug_vm_started"] = True
         _epa_dbg_set_vm_button(True)
 
@@ -4259,6 +4386,7 @@ def main():
         except Exception:
             pass
         app_state.pop("debug_kernel_loaded", None)
+        app_state.pop("debug_active_kernel", None)
         app_state["debug_vm_started"] = False
         app_state["debug_kernel_indicator_state"] = {}
         app_state["debug_kernel_queue_state"] = {}
@@ -5961,6 +6089,7 @@ def main():
                             if not _start_debug_vm(uc, force_restart=False):
                                 return
                             dbg_c = _epa_dbg_client()
+                        app_state["debug_active_kernel"] = ktid
                         already_loaded = app_state.get("debug_kernel_loaded") == bp
                         if r or not already_loaded or not dbg_c:
                             prev_ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
@@ -5983,14 +6112,16 @@ def main():
                         try:
                             if r:
                                 resp = dbg_c.run_to_wait(wid=wid)
+                                snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
                             else:
-                                resp = dbg_c.step(k, ticks=1)
-                            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                                snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid)
                             if snap and uc:
-                                _update_queue_counters(uc, snap)
+                                _update_queue_counters(uc, snap, ktid)
                                 _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                             if snap and not r:
                                 _epa_dbg_log(_format_step_eip_log(ktid, snap))
+                                if step_status not in ("boundary", ""):
+                                    _epa_dbg_log(f"[step-status] {ktid} wid={wid} {step_status}")
                         except Exception as exc:
                             is_step_complete = (
                                 not r
@@ -6003,7 +6134,7 @@ def main():
                                 except Exception:
                                     snap = {}
                                 if snap and uc:
-                                    _update_queue_counters(uc, snap)
+                                    _update_queue_counters(uc, snap, ktid)
                                     _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                                 if snap:
                                     _epa_dbg_log(_format_step_eip_log(ktid, snap))
@@ -6081,6 +6212,7 @@ def main():
             c = client
             def _do_vm_reset():
                 app_state.pop("debug_kernel_loaded", None)
+                app_state.pop("debug_active_kernel", None)
                 app_state["debug_vm_started"] = False
                 if not _start_debug_vm(c, force_restart=True):
                     _epa_dbg_set_vm_status("error", "start failed")
@@ -6094,6 +6226,7 @@ def main():
             c = client
             def _do_vm_stop():
                 app_state.pop("debug_kernel_loaded", None)
+                app_state.pop("debug_active_kernel", None)
                 app_state["debug_vm_started"] = False
                 _reset_all_kernel_debug_state(c)
                 _epa_dbg_stop()
@@ -6211,6 +6344,7 @@ def main():
                         raise RuntimeError(err_msg)
                     app_state["debug_kernel_loaded"] = bundle_path
                     _set_kernel_load_indicator(c, kid, _IND_GREEN)
+                app_state["debug_active_kernel"] = kid
                 # Resolve wid from selected worker name (wid=0 is coordinator, workers start at 1)
                 workers = app_state.get(f"debug_kernel_workers_{kid}", [])
                 wid = 1  # default to first worker
@@ -6223,9 +6357,8 @@ def main():
                     dbg_c.ingress_push_hex(hex_bytes, wid=wid, path_id=kid)
                     snap = dbg_c.snapshot(0, path_id=kid)
                     if c and kid:
-                        _update_kernel_queue_state_from_snapshot(c, kid, snap)
+                        _update_queue_counters(c, snap, kid)
                         _update_kernel_indicator_from_snapshot(c, kid, snap)
-                        _update_eip_marker(c, kid, snap)
                 except Exception as exc:
                     _epa_dbg_log(f"[error] queue_ingress: {exc}")
                     _push_exception(exc, "queue_ingress")

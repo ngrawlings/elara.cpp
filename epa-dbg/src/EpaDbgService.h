@@ -3,6 +3,8 @@
 
 #include <deque>
 #include <vector>
+#include <map>
+#include <string>
 #include <libelaracore/memory/String.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include "EpaDbgVmHost.h"
@@ -35,6 +37,25 @@ private:
         uint32_t block_id;
         uint32_t rel_pc;
     };
+    struct MapEntry {
+        uint32_t offset;
+        int      epa_line;
+        int      e_line;
+        int      epa_col;
+    };
+    struct WorkerMarkerState {
+        bool     valid;
+        uint32_t wid;
+        uint8_t  block_type;
+        uint32_t block_id;
+        uint32_t rel_pc;
+        int      epa_line;
+        int      e_line;
+        int      epa_col;
+        bool     waiting_for_data;
+        bool     halted;
+        bool     faulted;
+    };
 
     EpaDbgVmHost            host;
     std::deque<DebugEvent>  events;
@@ -48,21 +69,32 @@ private:
                    const EpaDbgEip *at, const String &message);
     void pushLog(const String &message);
 
-    bool runTicks(uint32_t tick_count, bool stop_on_breakpoint,
+    bool runTicks(const String &path_id, uint32_t tick_count, bool stop_on_breakpoint,
                   String &stop_reason, uint32_t &ticks_ran, String &error_message);
-    bool runToWait(uint32_t target_wid, uint32_t max_ticks,
+    bool runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
                    String &stop_reason, uint32_t &ticks_ran, String &error_message);
+    bool stepBoundary(const String &path_id, const String &map_path, uint32_t target_wid,
+                      const String &step_mode, uint32_t max_ticks,
+                      String &stop_reason, uint32_t &ticks_ran,
+                      WorkerMarkerState &out_state, String &error_message);
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
     EpaKernel *activeKernel() const;
+    EpaKernel *kernelForPath(const String &path_id) const;
 
     String buildSnapshotJson(const String &path_id = String()) const;
     String buildEventsJson(bool clear_after_read);
     String buildBreakpointJson() const;
+    String buildMarkerJson(const WorkerMarkerState &state) const;
 
     bool parseUint(const String &json, const String &field, uint32_t def, uint32_t *out) const;
     bool parseBool(const String &json, const String &field, bool def, bool *out) const;
     bool parseString(const String &json, const String &field, String &out) const;
     bool parseHexBytes(const String &hex, std::vector<unsigned char> &bytes) const;
+    bool loadEpaMap(const String &map_path, std::map<std::string, std::vector<MapEntry> > &out_map, String &error_message) const;
+    std::string blockKey(uint8_t block_type, uint32_t block_id) const;
+    WorkerMarkerState markerStateForWorker(EpaKernel *kernel, const std::map<std::string, std::vector<MapEntry> > &map, uint32_t target_wid) const;
+    bool boundaryCrossed(bool use_epa_mode, const WorkerMarkerState &before, const WorkerMarkerState &after) const;
+    String stalledReason(bool use_epa_mode, const WorkerMarkerState &before, const WorkerMarkerState &after) const;
 };
 
 } // namespace elara
