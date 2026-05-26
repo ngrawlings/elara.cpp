@@ -3738,8 +3738,33 @@ def main():
         file_path = str(Path(project_root) / "epa" / (kernel_id.replace(".", "/") + ".e"))
         return _tab_id_for_path(file_path)
 
-    def _eip_to_source_line(epa_block_map: dict, block_type: int, block_id: int, rel_pc: int) -> int:
-        """Return 1-based source line for the given EIP, or 0 if not found."""
+    _KERNEL_DEF_RE = re.compile(r"^\s*kernel\s*\(", re.MULTILINE)
+
+    def _block_decl_lines(source_text: str) -> dict:
+        """Return {(0, block_id): 1-based-line} for kernel entry and each worker in source_text.
+
+        block_id 0 = kernel(...), 1 = first worker, 2 = second worker, etc.
+        Entries are used as fallback when the block map has no source line for a given offset.
+        """
+        lines = source_text.splitlines()
+        result = {}
+        worker_idx = 1
+        for lineno, line in enumerate(lines, start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("kernel") and re.match(r"kernel\s*\(", stripped):
+                result[(0, 0)] = lineno
+            elif stripped.startswith("worker") and re.match(r"worker\s+[A-Za-z_]", stripped):
+                result[(0, worker_idx)] = lineno
+                worker_idx += 1
+        return result
+
+    def _eip_to_source_line(epa_block_map: dict, block_type: int, block_id: int, rel_pc: int,
+                             block_decl_lines: dict | None = None) -> int:
+        """Return 1-based source line for the given EIP, or 0 if not found.
+
+        When the map has no annotation for a prologue instruction (src_line == 0),
+        falls back to the declaration line of the entry/worker block.
+        """
         entries = epa_block_map.get((int(block_type), int(block_id)), [])
         result = 0
         for (offset, src_line) in entries:
@@ -3747,6 +3772,8 @@ def main():
                 result = src_line
             else:
                 break
+        if result == 0 and block_decl_lines:
+            result = block_decl_lines.get((int(block_type), int(block_id)), 0)
         return result
 
     def _update_eip_marker(client, kernel_tab_id: str, snapshot: dict):
@@ -3768,7 +3795,9 @@ def main():
             if not st:
                 return
             epa_block_map = st.get("epa_block_map", {})
-            src_line = _eip_to_source_line(epa_block_map, block_type, block_id, rel_pc)
+            source_text = st.get("source_text", "")
+            decl_lines = _block_decl_lines(source_text) if source_text else {}
+            src_line = _eip_to_source_line(epa_block_map, block_type, block_id, rel_pc, decl_lines)
             try:
                 client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
             except Exception:
@@ -6104,55 +6133,54 @@ def main():
                     ingress_editor_state.setdefault("field_values", {})[field_name] = new_text
             return {"received": True}
 
-        # Profile editor — profile name input events (keysTyped fires; textChanged is fallback)
+        # Profile editor — name input events (text read via snapshot_widget at save time)
         if target == "ipe.name_input":
-            if action == "keysTyped":
-                ingress_editor_state["profile_name"] = (
-                    ingress_editor_state.get("profile_name", "") + payload.get("text", "")
-                )
-                if client and ingress_editor_state.get("name_label_error"):
-                    ingress_editor_state["name_label_error"] = False
-                    c = client
-                    def _reset_label():
-                        try:
-                            c.set_text("ipe.name_label", "Profile name:")
-                            c.call("ui.setProperty", {
-                                "target": "ipe.name_label",
-                                "property": "foreground_color",
-                                "value": "",
-                            })
-                        except Exception:
-                            pass
-                    _deferred(_reset_label)
-            elif action == "keyDown" and payload.get("key") == "Backspace":
-                pn = ingress_editor_state.get("profile_name", "")
-                ingress_editor_state["profile_name"] = pn[:-1] if pn else ""
-            elif action == "textChanged":
-                ingress_editor_state["profile_name"] = payload.get("text", "")
             return {"received": True}
 
         # Profile editor — save
         if target == "ipe.save" and action in ("action", "clicked") and client is not None:
             type_name = ingress_editor_state.get("type_name", "")
-            profile_name = ingress_editor_state.get("profile_name", "").strip()
-            field_values = ingress_editor_state.get("field_values", {})
             c = client
-            def _do_save(tn=type_name, pn=profile_name, fv=dict(field_values)):
+            def _do_save(tn=type_name):
+                # Read widget text directly — text input events don't fire from secondary windows
+                try:
+                    name_snap = c.snapshot_widget("ipe.name_input")
+                    pn = ((name_snap or {}).get("state") or {}).get("text", "").strip()
+                except Exception:
+                    pn = ""
+                # Flush current field_input value into field_values for whichever field is selected
+                sel_field = ingress_editor_state.get("selected_field", "")
+                if sel_field:
+                    try:
+                        fi_snap = c.snapshot_widget("ipe.field_input")
+                        fi_val = ((fi_snap or {}).get("state") or {}).get("text", "")
+                        ingress_editor_state.setdefault("field_values", {})[sel_field] = fi_val
+                    except Exception:
+                        pass
+                fv = dict(ingress_editor_state.get("field_values", {}))
+                _epa_dbg_log(f"[ipe.save] type={tn!r} name={pn!r} fields={list(fv.keys())}")
                 if not tn:
+                    _epa_dbg_log("[ipe.save] no type_name — aborting")
                     return
                 if not pn:
-                    ingress_editor_state["name_label_error"] = True
+                    _epa_dbg_log("[ipe.save] empty profile name — showing error")
                     try:
                         c.set_text("ipe.name_label", "Profile name (required):")
-                        c.call("ui.setProperty", {
-                            "target": "ipe.name_label",
-                            "property": "foreground_color",
-                            "value": "#cc3333",
-                        })
+                        c.call("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
+                    except Exception as exc:
+                        _epa_dbg_log(f"[ipe.save] label update failed: {exc}")
+                    return
+                d = _profiles_dir(tn)
+                if d is None:
+                    _epa_dbg_log("[ipe.save] no project open — cannot save profile")
+                    try:
+                        c.set_text("ipe.name_label", "Open a project first:")
+                        c.call("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
                     except Exception:
                         pass
                     return
                 _save_ingress_profile(tn, pn, fv)
+                _epa_dbg_log(f"[ipe.save] saved profile {pn!r} for type {tn!r}")
                 try:
                     c.close_window("ingress-profile-editor")
                 except Exception:

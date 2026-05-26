@@ -53,6 +53,7 @@ private:
     bool runToWait(uint32_t target_wid, uint32_t max_ticks,
                    String &stop_reason, uint32_t &ticks_ran, String &error_message);
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
+    EpaKernel *activeKernel() const;
 
     String buildSnapshotJson(const String &path_id = String()) const;
     String buildEventsJson(bool clear_after_read);

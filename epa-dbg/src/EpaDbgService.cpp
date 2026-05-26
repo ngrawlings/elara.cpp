@@ -78,9 +78,29 @@ void EpaDbgService::onKernelDebug(void *user, int kind, uint8_t wid, uint32_t co
     self->pushEvent(String(label), wid, code, at, msg ? String(msg) : String());
 }
 
-void EpaDbgService::ensureDebugCallback() {
+EpaKernel *EpaDbgService::activeKernel() const {
     EpaKernel *k = host.rawKernel();
-    if (k) epa_kernel_set_debug_callback(k, (void *)onKernelDebug, this);
+    if (k) return k;
+    size_t n = host.kernelCount();
+    for (size_t i = 0; i < n; i++) {
+        EpaKernel *mk = host.rawKernelAt(i);
+        if (mk) return mk;
+    }
+    return NULL;
+}
+
+void EpaDbgService::ensureDebugCallback() {
+    // Set callback on single kernel or every module kernel.
+    EpaKernel *k = host.rawKernel();
+    if (k) {
+        epa_kernel_set_debug_callback(k, (void *)onKernelDebug, this);
+        return;
+    }
+    size_t n = host.kernelCount();
+    for (size_t i = 0; i < n; i++) {
+        EpaKernel *mk = host.rawKernelAt(i);
+        if (mk) epa_kernel_set_debug_callback(mk, (void *)onKernelDebug, this);
+    }
 }
 
 void EpaDbgService::pushEvent(const String &kind, uint32_t wid, uint32_t code,
@@ -158,7 +178,7 @@ bool EpaDbgService::parseHexBytes(const String &hex, std::vector<unsigned char> 
 }
 
 bool EpaDbgService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const {
-    EpaKernel *k = host.rawKernel();
+    EpaKernel *k = activeKernel();
     if (!k) return false;
     for (size_t i = 0; i < breakpoints.size(); i++) {
         uint32_t wid = 0;
@@ -174,7 +194,7 @@ bool EpaDbgService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) cons
 
 bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
                               String &stop_reason, uint32_t &ticks_ran, String &error_message) {
-    EpaKernel *k = host.rawKernel();
+    EpaKernel *k = activeKernel();
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     ensureDebugCallback();
@@ -212,7 +232,7 @@ bool EpaDbgService::runTicks(uint32_t tick_count, bool stop_on_bp,
 
 bool EpaDbgService::runToWait(uint32_t target_wid, uint32_t max_ticks,
                                String &stop_reason, uint32_t &ticks_ran, String &error_message) {
-    EpaKernel *k = host.rawKernel();
+    EpaKernel *k = activeKernel();
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     ensureDebugCallback();

@@ -1874,6 +1874,7 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
       fprintf(map_out, "B 0 %d\n", atoi(arg));
       in_body = 1;
       body_offset = 0;
+      current_e_line = 0;
       continue;
     }
     if (strcmp(token, "ENTRY_END") == 0) { in_body = 0; continue; }
@@ -1881,6 +1882,7 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
       fprintf(map_out, "B 1 %d\n", func_dense_idx++);
       in_body = 1;
       body_offset = 0;
+      current_e_line = 0;
       continue;
     }
     if (strcmp(token, "FUNC_END") == 0) { in_body = 0; continue; }
