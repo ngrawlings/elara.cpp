@@ -60,13 +60,9 @@ def _editor_ids(tab_id: str):
         "toolbar": f"{tab_id}.toolbar",
         "button_e": f"{tab_id}.view.e",
         "button_epa": f"{tab_id}.view.epa",
-        "button_debug": f"{tab_id}.view.debug",
         "source": f"{tab_id}.source",
         "epa": f"{tab_id}.epa",
         "debug_panel": f"{tab_id}.debug.panel",
-        "debug_source_tabs": f"{tab_id}.debug.source_tabs",
-        "debug_e_view": f"{tab_id}.debug.e_view",
-        "debug_epa_view": f"{tab_id}.debug.epa_view",
         "debug": f"{tab_id}.debug.trace",
         "debug_tabs": f"{tab_id}.debug.tabs",
         "debug_ghs": f"{tab_id}.debug.ghs",
@@ -131,8 +127,6 @@ def _focus_editor_widget(client, tab_id: str, state: dict = None):
         target = ids["source"]
         if view == "epa":
             target = ids["epa"]
-        elif view == "debug":
-            target = ids["debug_e_view"]
     try:
         client.set_focus(target)
     except Exception:
@@ -146,33 +140,33 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.add_grid_row_exact(ids["container"], 34)
     ui.add_grid_row_fill(ids["container"])
 
+    # Toolbar — E and EPA only
     ui.create_grid(ids["toolbar"])
     ui.add_grid_column_exact(ids["toolbar"], 54)
     ui.add_grid_column_exact(ids["toolbar"], 64)
-    ui.add_grid_column_exact(ids["toolbar"], 78)
     ui.add_grid_column_fill(ids["toolbar"])
     ui.add_grid_row_fill(ids["toolbar"])
     ui.create_button(ids["button_e"], "E", f"{ids['button_e']}")
     ui.create_button(ids["button_epa"], "EPA", f"{ids['button_epa']}")
-    ui.create_button(ids["button_debug"], "Debug", f"{ids['button_debug']}")
     ui.set_property_bool(ids["button_e"], "enabled", False)
     ui.place_grid_child(ids["toolbar"], ids["button_e"], 0, 0)
     ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
-    ui.place_grid_child(ids["toolbar"], ids["button_debug"], 2, 0)
     ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
+
+    # Content area: editors in col 0, debug memory panel in col 1 (starts hidden at 0 width)
+    ui.create_grid(ids["debug_panel"])
+    ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
+    ui.add_grid_column_exact(ids["debug_panel"], 0)
+    ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
+    ui.add_grid_row_fill(ids["debug_panel"])
 
     ui.create_code_editor(ids["source"], source_text)
     ui.create_code_editor(ids["epa"], "")
-    ui.create_grid(ids["debug_panel"])
-    ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
-    ui.add_grid_column_exact(ids["debug_panel"], 320)
-    ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
-    ui.add_grid_row_fill(ids["debug_panel"])
-    ui.create_tabs(ids["debug_source_tabs"])
-    ui.create_code_editor(ids["debug_e_view"], source_text, font_size=13)
-    ui.create_code_editor(ids["debug_epa_view"], "")
-    ui.add_tab(ids["debug_source_tabs"], "E", ids["debug_e_view"])
-    ui.add_tab(ids["debug_source_tabs"], "EPA", ids["debug_epa_view"])
+    ui.set_property_string(ids["source"], "language", "e")
+    ui.set_property_string(ids["epa"], "language", "epa")
+    ui.set_property_bool(ids["epa"], "read_only", True)
+    ui.set_property_bool(ids["epa"], "visible", False)
+
     ui.create_tabs(ids["debug_tabs"])
     ui.create_tree_view(ids["debug"])
     ui.create_tree_view(ids["debug_ghs"])
@@ -189,19 +183,10 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
     ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
     ui.add_tab(ids["debug_tabs"], "Dynamic", ids["debug_dynamic"])
-    ui.set_property_string(ids["source"], "language", "e")
-    ui.set_property_string(ids["epa"], "language", "epa")
-    ui.set_property_string(ids["debug_e_view"], "language", "e")
-    ui.set_property_string(ids["debug_epa_view"], "language", "epa")
-    ui.set_property_bool(ids["epa"], "read_only", True)
-    ui.set_property_bool(ids["debug_e_view"], "read_only", True)
-    ui.set_property_bool(ids["debug_epa_view"], "read_only", True)
-    ui.set_property_bool(ids["epa"], "visible", False)
-    ui.set_property_bool(ids["debug_panel"], "visible", False)
-    ui.place_grid_child(ids["debug_panel"], ids["debug_source_tabs"], 0, 0)
+
+    ui.place_grid_child(ids["debug_panel"], ids["source"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["epa"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
-    ui.place_grid_child(ids["container"], ids["source"], 0, 1)
-    ui.place_grid_child(ids["container"], ids["epa"], 0, 1)
     ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 1)
     ui.add_tab("editor.tabs", title, ids["container"],
                button_glyph="×", button_action=f"tab.close.{tab_id}")
@@ -3309,24 +3294,21 @@ def main():
         ids = _editor_ids(tab_id)
         view = state.get("view", "e")
         is_epa = view == "epa"
-        is_debug = view == "debug"
-        client.set_visible(ids["source"], not is_epa and not is_debug)
+        client.set_visible(ids["source"], not is_epa)
         client.set_visible(ids["epa"], is_epa)
-        client.set_visible(ids["debug_panel"], is_debug)
         client.set_enabled(ids["button_e"], view != "e")
         client.set_enabled(ids["button_epa"], view != "epa")
-        client.set_enabled(ids["button_debug"], view != "debug")
         client.set_read_only(ids["epa"], True)
+        debug_on = state.get("debug", False)
+        try:
+            client.set_grid_column_exact_size(ids["debug_panel"], 1, 320 if debug_on else 0)
+        except Exception:
+            pass
         if set_focus:
             _focus_editor_widget(client, tab_id, state)
 
     def _refresh_debug_controls(client, tab_id: str):
-        state = editor_state.get(tab_id)
-        if not state:
-            return
-        ids = _editor_ids(tab_id)
-        client.set_text(ids["debug_e_view"], state.get("source_text", ""))
-        client.set_text(ids["debug_epa_view"], state.get("epa_text", ""))
+        pass  # source/epa editors are the same widgets, no separate debug view to sync
 
     def _refresh_debug_sidebars(client, tab_id: str):
         state = editor_state.get(tab_id)
@@ -3856,7 +3838,6 @@ def main():
         state["dynamic_nodes"] = semantic["dynamic_nodes"]
         epa_text_out = result["epa_text"] if result["ok"] else ""
         client.set_text(ids["epa"], epa_text_out)
-        client.set_text(ids["debug_epa_view"], epa_text_out)
         client.set_code_editor_diagnostics(ids["source"], result["diagnostics"])
         _apply_editor_view(client, tab_id, set_focus=focus)
         _refresh_debug_controls(client, tab_id)
@@ -5199,12 +5180,6 @@ def main():
                     current_tab = tab_id
                     _deferred(lambda: _refresh_e_tab(c, current_tab, focus=True))
                     return {"received": True}
-                if item_action == ids["button_debug"]:
-                    app_state["active_editor_tab"] = tab_id
-                    state["view"] = "debug"
-                    current_tab = tab_id
-                    _deferred(lambda: (_apply_editor_view(c, current_tab, set_focus=True), _refresh_debug_controls(c, current_tab), _refresh_debug_sidebars(c, current_tab)))
-                    return {"received": True}
             if item_action and item_action.startswith("tab.close."):
                 close_tab_id = item_action[len("tab.close."):]
                 entry = next((t for t in tab_list if t["tab_id"] == close_tab_id), None)
@@ -5275,8 +5250,6 @@ def main():
                         target_widget = ids["source"]
                         if view == "epa":
                             target_widget = ids["epa"]
-                        elif view == "debug":
-                            target_widget = ids["debug"]
                         try:
                             c.set_focus(target_widget)
                             c.perform_action(target_widget, action)
@@ -5726,6 +5699,11 @@ def main():
                     source_tab_id = tab_id
                     def _open_kernel_tab(fp=file_path, stid=source_tab_id):
                         _open_file_tab(c, fp, make_permanent=True)
+                        st = editor_state.get(stid)
+                        if st and not st.get("debug", False):
+                            st["debug"] = True
+                            _apply_editor_view(c, stid)
+                            _refresh_debug_sidebars(c, stid)
                         try:
                             c.set_eip_line(_editor_ids(stid)["source"], 0)
                         except Exception:
@@ -6256,7 +6234,6 @@ def main():
                             ids = _editor_ids(tab_id)
                             epa_out = result["epa_text"] if result["ok"] else ""
                             c.set_text(ids["epa"], epa_out)
-                            c.set_text(ids["debug_epa_view"], epa_out)
                             c.set_code_editor_diagnostics(ids["source"], result.get("diagnostics", []))
                         except Exception:
                             pass
