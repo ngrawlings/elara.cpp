@@ -36,3 +36,12 @@ static inline const EpaOpcodeDef *epa_find_opcode(uint16_t op) {
   }
   return NULL;
 }
+
+static inline const EpaOpcodeDef *epa_find_opcode_by_name(const char *name) {
+  if (!name) return NULL;
+  for (size_t i = 0; i < EPA_OPCODE_TABLE_COUNT; i++) {
+    if (EPA_OPCODE_TABLE[i].name && strcmp(EPA_OPCODE_TABLE[i].name, name) == 0)
+      return &EPA_OPCODE_TABLE[i];
+  }
+  return NULL;
+}

@@ -2538,7 +2538,7 @@ def main():
         return [binary, "--port", str(args.port), "--persistent"]
 
     # --- epa-dbg subprocess + client -----------------------------------------
-    _epa_dbg: dict = {"proc": None, "client": None, "output_lines": [], "port": None}
+    _epa_dbg: dict = {"proc": None, "client": None, "output_lines": [], "port": None, "build_output": ""}
 
     def _epa_dbg_binary():
         workspace = Path(__file__).resolve().parent.parent
@@ -2594,6 +2594,21 @@ def main():
         except Exception:
             pass
         _epa_dbg_set_vm_status("running" if running else "idle")
+
+    def _epa_dbg_log(line: str):
+        """Append a line to the epa-dbg output buffer and push to the build output panel."""
+        buf = _epa_dbg.get("build_output", "") + line + "\n"
+        buf = buf[-32000:]  # cap at ~32k chars
+        _epa_dbg["build_output"] = buf
+        try:
+            ui_c = client_ref.get("client")
+            if ui_c:
+                ui_c.set_text("bottom.build_output", buf)
+                ui_c.set_visible("bottom.panel", True)
+                ui_c.set_visible("bottom.build_output", True)
+                ui_c.set_visible("bottom.terminal_panel", False)
+        except Exception:
+            pass
 
     def _epa_dbg_show_error(title: str, message: str, artifact_lines: list | None = None):
         """Write an error artifact and show an error dialog in the UI."""
@@ -2674,6 +2689,7 @@ def main():
                 out_lines.append(f"[{tag}] {line}")
                 if len(out_lines) > 500:
                     del out_lines[: len(out_lines) - 500]
+                _epa_dbg_log(f"[{tag}] {line}")
 
         try:
             new_proc = subprocess.Popen(
@@ -2692,6 +2708,7 @@ def main():
         threading.Thread(target=_reader, args=(new_proc.stdout, "stdout"), daemon=True).start()
         threading.Thread(target=_reader, args=(new_proc.stderr, "stderr"), daemon=True).start()
         _epa_dbg["proc"] = new_proc
+        _epa_dbg_log(f"[epa-dbg] started on port {port}")
 
         # Give process a moment then check it hasn't immediately exited
         time.sleep(0.3)
@@ -3270,19 +3287,34 @@ def main():
                     source_path.unlink(missing_ok=True)
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
-                epa_map: list[int] = []
+                epa_block_map: dict = {}  # {(block_type, block_id): [(byte_offset, src_line), ...]}
                 if map_path.exists():
+                    cur_block = None
                     for raw in map_path.read_text(encoding="utf-8").splitlines():
-                        try:
-                            epa_map.append(int(raw.strip()))
-                        except ValueError:
-                            epa_map.append(0)
-                return {"ok": True, "epa_text": epa_text, "epa_map": epa_map, "diagnostics": [], "message": ""}
+                        raw = raw.strip()
+                        if not raw:
+                            continue
+                        if raw.startswith("B "):
+                            parts = raw.split()
+                            if len(parts) == 3:
+                                try:
+                                    cur_block = (int(parts[1]), int(parts[2]))
+                                    epa_block_map[cur_block] = []
+                                except ValueError:
+                                    cur_block = None
+                        elif cur_block is not None:
+                            parts = raw.split()
+                            if len(parts) == 2:
+                                try:
+                                    epa_block_map[cur_block].append((int(parts[0]), int(parts[1])))
+                                except ValueError:
+                                    pass
+                return {"ok": True, "epa_text": epa_text, "epa_block_map": epa_block_map, "diagnostics": [], "message": ""}
             message = (proc.stderr or proc.stdout or "compile failed").strip()
             return {
                 "ok": False,
                 "epa_text": "",
-                "epa_map": [],
+                "epa_block_map": {},
                 "diagnostics": _diagnostic_from_error(message),
                 "message": message,
             }
@@ -3697,6 +3729,51 @@ def main():
         if not kernel_tab_id:
             return
         _update_kernel_queue_state_from_snapshot(client, kernel_tab_id, snapshot)
+        _update_eip_marker(client, kernel_tab_id, snapshot)
+
+    def _editor_tab_id_for_kernel(kernel_id: str) -> str:
+        project_root = app_state.get("project_root", "")
+        if not project_root or not kernel_id:
+            return ""
+        file_path = str(Path(project_root) / "epa" / (kernel_id.replace(".", "/") + ".e"))
+        return _tab_id_for_path(file_path)
+
+    def _eip_to_source_line(epa_block_map: dict, block_type: int, block_id: int, rel_pc: int) -> int:
+        """Return 1-based source line for the given EIP, or 0 if not found."""
+        entries = epa_block_map.get((int(block_type), int(block_id)), [])
+        result = 0
+        for (offset, src_line) in entries:
+            if offset <= rel_pc:
+                result = src_line
+            else:
+                break
+        return result
+
+    def _update_eip_marker(client, kernel_tab_id: str, snapshot: dict):
+        """Move the EIP marker in the source editor to the selected worker's current line."""
+        if not client or not kernel_tab_id:
+            return
+        sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+        if sel_wid is None:
+            return
+        for w in snapshot.get("workers", []):
+            if w.get("wid") != sel_wid:
+                continue
+            eip = w.get("eip", {})
+            block_type = eip.get("block_type", 0)
+            block_id = eip.get("block_id", 0)
+            rel_pc = eip.get("rel_pc", 0)
+            stid = _editor_tab_id_for_kernel(kernel_tab_id)
+            st = editor_state.get(stid)
+            if not st:
+                return
+            epa_block_map = st.get("epa_block_map", {})
+            src_line = _eip_to_source_line(epa_block_map, block_type, block_id, rel_pc)
+            try:
+                client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
+            except Exception:
+                pass
+            return
 
     def _reset_all_kernel_debug_state(client):
         for kernel in _kernels_from_project():
@@ -3807,7 +3884,7 @@ def main():
             if not current or current.get("compile_seq") != expected_seq:
                 return
         state["epa_text"] = result["epa_text"]
-        state["epa_map"] = result.get("epa_map", [])
+        state["epa_block_map"] = result.get("epa_block_map", {})
         state["compile_error"] = result["message"]
         state["available_types"], state["available_workers"] = _extract_debug_candidates(source_text)
         state["trace_nodes"] = _build_trace_nodes([], f"{ids['debug']}.root")
@@ -3852,7 +3929,7 @@ def main():
                 "title": title,
                 "source_text": source_text,
                 "epa_text": "",
-                "epa_map": [],
+                "epa_block_map": {},
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -4461,7 +4538,7 @@ def main():
                 "title": title,
                 "source_text": source_text,
                 "epa_text": "",
-                "epa_map": [],
+                "epa_block_map": {},
                 "view": "e",
                 "compile_error": "",
                 "compile_seq": 0,
@@ -5242,6 +5319,15 @@ def main():
             ):
                 _action = item_action
                 def _do_edit_action(action=_action):
+                    # Try the currently focused widget first so output panels,
+                    # debug views, etc. get copy/paste without focus being stolen.
+                    try:
+                        result = c.perform_focused_action(action)
+                        if isinstance(result, dict) and result.get("dispatched"):
+                            return
+                    except Exception:
+                        pass
+                    # Fall back to the active editor when nothing else handled it.
                     tab_id = app_state.get("active_editor_tab", "")
                     state = editor_state.get(tab_id) if tab_id else None
                     if state:
@@ -5253,10 +5339,8 @@ def main():
                         try:
                             c.set_focus(target_widget)
                             c.perform_action(target_widget, action)
-                            return
                         except Exception:
                             pass
-                    c.perform_focused_action(action)
                 _deferred(_do_edit_action)
 
             if item_action == "app.toggle_theme":
@@ -5710,10 +5794,7 @@ def main():
                             pass
                     _deferred(_open_kernel_tab)
 
-                    bundle_path = str(
-                        Path(project_root_str) / "build" / "epa"
-                        / (kernel_id_str.replace(".", "/") + ".epabin")
-                    )
+                    bundle_path = _bundle_path_for_kernel_id(kernel_id_str)
                     worker_wid = _selected_worker_wid_for_kernel(kernel_id_str)
                     if worker_wid is None:
                         worker_wid = 1
@@ -5738,6 +5819,7 @@ def main():
                                 _set_kernel_run_indicator(uc, prev_ktid, _IND_OFF)
                             result = _epa_dbg_load_bundle(bp, kernel_id=k)
                             if not result.get("ok"):
+                                _epa_dbg_log(f"[error] load_bundle failed: {result.get('error', 'unknown')}")
                                 _set_kernel_load_indicator(uc, ktid, _IND_RED)
                                 return
                             app_state["debug_kernel_loaded"] = bp
@@ -5760,6 +5842,7 @@ def main():
                         except Exception as exc:
                             if uc:
                                 _set_kernel_run_indicator(uc, ktid, _IND_OFF)
+                            _epa_dbg_log(f"[error] dbg_run_or_step: {exc}")
                             _push_exception(exc, "dbg_run_or_step")
                     _deferred(_dbg_run_or_step)
                 return {"received": True}
@@ -5954,8 +6037,10 @@ def main():
                         _set_kernel_run_indicator(c, previously_loaded, _IND_OFF)
                     result = _epa_dbg_load_bundle(bundle_path, kernel_id=0)
                     if not result.get("ok"):
+                        err_msg = result.get("error", "failed to load debug bundle")
+                        _epa_dbg_log(f"[error] load_bundle failed: {err_msg}")
                         _set_kernel_load_indicator(c, kid, _IND_RED)
-                        raise RuntimeError(result.get("error", "failed to load debug bundle"))
+                        raise RuntimeError(err_msg)
                     app_state["debug_kernel_loaded"] = bundle_path
                     _set_kernel_load_indicator(c, kid, _IND_GREEN)
                 # Resolve wid from selected worker name (wid=0 is coordinator, workers start at 1)
@@ -5972,7 +6057,9 @@ def main():
                     if c and kid:
                         _update_kernel_queue_state_from_snapshot(c, kid, snap)
                         _update_kernel_indicator_from_snapshot(c, kid, snap)
+                        _update_eip_marker(c, kid, snap)
                 except Exception as exc:
+                    _epa_dbg_log(f"[error] queue_ingress: {exc}")
                     _push_exception(exc, "queue_ingress")
             _deferred(_do_queue)
             return {"received": True}
@@ -6224,7 +6311,7 @@ def main():
                         return {"tab_id": tab_id, "asm": "", "error": str(exc), "compiled_at": 0.0}
                     ts = time.time()
                     state["epa_text"] = result["epa_text"]
-                    state["epa_map"] = result.get("epa_map", [])
+                    state["epa_block_map"] = result.get("epa_block_map", {})
                     state["compile_error"] = result.get("message", "")
                     state["epa_compiled_at"] = ts
                     state["epa_error"] = result.get("message") if not result["ok"] else None

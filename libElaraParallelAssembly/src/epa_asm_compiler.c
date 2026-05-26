@@ -787,6 +787,39 @@ static const AsmInsnDesc *find_desc(const char *mn) {
   return NULL;
 }
 
+int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg) {
+  if (!mnemonic) return -1;
+  /* PUSH is ambiguous: PUSH Rn = 3 bytes, PUSH <i32> = 6 bytes */
+  if (ieq(mnemonic, "PUSH")) {
+    if (first_arg && (first_arg[0] == 'R' || first_arg[0] == 'r') &&
+        isdigit((unsigned char)first_arg[1])) {
+      return 3; /* PUSH_R: 2 opcode + 1 reg */
+    }
+    return 6; /* PUSH_I32: 2 opcode + 4 immediate */
+  }
+  const AsmInsnDesc *d = find_desc(mnemonic);
+  if (!d) return -1;
+  /* Helpers with known fixed sizes */
+  if (d->helper == helper_emit_jump_rel32) return 6; /* 2 opcode + 4 rel32 */
+  if (d->helper == helper_emit_yield)     return 3; /* 2 opcode + 1 param  */
+  if (d->helper) return -1; /* unknown helper */
+  /* Descriptor-driven: sum arg sizes */
+  int param = 0;
+  for (int i = 0; i < (int)d->nkinds; i++) {
+    switch ((ArgKind)d->kinds[i]) {
+      case AK_U8: case AK_REGU8: case AK_REGU8_OR_U8: case AK_REG4_OR_U8: case AK_MODE:
+        param += 1; break;
+      case AK_U16:
+        param += 2; break;
+      case AK_U32: case AK_I32: case AK_F32:
+        param += 4; break;
+      default:
+        return -1;
+    }
+  }
+  return 2 + param;
+}
+
 static int emit_line(AsmCtx *ctx, Out *o, int line_no, char *line, char err[EPA_MAX_ERR]) {
   trim_comment(line);
   char *s = ltrim(line);

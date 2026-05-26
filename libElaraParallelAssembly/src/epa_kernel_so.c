@@ -405,7 +405,7 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     // Store EIP in worker state if you've added it there.
     // If you haven't yet: add `EpaEip eip;` into EpaWorkerState.
     k->workers[id].vm.eip.block_type = EPA_BLOCK_ENTRY;
-    k->workers[id].vm.eip.block_id   = (uint16_t)id;
+    k->workers[id].vm.eip.block_id   = (uint32_t)id;
     k->workers[id].vm.eip.rel_pc     = 0;
   }
 

@@ -1,7 +1,9 @@
 #define _POSIX_C_SOURCE 200809L
 #include "e_emit_epa.h"
 #include "../src/epa_program_desc.h"
+#include "../src/epa_asm_compiler.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1833,39 +1835,80 @@ static unsigned int resolved_signal_mail_box_size(const ESemanticModel *model, c
   return model->default_signal_mail_box_size;
 }
 
+/* Emit block-offset map for the IDE debugger.
+ * Format: "B <block_type> <block_id>\n" for block headers,
+ *         "<byte_offset> <source_line>\n" for each instruction inside a block body.
+ * block_type 0 = entry, 1 = func. block_id for funcs is the dense index (0, 1, …). */
 static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   char buf[1024];
   int current_e_line = 0;
+  int in_body = 0;
+  int body_offset = 0;
+  int func_dense_idx = 0;
 
   rewind(asm_out);
   while (fgets(buf, sizeof(buf), asm_out)) {
     const char *p = buf;
-    int e_line = 0;
-
-    /* skip leading whitespace */
     while (*p == ' ' || *p == '\t') p++;
-
-    if (*p == '\0' || *p == '\n' || *p == '\r') {
-      /* blank line */
-    } else if (strncmp(p, "; !LINE ", 8) == 0) {
-      /* source line marker — update current line, not itself an instruction */
+    if (*p == '\0' || *p == '\n' || *p == '\r') continue;
+    if (strncmp(p, "; !LINE ", 8) == 0) {
       current_e_line = atoi(p + 8);
-    } else if (*p == ';') {
-      /* plain comment */
-    } else if (*p == '.') {
-      /* assembler directive */
-    } else {
-      /* check for label: a token ending with ':' before any whitespace */
-      const char *tok_end = p;
-      while (*tok_end && *tok_end != ' ' && *tok_end != '\t' && *tok_end != '\n' && *tok_end != '\r') tok_end++;
-      if (tok_end > p && *(tok_end - 1) == ':') {
-        /* label line */
-      } else {
-        e_line = current_e_line;
-      }
+      continue;
+    }
+    if (*p == ';' || *p == '.') continue;
+
+    /* Extract first token */
+    char token[64];
+    size_t tlen = 0;
+    const char *tp = p;
+    while (*tp && !isspace((unsigned char)*tp) && *tp != ':' && tlen < 63u)
+      token[tlen++] = *tp++;
+    token[tlen] = '\0';
+    if (tlen == 0u) continue;
+    if (*tp == ':') continue;  /* label-only line */
+
+    /* Block boundary markers */
+    if (strcmp(token, "ENTRY_START") == 0) {
+      const char *arg = p + tlen;
+      while (*arg == ' ' || *arg == '\t') arg++;
+      fprintf(map_out, "B 0 %d\n", atoi(arg));
+      in_body = 1;
+      body_offset = 0;
+      continue;
+    }
+    if (strcmp(token, "ENTRY_END") == 0) { in_body = 0; continue; }
+    if (strcmp(token, "FUNC_START") == 0) {
+      fprintf(map_out, "B 1 %d\n", func_dense_idx++);
+      in_body = 1;
+      body_offset = 0;
+      continue;
+    }
+    if (strcmp(token, "FUNC_END") == 0) { in_body = 0; continue; }
+    if (!in_body) continue;
+
+    /* Extract optional first argument (needed for PUSH ambiguity) */
+    char first_arg[64];
+    first_arg[0] = '\0';
+    {
+      const char *ap = tp;
+      while (*ap == ' ' || *ap == '\t') ap++;
+      size_t alen = 0;
+      while (*ap && !isspace((unsigned char)*ap) && alen < 63u)
+        first_arg[alen++] = *ap++;
+      first_arg[alen] = '\0';
     }
 
-    fprintf(map_out, "%d\n", e_line);
+    /* Look up instruction size using kDesc (assembler-text mnemonics) */
+    int instr_bytes = epa_asm_instr_total_bytes(token, first_arg[0] ? first_arg : NULL);
+    if (instr_bytes == -2) {
+      /* Variable-length: emit once and stop tracking offsets for this block */
+      fprintf(map_out, "%d %d\n", body_offset, current_e_line);
+      in_body = 0;
+      continue;
+    }
+    if (instr_bytes < 0) continue; /* unknown mnemonic — skip, don't advance offset */
+    fprintf(map_out, "%d %d\n", body_offset, current_e_line);
+    body_offset += instr_bytes;
   }
 }
 
@@ -2009,6 +2052,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.current_frame = find_frame(model, "kernel");
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
         ctx.current_frame = NULL;
+        fputs("  RET\n", out);
         fputs("ENTRY_END\n\n", out);
         break;
       case E_TOP_WORKER:
@@ -2050,7 +2094,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
                 emit_indent(out, 1);
                 fputs("PUSH 0\n", out);
                 emit_indent(out, 1);
-                EMIT_STORE_L(out, ctx, sb->vm_local_slot);
+                EMIT_STORE_L(out, &ctx, sb->vm_local_slot);
               } else {
                 /* Declared type: L_ALLOC once, then zero-fill and persist the 2-word reference. */
                 emit_indent(out, 1);

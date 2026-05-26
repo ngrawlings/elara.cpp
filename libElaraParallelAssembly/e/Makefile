@@ -43,7 +43,8 @@ EPA_SRCS := \
 	e_ast.c \
 	e_semantic.c \
 	e_templates.c \
-	e_emit_epa.c
+	e_emit_epa.c \
+	../src/epa_asm_compiler.c
 
 EPABIN_SRCS := \
 	e2epabin.c \
@@ -94,7 +95,7 @@ $(OUT_DIR)/%.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OUT_DIR)/%.epa.o: %.c
-	@$(MKDIR) $(OUT_DIR)
+	@$(MKDIR) $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(OUT_DIR)/%.epabin.o: %.c

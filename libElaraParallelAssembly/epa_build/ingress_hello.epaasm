@@ -6,37 +6,58 @@
 ;   field day_phase offset=0 size=4
 ;   field greeting_id offset=4 size=4
 FUNC_START 1 0
-  ; return
-  ; expr ident day_phase
+  ; !LINE 3
+  SET_R 2 0
+  GR_MOV4 0
+  PUSH R0
   RET
 FUNC_END
 
 ; kernel entry
-ENTRY_START 0 0 0 0
-  ; call ingress_greeting argc=2 pending lowering
-  ; expr ident vm
-  ; expr ident hello_world
+ENTRY_START 0 256 256 128
+  ; !LINE 10
+  ; call ingress_greeting argc=2 — unknown callee
+  RET
 ENTRY_END
 
 ; worker hello_world
 ; typed GHS view GreetingIngress span=8
-ENTRY_START 1 0 0 0
+ENTRY_START 1 256 256 128
+  E_WORKER_WAIT_1:
+  WAIT_FOR_DATA
+  ; current wake carries the inbound GHS handle in worker ingress
+  WORKER_TRX_IN_R 3
+  WORKER_TRX_IN_R 0
+  WORKER_TRX_IN_R 1
+  ; !LINE 14
   ; if condition
-  ; field ingress.day_phase [ghs+0]
-  JZ E_IF_ELSE_1
-  ; call emit_phrase argc=1 pending lowering
+  SET_R 2 0
+  GR_MOV4 0
+  PUSH R0
+  POP 0
+  JZ E_IF_ELSE_2
+  ; !LINE 14
+  ; !LINE 15
   PUSH 1
-  JMP E_IF_JOIN_2
-  E_IF_ELSE_1:
-  ; call emit_phrase argc=1 pending lowering
+  STORE_L 0
+  CALL 2
+  POP 0
+  JMP E_IF_JOIN_3
+  E_IF_ELSE_2:
+  ; !LINE 16
+  ; !LINE 17
   PUSH 2
-  E_IF_JOIN_2:
+  STORE_L 0
+  CALL 2
+  POP 0
+  E_IF_JOIN_3:
+  JMP E_WORKER_WAIT_1
 ENTRY_END
 
 ; function emit_phrase
 FUNC_START 2 1
-  ; return
-  ; expr ident phrase_id
+  ; !LINE 22
+  LOAD_LW 0
   RET
 FUNC_END
 

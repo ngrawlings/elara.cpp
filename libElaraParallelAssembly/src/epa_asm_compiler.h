@@ -63,3 +63,8 @@ uint8_t *epa_asm_compile_file(const char *path, size_t *out_len, char err[EPA_MA
 // Compile an in-memory epaasm string into a binary EPA blob.
 // Returns malloc'd buffer (caller frees) or NULL on error.
 uint8_t *epa_asm_compile_src(const char *src, size_t *out_len, char err[EPA_MAX_ERR]);
+
+// Return total instruction byte size (opcode + params) for an assembly-text mnemonic.
+// first_arg: first operand token (may be NULL). Needed to disambiguate PUSH Rn vs PUSH imm.
+// Returns -1 for unknown mnemonics, -2 for variable-length instructions.
+int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg);

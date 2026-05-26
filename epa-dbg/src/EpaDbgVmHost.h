@@ -20,6 +20,8 @@ typedef enum {
 typedef enum {
     EPA_SCHED_WAVE       = 1,
     EPA_SCHED_CPU_THREAD = 2,
+    EPA_SCHED_CUDA_HOTIDLE = 3,
+    EPA_SCHED_DEBUG      = 4,
 } EpaSchedProfile;
 #ifndef EPA_MAX_ERR
 #define EPA_MAX_ERR 256

@@ -21,7 +21,7 @@ bool EpaDbgVmHost::create() {
     destroy();
     kernel = epa_kernel_create(err);
     if (!kernel) { setError("epa_kernel_create failed", err); return false; }
-    if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_CPU_THREAD, err)) {
+    if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_DEBUG, err)) {
         setError("epa_kernel_set_scheduler failed", err);
         epa_kernel_destroy(kernel);
         kernel = NULL;
@@ -58,8 +58,6 @@ bool EpaDbgVmHost::loadAsmPath(const String &asm_path) {
         setError("epa_kernel_load_asm failed", err);
         return false;
     }
-    uint32_t n = epa_kernel_worker_count(kernel);
-    if (n > 0) epa_kernel_add_threads(kernel, n, err);
     error_text = String();
     return true;
 }
@@ -73,8 +71,6 @@ bool EpaDbgVmHost::loadBlob(const uint8_t *blob, size_t blob_len) {
         setError("epa_kernel_load_blob failed", err);
         return false;
     }
-    uint32_t n = epa_kernel_worker_count(kernel);
-    if (n > 0) epa_kernel_add_threads(kernel, n, err);
     error_text = String();
     return true;
 }
