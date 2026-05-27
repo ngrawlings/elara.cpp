@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <sys/select.h>
 #include <unistd.h>
 
@@ -24,6 +27,35 @@ static uint32_t read_le_u32(const unsigned char *p) {
          | ((uint32_t)p[1] << 8)
          | ((uint32_t)p[2] << 16)
          | ((uint32_t)p[3] << 24);
+}
+
+static String json_quote_simple(const String &value) {
+    String result("\"");
+    String value_copy(value);
+    const char *raw = value_copy.operator char *();
+    if (!raw) {
+        result += String("\"");
+        return result;
+    }
+    for (const char *p = raw; *p; ++p) {
+        char ch = *p;
+        if (ch == '\\' || ch == '"') {
+            result += String("\\");
+            char tmp[2] = { ch, 0 };
+            result += String(tmp);
+        } else if (ch == '\n') {
+            result += String("\\n");
+        } else if (ch == '\r') {
+            result += String("\\r");
+        } else if (ch == '\t') {
+            result += String("\\t");
+        } else {
+            char tmp[2] = { ch, 0 };
+            result += String(tmp);
+        }
+    }
+    result += String("\"");
+    return result;
 }
 
 static int on_entry_kernel_signal(uint8_t wid, const char *msg, const int msg_len) {
@@ -70,7 +102,7 @@ private:
 
 }
 
-EpaSignalLabApp::EpaSignalLabApp(const String &value_host, int value_port)
+EpaSignalLabApp::EpaSignalLabApp(const String &value_host, int value_port, const EpaSignalLabDebugSessionConfig &value_debug_session)
     : host(value_host),
       port(value_port),
       bundle_path(String("..") + String("/") + String("build") + String("/") + String("epa.bin")),
@@ -79,7 +111,77 @@ EpaSignalLabApp::EpaSignalLabApp(const String &value_host, int value_port)
       should_quit(false),
       epa_loaded(false),
       epa_started(false),
-      next_seq(1u) {
+      next_seq(1u),
+      debug_session(value_debug_session),
+      host_debug_fd(-1) {
+    if (debug_session.enabled && debug_session.bundle_path.length()) {
+        bundle_path = debug_session.bundle_path;
+    }
+}
+
+bool EpaSignalLabApp::connectHostDebugBridge() {
+    struct addrinfo hints;
+    struct addrinfo *result = NULL;
+    struct addrinfo *rp = NULL;
+    char port_text[32];
+
+    if (!debug_session.enabled || !debug_session.host_debug_host.length() || debug_session.host_debug_port <= 0) {
+        return false;
+    }
+    if (host_debug_fd >= 0) {
+        return true;
+    }
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(port_text, sizeof(port_text), "%d", debug_session.host_debug_port);
+    if (getaddrinfo(debug_session.host_debug_host.operator char *(), port_text, &hints, &result) != 0) {
+        return false;
+    }
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            host_debug_fd = fd;
+            break;
+        }
+        close(fd);
+    }
+    freeaddrinfo(result);
+    return host_debug_fd >= 0;
+}
+
+void EpaSignalLabApp::closeHostDebugBridge() {
+    if (host_debug_fd >= 0) {
+        close(host_debug_fd);
+        host_debug_fd = -1;
+    }
+}
+
+void EpaSignalLabApp::sendHostDebugEvent(const String &kind, const String &payload_json) {
+    String message;
+    if (!connectHostDebugBridge()) {
+        return;
+    }
+    message = String("{\"kind\":") + json_quote_simple(kind)
+        + String(",\"session_id\":") + json_quote_simple(debug_session.session_id)
+        + String(",\"project\":") + json_quote_simple(String("epa-signal-lab"));
+    if (payload_json.length()) {
+        message += String(",") + payload_json;
+    }
+    message += String("}\n");
+    if (write(host_debug_fd, message.operator char *(), (size_t)message.length()) < 0) {
+        closeHostDebugBridge();
+    }
+}
+
+void EpaSignalLabApp::sendHostDebugLog(const String &message) {
+    sendHostDebugEvent(String("log"), String("\"message\":") + json_quote_simple(message));
+}
+
+void EpaSignalLabApp::sendHostDebugState(const String &status) {
+    sendHostDebugEvent(String("state"), String("\"status\":") + json_quote_simple(status));
 }
 
 void EpaSignalLabApp::buildDocument(ElaraUiDocumentBuilder &ui) {
@@ -163,12 +265,14 @@ void EpaSignalLabApp::appendLog(const String &line) {
         log_lines.erase(log_lines.begin());
     }
     ui_dirty = true;
+    sendHostDebugLog(line);
 }
 
 void EpaSignalLabApp::setStatus(const String &line) {
     std::lock_guard<std::mutex> lock(state_mutex);
     status_text = line;
     ui_dirty = true;
+    sendHostDebugState(line);
 }
 
 void EpaSignalLabApp::clearLog() {
@@ -393,8 +497,21 @@ int EpaSignalLabApp::run() {
         return 1;
     }
     enableUiEvents();
+    sendHostDebugEvent(
+        String("register"),
+        String("\"pid\":") + String((int)getpid())
+            + String(",\"message\":") + json_quote_simple(String("host connected to IDE debug bridge"))
+    );
     appendLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
     appendLog(String("bundle path: ") + bundle_path);
+    if (debug_session.enabled) {
+        appendLog(String("debug session id: ") + debug_session.session_id);
+        appendLog(String("debug session file: ") + debug_session.session_path);
+        appendLog(String("epa-dbg endpoint: ")
+            + debug_session.epa_dbg_host
+            + String(":")
+            + String(debug_session.epa_dbg_port));
+    }
     refreshEpaState();
     pushUiState();
 
@@ -438,6 +555,7 @@ int EpaSignalLabApp::run() {
 
     epa.stopAllKernels();
     epa.destroy();
+    closeHostDebugBridge();
     peer->close();
     g_epa_signal_lab_app = NULL;
     return 0;

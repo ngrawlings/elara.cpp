@@ -2,13 +2,16 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
 import socket
+import socketserver
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import uuid
 from pathlib import Path
 
 from elara_ui.builder import UiDocumentBuilder
@@ -60,8 +63,25 @@ def _editor_ids(tab_id: str):
         "toolbar": f"{tab_id}.toolbar",
         "button_e": f"{tab_id}.view.e",
         "button_epa": f"{tab_id}.view.epa",
+        "button_cpp": f"{tab_id}.view.cpp",
         "source": f"{tab_id}.source",
         "epa": f"{tab_id}.epa",
+        "cpp_surface": f"{tab_id}.cpp.surface",
+        "cpp_title": f"{tab_id}.cpp.title",
+        "cpp_status": f"{tab_id}.cpp.status",
+        "cpp_threads_label": f"{tab_id}.cpp.threads.label",
+        "cpp_threads": f"{tab_id}.cpp.threads",
+        "cpp_continue": f"{tab_id}.cpp.continue",
+        "cpp_step_over": f"{tab_id}.cpp.step_over",
+        "cpp_step_into": f"{tab_id}.cpp.step_into",
+        "cpp_step_out": f"{tab_id}.cpp.step_out",
+        "cpp_pause": f"{tab_id}.cpp.pause",
+        "cpp_debug_tabs": f"{tab_id}.cpp.debug.tabs",
+        "cpp_debug_threads": f"{tab_id}.cpp.debug.threads",
+        "cpp_debug_frames": f"{tab_id}.cpp.debug.frames",
+        "cpp_debug_locals": f"{tab_id}.cpp.debug.locals",
+        "cpp_debug_registers": f"{tab_id}.cpp.debug.registers",
+        "cpp_debug_memory": f"{tab_id}.cpp.debug.memory",
         "debug_panel": f"{tab_id}.debug.panel",
         "debug": f"{tab_id}.debug.trace",
         "debug_tabs": f"{tab_id}.debug.tabs",
@@ -127,6 +147,8 @@ def _focus_editor_widget(client, tab_id: str, state: dict = None):
         target = ids["source"]
         if view == "epa":
             target = ids["epa"]
+        elif view == "cpp":
+            target = ids["cpp_continue"]
     try:
         client.set_focus(target)
     except Exception:
@@ -143,13 +165,16 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.create_grid(ids["toolbar"])
     ui.add_grid_column_exact(ids["toolbar"], 54)
     ui.add_grid_column_exact(ids["toolbar"], 64)
+    ui.add_grid_column_exact(ids["toolbar"], 64)
     ui.add_grid_column_fill(ids["toolbar"])
     ui.add_grid_row_fill(ids["toolbar"])
     ui.create_button(ids["button_e"], "E", f"{ids['button_e']}")
     ui.create_button(ids["button_epa"], "EPA", f"{ids['button_epa']}")
+    ui.create_button(ids["button_cpp"], "C++", f"{ids['button_cpp']}")
     ui.set_property_bool(ids["button_e"], "enabled", False)
     ui.place_grid_child(ids["toolbar"], ids["button_e"], 0, 0)
     ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
+    ui.place_grid_child(ids["toolbar"], ids["button_cpp"], 2, 0)
     ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
 
     ui.create_grid(ids["debug_panel"])
@@ -165,26 +190,116 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.set_property_bool(ids["epa"], "read_only", True)
     ui.set_property_bool(ids["epa"], "visible", False)
 
+    ui.create_grid(ids["cpp_surface"])
+    ui.add_grid_column_exact(ids["cpp_surface"], 8)
+    ui.add_grid_column_fill(ids["cpp_surface"])
+    ui.add_grid_column_exact(ids["cpp_surface"], 8)
+    ui.add_grid_row_exact(ids["cpp_surface"], 22)
+    ui.add_grid_row_exact(ids["cpp_surface"], 30)
+    ui.add_grid_row_exact(ids["cpp_surface"], 12)
+    ui.add_grid_row_exact(ids["cpp_surface"], 30)
+    ui.add_grid_row_exact(ids["cpp_surface"], 30)
+    ui.add_grid_row_exact(ids["cpp_surface"], 12)
+    ui.add_grid_row_exact(ids["cpp_surface"], 22)
+    ui.add_grid_row_weighted_fill(ids["cpp_surface"], 1)
+    ui.set_property_bool(ids["cpp_surface"], "visible", False)
+
+    ui.create_label(ids["cpp_title"], "C++ GDB CONTROL", 10)
+    ui.set_property_bool(ids["cpp_title"], "enabled", False)
+    ui.place_grid_child(ids["cpp_surface"], ids["cpp_title"], 1, 0)
+
+    ui.create_grid(f"{ids['cpp_surface']}.row1")
+    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
+    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row1", 4)
+    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
+    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row1", 4)
+    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
+    ui.add_grid_row_fill(f"{ids['cpp_surface']}.row1")
+    ui.create_button(ids["cpp_continue"], "▶ Continue", ids["cpp_continue"])
+    ui.create_button(ids["cpp_step_over"], "↷ Step Over", ids["cpp_step_over"])
+    ui.create_button(ids["cpp_step_into"], "↓ Step Into", ids["cpp_step_into"])
+    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_continue"], 0, 0)
+    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_step_over"], 2, 0)
+    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_step_into"], 4, 0)
+    ui.place_grid_child(ids["cpp_surface"], f"{ids['cpp_surface']}.row1", 1, 1)
+
+    ui.create_grid(f"{ids['cpp_surface']}.row2")
+    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row2")
+    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row2", 4)
+    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row2")
+    ui.add_grid_row_fill(f"{ids['cpp_surface']}.row2")
+    ui.create_button(ids["cpp_step_out"], "↑ Step Out", ids["cpp_step_out"])
+    ui.create_button(ids["cpp_pause"], "⏸ Pause", ids["cpp_pause"])
+    ui.place_grid_child(f"{ids['cpp_surface']}.row2", ids["cpp_step_out"], 0, 0)
+    ui.place_grid_child(f"{ids['cpp_surface']}.row2", ids["cpp_pause"], 2, 0)
+    ui.place_grid_child(ids["cpp_surface"], f"{ids['cpp_surface']}.row2", 1, 3)
+
+    ui.create_label(ids["cpp_status"], "GDB bridge not linked yet.", 11)
+    ui.set_property_bool(ids["cpp_status"], "enabled", False)
+    ui.place_grid_child(ids["cpp_surface"], ids["cpp_status"], 1, 4)
+
+    ui.create_label(ids["cpp_threads_label"], "CURRENT THREADS", 10)
+    ui.set_property_bool(ids["cpp_threads_label"], "enabled", False)
+    ui.place_grid_child(ids["cpp_surface"], ids["cpp_threads_label"], 1, 6)
+    ui.create_list_view(ids["cpp_threads"])
+    ui.set_property_number(ids["cpp_threads"], "font_size", 12)
+    ui.set_section_json(ids["cpp_threads"], "items", [
+        {"id": f"{ids['cpp_threads']}.placeholder", "label": "No GDB session attached"},
+    ])
+    ui.place_grid_child(ids["cpp_surface"], ids["cpp_threads"], 1, 7)
+
     ui.create_tabs(ids["debug_tabs"])
+    ui.create_tabs(ids["cpp_debug_tabs"])
     ui.create_tree_view(ids["debug"])
     ui.create_tree_view(ids["debug_ghs"])
     ui.create_tree_view(ids["debug_stack"])
     ui.create_tree_view(ids["debug_local"])
     ui.create_tree_view(ids["debug_dynamic"])
+    ui.create_list_view(ids["cpp_debug_threads"])
+    ui.create_list_view(ids["cpp_debug_frames"])
+    ui.create_tree_view(ids["cpp_debug_locals"])
+    ui.create_tree_view(ids["cpp_debug_registers"])
+    ui.create_tree_view(ids["cpp_debug_memory"])
     ui.set_section_json(ids["debug"], "nodes", [{"id": f"{ids['debug']}.root", "label": "Stack (LIFO)", "expanded": True, "children": [{"id": f"{ids['debug']}.root.empty", "label": "Stack empty"}]}])
     ui.set_section_json(ids["debug_ghs"], "nodes", [{"id": f"{ids['debug_ghs']}.root", "label": "GHS Layout", "expanded": True}])
     ui.set_section_json(ids["debug_stack"], "nodes", [{"id": f"{ids['debug_stack']}.root", "label": "Stack Interpretation", "expanded": True}])
     ui.set_section_json(ids["debug_local"], "nodes", [{"id": f"{ids['debug_local']}.root", "label": "Local Arena", "expanded": True}])
     ui.set_section_json(ids["debug_dynamic"], "nodes", [{"id": f"{ids['debug_dynamic']}.root", "label": "Dynamic Memory", "expanded": True}])
+    ui.set_section_json(ids["cpp_debug_threads"], "items", [
+        {"id": f"{ids['cpp_debug_threads']}.root", "label": "No GDB thread data"},
+    ])
+    ui.set_section_json(ids["cpp_debug_frames"], "items", [
+        {"id": f"{ids['cpp_debug_frames']}.root", "label": "No stack frame selected"},
+    ])
+    ui.set_section_json(ids["cpp_debug_locals"], "nodes", [
+        {"id": f"{ids['cpp_debug_locals']}.root", "label": "Locals", "expanded": True,
+         "children": [{"id": f"{ids['cpp_debug_locals']}.root.empty", "label": "No local symbols"}]}
+    ])
+    ui.set_section_json(ids["cpp_debug_registers"], "nodes", [
+        {"id": f"{ids['cpp_debug_registers']}.root", "label": "Registers", "expanded": True,
+         "children": [{"id": f"{ids['cpp_debug_registers']}.root.empty", "label": "No register snapshot"}]}
+    ])
+    ui.set_section_json(ids["cpp_debug_memory"], "nodes", [
+        {"id": f"{ids['cpp_debug_memory']}.root", "label": "Memory Regions", "expanded": True,
+         "children": [{"id": f"{ids['cpp_debug_memory']}.root.empty", "label": "No memory view attached"}]}
+    ])
     ui.add_tab(ids["debug_tabs"], "Trace", ids["debug"])
     ui.add_tab(ids["debug_tabs"], "GHS", ids["debug_ghs"])
     ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
     ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
     ui.add_tab(ids["debug_tabs"], "Dynamic", ids["debug_dynamic"])
+    ui.add_tab(ids["cpp_debug_tabs"], "Threads", ids["cpp_debug_threads"])
+    ui.add_tab(ids["cpp_debug_tabs"], "Frames", ids["cpp_debug_frames"])
+    ui.add_tab(ids["cpp_debug_tabs"], "Locals", ids["cpp_debug_locals"])
+    ui.add_tab(ids["cpp_debug_tabs"], "Registers", ids["cpp_debug_registers"])
+    ui.add_tab(ids["cpp_debug_tabs"], "Memory", ids["cpp_debug_memory"])
+    ui.set_property_bool(ids["cpp_debug_tabs"], "visible", False)
 
     ui.place_grid_child(ids["debug_panel"], ids["source"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["epa"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["cpp_surface"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["cpp_debug_tabs"], 1, 0)
     ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 1)
     ui.add_tab("editor.tabs", title, ids["container"],
                button_glyph="×", button_action=f"tab.close.{tab_id}")
@@ -1015,16 +1130,75 @@ def build_document():
 
     ui.create_grid("nav.debug.cpp_panel")
     ui.add_grid_column_fill("nav.debug.cpp_panel")
-    ui.add_grid_row_fill("nav.debug.cpp_panel")
-    ui.create_code_editor(
-        "nav.debug.cpp_view",
-        "// C++ debug view placeholder\n"
-        "//\n"
-        "// Reserve this tab for host-side debug controls and state.\n",
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 168)
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 22)
+    ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)
+
+    ui.create_grid("nav.debug.cpp_controls")
+    ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
+    ui.add_grid_column_fill("nav.debug.cpp_controls")
+    ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 22)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)
+
+    ui.create_label("nav.debug.cpp_title", "C++ DEBUG CONTROL", 10)
+    ui.set_property_bool("nav.debug.cpp_title", "enabled", False)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_title", 1, 0)
+
+    ui.create_grid("nav.debug.cpp_step_row")
+    ui.add_grid_column_fill("nav.debug.cpp_step_row")
+    ui.add_grid_column_exact("nav.debug.cpp_step_row", 4)
+    ui.add_grid_column_fill("nav.debug.cpp_step_row")
+    ui.add_grid_column_exact("nav.debug.cpp_step_row", 4)
+    ui.add_grid_column_fill("nav.debug.cpp_step_row")
+    ui.add_grid_row_fill("nav.debug.cpp_step_row")
+    ui.create_button("nav.debug.cpp_continue", "▶ Continue", "debug.cpp.continue")
+    ui.create_button("nav.debug.cpp_step_over", "↷ Step Over", "debug.cpp.step_over")
+    ui.create_button("nav.debug.cpp_step_into", "↓ Step Into", "debug.cpp.step_into")
+    ui.set_property_number("nav.debug.cpp_continue", "font_size", 11)
+    ui.set_property_number("nav.debug.cpp_step_over", "font_size", 11)
+    ui.set_property_number("nav.debug.cpp_step_into", "font_size", 11)
+    ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_continue", 0, 0)
+    ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_over", 2, 0)
+    ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_into", 4, 0)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_row", 1, 1)
+
+    ui.create_grid("nav.debug.cpp_lower_row")
+    ui.add_grid_column_fill("nav.debug.cpp_lower_row")
+    ui.add_grid_column_exact("nav.debug.cpp_lower_row", 4)
+    ui.add_grid_column_fill("nav.debug.cpp_lower_row")
+    ui.add_grid_row_fill("nav.debug.cpp_lower_row")
+    ui.create_button("nav.debug.cpp_step_out", "↑ Step Out", "debug.cpp.step_out")
+    ui.create_button("nav.debug.cpp_pause", "⏸ Pause", "debug.cpp.pause")
+    ui.set_property_number("nav.debug.cpp_step_out", "font_size", 11)
+    ui.set_property_number("nav.debug.cpp_pause", "font_size", 11)
+    ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_step_out", 0, 0)
+    ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_pause", 2, 0)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_lower_row", 1, 3)
+
+    ui.create_label(
+        "nav.debug.cpp_status",
+        "GDB bridge not linked yet. These controls are reserved for host-side stepping.",
+        11,
     )
-    ui.set_property_string("nav.debug.cpp_view", "language", "cpp")
-    ui.set_property_bool("nav.debug.cpp_view", "read_only", True)
-    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_view", 0, 0)
+    ui.set_property_bool("nav.debug.cpp_status", "enabled", False)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_status", 1, 4)
+
+    ui.create_label("nav.debug.cpp_threads_label", "CURRENT THREADS", 10)
+    ui.set_property_bool("nav.debug.cpp_threads_label", "enabled", False)
+    ui.create_list_view("nav.debug.cpp_threads")
+    ui.set_property_number("nav.debug.cpp_threads", "font_size", 12)
+    ui.set_section_json("nav.debug.cpp_threads", "items", [
+        {"id": "thread.placeholder.0", "label": "No GDB session attached"},
+    ])
+
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_controls", 0, 0)
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads_label", 0, 1)
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads", 0, 2)
 
     ui.create_grid("nav.debug.python_panel")
     ui.add_grid_column_fill("nav.debug.python_panel")
@@ -2495,6 +2669,20 @@ def main():
         "input": "",
         "output": "Terminal ready. Open a project to set the working directory.",
     }
+    cpp_gdb_state = {
+        "proc": None,
+        "token": 0,
+        "running": False,
+        "project_root": "",
+        "binary": "",
+        "args": [],
+        "status": "No GDB session attached.",
+    }
+    host_debug_bridge = {
+        "server": None,
+        "thread": None,
+        "port": None,
+    }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
     ide_bindings = IdeBindings()
@@ -2832,6 +3020,9 @@ def main():
                 proc.wait()
         _epa_dbg["proc"] = None
         _epa_dbg["port"] = None
+        _host_debug_bridge_stop()
+        app_state.pop("debug_session_id", None)
+        app_state.pop("debug_session_path", None)
         app_state.pop("debug_kernel_loaded", None)
         app_state.pop("debug_active_kernel", None)
         _epa_dbg_set_vm_button(False)
@@ -2945,6 +3136,483 @@ def main():
             return json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
             return {}
+
+    def _allocate_localhost_port() -> int:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.bind(("127.0.0.1", 0))
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            return int(s.getsockname()[1])
+
+    def _host_debug_bridge_stop():
+        server = host_debug_bridge.get("server")
+        if server:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                server.server_close()
+            except Exception:
+                pass
+        thread = host_debug_bridge.get("thread")
+        if thread and thread.is_alive():
+            thread.join(timeout=1.0)
+        host_debug_bridge["server"] = None
+        host_debug_bridge["thread"] = None
+        host_debug_bridge["port"] = None
+
+    def _host_debug_bridge_handle_message(raw_line: str):
+        try:
+            payload = json.loads(raw_line)
+        except Exception:
+            return
+        kind = str(payload.get("kind", "") or "")
+        session_id = str(payload.get("session_id", "") or "")
+        expected_session = str(app_state.get("debug_session_id", "") or "")
+        if expected_session and session_id and session_id != expected_session:
+            return
+        ui_c = client_ref.get("client")
+        if kind == "register":
+            app_state["host_debug_registered"] = True
+            message = payload.get("message") or f"host registered pid={payload.get('pid', '?')}"
+            if ui_c:
+                _append_build_output(ui_c, f"[host-debug] {message}\n")
+            return
+        if kind == "log":
+            message = str(payload.get("message", "") or "")
+            if ui_c and message:
+                _append_build_output(ui_c, f"[host] {message}\n")
+            return
+        if kind == "state":
+            state_text = str(payload.get("status", "") or "")
+            if ui_c and state_text:
+                _append_build_output(ui_c, f"[host-state] {state_text}\n")
+            app_state["host_debug_state"] = state_text
+            return
+
+    def _host_debug_bridge_ensure():
+        if host_debug_bridge.get("server") is not None:
+            return int(host_debug_bridge.get("port") or 0)
+
+        class _HostDebugBridgeHandler(socketserver.StreamRequestHandler):
+            def handle(self):
+                while True:
+                    line = self.rfile.readline()
+                    if not line:
+                        break
+                    _host_debug_bridge_handle_message(line.decode("utf-8", errors="replace").strip())
+
+        class _HostDebugBridgeServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        port = _allocate_localhost_port()
+        server = _HostDebugBridgeServer(("127.0.0.1", port), _HostDebugBridgeHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        host_debug_bridge["server"] = server
+        host_debug_bridge["thread"] = thread
+        host_debug_bridge["port"] = port
+        return port
+
+    def _debug_session_dir(project_root: Path | None = None) -> Path:
+        if project_root:
+            session_dir = project_root / ".elaraproject" / "debug-sessions"
+        else:
+            session_dir = Path(tempfile.gettempdir()) / "epa-ide-debug-sessions"
+        session_dir.mkdir(parents=True, exist_ok=True)
+        return session_dir
+
+    def _build_debug_session_descriptor() -> dict:
+        project_root_text = app_state.get("project_root", "")
+        project_root = Path(project_root_text) if project_root_text else None
+        project_name = app_state.get("project_name") or (project_root.name if project_root else "")
+        bundle_path = str((project_root / "build" / "epa.bin")) if project_root else ""
+        session_id = app_state.get("debug_session_id")
+        if not session_id:
+            session_id = f"{int(time.time())}-{uuid.uuid4().hex[:8]}"
+            app_state["debug_session_id"] = session_id
+        return {
+            "session_id": session_id,
+            "mode": "debug",
+            "project_name": project_name,
+            "project_root": str(project_root) if project_root else "",
+            "bundle_path": bundle_path,
+            "ui_rpc_host": args.host,
+            "ui_rpc_port": int(args.port),
+            "ai_rpc_host": args.host,
+            "ai_rpc_port": int(args.ai_rpc_port),
+            "epa_dbg_host": "127.0.0.1",
+            "epa_dbg_port": int(_epa_dbg_port() or 0),
+            "host_debug_host": "127.0.0.1",
+            "host_debug_port": int(_host_debug_bridge_ensure() or 0),
+            "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+    def _write_debug_session_descriptor() -> Path | None:
+        project_root_text = app_state.get("project_root", "")
+        project_root = Path(project_root_text) if project_root_text else None
+        descriptor = _build_debug_session_descriptor()
+        session_dir = _debug_session_dir(project_root)
+        session_path = session_dir / f"{descriptor['session_id']}.json"
+        session_path.write_text(json.dumps(descriptor, indent=2), encoding="utf-8")
+        app_state["debug_session_path"] = str(session_path)
+        return session_path
+
+    def _project_cpp_root(project_root: Path) -> Path:
+        return project_root / "cpp"
+
+    def _read_make_var(makefile: Path, name: str) -> str:
+        try:
+            text = makefile.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            return ""
+        match = re.search(rf"(?m)^\s*{re.escape(name)}\s*[:?+]?=\s*(.+?)\s*$", text)
+        return match.group(1).strip() if match else ""
+
+    def _project_cpp_target(project_root: Path) -> str:
+        cpp_root = _project_cpp_root(project_root)
+        target = _read_make_var(cpp_root / "Makefile", "TARGET")
+        if target:
+            return target
+        meta = _project_meta(project_root)
+        return meta.get("name", project_root.name)
+
+    def _project_cpp_binary(project_root: Path) -> Path:
+        cpp_root = _project_cpp_root(project_root)
+        return cpp_root / "build" / _project_cpp_target(project_root)
+
+    def _project_cpp_gdb_args(project_root: Path) -> list[str]:
+        meta = _project_meta(project_root)
+        host = str(meta.get("rpc_host", "127.0.0.1"))
+        port = str(meta.get("rpc_port", 18777))
+        return [host, port]
+
+    def _cpp_debug_editor_tab_ids() -> list[str]:
+        return list(editor_state.keys())
+
+    def _set_cpp_thread_items(client, items: list[dict]):
+        if not items:
+            items = [{"id": "cpp.threads.empty", "label": "No GDB thread data"}]
+        targets = ["nav.debug.cpp_threads"]
+        for tab_id in _cpp_debug_editor_tab_ids():
+            ids = _editor_ids(tab_id)
+            targets.extend([ids["cpp_threads"], ids["cpp_debug_threads"]])
+        seen = set()
+        for target in targets:
+            if target in seen:
+                continue
+            seen.add(target)
+            try:
+                client.set_section_json(target, "items", items)
+            except Exception:
+                try:
+                    client.call("ui.setSectionJson", {"target": target, "section": "items", "value": items})
+                except Exception:
+                    pass
+
+    def _set_cpp_status_text(client, text: str):
+        cpp_gdb_state["status"] = text
+        targets = ["nav.debug.cpp_status"]
+        for tab_id in _cpp_debug_editor_tab_ids():
+            targets.append(_editor_ids(tab_id)["cpp_status"])
+        seen = set()
+        for target in targets:
+            if target in seen:
+                continue
+            seen.add(target)
+            try:
+                client.set_text(target, text)
+            except Exception:
+                pass
+
+    def _set_cpp_tree_nodes(client, target: str, root_label: str, leaf_labels: list[str]):
+        children = [{"id": f"{target}.leaf.{idx}", "label": label} for idx, label in enumerate(leaf_labels or ["No data"])]
+        nodes = [{"id": f"{target}.root", "label": root_label, "expanded": True, "children": children}]
+        try:
+            client.set_section_json(target, "nodes", nodes)
+        except Exception:
+            try:
+                client.call("ui.setSectionJson", {"target": target, "section": "nodes", "value": nodes})
+            except Exception:
+                pass
+
+    def _set_cpp_frame_items(client, items: list[dict]):
+        if not items:
+            items = [{"id": "cpp.frames.empty", "label": "No stack frame selected"}]
+        targets = []
+        for tab_id in _cpp_debug_editor_tab_ids():
+            targets.append(_editor_ids(tab_id)["cpp_debug_frames"])
+        for target in targets:
+            try:
+                client.set_section_json(target, "items", items)
+            except Exception:
+                try:
+                    client.call("ui.setSectionJson", {"target": target, "section": "items", "value": items})
+                except Exception:
+                    pass
+
+    def _set_cpp_locals_text(client, labels: list[str]):
+        for tab_id in _cpp_debug_editor_tab_ids():
+            ids = _editor_ids(tab_id)
+            _set_cpp_tree_nodes(client, ids["cpp_debug_locals"], "Locals", labels or ["No local symbols"])
+
+    def _set_cpp_registers_text(client, labels: list[str]):
+        for tab_id in _cpp_debug_editor_tab_ids():
+            ids = _editor_ids(tab_id)
+            _set_cpp_tree_nodes(client, ids["cpp_debug_registers"], "Registers", labels or ["No register snapshot"])
+
+    def _set_cpp_memory_text(client, labels: list[str]):
+        for tab_id in _cpp_debug_editor_tab_ids():
+            ids = _editor_ids(tab_id)
+            _set_cpp_tree_nodes(client, ids["cpp_debug_memory"], "Memory Regions", labels or ["No memory view attached"])
+
+    def _cpp_gdb_stop_session():
+        proc = cpp_gdb_state.get("proc")
+        cpp_gdb_state["proc"] = None
+        cpp_gdb_state["running"] = False
+        cpp_gdb_state["project_root"] = ""
+        cpp_gdb_state["binary"] = ""
+        cpp_gdb_state["args"] = []
+        if proc is None:
+            return
+        try:
+            if proc.stdin:
+                proc.stdin.write("-gdb-exit\n")
+                proc.stdin.flush()
+        except Exception:
+            pass
+        try:
+            proc.terminate()
+            proc.wait(timeout=1.0)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+    def _cpp_gdb_read_until_prompt(proc: subprocess.Popen, timeout: float = 5.0) -> list[str]:
+        lines = []
+        if proc.stdout is None:
+            raise RuntimeError("gdb stdout not available")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            remaining = max(0.0, deadline - time.time())
+            ready, _, _ = select.select([proc.stdout], [], [], remaining)
+            if not ready:
+                continue
+            line = proc.stdout.readline()
+            if not line:
+                break
+            text = line.rstrip("\r\n")
+            lines.append(text)
+            if text == "(gdb)":
+                return lines
+        raise RuntimeError("Timed out waiting for gdb prompt")
+
+    def _cpp_gdb_send(command: str, timeout: float = 5.0) -> list[str]:
+        proc = cpp_gdb_state.get("proc")
+        if proc is None or proc.stdin is None:
+            raise RuntimeError("No GDB session attached")
+        cpp_gdb_state["token"] += 1
+        token = cpp_gdb_state["token"]
+        proc.stdin.write(f"{token}{command}\n")
+        proc.stdin.flush()
+        lines = _cpp_gdb_read_until_prompt(proc, timeout=timeout)
+        result_line = next((line for line in lines if line.startswith(f"{token}^")), "")
+        if not result_line:
+            raise RuntimeError("\n".join(lines))
+        if result_line.startswith(f"{token}^error"):
+            match = re.search(r'msg="([^"]*)"', result_line)
+            message = match.group(1).replace('\\"', '"') if match else result_line
+            raise RuntimeError(message)
+        cpp_gdb_state["running"] = any(line.startswith("*running") or "^running" in line for line in lines)
+        if any(line.startswith("*stopped") for line in lines):
+            cpp_gdb_state["running"] = False
+        return lines
+
+    def _cpp_gdb_threads_from_lines(lines: list[str]) -> tuple[list[dict], str]:
+        joined = "\n".join(lines)
+        current_match = re.search(r'current-thread-id="([^"]+)"', joined)
+        current_id = current_match.group(1) if current_match else ""
+        items = []
+        for match in re.finditer(r'\{id="([^"]+)".*?target-id="([^"]*)".*?state="([^"]+)"', joined):
+            tid, target_id, state = match.groups()
+            prefix = "* " if tid == current_id else "  "
+            label = f"{prefix}thread {tid}  {state}"
+            if target_id:
+                label += f"  {target_id}"
+            items.append({"id": f"cpp.thread.{tid}", "label": label})
+        return items, current_id
+
+    def _cpp_gdb_frames_from_lines(lines: list[str]) -> list[dict]:
+        joined = "\n".join(lines)
+        items = []
+        for match in re.finditer(r'level="([^"]+)".*?func="([^"]*)".*?(?:file="([^"]*)".*?line="([^"]*)")?', joined):
+            level, func, file_name, line_no = match.groups()
+            label = f"#{level} {func or '?'}"
+            if file_name:
+                label += f"  {file_name}:{line_no or '?'}"
+            items.append({"id": f"cpp.frame.{level}", "label": label})
+        return items
+
+    def _cpp_gdb_locals_from_lines(lines: list[str]) -> list[str]:
+        joined = "\n".join(lines)
+        labels = []
+        for match in re.finditer(r'\{name="([^"]+)"(?:,arg="[^"]*")?(?:,type="([^"]*)")?(?:,value="([^"]*)")?', joined):
+            name, type_name, value = match.groups()
+            label = name
+            if type_name:
+                label += f": {type_name}"
+            if value is not None:
+                label += f" = {value}"
+            labels.append(label)
+        return labels
+
+    def _cpp_gdb_status_from_lines(lines: list[str]) -> str:
+        joined = "\n".join(lines)
+        if "*stopped" in joined:
+            reason = re.search(r'reason="([^"]+)"', joined)
+            func = re.search(r'func="([^"]+)"', joined)
+            file_name = re.search(r'file="([^"]+)"', joined)
+            line_no = re.search(r'line="([^"]+)"', joined)
+            parts = ["stopped"]
+            if reason:
+                parts.append(reason.group(1))
+            if func:
+                location = func.group(1)
+                if file_name and line_no:
+                    location += f" at {file_name.group(1)}:{line_no.group(1)}"
+                parts.append(location)
+            return " | ".join(parts)
+        if cpp_gdb_state.get("running"):
+            return "running"
+        return cpp_gdb_state.get("status", "No GDB session attached.")
+
+    def _cpp_gdb_refresh_ui(client):
+        proc = cpp_gdb_state.get("proc")
+        if proc is None or proc.poll() is not None:
+            _set_cpp_status_text(client, "No GDB session attached.")
+            _set_cpp_thread_items(client, [])
+            _set_cpp_frame_items(client, [])
+            _set_cpp_locals_text(client, [])
+            _set_cpp_registers_text(client, [])
+            _set_cpp_memory_text(client, [])
+            return
+        if cpp_gdb_state.get("running"):
+            _set_cpp_status_text(client, "running")
+            _set_cpp_memory_text(client, ["Process running; pause to inspect memory scopes."])
+            return
+        try:
+            thread_lines = _cpp_gdb_send("-thread-info", timeout=3.0)
+            thread_items, current_tid = _cpp_gdb_threads_from_lines(thread_lines)
+            _set_cpp_thread_items(client, thread_items)
+            frame_lines = _cpp_gdb_send("-stack-list-frames", timeout=3.0)
+            _set_cpp_frame_items(client, _cpp_gdb_frames_from_lines(frame_lines))
+            local_lines = _cpp_gdb_send("-stack-list-variables --simple-values", timeout=3.0)
+            _set_cpp_locals_text(client, _cpp_gdb_locals_from_lines(local_lines))
+            _set_cpp_registers_text(client, [f"Current thread: {current_tid or '?'}", "Register dump not wired yet"])
+            _set_cpp_memory_text(client, ["Scope inspector active", "Raw memory view not wired yet"])
+        except Exception as exc:
+            _set_cpp_status_text(client, f"GDB refresh failed: {exc}")
+
+    def _ensure_cpp_gdb_session(client):
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            raise RuntimeError("No project open.")
+        project_root = Path(project_root_text)
+        cpp_root = _project_cpp_root(project_root)
+        if not cpp_root.is_dir():
+            raise RuntimeError(f"Project has no C++ directory: {cpp_root}")
+        binary = _project_cpp_binary(project_root)
+        if not binary.is_file():
+            raise RuntimeError(f"C++ debug binary not found: {binary}\nRun Build Project first.")
+        wanted_args = _project_cpp_gdb_args(project_root)
+        proc = cpp_gdb_state.get("proc")
+        if (
+            proc is not None and proc.poll() is None
+            and cpp_gdb_state.get("project_root") == str(project_root)
+            and cpp_gdb_state.get("binary") == str(binary)
+        ):
+            return
+        _cpp_gdb_stop_session()
+        session_path = _write_debug_session_descriptor()
+        proc = subprocess.Popen(
+            ["gdb", "--interpreter=mi2", "--quiet", "--args", str(binary), *wanted_args],
+            cwd=str(cpp_root),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env={
+                **os.environ,
+                "LC_ALL": "C",
+                "ELARA_DEBUG_SESSION": str(session_path),
+            },
+        )
+        cpp_gdb_state["proc"] = proc
+        cpp_gdb_state["project_root"] = str(project_root)
+        cpp_gdb_state["binary"] = str(binary)
+        cpp_gdb_state["args"] = wanted_args
+        cpp_gdb_state["running"] = False
+        _cpp_gdb_log(client, f"[gdb] debug session {session_path}")
+        _cpp_gdb_read_until_prompt(proc, timeout=5.0)
+        _cpp_gdb_send('-gdb-set pagination off')
+        _cpp_gdb_send('-gdb-set confirm off')
+        start_lines = _cpp_gdb_send("-exec-run --start", timeout=20.0)
+        _set_cpp_status_text(client, _cpp_gdb_status_from_lines(start_lines))
+        _cpp_gdb_refresh_ui(client)
+
+    def _cpp_gdb_log(client, line: str):
+        _append_build_output(client, line.rstrip("\n") + "\n")
+
+    def _cpp_gdb_execute(client, mi_command: str, label: str, timeout: float = 15.0):
+        _ensure_cpp_gdb_session(client)
+        lines = _cpp_gdb_send(mi_command, timeout=timeout)
+        status = _cpp_gdb_status_from_lines(lines)
+        _set_cpp_status_text(client, status)
+        _cpp_gdb_log(client, f"[gdb] {label}: {status}")
+        if cpp_gdb_state.get("running"):
+            _set_cpp_memory_text(client, ["Process running; pause to inspect memory scopes."])
+        else:
+            _cpp_gdb_refresh_ui(client)
+
+    def _cpp_gdb_handle_action(client, action_id: str):
+        try:
+            if action_id in ("debug.cpp.continue",):
+                _cpp_gdb_execute(client, "-exec-continue", "continue", timeout=5.0)
+                return True
+            if action_id in ("debug.cpp.step_over",):
+                if cpp_gdb_state.get("running"):
+                    raise RuntimeError("GDB is running. Pause before stepping.")
+                _cpp_gdb_execute(client, "-exec-next", "step over", timeout=20.0)
+                return True
+            if action_id in ("debug.cpp.step_into",):
+                if cpp_gdb_state.get("running"):
+                    raise RuntimeError("GDB is running. Pause before stepping.")
+                _cpp_gdb_execute(client, "-exec-step", "step into", timeout=20.0)
+                return True
+            if action_id in ("debug.cpp.step_out",):
+                if cpp_gdb_state.get("running"):
+                    raise RuntimeError("GDB is running. Pause before stepping.")
+                _cpp_gdb_execute(client, "-exec-finish", "step out", timeout=20.0)
+                return True
+            if action_id in ("debug.cpp.pause",):
+                _ensure_cpp_gdb_session(client)
+                if not cpp_gdb_state.get("running"):
+                    _set_cpp_status_text(client, "stopped")
+                    _cpp_gdb_refresh_ui(client)
+                    _cpp_gdb_log(client, "[gdb] pause: already stopped")
+                    return True
+                _cpp_gdb_execute(client, "-exec-interrupt", "pause", timeout=20.0)
+                return True
+        except Exception as exc:
+            _set_cpp_status_text(client, f"GDB error: {exc}")
+            _cpp_gdb_log(client, f"[gdb-error] {exc}")
+            _cpp_gdb_refresh_ui(client)
+            return True
+        return False
 
     def _history_dir() -> Path | None:
         project_root = app_state.get("project_root", "")
@@ -3162,27 +3830,31 @@ def main():
 
             if "cpp" in technologies:
                 cpp_root = project_root / "cpp"
-                build_script = cpp_root / "build.sh"
-                if not build_script.is_file():
-                    raise RuntimeError(f"Missing C++ build script: {build_script}")
+                makefile = cpp_root / "Makefile"
+                if not makefile.is_file():
+                    raise RuntimeError(f"Missing C++ Makefile: {makefile}")
+                _cpp_gdb_stop_session()
                 if rebuild:
-                    clean_script = cpp_root / "clean.sh"
-                    if clean_script.is_file():
-                        _append_build_output(client, "$ " + str(clean_script) + "\n")
-                        clean_result = _run_subprocess_streaming([str(clean_script)], client, cwd=cpp_root)
-                        build_steps.append({
-                            "step": "cpp_clean",
-                            "command": [str(clean_script)],
-                            "stdout": clean_result.stdout.strip(),
-                            "stderr": clean_result.stderr.strip(),
-                        })
-                _append_build_output(client, "$ " + str(build_script) + "\n")
-                cpp_result = _run_subprocess_streaming([str(build_script)], client, cwd=cpp_root)
+                    clean_cmd = ["make", "-C", str(cpp_root), "clean"]
+                    _append_build_output(client, "$ " + " ".join(clean_cmd) + "\n")
+                    clean_result = _run_subprocess_streaming(clean_cmd, client, cwd=cpp_root)
+                    build_steps.append({
+                        "step": "cpp_clean",
+                        "command": clean_cmd,
+                        "stdout": clean_result.stdout.strip(),
+                        "stderr": clean_result.stderr.strip(),
+                    })
+                build_cmd = ["make", "-C", str(cpp_root), "BUILD_PROFILE=debug", "-j2"]
+                _append_build_output(client, "$ " + " ".join(build_cmd) + "\n")
+                cpp_result = _run_subprocess_streaming(build_cmd, client, cwd=cpp_root)
                 build_steps.append({
                     "step": "cpp_build",
-                    "command": [str(build_script)],
+                    "command": build_cmd,
                     "stdout": cpp_result.stdout.strip(),
                     "stderr": cpp_result.stderr.strip(),
+                    "outputs": {
+                        "binary": str(_project_cpp_binary(project_root)),
+                    },
                 })
 
             print(json.dumps({
@@ -3217,15 +3889,16 @@ def main():
             return
         project_root = Path(project_root_text)
         removed = []
+        _cpp_gdb_stop_session()
         build_dir = project_root / "build"
         if build_dir.exists():
             shutil.rmtree(build_dir)
             removed.append(str(build_dir))
         cpp_root = project_root / "cpp"
-        clean_script = cpp_root / "clean.sh"
-        if clean_script.is_file():
+        makefile = cpp_root / "Makefile"
+        if makefile.is_file():
             try:
-                result = _run_subprocess([str(clean_script)], cwd=cpp_root)
+                result = _run_subprocess(["make", "-C", str(cpp_root), "clean"], cwd=cpp_root)
                 print(json.dumps({
                     "clean": "ok",
                     "project": str(project_root),
@@ -3540,10 +4213,15 @@ def main():
         ids = _editor_ids(tab_id)
         view = state.get("view", "e")
         is_epa = view == "epa"
-        client.set_visible(ids["source"], not is_epa)
+        is_cpp = view == "cpp"
+        client.set_visible(ids["source"], not is_epa and not is_cpp)
         client.set_visible(ids["epa"], is_epa)
+        client.set_visible(ids["cpp_surface"], is_cpp)
+        client.set_visible(ids["debug_tabs"], not is_cpp)
+        client.set_visible(ids["cpp_debug_tabs"], is_cpp)
         client.set_enabled(ids["button_e"], view != "e")
         client.set_enabled(ids["button_epa"], view != "epa")
+        client.set_enabled(ids["button_cpp"], view != "cpp")
         client.set_read_only(ids["epa"], True)
         debug_on = state.get("debug", False)
         try:
@@ -4255,6 +4933,12 @@ def main():
         dbg_c = _epa_dbg_client()
         if not dbg_c:
             return False
+        try:
+            session_path = _write_debug_session_descriptor()
+            if session_path:
+                _append_build_output(client, f"[debug-session] {session_path}\n")
+        except Exception as exc:
+            _append_build_output(client, f"[debug-session-error] {exc}\n")
 
         kernels = _kernels_from_project()
         failures = []
@@ -4498,6 +5182,8 @@ def main():
     def _open_project(client, project_path):
         """Populate nav.tree with the structure of an open project."""
         project_path = Path(project_path)
+        _cpp_gdb_stop_session()
+        _host_debug_bridge_stop()
         _save_ide_state({"last_project": str(project_path)})
         meta_path = project_path / ".elaraproject" / "project.json"
         try:
@@ -4578,11 +5264,19 @@ def main():
             pass
         app_state.pop("debug_kernel_loaded", None)
         app_state.pop("debug_active_kernel", None)
+        app_state.pop("debug_session_id", None)
+        app_state.pop("debug_session_path", None)
         app_state["debug_vm_started"] = False
         app_state["debug_kernel_indicator_state"] = {}
         app_state["debug_kernel_queue_state"] = {}
         app_state["debug_kernel_snapshot_state"] = {}
         _epa_dbg_set_vm_button(False)
+        _set_cpp_status_text(client, "No GDB session attached.")
+        _set_cpp_thread_items(client, [])
+        _set_cpp_frame_items(client, [])
+        _set_cpp_locals_text(client, [])
+        _set_cpp_registers_text(client, [])
+        _set_cpp_memory_text(client, [])
         _close_open_project_window(client)
 
     _NAV_PANELS = {
@@ -5054,6 +5748,7 @@ def main():
             client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
             if ext == ".e":
                 _refresh_e_tab(client, tab_id)
+                _cpp_gdb_refresh_ui(client)
             _focus_editor_widget(client, tab_id, editor_state.get(tab_id))
         except Exception:
             pass
@@ -5728,6 +6423,33 @@ def main():
                     current_tab = tab_id
                     _deferred(lambda: _refresh_e_tab(c, current_tab, focus=True))
                     return {"received": True}
+                if item_action == ids["button_cpp"]:
+                    app_state["active_editor_tab"] = tab_id
+                    state["view"] = "cpp"
+                    current_tab = tab_id
+                    _deferred(lambda: _apply_editor_view(c, current_tab, set_focus=True))
+                    return {"received": True}
+                cpp_action_map = {
+                    ids["cpp_continue"]: "debug.cpp.continue",
+                    ids["cpp_step_over"]: "debug.cpp.step_over",
+                    ids["cpp_step_into"]: "debug.cpp.step_into",
+                    ids["cpp_step_out"]: "debug.cpp.step_out",
+                    ids["cpp_pause"]: "debug.cpp.pause",
+                }
+                mapped_cpp_action = cpp_action_map.get(item_action)
+                if mapped_cpp_action:
+                    app_state["active_editor_tab"] = tab_id
+                    _deferred(lambda action_id=mapped_cpp_action: _cpp_gdb_handle_action(c, action_id))
+                    return {"received": True}
+            if item_action in (
+                "debug.cpp.continue",
+                "debug.cpp.step_over",
+                "debug.cpp.step_into",
+                "debug.cpp.step_out",
+                "debug.cpp.pause",
+            ):
+                _deferred(lambda action_id=item_action: _cpp_gdb_handle_action(c, action_id))
+                return {"received": True}
             if item_action and item_action.startswith("tab.close."):
                 close_tab_id = item_action[len("tab.close."):]
                 entry = next((t for t in tab_list if t["tab_id"] == close_tab_id), None)
@@ -5807,6 +6529,8 @@ def main():
                         target_widget = ids["source"]
                         if view == "epa":
                             target_widget = ids["epa"]
+                        elif view == "cpp":
+                            target_widget = ids["cpp_continue"]
                         try:
                             c.set_focus(target_widget)
                             c.perform_action(target_widget, action)
