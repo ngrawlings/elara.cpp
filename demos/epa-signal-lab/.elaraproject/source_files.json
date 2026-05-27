@@ -1,0 +1,26 @@
+{
+  "epa": [
+    "epa/entry.e",
+    "epa/remote_sink.e"
+  ],
+  "cpp": [
+    "cpp/src/EpaSignalLabApp.cpp",
+    "cpp/src/EpaSignalLabApp.h",
+    "cpp/src/EpaSignalLabEpaDebugServer.cpp",
+    "cpp/src/EpaSignalLabEpaDebugServer.h",
+    "cpp/src/EpaSignalLabEpaDebugService.cpp",
+    "cpp/src/EpaSignalLabEpaDebugService.h",
+    "cpp/src/EpaSignalLabEpaDebugShim.c",
+    "cpp/src/EpaSignalLabEpaDebugShim.h",
+    "cpp/src/EpaSignalLabEpaVmHost.cpp",
+    "cpp/src/EpaSignalLabEpaVmHost.h",
+    "cpp/src/epa_debug_main.cpp",
+    "cpp/src/main.cpp"
+  ],
+  "python": [
+    "python/app.py",
+    "python/elara_ui/__init__.py",
+    "python/elara_ui/builder.py",
+    "python/elara_ui/rpc.py"
+  ]
+}

@@ -597,91 +597,36 @@ def build_document():
             {"id": "help.about", "label": "&About EpaIde"}
         ]}
     ])
-    ui.create_tree_view("nav.tree")
-    ui.set_property_bool("nav.tree", "visible", False)
-    ui.set_property_number("nav.tree", "font_size", 14)
-    ui.set_section_json("nav.tree", "nodes", [
-        {
-            "id": "workspace.e",
-            "label": "E",
-            "expanded": True,
-            "buttons": [{"glyph": "+", "action": "new_file.E"}],
-            "children": [
-                {
-                    "id": "workspace.e.runtime",
-                    "label": "runtime",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.e.runtime.main", "label": "main.e"},
-                        {"id": "workspace.e.runtime.ai", "label": "assistant.e"},
-                        {"id": "workspace.e.runtime.render", "label": "renderer.e"}
-                    ]
-                },
-                {
-                    "id": "workspace.e.samples",
-                    "label": "samples",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.e.samples.game", "label": "game.e"},
-                        {"id": "workspace.e.samples.physics", "label": "physics.e"}
-                    ]
-                },
-                {"id": "workspace.e.project", "label": "game.eproj"}
-            ]
-        },
-        {
-            "id": "workspace.cpp",
-            "label": "C++",
-            "expanded": True,
-            "buttons": [{"glyph": "+", "action": "new_file.Cpp"}],
-            "children": [
-                {
-                    "id": "workspace.cpp.host",
-                    "label": "host",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.cpp.host.runtime", "label": "runtime_host.cpp"},
-                        {"id": "workspace.cpp.host.bridge", "label": "epa_bridge.cpp"}
-                    ]
-                },
-                {
-                    "id": "workspace.cpp.native",
-                    "label": "native",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.cpp.native.worker", "label": "asset_worker.cpp"},
-                        {"id": "workspace.cpp.native.simd", "label": "simd_primitives.cpp"}
-                    ]
-                }
-            ]
-        },
-        {
-            "id": "workspace.python",
-            "label": "Python",
-            "expanded": True,
-            "buttons": [{"glyph": "+", "action": "new_file.Python"}],
-            "children": [
-                {
-                    "id": "workspace.python.tools",
-                    "label": "tools",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.python.tools.editor", "label": "editor_logic.py"},
-                        {"id": "workspace.python.tools.agent", "label": "agent_console.py"}
-                    ]
-                },
-                {
-                    "id": "workspace.python.scripts",
-                    "label": "scripts",
-                    "expanded": True,
-                    "children": [
-                        {"id": "workspace.python.scripts.importer", "label": "import_assets.py"},
-                        {"id": "workspace.python.scripts.exporter", "label": "export_project.py"}
-                    ]
-                }
-            ]
-        }
-    ])
+    _NAV_TECH_TABS = [
+        ("epa",    "E / EPA", "nav.tree.epa",    "nav.tech_panel.epa",    "nav.add_tech_wrap.epa",    "nav.add_tech_btn.epa",    "new_file.E",      "Add EPA Technology",    "nav.add_tech.epa"),
+        ("cpp",    "C++",     "nav.tree.cpp",    "nav.tech_panel.cpp",    "nav.add_tech_wrap.cpp",    "nav.add_tech_btn.cpp",    "new_file.Cpp",    "Add C++ Technology",    "nav.add_tech.cpp"),
+        ("python", "Python",  "nav.tree.python", "nav.tech_panel.python", "nav.add_tech_wrap.python", "nav.add_tech_btn.python", "new_file.Python", "Add Python Technology", "nav.add_tech.python"),
+    ]
+    for (_tech, _tab_title, _tree_id, _panel_id, _wrap_id, _btn_id,
+         _new_file_action, _add_tech_label, _add_tech_action) in _NAV_TECH_TABS:
+        ui.create_grid(_panel_id)
+        ui.add_grid_column_fill(_panel_id)
+        ui.add_grid_row_fill(_panel_id)
+        ui.create_tree_view(_tree_id)
+        ui.set_property_number(_tree_id, "font_size", 14)
+        ui.set_section_json(_tree_id, "nodes", [])
+        ui.create_grid(_wrap_id)
+        ui.add_grid_column_weighted_fill(_wrap_id, 1)
+        ui.add_grid_column_exact(_wrap_id, 160)
+        ui.add_grid_column_weighted_fill(_wrap_id, 1)
+        ui.add_grid_row_weighted_fill(_wrap_id, 1)
+        ui.add_grid_row_exact(_wrap_id, 36)
+        ui.add_grid_row_weighted_fill(_wrap_id, 1)
+        ui.create_button(_btn_id, _add_tech_label, _add_tech_action)
+        ui.place_grid_child(_wrap_id, _btn_id, 1, 1)
+        ui.place_grid_child(_panel_id, _tree_id, 0, 0)
+        ui.place_grid_child(_panel_id, _wrap_id, 0, 0)
+    ui.create_tabs("nav.file_tabs")
+    for (_tech, _tab_title, _tree_id, _panel_id, _wrap_id, _btn_id,
+         _new_file_action, _add_tech_label, _add_tech_action) in _NAV_TECH_TABS:
+        ui.add_tab("nav.file_tabs", _tab_title, _panel_id,
+                   button_glyph="+", button_action=_new_file_action)
+    ui.set_property_bool("nav.file_tabs", "visible", False)
 
     ui.create_grid("editor.welcome")
     ui.add_grid_column_weighted_fill("editor.welcome", 1)
@@ -818,20 +763,23 @@ def build_document():
     ui.add_grid_row_exact("nav.panel", 28)
     ui.add_grid_row_fill("nav.panel")
 
-    ui.create_grid("nav.tree_toolbar")
-    ui.add_grid_column_fill("nav.tree_toolbar")
-    ui.add_grid_column_exact("nav.tree_toolbar", 28)
-    ui.add_grid_column_exact("nav.tree_toolbar", 4)
-    ui.add_grid_column_exact("nav.tree_toolbar", 28)
-    ui.add_grid_row_fill("nav.tree_toolbar")
-    ui.create_button("nav.add", "+", "nav.add")
+    ui.create_grid("nav.title_bar")
+    ui.add_grid_column_exact("nav.title_bar", 8)
+    ui.add_grid_column_fill("nav.title_bar")
+    ui.add_grid_column_exact("nav.title_bar", 28)
+    ui.add_grid_column_exact("nav.title_bar", 4)
+    ui.add_grid_column_exact("nav.title_bar", 28)
+    ui.add_grid_row_fill("nav.title_bar")
+    ui.create_label("nav.project_title", "No Project", 11)
+    ui.create_button("nav.filter_toggle", "≡", "nav.filter_toggle")
     ui.create_button("nav.refresh", "↺", "nav.refresh")
-    ui.place_grid_child("nav.tree_toolbar", "nav.add", 1, 0)
-    ui.place_grid_child("nav.tree_toolbar", "nav.refresh", 3, 0)
+    ui.place_grid_child("nav.title_bar", "nav.project_title", 1, 0)
+    ui.place_grid_child("nav.title_bar", "nav.filter_toggle", 2, 0)
+    ui.place_grid_child("nav.title_bar", "nav.refresh", 4, 0)
 
-    ui.place_grid_child("nav.panel", "nav.tree_toolbar", 0, 0)
+    ui.place_grid_child("nav.panel", "nav.title_bar", 0, 0)
     ui.place_grid_child("nav.panel", "nav.no_project", 0, 1)
-    ui.place_grid_child("nav.panel", "nav.tree", 0, 1)
+    ui.place_grid_child("nav.panel", "nav.file_tabs", 0, 1)
 
     # ── Search panel ──────────────────────────────────────────────────────
     ui.create_grid("nav.search_panel")
@@ -1509,8 +1457,9 @@ def build_document():
     ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels_header", 0, 1)
     ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels",        0, 2)
     ui.place_grid_child("nav.debug.epa_panel", "nav.debug.vm_controls",    0, 3)
-    ui.add_tab("nav.debug.lang_tabs", "EPA", "nav.debug.epa_panel")
-    ui.add_tab("nav.debug.lang_tabs", "C++", "nav.debug.cpp_panel")
+    ui.add_tab("nav.debug.lang_tabs", "EPA",    "nav.debug.epa_panel")
+    ui.add_tab("nav.debug.lang_tabs", "C++",    "nav.debug.cpp_panel")
+    ui.add_tab("nav.debug.lang_tabs", "Python", "nav.debug.python_panel")
     ui.place_grid_child("nav.debug_panel", "nav.debug_header",         0, 0)
     ui.place_grid_child("nav.debug_panel", "nav.debug.lang_tabs",      0, 1)
     ui.set_property_bool("nav.debug_panel", "visible", False)
@@ -3548,27 +3497,6 @@ def main():
         else:
             items.append({"label": "Add Python Technology", "action": "project_add.add_tech.python"})
         return items
-
-    def _refresh_debug_language_tabs(client):
-        project_root_text = app_state.get("project_root", "")
-        project_root = Path(project_root_text) if project_root_text else None
-        tabs = [
-            {"title": "EPA", "child_id": "nav.debug.epa_panel"},
-            {"title": "C++", "child_id": "nav.debug.cpp_panel"},
-        ]
-        if _project_has_python_root(project_root):
-            tabs.append({"title": "Python", "child_id": "nav.debug.python_panel"})
-        try:
-            client.set_section_json("nav.debug.lang_tabs", "tabs", tabs)
-        except Exception:
-            try:
-                client.call("ui.setSectionJson", {
-                    "target": "nav.debug.lang_tabs",
-                    "section": "tabs",
-                    "value": tabs,
-                })
-            except Exception:
-                pass
 
     def _write_project_meta(project_root: Path, meta: dict):
         meta_path = project_root / ".elaraproject" / "project.json"
@@ -5956,8 +5884,114 @@ def main():
             print(json.dumps({"open_project_window_close_failed": str(last_error)}), flush=True)
         return False
 
+    _NAV_SOURCE_EXTS: dict[str, set[str]] = {
+        "epa":    {".e"},
+        "cpp":    {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hxx"},
+        "python": {".py"},
+    }
+
+    def _dir_node(path: Path) -> dict:
+        node: dict = {"id": str(path), "label": path.name, "expanded": True, "children": []}
+        try:
+            entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            for entry in entries:
+                if entry.name.startswith("."):
+                    continue
+                if entry.is_dir():
+                    node["children"].append(_dir_node(entry))
+                else:
+                    node["children"].append({"id": str(entry), "label": entry.name})
+        except PermissionError:
+            pass
+        return node
+
+    def _collect_source_paths(tech_dir: Path, tech: str) -> set[str]:
+        exts = _NAV_SOURCE_EXTS.get(tech, set())
+        result: set[str] = set()
+        try:
+            for p in tech_dir.rglob("*"):
+                if p.is_file() and not p.name.startswith(".") and p.suffix in exts:
+                    result.add(str(p))
+        except Exception:
+            pass
+        return result
+
+    def _filter_tree_nodes(nodes: list, source_paths: set[str]) -> list:
+        out = []
+        for node in nodes:
+            if "children" in node:
+                filtered = _filter_tree_nodes(node["children"], source_paths)
+                if filtered:
+                    out.append({**node, "children": filtered})
+            else:
+                if node.get("id", "") in source_paths:
+                    out.append(node)
+        return out
+
+    def _write_source_cache(project_path: Path, technologies: list):
+        cache: dict[str, list[str]] = {}
+        for tech in technologies:
+            tech_dir = project_path / tech
+            if not tech_dir.is_dir():
+                continue
+            exts = _NAV_SOURCE_EXTS.get(tech, set())
+            sources: list[str] = []
+            try:
+                for p in tech_dir.rglob("*"):
+                    if p.is_file() and not p.name.startswith(".") and p.suffix in exts:
+                        sources.append(str(p.relative_to(project_path)))
+            except Exception:
+                pass
+            cache[tech] = sorted(sources)
+        try:
+            cache_path = project_path / ".elaraproject" / "source_files.json"
+            cache_path.parent.mkdir(parents=True, exist_ok=True)
+            cache_path.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+
+    _NAV_TECH_TREE_MAP = [
+        ("epa",    "nav.tree.epa",    "nav.add_tech_wrap.epa"),
+        ("cpp",    "nav.tree.cpp",    "nav.add_tech_wrap.cpp"),
+        ("python", "nav.tree.python", "nav.add_tech_wrap.python"),
+    ]
+
+    def _populate_nav_trees(client, project_path: Path, technologies: list):
+        source_only = app_state.get("nav_filter_source_only", False)
+        all_nodes: list = []
+        per_tech: dict = {}
+        for tech, tree_id, wrap_id in _NAV_TECH_TREE_MAP:
+            tech_dir = project_path / tech
+            has_tech = tech in technologies and tech_dir.is_dir()
+            if has_tech:
+                root_node = _dir_node(tech_dir)
+                tech_nodes = root_node.get("children", [])
+                if source_only:
+                    src_paths = _collect_source_paths(tech_dir, tech)
+                    tech_nodes = _filter_tree_nodes(tech_nodes, src_paths)
+            else:
+                tech_nodes = []
+            per_tech[tech] = tech_nodes
+            all_nodes.extend(tech_nodes)
+            try:
+                doc = json.dumps({"nodes": tech_nodes}, separators=(",", ":"))
+                client.call("ui.replaceChildren", {"target": tree_id, "document": doc})
+            except Exception:
+                pass
+            try:
+                client.call("ui.setVisible", {"target": tree_id, "visible": has_tech})
+                client.call("ui.setVisible", {"target": wrap_id, "visible": not has_tech})
+            except Exception:
+                pass
+        app_state["nav_tree_nodes"] = all_nodes
+        app_state["nav_tree_nodes_per_tech"] = per_tech
+        try:
+            client.set_text("nav.filter_toggle", "⊟" if source_only else "≡")
+        except Exception:
+            pass
+
     def _open_project(client, project_path):
-        """Populate nav.tree with the structure of an open project."""
+        """Open a project: initialise state, populate nav trees, update UI chrome."""
         project_path = Path(project_path)
         _cpp_gdb_stop_session()
         _host_debug_bridge_stop()
@@ -5970,46 +6004,10 @@ def main():
         project_name = meta.get("name", project_path.name)
         technologies = meta.get("technologies", [])
 
-        tech_action_map = {"epa": "new_file.E", "cpp": "new_file.Cpp", "python": "new_file.Python"}
-
-        def _dir_node(path: Path) -> dict:
-            node = {"id": str(path), "label": path.name, "expanded": True, "children": []}
-            try:
-                entries = sorted(path.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
-                for entry in entries:
-                    if entry.name.startswith("."):
-                        continue
-                    if entry.is_dir():
-                        node["children"].append(_dir_node(entry))
-                    else:
-                        node["children"].append({"id": str(entry), "label": entry.name})
-            except PermissionError:
-                pass
-            return node
-
-        children = []
-        for tech in technologies:
-            tech_dir = project_path / tech
-            if tech_dir.is_dir():
-                btn_action = tech_action_map.get(tech, f"new_file.{tech}")
-                node = _dir_node(tech_dir)
-                node["buttons"] = [{"glyph": "+", "action": btn_action}]
-                children.append(node)
-
-        build_dir = project_path / "build"
-        if build_dir.is_dir():
-            children.append(_dir_node(build_dir))
-
-        nodes = [{
-            "id": str(project_path),
-            "label": project_name,
-            "expanded": True,
-            "children": children,
-        }]
-        app_state["nav_tree_nodes"] = nodes
-        document = json.dumps({"nodes": nodes}, separators=(",", ":"))
+        _write_source_cache(project_path, technologies)
+        _populate_nav_trees(client, project_path, technologies)
         try:
-            client.call("ui.replaceChildren", {"target": "nav.tree", "document": document})
+            client.set_text("nav.project_title", project_name)
         except Exception:
             pass
         try:
@@ -6033,11 +6031,10 @@ def main():
         terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
         try:
             client.call("ui.setVisible", {"target": "nav.no_project", "visible": False})
-            client.call("ui.setVisible", {"target": "nav.tree", "visible": True})
+            client.call("ui.setVisible", {"target": "nav.file_tabs", "visible": True})
             client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
             client.set_text("bottom.terminal_output", terminal_state["output"])
             _set_project_toolbar_enabled(client, True)
-            _refresh_debug_language_tabs(client)
         except Exception:
             pass
         app_state.pop("debug_kernel_loaded", None)
@@ -7148,7 +7145,7 @@ def main():
             return {"received": True}
 
         # Tree view file click — single click = preview tab, double click = permanent tab.
-        if action == "action" and target == "nav.tree" and client is not None:
+        if action == "action" and target in ("nav.tree.epa", "nav.tree.cpp", "nav.tree.python") and client is not None:
             node_path = payload.get("action", "")
             if node_path and Path(node_path).is_file():
                 now = time.monotonic()
@@ -7429,6 +7426,14 @@ def main():
                 if project_root and client is not None:
                     _deferred(lambda: _open_project(c, project_root))
 
+            elif item_action == "nav.filter_toggle":
+                project_root = app_state.get("project_root", "")
+                if project_root:
+                    app_state["nav_filter_source_only"] = not app_state.get("nav_filter_source_only", False)
+                    project_path_ft = Path(project_root)
+                    technologies_ft = _project_technologies(project_path_ft)
+                    _deferred(lambda pp=project_path_ft, tt=technologies_ft: _populate_nav_trees(c, pp, tt))
+
             elif item_action == "nav.add":
                 items = _project_add_menu_items()
                 _deferred(lambda: c.open_window(
@@ -7469,6 +7474,18 @@ def main():
                     except Exception as exc:
                         _append_build_output(c, f"[project-add-error] {exc}\n")
                 _deferred(_do_add_tech)
+
+            elif item_action and item_action.startswith("nav.add_tech."):
+                tech = item_action[len("nav.add_tech."):]
+                def _do_nav_add_tech(t=tech):
+                    try:
+                        _project_add_technology(c, t)
+                    except subprocess.CalledProcessError as exc:
+                        message = (exc.stderr or exc.stdout or str(exc)).strip()
+                        _append_build_output(c, f"[project-add-error] {message}\n")
+                    except Exception as exc:
+                        _append_build_output(c, f"[project-add-error] {exc}\n")
+                _deferred(_do_nav_add_tech)
 
             elif item_action == "build.build_project":
                 _deferred(lambda: _build_project(c, rebuild=False))
@@ -8368,7 +8385,7 @@ def main():
                         pass
                 try:
                     client.call("ui.setVisible", {"target": "nav.panel", "visible": True})
-                    client.call("ui.setVisible", {"target": "nav.tree", "visible": False})
+                    client.call("ui.setVisible", {"target": "nav.file_tabs", "visible": False})
                     client.call("ui.setVisible", {"target": "nav.no_project", "visible": True})
                 except Exception:
                     pass
@@ -8498,8 +8515,8 @@ def main():
                     return app_state.get("nav_tree_nodes", [])
 
                 def _ai_rpc_set_node_expanded(node_id: str, expanded: bool) -> bool:
-                    nodes = app_state.get("nav_tree_nodes")
-                    if not nodes:
+                    per_tech = app_state.get("nav_tree_nodes_per_tech", {})
+                    if not per_tech:
                         return False
 
                     def _toggle(node_list):
@@ -8511,16 +8528,19 @@ def main():
                                 return True
                         return False
 
-                    changed = _toggle(nodes)
-                    if changed:
-                        c = client_ref.get("client")
-                        if c:
-                            try:
-                                document = json.dumps({"nodes": nodes}, separators=(",", ":"))
-                                c.call("ui.replaceChildren", {"target": "nav.tree", "document": document})
-                            except Exception:
-                                pass
-                    return changed
+                    _tech_tree_ids = {"epa": "nav.tree.epa", "cpp": "nav.tree.cpp", "python": "nav.tree.python"}
+                    for tech, tech_nodes in per_tech.items():
+                        if _toggle(tech_nodes):
+                            c = client_ref.get("client")
+                            if c:
+                                try:
+                                    tree_id = _tech_tree_ids[tech]
+                                    document = json.dumps({"nodes": tech_nodes}, separators=(",", ":"))
+                                    c.call("ui.replaceChildren", {"target": tree_id, "document": document})
+                                except Exception:
+                                    pass
+                            return True
+                    return False
 
                 def _ai_rpc_tree_open_file(path: str) -> str:
                     c = client_ref.get("client")
