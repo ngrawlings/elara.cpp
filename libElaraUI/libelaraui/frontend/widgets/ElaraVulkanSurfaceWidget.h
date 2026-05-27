@@ -17,14 +17,34 @@ public:
         RECT,
         LINE,
         TEXT,
-        // 3D scene ops (E3SB path — emitted by elara.platform.scene_compiler)
-        // SCENE_CAMERA: x0/y0/x1 = pos_x/y/z (world units), y1/value0 = yaw/pitch (degrees),
-        //               value1 = fov (degrees), r = near_z, g = far_z (world units)
-        SCENE_CAMERA,
-        // SCENE_OBJECT: x0 = mesh_id, y0 = material_id,
-        //               x1/y1/value0 = pos_x/y/z (world units), value1 = yaw (degrees),
-        //               r = scale (1.0 = full size)
-        SCENE_OBJECT,
+        // 3D scene ops (E3SB path emitted by elara.platform.scene_compiler).
+        // These values match the first payload word in a V2 E3SB primitive
+        // record: [2] scene_op a0 a1 a2 a3 a4 a5 a6.
+        SCENE_CAMERA_VIEW       = 10,
+        SCENE_CAMERA_CLIP       = 11,
+        SCENE_ENVIRONMENT       = 20,
+        SCENE_FOG               = 21,
+        SCENE_MATERIAL_PBR      = 30,
+        SCENE_MATERIAL_EXT      = 31,
+        SCENE_MESH              = 40,
+        SCENE_INSTANCE          = 50,
+        SCENE_INSTANCE_XFORM    = 51,
+        SCENE_INSTANCE_COLOR    = 52,
+        SCENE_DIRECTIONAL_LIGHT = 60,
+        SCENE_POINT_LIGHT       = 61,
+        SCENE_SPOT_LIGHT        = 62,
+        SCENE_LIGHT_EXT         = 63,
+        SCENE_TERRAIN           = 70,
+        SCENE_SKYBOX            = 80,
+        SCENE_DECAL             = 90,
+        SCENE_BILLBOARD         = 100,
+        SCENE_PARTICLES         = 110,
+        SCENE_VOLUME            = 120,
+        SCENE_POST_PROCESS      = 130,
+
+        // Compatibility names for the early E3SB camera/object path.
+        SCENE_CAMERA            = SCENE_CAMERA_VIEW,
+        SCENE_OBJECT            = SCENE_INSTANCE,
     };
 
     Type type;
