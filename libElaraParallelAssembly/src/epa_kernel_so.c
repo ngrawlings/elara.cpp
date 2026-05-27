@@ -756,18 +756,18 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
                                          char err[EPA_MAX_ERR]) {
   if (!k || !ghs_handles || ghs_handle_count == 0) {
     snprintf(err, EPA_MAX_ERR, "ingress: bad args");
-    return 1;
+    return 0;
   }
   if (dst_wid >= EPA_MAX_WORKERS) {
     snprintf(err, EPA_MAX_ERR, "ingress: bad wid %u", dst_wid);
-    return 1;
+    return 0;
   }
 
   // GHS is shared; convention: kernel (owner=0).
   epa_ghs_t *ghs = k->impl.ghs;
   if (!ghs) {
     snprintf(err, EPA_MAX_ERR, "ingress: GHS not initialized");
-    return 1;
+    return 0;
   }
 
   // 3) Transfer ownership to dst worker
@@ -782,39 +782,40 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
 			  if (ge != EPA_GHS_OK) {
 				snprintf(err, EPA_MAX_ERR, "ingress: epa_ghs_transfer failed (%d)", (int)ge);
 				(void)epa_ghs_free(ghs, ghs_handles[i]);
-				return 1;
+				return 0;
 			  }
 		  }
 	  }
   }
 
-  // 4) Ring notify: push 4 words to dst worker input ring
+  // 4) Ring notify: push count + handle lo/gen pairs to dst worker input ring.
   EpaWorkerState *dst = &k->impl.workers[dst_wid];
+  uint32_t needed_words = 1u + (ghs_handle_count * 2u);
 
-  if (epa_ring_space(&dst->inq) < 4) {
-    snprintf(err, EPA_MAX_ERR, "ingress: wid=%u inq full (need 4 words)", dst_wid);
-    return 1;
+  if (epa_ring_space(&dst->inq) < needed_words) {
+    snprintf(err, EPA_MAX_ERR, "ingress: wid=%u inq full (need %u words)", dst_wid, needed_words);
+    return 0;
   }
 
   // epa_ring_push takes err[256]; EPA_MAX_ERR is 256 in your project.
-  if (!epa_ring_push(&dst->inq, ghs_handle_count, 0, err)) return 1;
+  if (!epa_ring_push(&dst->inq, ghs_handle_count, 0, err)) return 0;
 
   for (int i=0; i<ghs_handle_count; i++) {
 	  uint32_t idx = epa_ghs_handle_index(ghs_handles[i]);
 	  uint32_t gen2 = epa_ghs_handle_gen(ghs_handles[i]);
 
-	  if (!epa_ring_push(&dst->inq, idx,               0, err)) return 1;
-	  if (!epa_ring_push(&dst->inq, gen2,              0, err)) return 1;
+	  if (!epa_ring_push(&dst->inq, idx,               0, err)) return 0;
+	  if (!epa_ring_push(&dst->inq, gen2,              0, err)) return 0;
   }
 
   // Wake worker ONLY if it was explicitly waiting for data
   if (dst->waiting_for_data) {
-    if (!epa_worker_round_enter(dst, err)) return 1;
+    if (!epa_worker_round_enter(dst, err)) return 0;
     dst->waiting_for_data = 0;
     dst->blocked = 0;
   }
 
-  return 0;
+  return 1;
 }
 
 // Called at the start of epa_kernel_run() (i.e., "reentry boundary")

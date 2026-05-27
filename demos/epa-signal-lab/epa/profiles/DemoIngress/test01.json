@@ -1,0 +1,9 @@
+{
+  "type": "DemoIngress",
+  "name": "test01",
+  "fields": {
+    "seq": "62",
+    "left_value": "34",
+    "right_value": "62"
+  }
+}

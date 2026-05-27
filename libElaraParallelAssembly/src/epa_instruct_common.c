@@ -162,6 +162,26 @@ static EpaDynamicPool *worker_dynamic_pool_by_id(EpaWorkerState *w, uint32_t poo
   return &w->dynamic_pools[pool_id];
 }
 
+static int worker_release_current_ghs_if_owned(EpaKernel *k, EpaWorkerState *w, char err[EPA_MAX_ERR]) {
+  epa_ghs_meta_t meta;
+  epa_ghs_err_t ge;
+  if (err) err[0] = 0;
+  if (!k || !k->impl.ghs || !w || !w->has_current_ghs) return 1;
+
+  ge = epa_ghs_get_meta(k->impl.ghs, w->current_ghs, &meta);
+  if (ge == EPA_GHS_OK && meta.owner == (uint32_t)w->id) {
+    ge = epa_ghs_free(k->impl.ghs, w->current_ghs);
+    if (ge != EPA_GHS_OK) {
+      snprintf(err, EPA_MAX_ERR, "WAIT_FOR_DATA auto-free failed err=%d", ge);
+      return 0;
+    }
+  }
+
+  w->has_current_ghs = 0;
+  w->current_ghs = 0;
+  return 1;
+}
+
 EpaFlowRc epa_flow_step(
 	void *_k,
     const EpaFlowCtx *ctx,
@@ -366,8 +386,9 @@ EpaFlowRc epa_flow_step(
         return EPA_FLOW_YIELDED;
       }
 
-      w->has_current_ghs = 0;
-      w->current_ghs = 0;
+      if (!worker_release_current_ghs_if_owned(k, w, err)) {
+        return EPA_FLOW_ERR;
+      }
       w->waiting_for_data = 1;
       w->blocked = 1;
 

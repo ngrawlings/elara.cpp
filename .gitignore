@@ -42,10 +42,10 @@ build
 ElaraUnitTests/artifacts
 libElaraUI/artifacts
 epa-ide/artifacts
-demos/orange-exterminator/artifacts
-demos/orange-exterminator/cpp/artifacts
-demos/orange-exterminator/.elaraproject/history
-demos/epa-signal-lab/.elaraproject/debug-sessions
+demos/*/artifacts
+demos/*/cpp/artifacts
+demos/*/.elaraproject/history
+demos/*/.elaraproject/debug-sessions
 
 # Per-project generated autotools/configure output
 /libElaraCore/Makefile

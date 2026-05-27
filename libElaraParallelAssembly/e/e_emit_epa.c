@@ -185,6 +185,22 @@ static uint64_t fnv1a64_bytes(const char *s) {
   return h;
 }
 
+static const char *normalized_string_token(const char *s, char *buf, size_t buf_sz) {
+  size_t n;
+  if (!s) return "";
+  n = strlen(s);
+  if (n >= 2u && s[0] == '"' && s[n - 1u] == '"') {
+    size_t out_n = n - 2u;
+    if (out_n >= buf_sz) out_n = buf_sz ? (buf_sz - 1u) : 0u;
+    if (buf_sz) {
+      memcpy(buf, s + 1, out_n);
+      buf[out_n] = 0;
+    }
+    return buf;
+  }
+  return s;
+}
+
 static unsigned int intern_string_const(EmitCtx *ctx, const char *literal) {
   size_t i;
   for (i = 0; i < ctx->string_count; i++) {
@@ -1088,11 +1104,12 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
 
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   uint64_t uid;
+  char normalized[512];
   (void)ctx;
   if (!expr) return 0;
   if (expr->kind == E_EXPR_STRING) {
     emit_indent(out, depth);
-    uid = fnv1a64_bytes(expr->as.string_lit);
+    uid = fnv1a64_bytes(normalized_string_token(expr->as.string_lit, normalized, sizeof(normalized)));
     fprintf(out, "SET_R 0 %u\n", (unsigned int)(uid & 0xFFFFFFFFu));
     emit_indent(out, depth);
     fprintf(out, "SET_R 1 %u\n", (unsigned int)((uid >> 32) & 0xFFFFFFFFu));

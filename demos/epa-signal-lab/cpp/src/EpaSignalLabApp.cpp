@@ -395,6 +395,18 @@ bool EpaSignalLabApp::queueSampleIngress(int left_value, int right_value) {
         appendLog(String("queue failed: ") + epa.lastError());
         return false;
     }
+    sendHostDebugEvent(
+        String("ingress"),
+        String("\"kernel\":\"entry\",")
+            + String("\"worker\":\"wid=1\",")
+            + String("\"type\":\"DemoIngressPayload\",")
+            + String("\"seq\":") + String((int)payload.seq)
+            + String(",\"details\":")
+            + json_quote_simple(
+                String("left=") + String((int)payload.left_value)
+                + String(" right=") + String((int)payload.right_value)
+            )
+    );
     appendLog(String("queued ingress seq=") + String((int)payload.seq)
         + String(" left=") + String((int)payload.left_value)
         + String(" right=") + String((int)payload.right_value));
@@ -455,6 +467,12 @@ void EpaSignalLabApp::handleUiAction(const String &target, const String &action)
 void EpaSignalLabApp::handleKernelSignal(uint8_t wid, const char *msg, int msg_len) {
     const unsigned char *bytes = (const unsigned char*)msg;
     if (!msg || msg_len < 4) {
+        sendHostDebugEvent(
+            String("egress"),
+            String("\"worker\":\"wid=") + String((int)wid)
+                + String("\",\"signal\":\"host_signal\",")
+                + String("\"details\":\"mailbox=empty\"")
+        );
         appendLog(String("signal callback wid=") + String((int)wid) + String(" mailbox=empty"));
         return;
     }
@@ -465,6 +483,20 @@ void EpaSignalLabApp::handleKernelSignal(uint8_t wid, const char *msg, int msg_l
         uint32_t right_value = read_le_u32(bytes + 16);
         uint32_t sum = read_le_u32(bytes + 20);
         uint32_t route = read_le_u32(bytes + 24);
+        sendHostDebugEvent(
+            String("egress"),
+            String("\"worker\":\"wid=") + String((int)wid)
+                + String("\",\"signal\":\"host_signal\",")
+                + String("\"seq\":") + String((int)seq)
+                + String(",\"details\":")
+                + json_quote_simple(
+                    String("frame v=") + String((int)version)
+                    + String(" left=") + String((int)left_value)
+                    + String(" right=") + String((int)right_value)
+                    + String(" sum=") + String((int)sum)
+                    + String(" route=") + String((int)route)
+                )
+        );
         appendLog(String("host frame wid=") + String((int)wid)
             + String(" v=") + String((int)version)
             + String(" seq=") + String((int)seq)
@@ -474,6 +506,16 @@ void EpaSignalLabApp::handleKernelSignal(uint8_t wid, const char *msg, int msg_l
             + String(" route=") + String((int)route));
         return;
     }
+    sendHostDebugEvent(
+        String("egress"),
+        String("\"worker\":\"wid=") + String((int)wid)
+            + String("\",\"signal\":\"host_signal\",")
+            + String("\"details\":")
+            + json_quote_simple(
+                String("mailbox0=") + String((int)read_le_u32(bytes))
+                + String(" len=") + String(msg_len)
+            )
+    );
     appendLog(String("signal wid=") + String((int)wid)
         + String(" mailbox0=") + String((int)read_le_u32(bytes))
         + String(" len=") + String(msg_len));

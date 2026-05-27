@@ -63,42 +63,8 @@ def _editor_ids(tab_id: str):
         "toolbar": f"{tab_id}.toolbar",
         "button_e": f"{tab_id}.view.e",
         "button_epa": f"{tab_id}.view.epa",
-        "button_cpp": f"{tab_id}.view.cpp",
-        "button_python": f"{tab_id}.view.python",
         "source": f"{tab_id}.source",
         "epa": f"{tab_id}.epa",
-        "cpp_surface": f"{tab_id}.cpp.surface",
-        "cpp_title": f"{tab_id}.cpp.title",
-        "cpp_status": f"{tab_id}.cpp.status",
-        "cpp_threads_label": f"{tab_id}.cpp.threads.label",
-        "cpp_threads": f"{tab_id}.cpp.threads",
-        "cpp_continue": f"{tab_id}.cpp.continue",
-        "cpp_step_over": f"{tab_id}.cpp.step_over",
-        "cpp_step_into": f"{tab_id}.cpp.step_into",
-        "cpp_step_out": f"{tab_id}.cpp.step_out",
-        "cpp_pause": f"{tab_id}.cpp.pause",
-        "cpp_debug_tabs": f"{tab_id}.cpp.debug.tabs",
-        "cpp_debug_threads": f"{tab_id}.cpp.debug.threads",
-        "cpp_debug_frames": f"{tab_id}.cpp.debug.frames",
-        "cpp_debug_locals": f"{tab_id}.cpp.debug.locals",
-        "cpp_debug_registers": f"{tab_id}.cpp.debug.registers",
-        "cpp_debug_memory": f"{tab_id}.cpp.debug.memory",
-        "python_surface": f"{tab_id}.python.surface",
-        "python_title": f"{tab_id}.python.title",
-        "python_status": f"{tab_id}.python.status",
-        "python_threads_label": f"{tab_id}.python.threads.label",
-        "python_threads": f"{tab_id}.python.threads",
-        "python_continue": f"{tab_id}.python.continue",
-        "python_step_over": f"{tab_id}.python.step_over",
-        "python_step_into": f"{tab_id}.python.step_into",
-        "python_step_out": f"{tab_id}.python.step_out",
-        "python_pause": f"{tab_id}.python.pause",
-        "python_debug_tabs": f"{tab_id}.python.debug.tabs",
-        "python_debug_threads": f"{tab_id}.python.debug.threads",
-        "python_debug_frames": f"{tab_id}.python.debug.frames",
-        "python_debug_locals": f"{tab_id}.python.debug.locals",
-        "python_debug_registers": f"{tab_id}.python.debug.registers",
-        "python_debug_memory": f"{tab_id}.python.debug.memory",
         "debug_panel": f"{tab_id}.debug.panel",
         "debug": f"{tab_id}.debug.trace",
         "debug_tabs": f"{tab_id}.debug.tabs",
@@ -164,10 +130,6 @@ def _focus_editor_widget(client, tab_id: str, state: dict = None):
         target = ids["source"]
         if view == "epa":
             target = ids["epa"]
-        elif view == "cpp":
-            target = ids["cpp_continue"]
-        elif view == "python":
-            target = ids["python_continue"]
     try:
         client.set_focus(target)
     except Exception:
@@ -184,19 +146,13 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.create_grid(ids["toolbar"])
     ui.add_grid_column_exact(ids["toolbar"], 54)
     ui.add_grid_column_exact(ids["toolbar"], 64)
-    ui.add_grid_column_exact(ids["toolbar"], 64)
-    ui.add_grid_column_exact(ids["toolbar"], 78)
     ui.add_grid_column_fill(ids["toolbar"])
     ui.add_grid_row_fill(ids["toolbar"])
     ui.create_button(ids["button_e"], "E", f"{ids['button_e']}")
     ui.create_button(ids["button_epa"], "EPA", f"{ids['button_epa']}")
-    ui.create_button(ids["button_cpp"], "C++", f"{ids['button_cpp']}")
-    ui.create_button(ids["button_python"], "Python", f"{ids['button_python']}")
     ui.set_property_bool(ids["button_e"], "enabled", False)
     ui.place_grid_child(ids["toolbar"], ids["button_e"], 0, 0)
     ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
-    ui.place_grid_child(ids["toolbar"], ids["button_cpp"], 2, 0)
-    ui.place_grid_child(ids["toolbar"], ids["button_python"], 3, 0)
     ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
 
     ui.create_grid(ids["debug_panel"])
@@ -212,206 +168,25 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.set_property_bool(ids["epa"], "read_only", True)
     ui.set_property_bool(ids["epa"], "visible", False)
 
-    ui.create_grid(ids["cpp_surface"])
-    ui.add_grid_column_exact(ids["cpp_surface"], 8)
-    ui.add_grid_column_fill(ids["cpp_surface"])
-    ui.add_grid_column_exact(ids["cpp_surface"], 8)
-    ui.add_grid_row_exact(ids["cpp_surface"], 22)
-    ui.add_grid_row_exact(ids["cpp_surface"], 30)
-    ui.add_grid_row_exact(ids["cpp_surface"], 12)
-    ui.add_grid_row_exact(ids["cpp_surface"], 30)
-    ui.add_grid_row_exact(ids["cpp_surface"], 30)
-    ui.add_grid_row_exact(ids["cpp_surface"], 12)
-    ui.add_grid_row_exact(ids["cpp_surface"], 22)
-    ui.add_grid_row_weighted_fill(ids["cpp_surface"], 1)
-    ui.set_property_bool(ids["cpp_surface"], "visible", False)
-
-    ui.create_label(ids["cpp_title"], "C++ GDB CONTROL", 10)
-    ui.set_property_bool(ids["cpp_title"], "enabled", False)
-    ui.place_grid_child(ids["cpp_surface"], ids["cpp_title"], 1, 0)
-
-    ui.create_grid(f"{ids['cpp_surface']}.row1")
-    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
-    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row1", 4)
-    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
-    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row1", 4)
-    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row1")
-    ui.add_grid_row_fill(f"{ids['cpp_surface']}.row1")
-    ui.create_button(ids["cpp_continue"], "▶ Continue", ids["cpp_continue"])
-    ui.create_button(ids["cpp_step_over"], "↷ Step Over", ids["cpp_step_over"])
-    ui.create_button(ids["cpp_step_into"], "↓ Step Into", ids["cpp_step_into"])
-    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_continue"], 0, 0)
-    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_step_over"], 2, 0)
-    ui.place_grid_child(f"{ids['cpp_surface']}.row1", ids["cpp_step_into"], 4, 0)
-    ui.place_grid_child(ids["cpp_surface"], f"{ids['cpp_surface']}.row1", 1, 1)
-
-    ui.create_grid(f"{ids['cpp_surface']}.row2")
-    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row2")
-    ui.add_grid_column_exact(f"{ids['cpp_surface']}.row2", 4)
-    ui.add_grid_column_fill(f"{ids['cpp_surface']}.row2")
-    ui.add_grid_row_fill(f"{ids['cpp_surface']}.row2")
-    ui.create_button(ids["cpp_step_out"], "↑ Step Out", ids["cpp_step_out"])
-    ui.create_button(ids["cpp_pause"], "⏸ Pause", ids["cpp_pause"])
-    ui.place_grid_child(f"{ids['cpp_surface']}.row2", ids["cpp_step_out"], 0, 0)
-    ui.place_grid_child(f"{ids['cpp_surface']}.row2", ids["cpp_pause"], 2, 0)
-    ui.place_grid_child(ids["cpp_surface"], f"{ids['cpp_surface']}.row2", 1, 3)
-
-    ui.create_label(ids["cpp_status"], "GDB bridge not linked yet.", 11)
-    ui.set_property_bool(ids["cpp_status"], "enabled", False)
-    ui.place_grid_child(ids["cpp_surface"], ids["cpp_status"], 1, 4)
-
-    ui.create_label(ids["cpp_threads_label"], "CURRENT THREADS", 10)
-    ui.set_property_bool(ids["cpp_threads_label"], "enabled", False)
-    ui.place_grid_child(ids["cpp_surface"], ids["cpp_threads_label"], 1, 6)
-    ui.create_list_view(ids["cpp_threads"])
-    ui.set_property_number(ids["cpp_threads"], "font_size", 12)
-    ui.set_section_json(ids["cpp_threads"], "items", [
-        {"id": f"{ids['cpp_threads']}.placeholder", "label": "No GDB session attached"},
-    ])
-    ui.place_grid_child(ids["cpp_surface"], ids["cpp_threads"], 1, 7)
-
-    ui.create_grid(ids["python_surface"])
-    ui.add_grid_column_exact(ids["python_surface"], 8)
-    ui.add_grid_column_fill(ids["python_surface"])
-    ui.add_grid_column_exact(ids["python_surface"], 8)
-    ui.add_grid_row_exact(ids["python_surface"], 22)
-    ui.add_grid_row_exact(ids["python_surface"], 30)
-    ui.add_grid_row_exact(ids["python_surface"], 12)
-    ui.add_grid_row_exact(ids["python_surface"], 30)
-    ui.add_grid_row_exact(ids["python_surface"], 30)
-    ui.add_grid_row_exact(ids["python_surface"], 12)
-    ui.add_grid_row_exact(ids["python_surface"], 22)
-    ui.add_grid_row_weighted_fill(ids["python_surface"], 1)
-    ui.set_property_bool(ids["python_surface"], "visible", False)
-
-    ui.create_label(ids["python_title"], "PYTHON DEBUG CONTROL", 10)
-    ui.set_property_bool(ids["python_title"], "enabled", False)
-    ui.place_grid_child(ids["python_surface"], ids["python_title"], 1, 0)
-
-    ui.create_grid(f"{ids['python_surface']}.row1")
-    ui.add_grid_column_fill(f"{ids['python_surface']}.row1")
-    ui.add_grid_column_exact(f"{ids['python_surface']}.row1", 4)
-    ui.add_grid_column_fill(f"{ids['python_surface']}.row1")
-    ui.add_grid_column_exact(f"{ids['python_surface']}.row1", 4)
-    ui.add_grid_column_fill(f"{ids['python_surface']}.row1")
-    ui.add_grid_row_fill(f"{ids['python_surface']}.row1")
-    ui.create_button(ids["python_continue"], "▶ Continue", ids["python_continue"])
-    ui.create_button(ids["python_step_over"], "↷ Step Over", ids["python_step_over"])
-    ui.create_button(ids["python_step_into"], "↓ Step Into", ids["python_step_into"])
-    ui.place_grid_child(f"{ids['python_surface']}.row1", ids["python_continue"], 0, 0)
-    ui.place_grid_child(f"{ids['python_surface']}.row1", ids["python_step_over"], 2, 0)
-    ui.place_grid_child(f"{ids['python_surface']}.row1", ids["python_step_into"], 4, 0)
-    ui.place_grid_child(ids["python_surface"], f"{ids['python_surface']}.row1", 1, 1)
-
-    ui.create_grid(f"{ids['python_surface']}.row2")
-    ui.add_grid_column_fill(f"{ids['python_surface']}.row2")
-    ui.add_grid_column_exact(f"{ids['python_surface']}.row2", 4)
-    ui.add_grid_column_fill(f"{ids['python_surface']}.row2")
-    ui.add_grid_row_fill(f"{ids['python_surface']}.row2")
-    ui.create_button(ids["python_step_out"], "↑ Step Out", ids["python_step_out"])
-    ui.create_button(ids["python_pause"], "⏸ Pause", ids["python_pause"])
-    ui.place_grid_child(f"{ids['python_surface']}.row2", ids["python_step_out"], 0, 0)
-    ui.place_grid_child(f"{ids['python_surface']}.row2", ids["python_pause"], 2, 0)
-    ui.place_grid_child(ids["python_surface"], f"{ids['python_surface']}.row2", 1, 3)
-
-    ui.create_label(ids["python_status"], "Python debugger not linked yet.", 11)
-    ui.set_property_bool(ids["python_status"], "enabled", False)
-    ui.place_grid_child(ids["python_surface"], ids["python_status"], 1, 4)
-
-    ui.create_label(ids["python_threads_label"], "CURRENT THREADS", 10)
-    ui.set_property_bool(ids["python_threads_label"], "enabled", False)
-    ui.place_grid_child(ids["python_surface"], ids["python_threads_label"], 1, 6)
-    ui.create_list_view(ids["python_threads"])
-    ui.set_property_number(ids["python_threads"], "font_size", 12)
-    ui.set_section_json(ids["python_threads"], "items", [
-        {"id": f"{ids['python_threads']}.placeholder", "label": "No Python debug session attached"},
-    ])
-    ui.place_grid_child(ids["python_surface"], ids["python_threads"], 1, 7)
-
     ui.create_tabs(ids["debug_tabs"])
-    ui.create_tabs(ids["cpp_debug_tabs"])
-    ui.create_tabs(ids["python_debug_tabs"])
     ui.create_tree_view(ids["debug"])
     ui.create_tree_view(ids["debug_ghs"])
     ui.create_tree_view(ids["debug_stack"])
     ui.create_tree_view(ids["debug_local"])
     ui.create_tree_view(ids["debug_dynamic"])
-    ui.create_list_view(ids["cpp_debug_threads"])
-    ui.create_list_view(ids["cpp_debug_frames"])
-    ui.create_tree_view(ids["cpp_debug_locals"])
-    ui.create_tree_view(ids["cpp_debug_registers"])
-    ui.create_tree_view(ids["cpp_debug_memory"])
-    ui.create_list_view(ids["python_debug_threads"])
-    ui.create_list_view(ids["python_debug_frames"])
-    ui.create_tree_view(ids["python_debug_locals"])
-    ui.create_tree_view(ids["python_debug_registers"])
-    ui.create_tree_view(ids["python_debug_memory"])
     ui.set_section_json(ids["debug"], "nodes", [{"id": f"{ids['debug']}.root", "label": "Stack (LIFO)", "expanded": True, "children": [{"id": f"{ids['debug']}.root.empty", "label": "Stack empty"}]}])
     ui.set_section_json(ids["debug_ghs"], "nodes", [{"id": f"{ids['debug_ghs']}.root", "label": "GHS Layout", "expanded": True}])
     ui.set_section_json(ids["debug_stack"], "nodes", [{"id": f"{ids['debug_stack']}.root", "label": "Stack Interpretation", "expanded": True}])
     ui.set_section_json(ids["debug_local"], "nodes", [{"id": f"{ids['debug_local']}.root", "label": "Local Arena", "expanded": True}])
     ui.set_section_json(ids["debug_dynamic"], "nodes", [{"id": f"{ids['debug_dynamic']}.root", "label": "Dynamic Memory", "expanded": True}])
-    ui.set_section_json(ids["cpp_debug_threads"], "items", [
-        {"id": f"{ids['cpp_debug_threads']}.root", "label": "No GDB thread data"},
-    ])
-    ui.set_section_json(ids["cpp_debug_frames"], "items", [
-        {"id": f"{ids['cpp_debug_frames']}.root", "label": "No stack frame selected"},
-    ])
-    ui.set_section_json(ids["cpp_debug_locals"], "nodes", [
-        {"id": f"{ids['cpp_debug_locals']}.root", "label": "Locals", "expanded": True,
-         "children": [{"id": f"{ids['cpp_debug_locals']}.root.empty", "label": "No local symbols"}]}
-    ])
-    ui.set_section_json(ids["cpp_debug_registers"], "nodes", [
-        {"id": f"{ids['cpp_debug_registers']}.root", "label": "Registers", "expanded": True,
-         "children": [{"id": f"{ids['cpp_debug_registers']}.root.empty", "label": "No register snapshot"}]}
-    ])
-    ui.set_section_json(ids["cpp_debug_memory"], "nodes", [
-        {"id": f"{ids['cpp_debug_memory']}.root", "label": "Memory Regions", "expanded": True,
-         "children": [{"id": f"{ids['cpp_debug_memory']}.root.empty", "label": "No memory view attached"}]}
-    ])
-    ui.set_section_json(ids["python_debug_threads"], "items", [
-        {"id": f"{ids['python_debug_threads']}.root", "label": "No Python thread data"},
-    ])
-    ui.set_section_json(ids["python_debug_frames"], "items", [
-        {"id": f"{ids['python_debug_frames']}.root", "label": "No stack frame selected"},
-    ])
-    ui.set_section_json(ids["python_debug_locals"], "nodes", [
-        {"id": f"{ids['python_debug_locals']}.root", "label": "Locals", "expanded": True,
-         "children": [{"id": f"{ids['python_debug_locals']}.root.empty", "label": "No local symbols"}]}
-    ])
-    ui.set_section_json(ids["python_debug_registers"], "nodes", [
-        {"id": f"{ids['python_debug_registers']}.root", "label": "Registers", "expanded": True,
-         "children": [{"id": f"{ids['python_debug_registers']}.root.empty", "label": "No register snapshot"}]}
-    ])
-    ui.set_section_json(ids["python_debug_memory"], "nodes", [
-        {"id": f"{ids['python_debug_memory']}.root", "label": "Memory Regions", "expanded": True,
-         "children": [{"id": f"{ids['python_debug_memory']}.root.empty", "label": "No memory view attached"}]}
-    ])
     ui.add_tab(ids["debug_tabs"], "Trace", ids["debug"])
     ui.add_tab(ids["debug_tabs"], "GHS", ids["debug_ghs"])
     ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
     ui.add_tab(ids["debug_tabs"], "Local Arena", ids["debug_local"])
     ui.add_tab(ids["debug_tabs"], "Dynamic", ids["debug_dynamic"])
-    ui.add_tab(ids["cpp_debug_tabs"], "Threads", ids["cpp_debug_threads"])
-    ui.add_tab(ids["cpp_debug_tabs"], "Frames", ids["cpp_debug_frames"])
-    ui.add_tab(ids["cpp_debug_tabs"], "Locals", ids["cpp_debug_locals"])
-    ui.add_tab(ids["cpp_debug_tabs"], "Registers", ids["cpp_debug_registers"])
-    ui.add_tab(ids["cpp_debug_tabs"], "Memory", ids["cpp_debug_memory"])
-    ui.set_property_bool(ids["cpp_debug_tabs"], "visible", False)
-    ui.add_tab(ids["python_debug_tabs"], "Threads", ids["python_debug_threads"])
-    ui.add_tab(ids["python_debug_tabs"], "Frames", ids["python_debug_frames"])
-    ui.add_tab(ids["python_debug_tabs"], "Locals", ids["python_debug_locals"])
-    ui.add_tab(ids["python_debug_tabs"], "Registers", ids["python_debug_registers"])
-    ui.add_tab(ids["python_debug_tabs"], "Memory", ids["python_debug_memory"])
-    ui.set_property_bool(ids["python_debug_tabs"], "visible", False)
-
     ui.place_grid_child(ids["debug_panel"], ids["source"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["epa"], 0, 0)
-    ui.place_grid_child(ids["debug_panel"], ids["cpp_surface"], 0, 0)
-    ui.place_grid_child(ids["debug_panel"], ids["python_surface"], 0, 0)
     ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
-    ui.place_grid_child(ids["debug_panel"], ids["cpp_debug_tabs"], 1, 0)
-    ui.place_grid_child(ids["debug_panel"], ids["python_debug_tabs"], 1, 0)
     ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 1)
     ui.add_tab("editor.tabs", title, ids["container"],
                button_glyph="×", button_action=f"tab.close.{tab_id}")
@@ -1476,6 +1251,7 @@ def build_document():
     ui.set_property_number("bottom.toolbar", "item_padding_y", 5)
     ui.set_property_number("bottom.toolbar", "item_spacing", 2)
     ui.add_toolbar_item("bottom.toolbar", "bottom.build", "Build Output")
+    ui.add_toolbar_item("bottom.toolbar", "bottom.host_io", "Host IO")
     ui.add_toolbar_item("bottom.toolbar", "bottom.terminal", "Terminal")
     ui.add_toolbar_separator("bottom.toolbar")
     ui.add_toolbar_item("bottom.toolbar", "bottom.clear", "Clear")
@@ -1486,6 +1262,12 @@ def build_document():
     )
     ui.set_property_number("bottom.build_output", "font_size", 12)
     ui.set_property_bool("bottom.build_output", "read_only", True)
+    ui.create_rich_text_edit(
+        "bottom.host_io_output",
+        "Host VM I/O will appear here.",
+    )
+    ui.set_property_number("bottom.host_io_output", "font_size", 12)
+    ui.set_property_bool("bottom.host_io_output", "read_only", True)
 
     ui.create_grid("bottom.terminal_panel")
     ui.add_grid_column_fill("bottom.terminal_panel")
@@ -1511,9 +1293,11 @@ def build_document():
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
 
+    ui.set_property_bool("bottom.host_io_output", "visible", False)
     ui.set_property_bool("bottom.terminal_panel", "visible", False)
     ui.place_grid_child("bottom.panel", "bottom.toolbar", 0, 0)
     ui.place_grid_child("bottom.panel", "bottom.build_output", 0, 1)
+    ui.place_grid_child("bottom.panel", "bottom.host_io_output", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.terminal_panel", 0, 1)
     ui.set_property_bool("bottom.panel", "visible", bottom_panel_visible)
 
@@ -2850,6 +2634,7 @@ def main():
         "input": "",
         "output": "Terminal ready. Open a project to set the working directory.",
     }
+    app_state["bottom_view"] = "build"
     cpp_gdb_state = {
         "proc": None,
         "token": 0,
@@ -3361,17 +3146,49 @@ def main():
             app_state["host_debug_registered"] = True
             message = payload.get("message") or f"host registered pid={payload.get('pid', '?')}"
             if ui_c:
-                _append_build_output(ui_c, f"[host-debug] {message}\n")
+                _append_host_io_output(ui_c, f"[host-debug] {message}\n")
             return
         if kind == "log":
             message = str(payload.get("message", "") or "")
             if ui_c and message:
-                _append_build_output(ui_c, f"[host] {message}\n")
+                _append_host_io_output(ui_c, f"[host] {message}\n")
+            return
+        if kind == "ingress":
+            if ui_c:
+                kernel_id = str(payload.get("kernel", "") or "")
+                worker = str(payload.get("worker", "") or "")
+                type_name = str(payload.get("type", "") or "")
+                seq = payload.get("seq")
+                details = str(payload.get("details", "") or "")
+                parts = [p for p in [
+                    kernel_id,
+                    worker,
+                    type_name,
+                    f"seq={seq}" if seq is not None else "",
+                    details,
+                ] if p]
+                label = " ".join(parts) if parts else str(payload.get("message", "") or "host queued ingress")
+                _append_host_io_output(ui_c, f"[ingress] {label}\n")
+            return
+        if kind == "egress":
+            if ui_c:
+                worker = str(payload.get("worker", "") or "")
+                signal_type = str(payload.get("signal", "") or "")
+                seq = payload.get("seq")
+                details = str(payload.get("details", "") or "")
+                parts = [p for p in [
+                    worker,
+                    signal_type,
+                    f"seq={seq}" if seq is not None else "",
+                    details,
+                ] if p]
+                label = " ".join(parts) if parts else str(payload.get("message", "") or "host received VM egress")
+                _append_host_io_output(ui_c, f"[egress] {label}\n")
             return
         if kind == "state":
             state_text = str(payload.get("status", "") or "")
             if ui_c and state_text:
-                _append_build_output(ui_c, f"[host-state] {state_text}\n")
+                _append_host_io_output(ui_c, f"[host-state] {state_text}\n")
             app_state["host_debug_state"] = state_text
             return
 
@@ -3612,19 +3429,10 @@ def main():
         port = str(meta.get("rpc_port", 18777))
         return [host, port]
 
-    def _cpp_debug_editor_tab_ids() -> list[str]:
-        return list(editor_state.keys())
-
-    def _python_debug_editor_tab_ids() -> list[str]:
-        return list(editor_state.keys())
-
     def _set_cpp_thread_items(client, items: list[dict]):
         if not items:
             items = [{"id": "cpp.threads.empty", "label": "No GDB thread data"}]
         targets = ["nav.debug.cpp_threads"]
-        for tab_id in _cpp_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            targets.extend([ids["cpp_threads"], ids["cpp_debug_threads"]])
         seen = set()
         for target in targets:
             if target in seen:
@@ -3641,8 +3449,6 @@ def main():
     def _set_cpp_status_text(client, text: str):
         cpp_gdb_state["status"] = text
         targets = ["nav.debug.cpp_status"]
-        for tab_id in _cpp_debug_editor_tab_ids():
-            targets.append(_editor_ids(tab_id)["cpp_status"])
         seen = set()
         for target in targets:
             if target in seen:
@@ -3695,42 +3501,21 @@ def main():
                 pass
 
     def _set_cpp_frame_items(client, items: list[dict]):
-        if not items:
-            items = [{"id": "cpp.frames.empty", "label": "No stack frame selected"}]
-        targets = []
-        for tab_id in _cpp_debug_editor_tab_ids():
-            targets.append(_editor_ids(tab_id)["cpp_debug_frames"])
-        for target in targets:
-            try:
-                client.set_section_json(target, "items", items)
-            except Exception:
-                try:
-                    client.call("ui.setSectionJson", {"target": target, "section": "items", "value": items})
-                except Exception:
-                    pass
+        pass
 
     def _set_cpp_locals_text(client, labels: list[str]):
-        for tab_id in _cpp_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["cpp_debug_locals"], "Locals", labels or ["No local symbols"])
+        pass
 
     def _set_cpp_registers_text(client, labels: list[str]):
-        for tab_id in _cpp_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["cpp_debug_registers"], "Registers", labels or ["No register snapshot"])
+        pass
 
     def _set_cpp_memory_text(client, labels: list[str]):
-        for tab_id in _cpp_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["cpp_debug_memory"], "Memory Regions", labels or ["No memory view attached"])
+        pass
 
     def _set_python_thread_items(client, items: list[dict]):
         if not items:
             items = [{"id": "python.threads.empty", "label": "No Python thread data"}]
         targets = ["nav.debug.python_threads"]
-        for tab_id in _python_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            targets.extend([ids["python_threads"], ids["python_debug_threads"]])
         seen = set()
         for target in targets:
             if target in seen:
@@ -3747,8 +3532,6 @@ def main():
     def _set_python_status_text(client, text: str):
         python_dbg_state["status"] = text
         targets = ["nav.debug.python_status"]
-        for tab_id in _python_debug_editor_tab_ids():
-            targets.append(_editor_ids(tab_id)["python_status"])
         seen = set()
         for target in targets:
             if target in seen:
@@ -3790,32 +3573,16 @@ def main():
             pass
 
     def _set_python_frame_items(client, items: list[dict]):
-        if not items:
-            items = [{"id": "python.frames.empty", "label": "No stack frame selected"}]
-        for tab_id in _python_debug_editor_tab_ids():
-            target = _editor_ids(tab_id)["python_debug_frames"]
-            try:
-                client.set_section_json(target, "items", items)
-            except Exception:
-                try:
-                    client.call("ui.setSectionJson", {"target": target, "section": "items", "value": items})
-                except Exception:
-                    pass
+        pass
 
     def _set_python_locals_text(client, labels: list[str]):
-        for tab_id in _python_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["python_debug_locals"], "Locals", labels or ["No local symbols"])
+        pass
 
     def _set_python_registers_text(client, labels: list[str]):
-        for tab_id in _python_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["python_debug_registers"], "Registers", labels or ["No register snapshot"])
+        pass
 
     def _set_python_memory_text(client, labels: list[str]):
-        for tab_id in _python_debug_editor_tab_ids():
-            ids = _editor_ids(tab_id)
-            _set_cpp_tree_nodes(client, ids["python_debug_memory"], "Memory Regions", labels or ["No memory view attached"])
+        pass
 
     def _python_dbg_refresh_ui(client):
         started = bool(python_dbg_state.get("started"))
@@ -4245,6 +4012,26 @@ def main():
     def _clear_build_output(client):
         app_state["bottom_build_output"] = ""
         _set_build_output(client, "")
+
+    def _set_host_io_output(client, text: str):
+        try:
+            app_state["bottom_panel_visible"] = True
+            _apply_bottom_panel_visibility(client, True)
+            _set_bottom_view(client, "host_io")
+            client.set_text("bottom.host_io_output", text)
+            client.set_visible("bottom.host_io_output", True)
+        except Exception:
+            pass
+
+    def _append_host_io_output(client, line: str):
+        current = app_state.get("bottom_host_io_output", "")
+        next_text = current + line
+        app_state["bottom_host_io_output"] = next_text
+        _set_host_io_output(client, next_text)
+
+    def _clear_host_io_output(client):
+        app_state["bottom_host_io_output"] = ""
+        _set_host_io_output(client, "")
 
     def _run_subprocess_streaming(cmd: list[str], client, cwd: Path | None = None) -> subprocess.CompletedProcess:
         proc = subprocess.Popen(
@@ -4872,19 +4659,11 @@ def main():
         ids = _editor_ids(tab_id)
         view = state.get("view", "e")
         is_epa = view == "epa"
-        is_cpp = view == "cpp"
-        is_python = view == "python"
-        client.set_visible(ids["source"], not is_epa and not is_cpp and not is_python)
+        client.set_visible(ids["source"], not is_epa)
         client.set_visible(ids["epa"], is_epa)
-        client.set_visible(ids["cpp_surface"], is_cpp)
-        client.set_visible(ids["python_surface"], is_python)
-        client.set_visible(ids["debug_tabs"], not is_cpp and not is_python)
-        client.set_visible(ids["cpp_debug_tabs"], is_cpp)
-        client.set_visible(ids["python_debug_tabs"], is_python)
+        client.set_visible(ids["debug_tabs"], True)
         client.set_enabled(ids["button_e"], view != "e")
         client.set_enabled(ids["button_epa"], view != "epa")
-        client.set_enabled(ids["button_cpp"], view != "cpp")
-        client.set_enabled(ids["button_python"], view != "python")
         client.set_read_only(ids["epa"], True)
         debug_on = state.get("debug", False)
         try:
@@ -4990,6 +4769,39 @@ def main():
         except Exception:
             pass
 
+    def _worker_combo_items_for_kernel(kernel_tab_id: str, snapshot: dict | None = None) -> list[dict]:
+        workers = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", []) or []
+        snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
+        snapshot_workers = {
+            int(w.get("wid", -1)): w for w in (snapshot.get("workers", []) or [])
+        }
+        items: list[dict] = []
+        for idx, worker in enumerate(workers, start=1):
+            label = worker.get("name", f"worker_{idx}")
+            state = snapshot_workers.get(idx) or {}
+            tags: list[str] = []
+            if int(state.get("inq_count", 0) or 0) > 0:
+                tags.append(f"q={int(state.get('inq_count', 0) or 0)}")
+            if state.get("has_current_ghs"):
+                tags.append("GHS")
+            if state.get("at_running"):
+                tags.append("run")
+            elif state.get("waiting_for_data"):
+                tags.append("wait")
+            if tags:
+                label += " [" + " ".join(tags) + "]"
+            items.append({"id": worker.get("name", label), "label": label})
+        return items
+
+    def _refresh_kernel_worker_combo(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        _apply_combo_items(
+            client,
+            f"nav.debug.kernel.{kernel_tab_id}.worker",
+            _worker_combo_items_for_kernel(kernel_tab_id, snapshot),
+        )
+
     def _apply_ingress_types_combo(client, items):
         _apply_combo_items(client, "nav.debug.ingress_type", items)
         cur = app_state.get("debug_ingress_type", "")
@@ -5030,10 +4842,9 @@ def main():
                 break
             kpath = epa_root / (k["id"].replace(".", "/") + ".e")
             workers = _workers_in_file(kpath)
-            items = [{"id": w["name"], "label": w["name"]} for w in workers]
             app_state[f"debug_kernel_workers_{k['id']}"] = workers
             try:
-                _apply_combo_items(client, f"nav.debug.kernel.{k['id']}.worker", items)
+                _refresh_kernel_worker_combo(client, k["id"])
                 _apply_cached_kernel_indicator_state(client, k["id"])
                 _apply_cached_kernel_queue_state(client, k["id"])
             except Exception:
@@ -5271,6 +5082,7 @@ def main():
             sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
             sel_inq = worker_inq.get(sel_wid, 0) if sel_wid is not None else 0
             _set_kernel_queue_badge(client, kernel_tab_id, total_inq, sel_inq)
+            _refresh_kernel_worker_combo(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
         """Set indicator colour based on the selected worker's state in the snapshot."""
@@ -6161,9 +5973,13 @@ def main():
         _apply_bottom_panel_visibility(client, visible)
 
     def _set_bottom_view(client, view: str):
+        app_state["bottom_view"] = view
+        show_build = view == "build"
+        show_host_io = view == "host_io"
         show_terminal = view == "terminal"
         try:
-            client.set_visible("bottom.build_output", not show_terminal)
+            client.set_visible("bottom.build_output", show_build)
+            client.set_visible("bottom.host_io_output", show_host_io)
             client.set_visible("bottom.terminal_panel", show_terminal)
             if show_terminal:
                 client.set_focus("bottom.terminal_input")
@@ -6721,16 +6537,25 @@ def main():
             if btn == "bottom.build":
                 _deferred(lambda: _set_bottom_view(c, "build"))
                 return {"received": True}
+            if btn == "bottom.host_io":
+                _deferred(lambda: _set_bottom_view(c, "host_io"))
+                return {"received": True}
             if btn == "bottom.terminal":
                 _deferred(lambda: _set_bottom_view(c, "terminal"))
                 return {"received": True}
             if btn == "bottom.clear":
                 def _clear_bottom():
                     try:
-                        app_state["bottom_build_output"] = ""
-                        c.set_text("bottom.build_output", "")
-                        terminal_state["output"] = "$ "
-                        c.set_text("bottom.terminal_output", terminal_state["output"])
+                        view = str(app_state.get("bottom_view", "build") or "build")
+                        if view == "host_io":
+                            app_state["bottom_host_io_output"] = ""
+                            c.set_text("bottom.host_io_output", "")
+                        elif view == "terminal":
+                            terminal_state["output"] = "$ "
+                            c.set_text("bottom.terminal_output", terminal_state["output"])
+                        else:
+                            app_state["bottom_build_output"] = ""
+                            c.set_text("bottom.build_output", "")
                     except Exception:
                         pass
                 _deferred(_clear_bottom)
@@ -7201,42 +7026,6 @@ def main():
                     current_tab = tab_id
                     _deferred(lambda: _refresh_e_tab(c, current_tab, focus=True))
                     return {"received": True}
-                if item_action == ids["button_cpp"]:
-                    app_state["active_editor_tab"] = tab_id
-                    state["view"] = "cpp"
-                    current_tab = tab_id
-                    _deferred(lambda: _apply_editor_view(c, current_tab, set_focus=True))
-                    return {"received": True}
-                if item_action == ids["button_python"]:
-                    app_state["active_editor_tab"] = tab_id
-                    state["view"] = "python"
-                    current_tab = tab_id
-                    _deferred(lambda: _apply_editor_view(c, current_tab, set_focus=True))
-                    return {"received": True}
-                cpp_action_map = {
-                    ids["cpp_continue"]: "debug.cpp.continue",
-                    ids["cpp_step_over"]: "debug.cpp.step_over",
-                    ids["cpp_step_into"]: "debug.cpp.step_into",
-                    ids["cpp_step_out"]: "debug.cpp.step_out",
-                    ids["cpp_pause"]: "debug.cpp.pause",
-                }
-                mapped_cpp_action = cpp_action_map.get(item_action)
-                if mapped_cpp_action:
-                    app_state["active_editor_tab"] = tab_id
-                    _deferred(lambda action_id=mapped_cpp_action: _cpp_gdb_handle_action(c, action_id))
-                    return {"received": True}
-                python_action_map = {
-                    ids["python_continue"]: "debug.python.continue",
-                    ids["python_step_over"]: "debug.python.step_over",
-                    ids["python_step_into"]: "debug.python.step_into",
-                    ids["python_step_out"]: "debug.python.step_out",
-                    ids["python_pause"]: "debug.python.pause",
-                }
-                mapped_python_action = python_action_map.get(item_action)
-                if mapped_python_action:
-                    app_state["active_editor_tab"] = tab_id
-                    _deferred(lambda action_id=mapped_python_action: _python_dbg_handle_action(c, action_id))
-                    return {"received": True}
             if item_action in (
                 "debug.cpp.reset",
                 "debug.cpp.stop",
@@ -7338,8 +7127,6 @@ def main():
                         target_widget = ids["source"]
                         if view == "epa":
                             target_widget = ids["epa"]
-                        elif view == "cpp":
-                            target_widget = ids["cpp_continue"]
                         try:
                             c.set_focus(target_widget)
                             c.perform_action(target_widget, action)
@@ -8069,6 +7856,7 @@ def main():
                 worker_name = payload.get("action") or payload.get("id") or ""
                 app_state[f"debug_kernel_worker_{kernel_id_str}"] = worker_name
                 if client:
+                    _refresh_kernel_worker_combo(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
                     _apply_cached_kernel_queue_state(client, kernel_id_str)
                     snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
                     if snapshot:
@@ -8177,6 +7965,19 @@ def main():
                             break
                 try:
                     dbg_c.ingress_push_hex(hex_bytes, wid=wid, path_id=kid)
+                    if c:
+                        worker_label = sw or f"wid={wid}"
+                        field_summary = ", ".join(
+                            f"{name}={value}"
+                            for name, value in field_values.items()
+                        )
+                        _append_host_io_output(
+                            c,
+                            f"[ingress] {kid} {worker_label} {tn}"
+                            + (f" {pn}" if pn else "")
+                            + (f" {field_summary}" if field_summary else "")
+                            + "\n",
+                        )
                     snap = dbg_c.snapshot(0, path_id=kid)
                     if c and kid:
                         _update_queue_counters(c, snap, kid)
