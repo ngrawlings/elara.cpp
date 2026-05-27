@@ -1097,6 +1097,7 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   const ELocalBinding *binding;
   const EValidatorBinding *validator;
   unsigned int target_wid;
+  const char *target_wid_placeholder = NULL;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 3u) {
     emit_indent(out, depth);
@@ -1123,9 +1124,16 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
                                           wname);
     }
     if (target_wid == 0u) {
-      emit_indent(out, depth);
-      fprintf(out, "// error: far_signal: worker '%s' not found in compilation unit or cross-kernel index\n", wname);
-      return 0;
+      if (ctx->model->cross_kernel.count == 0u && expr->as.call.args[0]->kind == E_EXPR_STRING) {
+        emit_indent(out, depth);
+        fprintf(out, "; far_signal target worker unresolved in single-file compile: %s\n", wname);
+        target_wid_placeholder = wname;
+      }
+      if (!target_wid_placeholder) {
+        emit_indent(out, depth);
+        fprintf(out, "// error: far_signal: worker '%s' not found in compilation unit or cross-kernel index\n", wname);
+        return 0;
+      }
     }
   } else if (expr->as.call.args[1]->kind == E_EXPR_INT) {
     target_wid = (unsigned int)expr->as.call.args[1]->as.int_lit;
@@ -1155,7 +1163,11 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   emit_indent(out, depth);
   fprintf(out, "PUSH %zu\n", binding->byte_size);
   emit_indent(out, depth);
-  fprintf(out, "PUSH %u\n", target_wid);
+  if (target_wid_placeholder) {
+    fprintf(out, "PUSH <<%s>>\n", target_wid_placeholder);
+  } else {
+    fprintf(out, "PUSH %u\n", target_wid);
+  }
   emit_indent(out, depth);
   fputs("FAR_SIGNAL\n", out);
   return 1;

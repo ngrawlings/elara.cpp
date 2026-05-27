@@ -22,6 +22,7 @@ typedef enum {
   EPA_KDBG_TRAP   = 2,
   EPA_KDBG_EXCEPT = 3,
   EPA_KDBG_SIGNAL = 4,
+  EPA_KDBG_EGRESS = 5,
 } EpaKernelDbgKind;
 
 typedef struct {

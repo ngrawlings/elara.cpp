@@ -39,6 +39,7 @@ typedef struct {
     uint32_t  stack_preview[EPA_DBG_STACK_PREVIEW];
     uint32_t  inq_count;
     uint32_t  outq_count;
+    uint32_t  owned_ghs_count;
     int32_t   locals[EPA_DBG_LOCALS];
     uint32_t  lbytes_top;
     uint32_t  lbytes_cap;
@@ -54,6 +55,8 @@ typedef struct {
     uint32_t current_wid;
     uint32_t interrupt_requested;
     uint32_t worker_count;
+    uint32_t ghs_live_count;
+    uint32_t ghs_capacity;
 } EpaDbgKernelSnapshot;
 
 typedef struct {

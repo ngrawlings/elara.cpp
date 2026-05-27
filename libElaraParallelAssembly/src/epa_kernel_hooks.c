@@ -180,6 +180,37 @@ int hook_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
 }
 
 int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  if (k && wid < EPA_MAX_WORKERS && k->impl.workers[wid].inited) {
+    EpaWorkerState *w = &k->impl.workers[wid];
+    uint32_t mailbox_cap = k->prog.signal_mailbox_size[wid];
+    uint32_t mailbox_len = (uint32_t)w->vm.csc[3];
+    if (mailbox_len > mailbox_cap) mailbox_len = mailbox_cap;
+    if (mailbox_len > 0u) {
+      char msg[256];
+      size_t pos = 0;
+      uint32_t preview_len = mailbox_len < 16u ? mailbox_len : 16u;
+      int n = snprintf(msg, sizeof(msg), "mailbox_bytes=%u preview=", (unsigned)mailbox_len);
+      if (n < 0) n = 0;
+      if ((size_t)n >= sizeof(msg)) n = (int)sizeof(msg) - 1;
+      pos = (size_t)n;
+      for (uint32_t i = 0; i < preview_len && pos + 2u < sizeof(msg); i++) {
+        n = snprintf(msg + pos, sizeof(msg) - pos, "%02X", (unsigned)w->signal_mailbox[i]);
+        if (n < 0) break;
+        if ((size_t)n >= sizeof(msg) - pos) {
+          pos = sizeof(msg) - 1;
+          break;
+        }
+        pos += (size_t)n;
+      }
+      if (mailbox_len > preview_len && pos + 4u < sizeof(msg)) {
+        snprintf(msg + pos, sizeof(msg) - pos, "...");
+      }
+      kdbg_emit(k, EPA_KDBG_EGRESS, wid, mailbox_len, &w->vm.eip, msg);
+    } else {
+      kdbg_emit(k, EPA_KDBG_SIGNAL, wid, 0, &w->vm.eip, "host_signal");
+    }
+  }
   return hook_signal(user, wid, err);
 }
 

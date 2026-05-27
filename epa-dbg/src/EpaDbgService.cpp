@@ -97,6 +97,7 @@ void EpaDbgService::onKernelDebug(void *user, int kind, uint8_t wid, uint32_t co
     else if (kind == 2) label = "trap";
     else if (kind == 3) label = "exception";
     else if (kind == 4) label = "signal";
+    else if (kind == 5) label = "egress";
     self->pushEvent(String(label), wid, code, at, msg ? String(msg) : String());
 }
 
@@ -539,6 +540,8 @@ String EpaDbgService::buildSnapshotJson(const String &path_id) const {
     result += String(",\"current_wid\":") + String((int)ks.current_wid);
     result += String(",\"interrupt_requested\":") + String((int)ks.interrupt_requested);
     result += String(",\"worker_count\":") + String((int)ks.worker_count);
+    result += String(",\"ghs_live_count\":") + String((int)ks.ghs_live_count);
+    result += String(",\"ghs_capacity\":") + String((int)ks.ghs_capacity);
     result += String("},\"workers\":[");
     for (size_t i = 0; i < wc; i++) {
         if (i) result += String(",");
@@ -559,6 +562,7 @@ String EpaDbgService::buildSnapshotJson(const String &path_id) const {
                + String(",") + String((int)w.csc[2]) + String(",") + String((int)w.csc[3]) + String("]");
         result += String(",\"inq_count\":") + String((int)w.inq_count);
         result += String(",\"outq_count\":") + String((int)w.outq_count);
+        result += String(",\"owned_ghs_count\":") + String((int)w.owned_ghs_count);
         result += String(",\"stack_depth\":") + String((int)w.stack_depth);
         result += String(",\"stack_preview\":[");
         for (uint32_t j = 0; j < w.stack_preview_count; j++) {

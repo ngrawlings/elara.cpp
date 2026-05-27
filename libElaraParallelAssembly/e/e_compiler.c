@@ -139,6 +139,11 @@ int e_compile_files_to_epaasm(const char **paths, size_t count,
                 (void)mptr;
                 continue;
             }
+            if (!e_validate_cross_kernel_references(&s->prog, &s->model, ferr)) {
+                if (err_per_file) snprintf((*err_per_file) + i * 256, 256, "%s", ferr);
+                (void)mptr;
+                continue;
+            }
         }
 
         out_fp = open_memstream(&out_buf, &out_len);

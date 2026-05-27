@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <dirent.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -216,6 +217,136 @@ static int is_entry_e_path(const char *path) {
   return strcmp(base, "entry.e") == 0;
 }
 
+static int cmp_cstr_ptr(const void *a, const void *b) {
+  const char *const *pa = (const char *const*)a;
+  const char *const *pb = (const char *const*)b;
+  return strcmp(*pa, *pb);
+}
+
+static void free_path_list(char **paths, int count) {
+  int i;
+  if (!paths) return;
+  for (i = 0; i < count; i++) free(paths[i]);
+  free(paths);
+}
+
+static int append_path(char ***paths, int *count, int *cap, const char *path, char err[256]) {
+  char **next;
+  if (*count >= *cap) {
+    int new_cap = *cap ? (*cap * 2) : 16;
+    next = (char**)realloc(*paths, (size_t)new_cap * sizeof(char*));
+    if (!next) {
+      if (err) snprintf(err, 256, "OOM collecting .e files");
+      return 0;
+    }
+    *paths = next;
+    *cap = new_cap;
+  }
+  (*paths)[*count] = dup_cstr(path);
+  if (!(*paths)[*count]) {
+    if (err) snprintf(err, 256, "OOM collecting .e files");
+    return 0;
+  }
+  (*count)++;
+  return 1;
+}
+
+static int collect_e_files_recursive(const char *dir,
+                                     char ***others,
+                                     int *other_count,
+                                     int *other_cap,
+                                     char err[256]) {
+  DIR *dh = opendir(dir);
+  struct dirent *de;
+  if (!dh) {
+    if (err) snprintf(err, 256, "could not open EPA directory: %s", dir);
+    return 0;
+  }
+
+  while ((de = readdir(dh)) != NULL) {
+    const char *name = de->d_name;
+    char *full;
+    size_t full_len;
+    struct stat st;
+
+    if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
+    if (name[0] == '.') continue;
+
+    full_len = strlen(dir) + 1u + strlen(name) + 1u;
+    full = (char*)malloc(full_len);
+    if (!full) {
+      if (err) snprintf(err, 256, "OOM collecting .e files");
+      closedir(dh);
+      return 0;
+    }
+    snprintf(full, full_len, "%s/%s", dir, name);
+
+    if (stat(full, &st) != 0) {
+      free(full);
+      continue;
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+      if (!collect_e_files_recursive(full, others, other_count, other_cap, err)) {
+        free(full);
+        closedir(dh);
+        return 0;
+      }
+    } else if (S_ISREG(st.st_mode) && has_suffix(name, ".e") && strcmp(name, "entry.e") != 0) {
+      if (!append_path(others, other_count, other_cap, full, err)) {
+        free(full);
+        closedir(dh);
+        return 0;
+      }
+    }
+    free(full);
+  }
+
+  closedir(dh);
+  return 1;
+}
+
+static int collect_dir_e_files(const char *entry_path, char ***out_paths, int *out_count, char err[256]) {
+  char *dir = NULL;
+  char **others = NULL;
+  int other_count = 0;
+  int other_cap = 0;
+  char **paths = NULL;
+  int count = 0;
+  int cap = 0;
+  int ok = 0;
+
+  if (err) err[0] = 0;
+  *out_paths = NULL;
+  *out_count = 0;
+
+  dir = dir_of_path_dup(entry_path);
+  if (!dir) {
+    if (err) snprintf(err, 256, "OOM resolving entry directory");
+    return 0;
+  }
+
+  if (!collect_e_files_recursive(dir, &others, &other_count, &other_cap, err)) goto done;
+
+  qsort(others, (size_t)other_count, sizeof(char*), cmp_cstr_ptr);
+
+  if (!append_path(&paths, &count, &cap, entry_path, err)) goto done;
+  for (int i = 0; i < other_count; i++) {
+    if (!append_path(&paths, &count, &cap, others[i], err)) goto done;
+  }
+
+  *out_paths = paths;
+  *out_count = count;
+  paths = NULL;
+  ok = 1;
+
+done:
+  free(dir);
+  free_path_list(others, other_count);
+  free_path_list(paths, count);
+  return ok;
+}
+
 static char *path_id_from_input(const char *path) {
   const char *base = basename_no_ext(path);
   const char *dot = strrchr(base, '.');
@@ -376,6 +507,8 @@ int main(int argc, char **argv) {
   char *blob_dir = NULL;
   int i;
   int entry_index = -1;
+  char **auto_paths = NULL;
+  int auto_count = 0;
 
   if (argc < 2) {
     usage(argv[0]);
@@ -402,18 +535,31 @@ int main(int argc, char **argv) {
     return 2;
   }
 
+  if (input_count == 1 && is_entry_e_path(argv[argi])) {
+    if (!collect_dir_e_files(argv[argi], &auto_paths, &auto_count, err)) {
+      fprintf(stderr, "%s\n", err[0] ? err : "failed to collect .e files");
+      return 1;
+    }
+    input_count = auto_count;
+    entry_index = -1;
+  }
+
   for (i = 0; i < input_count; i++) {
-    if (has_suffix(argv[argi + i], ".em")) {
-      fprintf(stderr, ".em files are include-only and cannot be compiled directly: %s\n", argv[argi + i]);
+    const char *arg_path = auto_paths ? auto_paths[i] : argv[argi + i];
+    if (has_suffix(arg_path, ".em")) {
+      fprintf(stderr, ".em files are include-only and cannot be compiled directly: %s\n", arg_path);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
-    if (!has_suffix(argv[argi + i], ".e")) {
-      fprintf(stderr, "expected a .e compile unit: %s\n", argv[argi + i]);
+    if (!has_suffix(arg_path, ".e")) {
+      fprintf(stderr, "expected a .e compile unit: %s\n", arg_path);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
-    if (is_entry_e_path(argv[argi + i])) {
+    if (is_entry_e_path(arg_path)) {
       if (entry_index >= 0) {
         fprintf(stderr, "exactly one entry.e root compile unit is required\n");
+        free_path_list(auto_paths, auto_count);
         return 1;
       }
       entry_index = i;
@@ -421,12 +567,14 @@ int main(int argc, char **argv) {
   }
   if (entry_index < 0) {
     fprintf(stderr, "missing root compile unit entry.e\n");
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
 
   build_dir = default_build_dir_from_argv0(argv[0]);
   if (!build_dir) {
     fprintf(stderr, "OOM\n");
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
   default_out_path = join2(build_dir, "epa.bin");
@@ -434,6 +582,7 @@ int main(int argc, char **argv) {
     fprintf(stderr, "OOM\n");
     free(build_dir);
     free(default_out_path);
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
   if (!out_path) out_path = default_out_path;
@@ -447,6 +596,7 @@ int main(int argc, char **argv) {
     free(out_dir);
     free(epaasm_dir);
     free(blob_dir);
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
 
@@ -458,11 +608,14 @@ int main(int argc, char **argv) {
     free(out_dir);
     free(epaasm_dir);
     free(blob_dir);
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
 
   for (i = 0; i < input_count; i++) {
-    const char *input_path = argv[argi + ((i == 0) ? entry_index : (i <= entry_index ? i - 1 : i))];
+    const char *input_path = auto_paths
+      ? auto_paths[((i == 0) ? entry_index : (i <= entry_index ? i - 1 : i))]
+      : argv[argi + ((i == 0) ? entry_index : (i <= entry_index ? i - 1 : i))];
     const char *base = basename_no_ext(input_path);
     const char *dot = strrchr(base, '.');
     size_t stem_len = dot && dot > base ? (size_t)(dot - base) : strlen(base);
@@ -476,6 +629,7 @@ int main(int argc, char **argv) {
       free(out_dir);
       free(epaasm_dir);
       free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -495,6 +649,7 @@ int main(int argc, char **argv) {
       free(out_dir);
       free(epaasm_dir);
       free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -506,6 +661,7 @@ int main(int argc, char **argv) {
       free(out_dir);
       free(epaasm_dir);
       free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -530,6 +686,7 @@ int main(int argc, char **argv) {
       free(out_dir);
       free(epaasm_dir);
       free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -549,6 +706,7 @@ int main(int argc, char **argv) {
       free_entries(entries, input_count);
       free(build_dir); free(default_out_path);
       free(out_dir); free(epaasm_dir); free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -561,6 +719,7 @@ int main(int argc, char **argv) {
       free_entries(entries, input_count);
       free(build_dir); free(default_out_path);
       free(out_dir); free(epaasm_dir); free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
 
@@ -584,6 +743,7 @@ int main(int argc, char **argv) {
       free_entries(entries, input_count);
       free(build_dir); free(default_out_path);
       free(out_dir); free(epaasm_dir); free(blob_dir);
+      free_path_list(auto_paths, auto_count);
       return 1;
     }
   }
@@ -596,6 +756,7 @@ int main(int argc, char **argv) {
     free(out_dir);
     free(epaasm_dir);
     free(blob_dir);
+    free_path_list(auto_paths, auto_count);
     return 1;
   }
 
@@ -605,5 +766,6 @@ int main(int argc, char **argv) {
   free(out_dir);
   free(epaasm_dir);
   free(blob_dir);
+  free_path_list(auto_paths, auto_count);
   return 0;
 }

@@ -42,6 +42,22 @@ static int streq(const char *a, const char *b) {
   return strcmp(a, b) == 0;
 }
 
+static const char *normalized_string_token(const char *s, char *buf, size_t buf_sz) {
+  size_t n;
+  if (!s) return "";
+  n = strlen(s);
+  if (n >= 2u && s[0] == '"' && s[n - 1u] == '"') {
+    size_t out_n = n - 2u;
+    if (out_n >= buf_sz) out_n = buf_sz ? (buf_sz - 1u) : 0u;
+    if (buf_sz) {
+      memcpy(buf, s + 1, out_n);
+      buf[out_n] = 0;
+    }
+    return buf;
+  }
+  return s;
+}
+
 static uint64_t fnv1a64_bytes(const char *s) {
   uint64_t h = 14695981039346656037ull;
   while (s && *s) {
@@ -1495,6 +1511,10 @@ static int validate_far_signal_expr(const EExpr *expr,
             /* not in this kernel — check cross-kernel index */
             const char *target_kernel = (expr->as.call.args[0]->kind == E_EXPR_STRING)
                                         ? expr->as.call.args[0]->as.string_lit : NULL;
+            char norm_kernel[512];
+            if (target_kernel) {
+              target_kernel = normalized_string_token(target_kernel, norm_kernel, sizeof(norm_kernel));
+            }
             /* If cross_kernel index is not yet built (count==0), defer validation
                to emit-time so multi-file first-pass compilation can succeed. */
             if (model->cross_kernel.count == 0 && target_kernel) {
@@ -1847,6 +1867,17 @@ int e_build_cross_kernel_index(const ESemanticModel **models, size_t model_count
   out_index->entries = entries;
   out_index->count = pos;
   return 1;
+}
+
+int e_validate_cross_kernel_references(const EProgram *program,
+                                       const ESemanticModel *model,
+                                       char err[256]) {
+  if (err) err[0] = 0;
+  if (!program || !model) {
+    if (err) snprintf(err, 256, "e_validate_cross_kernel_references: invalid args");
+    return 0;
+  }
+  return validate_far_signal_usage(program, model, err);
 }
 
 void e_cross_kernel_index_free(ECrossKernelIndex *index) {

@@ -8,6 +8,7 @@ Response: {"id": "...", "ok": true,  "result": <json>}
 """
 
 import json
+import select
 import socket
 import struct
 import threading
@@ -29,7 +30,10 @@ class EpaDbgClient:
         self._host = host
         self._port = port
         self._sock: socket.socket | None = None
-        self._lock = threading.Lock()
+        # epa-dbg is request/response over one ordered TCP stream. The full
+        # transaction must be serialized; otherwise concurrent callers can read
+        # each other's length-prefixed response and corrupt the stream.
+        self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
     # Connection lifecycle
@@ -97,9 +101,19 @@ class EpaDbgClient:
         try:
             header = _recv_exactly(sock, 4)
             length = struct.unpack(">I", header)[0]
+            if length > 64 * 1024 * 1024:
+                raise RuntimeError(f"epa-dbg frame too large: {length} bytes")
             return _recv_exactly(sock, length)
         finally:
             sock.settimeout(None)
+
+    def _close_unlocked(self) -> None:
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
 
     # ------------------------------------------------------------------
     # RPC
@@ -110,15 +124,25 @@ class EpaDbgClient:
         body = {"id": req_id, "method": method}
         if params is not None:
             body["params"] = params
-        self._send_raw(json.dumps(body, ensure_ascii=False).encode())
-        raw = self._recv_raw(timeout=timeout)
-        resp = json.loads(raw.decode())
-        if resp.get("id") != req_id:
-            raise RuntimeError(f"response id mismatch: {resp.get('id')} != {req_id}")
-        if not resp.get("ok", False):
-            err = resp.get("error", {})
-            raise EpaDbgError(err.get("code", "unknown"), err.get("message", ""))
-        return resp.get("result")
+        with self._lock:
+            try:
+                self._send_raw(json.dumps(body, ensure_ascii=False).encode())
+                raw = self._recv_raw(timeout=timeout)
+                resp = json.loads(raw.decode("utf-8"))
+                if resp.get("id") != req_id:
+                    raise RuntimeError(f"response id mismatch: {resp.get('id')} != {req_id}")
+                if not resp.get("ok", False):
+                    err = resp.get("error", {})
+                    raise EpaDbgError(err.get("code", "unknown"), err.get("message", ""))
+                return resp.get("result")
+            except EpaDbgError:
+                raise
+            except Exception:
+                # After a framing/decode/id error the stream position is no
+                # longer trustworthy. Force the next call to reconnect instead
+                # of compounding one bad read into many spooky follow-on errors.
+                self._close_unlocked()
+                raise
 
     # ------------------------------------------------------------------
     # High-level API
@@ -257,7 +281,11 @@ class EpaDbgClient:
 def _recv_exactly(sock: socket.socket, n: int) -> bytes:
     buf = bytearray()
     while len(buf) < n:
-        chunk = sock.recv(n - len(buf))
+        try:
+            chunk = sock.recv(n - len(buf))
+        except BlockingIOError:
+            select.select([sock], [], [], 0.05)
+            continue
         if not chunk:
             raise EOFError("connection closed mid-message")
         buf.extend(chunk)

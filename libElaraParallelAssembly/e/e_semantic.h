@@ -149,6 +149,12 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
 void e_semantic_model_free(ESemanticModel *model);
 void e_semantic_model_dump(FILE *out, const ESemanticModel *model);
 
+/* Validate references that may be deferred until the multi-file cross-kernel
+ * index has been installed on the semantic model. */
+int e_validate_cross_kernel_references(const EProgram *program,
+                                       const ESemanticModel *model,
+                                       char err[256]);
+
 /* Build a cross-kernel index from an array of already-built semantic models. */
 int e_build_cross_kernel_index(const ESemanticModel **models, size_t model_count,
                                 ECrossKernelIndex *out_index, char err[256]);

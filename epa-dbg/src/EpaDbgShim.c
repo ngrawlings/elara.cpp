@@ -18,7 +18,24 @@ int epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out) {
     for (wid = 0; wid < EPA_MAX_WORKERS; wid++) {
         if (kernel->impl.workers[wid].inited) out->worker_count++;
     }
+    if (kernel->impl.ghs) {
+        out->ghs_live_count = epa_ghs_live_count(kernel->impl.ghs);
+        out->ghs_capacity = epa_ghs_capacity(kernel->impl.ghs);
+    }
     return 1;
+}
+
+static uint32_t epa_dbg_count_ghs_owned_by(EpaKernel *kernel, uint32_t owner) {
+    uint32_t i;
+    uint32_t count = 0;
+    epa_ghs_t *ghs;
+    if (!kernel || !kernel->impl.ghs) return 0;
+    ghs = kernel->impl.ghs;
+    for (i = 0; i < ghs->max_entries; i++) {
+        epa_ghs_entry_t *entry = &ghs->entries[i];
+        if ((entry->flags & EPA_GHS_F_IN_USE) && entry->owner == owner) count++;
+    }
+    return count;
 }
 
 size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, size_t max_workers) {
@@ -51,6 +68,7 @@ size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, siz
         }
         dst->inq_count  = kernel->ingress.inq[wid].count;
         dst->outq_count = epa_ring_count(&w->outq);
+        dst->owned_ghs_count = epa_dbg_count_ghs_owned_by(kernel, wid);
         memcpy(dst->locals, w->vm.locals, sizeof(dst->locals));
         dst->lbytes_top   = w->vm.lbytes_top;
         dst->lbytes_cap   = w->vm.lbytes_cap;

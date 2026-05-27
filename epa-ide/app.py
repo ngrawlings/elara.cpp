@@ -4785,6 +4785,8 @@ def main():
 
         return [{"id": n, "label": n} for n in type_names]
 
+    KERNEL_WORKER_ID = "__epa_kernel_wid_0__"
+
     def _apply_combo_items(client, target: str, items: list, selected_id: str = ""):
         try:
             client.call("ui.setSectionJson", {
@@ -4807,13 +4809,13 @@ def main():
         snapshot_workers = {
             int(w.get("wid", -1)): w for w in (snapshot.get("workers", []) or [])
         }
-        items: list[dict] = []
-        for idx, worker in enumerate(workers, start=1):
-            label = worker.get("name", f"worker_{idx}")
-            state = snapshot_workers.get(idx) or {}
+
+        def _state_tags(state: dict) -> list[str]:
             tags: list[str] = []
             if int(state.get("inq_count", 0) or 0) > 0:
                 tags.append(f"q={int(state.get('inq_count', 0) or 0)}")
+            if int(state.get("owned_ghs_count", 0) or 0) > 0:
+                tags.append(f"g={int(state.get('owned_ghs_count', 0) or 0)}")
             if state.get("has_current_ghs"):
                 tags.append("GHS")
             if state.get("faulted"):
@@ -4822,9 +4824,21 @@ def main():
                 tags.append("run")
             elif state.get("waiting_for_data"):
                 tags.append("wait")
+            return tags
+
+        items: list[dict] = []
+        for idx, worker in enumerate(workers, start=1):
+            label = worker.get("name", f"worker_{idx}")
+            state = snapshot_workers.get(idx) or {}
+            tags = _state_tags(state)
             if tags:
                 label += " [" + " ".join(tags) + "]"
             items.append({"id": worker.get("name", label), "label": label})
+        kernel_label = "kernel (wid=0)"
+        kernel_tags = _state_tags(snapshot_workers.get(0) or {})
+        if kernel_tags:
+            kernel_label += " [" + " ".join(kernel_tags) + "]"
+        items.append({"id": KERNEL_WORKER_ID, "label": kernel_label})
         return items
 
     def _refresh_kernel_worker_combo(client, kernel_tab_id: str, snapshot: dict | None = None):
@@ -5074,9 +5088,11 @@ def main():
 
     def _selected_worker_wid_for_kernel(kernel_tab_id: str) -> int | None:
         workers_list = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
-        if not workers_list:
-            return None
         sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
+        if sel_worker_name == KERNEL_WORKER_ID:
+            return 0
+        if not workers_list:
+            return 0
         for wi, w in enumerate(workers_list):
             if w.get("name") == sel_worker_name:
                 return wi + 1
@@ -5092,7 +5108,7 @@ def main():
         if not kernel_tab_id:
             return
         queue_state = app_state.setdefault("debug_kernel_queue_state", {})
-        queue_state[kernel_tab_id] = {"total_inq": 0, "worker_inq": {}}
+        queue_state[kernel_tab_id] = {"total_packets": 0, "worker_packets": {}}
         if client:
             _set_kernel_queue_badge(client, kernel_tab_id, 0, 0)
 
@@ -5100,29 +5116,31 @@ def main():
         if not client or not kernel_tab_id:
             return
         queue_state = app_state.get("debug_kernel_queue_state", {}).get(kernel_tab_id, {})
-        total_inq = int(queue_state.get("total_inq", 0) or 0)
-        worker_inq = queue_state.get("worker_inq", {}) or {}
+        total_packets = int(queue_state.get("total_packets", queue_state.get("total_inq", 0)) or 0)
+        worker_packets = queue_state.get("worker_packets", queue_state.get("worker_inq", {})) or {}
         sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
-        sel_inq = int(worker_inq.get(sel_wid, 0) or 0) if sel_wid is not None else 0
-        _set_kernel_queue_badge(client, kernel_tab_id, total_inq, sel_inq)
+        sel_packets = int(worker_packets.get(sel_wid, 0) or 0) if sel_wid is not None else 0
+        _set_kernel_queue_badge(client, kernel_tab_id, total_packets, sel_packets)
 
     def _update_kernel_queue_state_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
         if not kernel_tab_id:
             return
         app_state.setdefault("debug_kernel_snapshot_state", {})[kernel_tab_id] = snapshot
         workers = snapshot.get("workers", [])
-        total_inq = sum(w.get("inq_count", 0) for w in workers)
-        worker_inq = {}
+        kernel = snapshot.get("kernel", {}) or {}
+        total_queued = sum(int(w.get("inq_count", 0) or 0) for w in workers)
+        total_packets = total_queued + int(kernel.get("ghs_live_count", 0) or 0)
+        worker_packets = {}
         for w in workers:
-            worker_inq[w.get("wid")] = w.get("inq_count", 0)
+            worker_packets[w.get("wid")] = int(w.get("inq_count", 0) or 0) + int(w.get("owned_ghs_count", 0) or 0)
         app_state.setdefault("debug_kernel_queue_state", {})[kernel_tab_id] = {
-            "total_inq": total_inq,
-            "worker_inq": worker_inq,
+            "total_packets": total_packets,
+            "worker_packets": worker_packets,
         }
         if client:
             sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
-            sel_inq = worker_inq.get(sel_wid, 0) if sel_wid is not None else 0
-            _set_kernel_queue_badge(client, kernel_tab_id, total_inq, sel_inq)
+            sel_packets = worker_packets.get(sel_wid, 0) if sel_wid is not None else 0
+            _set_kernel_queue_badge(client, kernel_tab_id, total_packets, sel_packets)
             _refresh_kernel_worker_combo(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
@@ -5466,6 +5484,38 @@ def main():
                 except Exception:
                     return {}, "step"
             raise
+
+    def _drain_epa_dbg_events(client, dbg_c, kernel_id: int = 0, kernel_tab_id: str = ""):
+        if not client or not dbg_c:
+            return
+        try:
+            payload = dbg_c.events(kernel_id, clear=True)
+        except Exception as exc:
+            _epa_dbg_log(f"[event-error] {kernel_tab_id or 'kernel'}: {exc}")
+            return
+        events = payload.get("events", []) if isinstance(payload, dict) else payload
+        if not isinstance(events, list):
+            return
+        for ev in events:
+            if not isinstance(ev, dict):
+                continue
+            kind = str(ev.get("kind", "") or "")
+            wid = ev.get("wid")
+            message = str(ev.get("message", "") or "").strip()
+            block_type = ev.get("block_type")
+            block_id = ev.get("block_id")
+            rel_pc = ev.get("rel_pc")
+            loc = ""
+            if block_type is not None and block_id is not None and rel_pc is not None:
+                loc = f" bt={block_type} bid={block_id} +0x{int(rel_pc or 0):x}"
+            if kind == "egress":
+                details = f" {message}" if message else ""
+                _append_host_io_output(client, f"[egress] {kernel_tab_id} wid={wid}{details}{loc}\n")
+            elif kind == "signal":
+                details = f" {message}" if message else ""
+                _append_host_io_output(client, f"[host_signal] {kernel_tab_id} wid={wid}{details}{loc}\n")
+            elif kind == "log" and message:
+                _append_host_io_output(client, f"[host] {message}\n")
 
     def _retry_after_forced_bundle_load(dbg_c, bundle_path: str, kernel_id: int, kernel_tab_id: str) -> bool:
         result = _epa_dbg_load_bundle(bundle_path, kernel_id=kernel_id)
@@ -7741,6 +7791,7 @@ def main():
                                 _update_queue_counters(uc, snap, ktid)
                                 _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                                 _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                            _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                             if snap and not r:
                                 _epa_dbg_log(_format_step_eip_log(ktid, snap))
                                 if step_status not in ("boundary", ""):
@@ -7764,6 +7815,7 @@ def main():
                                         _update_queue_counters(uc, snap, ktid)
                                         _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                                         _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                                    _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                                     if snap and not r:
                                         _epa_dbg_log(_format_step_eip_log(ktid, snap))
                                         if step_status not in ("boundary", ""):
@@ -7785,6 +7837,7 @@ def main():
                                     _update_queue_counters(uc, snap, ktid)
                                     _update_kernel_indicator_from_snapshot(uc, ktid, snap)
                                     _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                                _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                                 if snap:
                                     _epa_dbg_log(_format_step_eip_log(ktid, snap))
                                 return
@@ -7900,6 +7953,8 @@ def main():
             if target.startswith(prefix) and target.endswith(suffix):
                 kernel_id_str = target[len(prefix):-len(suffix)]
                 worker_name = payload.get("action") or payload.get("id") or ""
+                if worker_name == "kernel (wid=0)":
+                    worker_name = KERNEL_WORKER_ID
                 app_state[f"debug_kernel_worker_{kernel_id_str}"] = worker_name
                 if client:
                     _refresh_kernel_worker_combo(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
