@@ -5,6 +5,61 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+static uint64_t fnv1a64_bytes(const char *s) {
+  uint64_t h = 14695981039346656037ull;
+  while (s && *s) {
+    h ^= (uint8_t)*s++;
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
+static const EpaConst *find_const_by_id(const EpaProgramDesc *out, uint32_t id) {
+  size_t i;
+  for (i = 0; i < out->nconsts; i++) {
+    if (out->consts[i].id == id) return &out->consts[i];
+  }
+  return NULL;
+}
+
+static int set_kernel_path_from_const(EpaProgramDesc *out, uint32_t const_id, char err[EPA_MAX_ERR]) {
+  const EpaConst *c = find_const_by_id(out, const_id);
+  char *path;
+  if (!c || c->kind != EPA_CONST_STR) {
+    snprintf(err, EPA_MAX_ERR, "program_loader: KERNEL_ID_STR const %u not found", (unsigned)const_id);
+    return 0;
+  }
+  if (!out->image_base || (size_t)c->a + (size_t)c->b > out->image_size) {
+    snprintf(err, EPA_MAX_ERR, "program_loader: KERNEL_ID_STR const %u out of range", (unsigned)const_id);
+    return 0;
+  }
+  path = (char*)malloc((size_t)c->b + 1u);
+  if (!path) {
+    snprintf(err, EPA_MAX_ERR, "program_loader: OOM loading kernel path");
+    return 0;
+  }
+  memcpy(path, out->image_base + c->a, (size_t)c->b);
+  path[c->b] = 0;
+  free(out->kernel_path);
+  out->kernel_path = path;
+  out->kernel_uid = fnv1a64_bytes(path);
+  return 1;
+}
+
+static int push_acl_entry(EpaProgramDesc *out, uint64_t remote_uid, uint32_t local_wid, char err[EPA_MAX_ERR]) {
+  EpaProgramAclEntry *next = (EpaProgramAclEntry*)realloc(
+    out->acl_entries, sizeof(EpaProgramAclEntry) * (out->acl_count + 1u));
+  if (!next) {
+    snprintf(err, EPA_MAX_ERR, "program_loader: OOM growing ACL");
+    return 0;
+  }
+  out->acl_entries = next;
+  out->acl_entries[out->acl_count].remote_kernel_uid = remote_uid;
+  out->acl_entries[out->acl_count].local_wid = local_wid;
+  out->acl_count++;
+  return 1;
+}
+
 // Skip ENTRY section (supports nested ENTRY_START/ENTRY_END)
 static int skip_entry(
     const uint8_t *blob, size_t blob_len,
@@ -231,6 +286,8 @@ void epa_program_free(EpaProgramDesc *p) {
   free(p->consts);
   free(p->funcs);
   free(p->dynamic_pools);
+  free(p->kernel_path);
+  free(p->acl_entries);
   memset(p, 0, sizeof(*p));
 }
 
@@ -314,6 +371,23 @@ int epa_program_parse(
       out->signal_mailbox_size[id] = signal_mail_box_size;
 
       pc = pc_after;
+      continue;
+    }
+
+    if (op == EPA_OP_KERNEL_ID_STR) {
+      uint32_t const_id = EPA_READ_U32_LE(blob, pc + 2u);
+      if (!set_kernel_path_from_const(out, const_id, err)) return 0;
+      pc += need;
+      continue;
+    }
+
+    if (op == EPA_OP_ACL_ALLOW) {
+      uint32_t lo = EPA_READ_U32_LE(blob, pc + 2u);
+      uint32_t hi = EPA_READ_U32_LE(blob, pc + 6u);
+      uint32_t local_wid = EPA_READ_U32_LE(blob, pc + 10u);
+      uint64_t remote_uid = ((uint64_t)hi << 32) | (uint64_t)lo;
+      if (!push_acl_entry(out, remote_uid, local_wid, err)) return 0;
+      pc += need;
       continue;
     }
 

@@ -717,6 +717,8 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"ENTRY_EXEC", EPA_OP_ENTRY_EXEC,            1,1, 1,{AK_U8}, NULL, "ENTRY_EXEC <worker_id:u8>"},
     {"ENTRY_HALT", EPA_OP_ENTRY_HALT,            1,1, 1,{AK_U8}, NULL, "ENTRY_HALT <worker_id:u8>"},
     {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         5,5, 5,{AK_U32, AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <element_size:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
+    {"KERNEL_ID_STR",EPA_OP_KERNEL_ID_STR,       1,1, 1,{AK_U32}, NULL, "KERNEL_ID_STR <const_id:u32>"},
+    {"ACL_ALLOW", EPA_OP_ACL_ALLOW,              3,3, 3,{AK_U32, AK_U32, AK_U32}, NULL, "ACL_ALLOW <remote_id_lo:u32> <remote_id_hi:u32> <local_wid:u32>"},
     {"SYNC",       EPA_OP_SYNC,                  0,0, 0,{0}, NULL, "SYNC takes no params"},
     {"WAIT_ON_SYNC",EPA_OP_WAIT_ON_SYNC,         0,0, 0,{0}, NULL, "WAIT_ON_SYNC takes no params"},
 

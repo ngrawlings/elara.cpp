@@ -434,6 +434,10 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
           snprintf(err, 256, "kernel first parameter must be VM");
           return 0;
         }
+        if (top->as.kernel.acl_count == 0u) {
+          fprintf(stderr,
+                  "warning: kernel has no acl block; external far_signal routes are not whitelist-constrained\n");
+        }
         break;
       case E_TOP_WORKER:
         if (top->as.worker.param_count != 1u) {
@@ -1001,6 +1005,19 @@ static int validate_worker_next_targets(const ESemanticModel *model, char err[25
   return 1;
 }
 
+static int validate_kernel_acl_targets(const ESemanticModel *model, char err[256]) {
+  size_t i;
+  if (!model || !model->kernel) return 1;
+  for (i = 0; i < model->kernel->acl_count; i++) {
+    const EAclEntry *entry = &model->kernel->acl_entries[i];
+    if (!worker_exists(model, entry->local_worker)) {
+      snprintf(err, 256, "acl target worker '%s' is not declared", entry->local_worker);
+      return 0;
+    }
+  }
+  return 1;
+}
+
 static const char *worker_payload_type_by_entry_id(const ESemanticModel *model, unsigned int wid) {
   if (wid == 0u || (size_t)wid > model->worker_count) return NULL;
   return model->workers[wid - 1u]->params[0].type.name;
@@ -1475,6 +1492,11 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_worker_next_targets(out_model, err)) {
+    e_semantic_model_free(out_model);
+    return 0;
+  }
+
+  if (!validate_kernel_acl_targets(out_model, err)) {
     e_semantic_model_free(out_model);
     return 0;
   }

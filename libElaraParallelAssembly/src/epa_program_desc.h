@@ -46,6 +46,11 @@ typedef struct {
 } EpaProgramDynamicPoolDesc;
 
 typedef struct {
+  uint64_t remote_kernel_uid;
+  uint32_t local_wid;
+} EpaProgramAclEntry;
+
+typedef struct {
   EpaCodeView entries[256];   // entry slots (present -> code_len > 0)
   uint8_t entry_present[256];
 
@@ -62,6 +67,11 @@ typedef struct {
 
   EpaProgramDynamicPoolDesc *dynamic_pools;
   size_t dynamic_pool_count;
+
+  char *kernel_path;
+  uint64_t kernel_uid;
+  EpaProgramAclEntry *acl_entries;
+  size_t acl_count;
 
   // ---- NEW: backing image for absolute offsets (DATA_BLOCK strings/bytes) ----
   const uint8_t *image_base;   // caller-owned; must remain alive

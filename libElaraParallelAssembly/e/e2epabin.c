@@ -308,7 +308,7 @@ static int emit_e_to_epaasm(const char *input_path, const char *epaasm_path, cha
     return 0;
   }
 
-  if (!e_emit_epa_asm(out, NULL, &prog, &model, NULL, NULL, err)) {
+  if (!e_emit_epa_asm(out, NULL, &prog, &model, NULL, input_path, err)) {
     char local[256];
     snprintf(local, sizeof(local), "emit: %s", err[0] ? err : "unknown error");
     strncpy(err, local, 255u);

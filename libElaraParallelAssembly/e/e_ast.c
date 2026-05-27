@@ -135,6 +135,15 @@ static void free_params(EParam *params, size_t param_count) {
   free(params);
 }
 
+static void free_acl_entries(EAclEntry *entries, size_t count) {
+  size_t i;
+  for (i = 0; i < count; i++) {
+    free(entries[i].remote_kernel);
+    free(entries[i].local_worker);
+  }
+  free(entries);
+}
+
 void e_program_free(EProgram *p) {
   size_t i;
   if (!p) return;
@@ -145,7 +154,9 @@ void e_program_free(EProgram *p) {
         free(d->as.sdecl.name);
         break;
       case E_TOP_KERNEL:
+        free(d->as.kernel.path);
         free_params(d->as.kernel.params, d->as.kernel.param_count);
+        free_acl_entries(d->as.kernel.acl_entries, d->as.kernel.acl_count);
         free_stmt(d->as.kernel.body);
         break;
       case E_TOP_WORKER:
@@ -450,12 +461,26 @@ void e_program_dump(FILE *out, const EProgram *p) {
           dump_entry_attrs(out, &d->as.kernel.attrs);
         }
         fputs("kernel(", out);
+        if (d->as.kernel.path) {
+          fprintf(out, "\"%s\"", d->as.kernel.path);
+          if (d->as.kernel.param_count > 0u) fputs(", ", out);
+        }
         for (j = 0; j < d->as.kernel.param_count; j++) {
           if (j) fputs(", ", out);
           dump_type_ref(out, &d->as.kernel.params[j].type);
           fprintf(out, " %s", d->as.kernel.params[j].name);
         }
         fputs(")\n", out);
+        if (d->as.kernel.acl_count > 0u) {
+          size_t ai;
+          fputs("acl {\n", out);
+          for (ai = 0; ai < d->as.kernel.acl_count; ai++) {
+            fprintf(out, "  %s -> %s;\n",
+                    d->as.kernel.acl_entries[ai].remote_kernel,
+                    d->as.kernel.acl_entries[ai].local_worker);
+          }
+          fputs("}\n", out);
+        }
         dump_stmt(out, d->as.kernel.body, 1);
         break;
       case E_TOP_WORKER:

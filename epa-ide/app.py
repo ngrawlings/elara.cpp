@@ -340,6 +340,7 @@ def build_document():
             ]}
         ]},
         {"id": "build", "label": "&Build", "items": [
+            {"id": "build.compile_epa", "label": "Compile &E/EPA", "shortcut": "Ctrl+Shift+B"},
             {"id": "build.compile", "label": "&Compile Current File", "shortcut": "Ctrl+F7"},
             {"id": "build.build_project", "label": "&Build Project", "shortcut": "F7"},
             {"id": "build.rebuild_project", "label": "&Rebuild Project", "shortcut": "Ctrl+Shift+F7"},
@@ -2947,21 +2948,133 @@ def main():
             env={**os.environ, "LC_ALL": "C"},
         )
 
+    def _set_build_output(client, text: str):
+        try:
+            app_state["bottom_panel_visible"] = True
+            _apply_bottom_panel_visibility(client, True)
+            _set_bottom_view(client, "build")
+            client.set_text("bottom.build_output", text)
+            client.set_visible("bottom.build_output", True)
+        except Exception:
+            pass
+
+    def _append_build_output(client, line: str):
+        current = app_state.get("bottom_build_output", "")
+        next_text = current + line
+        app_state["bottom_build_output"] = next_text
+        _set_build_output(client, next_text)
+
+    def _clear_build_output(client):
+        app_state["bottom_build_output"] = ""
+        _set_build_output(client, "")
+
+    def _run_subprocess_streaming(cmd: list[str], client, cwd: Path | None = None) -> subprocess.CompletedProcess:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            env={**os.environ, "LC_ALL": "C"},
+        )
+        output_lines = []
+        try:
+            if proc.stdout is not None:
+                for line in proc.stdout:
+                    output_lines.append(line)
+                    _append_build_output(client, line)
+        finally:
+            if proc.stdout is not None:
+                proc.stdout.close()
+        returncode = proc.wait()
+        stdout_text = "".join(output_lines)
+        if returncode != 0:
+            raise subprocess.CalledProcessError(returncode, cmd, output=stdout_text, stderr=stdout_text)
+        return subprocess.CompletedProcess(cmd, returncode, stdout_text, "")
+
+    def _compile_epa_project(client):
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            _set_build_output(client, "Compile E/EPA skipped: no project open.\n")
+            return
+
+        project_root = Path(project_root_text)
+        meta = _project_meta(project_root)
+        technologies = set(meta.get("technologies", []))
+        if "epa" not in technologies:
+            _set_build_output(client, f"Compile E/EPA skipped: project has no EPA technology.\n")
+            return
+
+        build_dir = project_root / "build"
+        build_dir.mkdir(parents=True, exist_ok=True)
+        units = _project_e_compile_units(project_root)
+        bundle = _ensure_e2epabin()
+        cmd = [str(bundle), "--out", str(build_dir / "epa.bin")] + [str(p) for p in units]
+
+        _clear_build_output(client)
+        _append_build_output(client, f"Compile E/EPA started: {project_root}\n")
+        _append_build_output(client, "$ " + " ".join(cmd) + "\n")
+        try:
+            _run_subprocess_streaming(cmd, client, cwd=project_root)
+            _append_build_output(client, f"Compile E/EPA complete: {build_dir / 'epa.bin'}\n")
+            _open_project(client, project_root)
+        except (subprocess.CalledProcessError, RuntimeError) as exc:
+            message = ""
+            if isinstance(exc, subprocess.CalledProcessError):
+                message = (exc.stderr or exc.stdout or str(exc)).strip()
+            else:
+                message = str(exc)
+            if message:
+                _append_build_output(client, message + "\n")
+            _append_build_output(client, "Compile E/EPA failed.\n")
+
+    def _compile_current_file(client):
+        tab_id = app_state.get("active_editor_tab", "")
+        if not tab_id:
+            _set_build_output(client, "Compile current file skipped: no active editor tab.\n")
+            return
+        entry = next((t for t in tab_list if t.get("tab_id") == tab_id), None)
+        state = editor_state.get(tab_id)
+        if not entry or not state:
+            _set_build_output(client, "Compile current file skipped: active tab state not found.\n")
+            return
+        file_path = entry.get("path", "")
+        if _ext_for_path(file_path) != ".e":
+            _set_build_output(client, f"Compile current file skipped: {Path(file_path).name} is not an E file.\n")
+            return
+
+        source_dir = Path(file_path).parent if file_path else None
+        _clear_build_output(client)
+        _append_build_output(client, f"Compile current file: {file_path}\n")
+        result = _compile_e_source(state.get("source_text", ""), source_dir)
+        if result.get("message"):
+            _append_build_output(client, result["message"] + "\n")
+        if result.get("ok"):
+            state["epa_text"] = result.get("epa_text", "")
+            state["epa_block_map"] = result.get("epa_block_map", {})
+            state["epa_map_text"] = result.get("epa_map_text", "")
+            state["compile_error"] = ""
+            state["epa_map_path"] = _persist_debug_map(tab_id, result.get("epa_map_text", ""))
+            _append_build_output(client, "Compile current file complete.\n")
+            _refresh_e_tab(client, tab_id)
+        else:
+            state["compile_error"] = result.get("message", "compile failed")
+            _append_build_output(client, "Compile current file failed.\n")
+
     def _build_project(client, rebuild: bool = False):
         project_root_text = app_state.get("project_root", "")
         if not project_root_text:
             print(json.dumps({"build": "skipped", "reason": "no_project_open"}, indent=2), flush=True)
-            try:
-                client.set_text("bottom.build_output", "Build skipped: no project open.")
-            except Exception:
-                pass
+            _set_build_output(client, "Build skipped: no project open.\n")
             return
 
         project_root = Path(project_root_text)
         meta = _project_meta(project_root)
         technologies = set(meta.get("technologies", []))
         build_steps = []
-        build_log = [f"Build started: {project_root}"]
+        _clear_build_output(client)
+        _append_build_output(client, f"Build started: {project_root}\n")
 
         try:
             if "epa" in technologies:
@@ -2970,12 +3083,8 @@ def main():
                 build_dir.mkdir(parents=True, exist_ok=True)
                 units = _project_e_compile_units(project_root)
                 cmd = [str(bundle), "--out", str(build_dir / "epa.bin")] + [str(p) for p in units]
-                build_log.append("$ " + " ".join(cmd))
-                result = _run_subprocess(cmd, cwd=project_root)
-                if result.stdout.strip():
-                    build_log.append(result.stdout.strip())
-                if result.stderr.strip():
-                    build_log.append(result.stderr.strip())
+                _append_build_output(client, "$ " + " ".join(cmd) + "\n")
+                result = _run_subprocess_streaming(cmd, client, cwd=project_root)
                 build_steps.append({
                     "step": "epa_bundle",
                     "command": cmd,
@@ -2996,24 +3105,16 @@ def main():
                 if rebuild:
                     clean_script = cpp_root / "clean.sh"
                     if clean_script.is_file():
-                        build_log.append("$ " + str(clean_script))
-                        clean_result = _run_subprocess([str(clean_script)], cwd=cpp_root)
-                        if clean_result.stdout.strip():
-                            build_log.append(clean_result.stdout.strip())
-                        if clean_result.stderr.strip():
-                            build_log.append(clean_result.stderr.strip())
+                        _append_build_output(client, "$ " + str(clean_script) + "\n")
+                        clean_result = _run_subprocess_streaming([str(clean_script)], client, cwd=cpp_root)
                         build_steps.append({
                             "step": "cpp_clean",
                             "command": [str(clean_script)],
                             "stdout": clean_result.stdout.strip(),
                             "stderr": clean_result.stderr.strip(),
                         })
-                build_log.append("$ " + str(build_script))
-                cpp_result = _run_subprocess([str(build_script)], cwd=cpp_root)
-                if cpp_result.stdout.strip():
-                    build_log.append(cpp_result.stdout.strip())
-                if cpp_result.stderr.strip():
-                    build_log.append(cpp_result.stderr.strip())
+                _append_build_output(client, "$ " + str(build_script) + "\n")
+                cpp_result = _run_subprocess_streaming([str(build_script)], client, cwd=cpp_root)
                 build_steps.append({
                     "step": "cpp_build",
                     "command": [str(build_script)],
@@ -3026,11 +3127,7 @@ def main():
                 "project": str(project_root),
                 "steps": build_steps,
             }, indent=2), flush=True)
-            build_log.append("Build complete.")
-            try:
-                client.set_text("bottom.build_output", "\n\n".join(build_log))
-            except Exception:
-                pass
+            _append_build_output(client, "Build complete.\n")
             _open_project(client, project_root)
         except (subprocess.CalledProcessError, RuntimeError) as exc:
             message = ""
@@ -3046,12 +3143,9 @@ def main():
                 "command": command,
                 "message": message,
             }, indent=2), flush=True)
-            build_log.append("Build failed.")
-            build_log.append(message)
-            try:
-                client.set_text("bottom.build_output", "\n\n".join(build_log))
-            except Exception:
-                pass
+            if message:
+                _append_build_output(client, message + "\n")
+            _append_build_output(client, "Build failed.\n")
 
     def _clean_project():
         project_root_text = app_state.get("project_root", "")
@@ -3297,6 +3391,9 @@ def main():
             if proc.returncode == 0:
                 epa_text = output_path.read_text(encoding="utf-8") if output_path.exists() else ""
                 epa_map_text = map_path.read_text(encoding="utf-8") if map_path.exists() else ""
+                compiler_output = "\n".join(
+                    part.strip() for part in (proc.stdout, proc.stderr) if part and part.strip()
+                ).strip()
                 epa_block_map: dict = {}  # {(block_type, block_id): [{"offset":..., "epa_line":..., "e_line":..., "epa_col":...}, ...]}
                 if map_path.exists():
                     cur_block = None
@@ -3350,7 +3447,7 @@ def main():
                     "epa_map_text": epa_map_text,
                     "epa_block_map": epa_block_map,
                     "diagnostics": [],
-                    "message": "",
+                    "message": compiler_output,
                 }
             message = (proc.stderr or proc.stdout or "compile failed").strip()
             return {
@@ -5094,6 +5191,7 @@ def main():
             if btn == "bottom.clear":
                 def _clear_bottom():
                     try:
+                        app_state["bottom_build_output"] = ""
                         c.set_text("bottom.build_output", "")
                         terminal_state["output"] = "$ "
                         c.set_text("bottom.terminal_output", terminal_state["output"])
@@ -5734,6 +5832,12 @@ def main():
 
             elif item_action == "build.build_project":
                 _deferred(lambda: _build_project(c, rebuild=False))
+
+            elif item_action == "build.compile_epa":
+                _deferred(lambda: _compile_epa_project(c))
+
+            elif item_action == "build.compile":
+                _deferred(lambda: _compile_current_file(c))
 
             elif item_action == "build.rebuild_project":
                 _deferred(lambda: _build_project(c, rebuild=True))

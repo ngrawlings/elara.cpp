@@ -55,6 +55,7 @@ struct EpaKernelModule {
 
 typedef struct KernelRegistryNode {
   char *kernel_id;
+  uint64_t kernel_uid;
   EpaKernel *kernel;
   struct KernelRegistryNode *next;
 } KernelRegistryNode;
@@ -94,6 +95,24 @@ static EpaKernel *registry_find_kernel_locked(const char *kernel_id) {
     node = node->next;
   }
   return NULL;
+}
+
+static int registry_uid_exists_locked(uint64_t kernel_uid, const EpaKernel *except_kernel) {
+  KernelRegistryNode *node = g_kernel_registry;
+  while (node) {
+    if (node->kernel_uid == kernel_uid && node->kernel != except_kernel) return 1;
+    node = node->next;
+  }
+  return 0;
+}
+
+static uint64_t fnv1a64_bytes(const char *s) {
+  uint64_t h = 14695981039346656037ull;
+  while (s && *s) {
+    h ^= (uint8_t)*s++;
+    h *= 1099511628211ull;
+  }
+  return h;
 }
 
 static uint32_t kernel_default_ingress_wid(const EpaKernel *k) {
@@ -238,7 +257,7 @@ void epa_kernel_destroy(EpaKernel *k) {
   free(k);
 }
 
-int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]) {
+static int epa_kernel_register_identity(EpaKernel *k, const char *kernel_id, uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
   char *copy;
   KernelRegistryNode *node;
   if (err) err[0] = 0;
@@ -253,6 +272,13 @@ int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]
   }
 
   pthread_mutex_lock(&g_kernel_registry_mu);
+  if (registry_uid_exists_locked(kernel_uid, k)) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    free(copy);
+    if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: duplicate 64-bit id 0x%016llx for '%s'",
+                      (unsigned long long)kernel_uid, kernel_id);
+    return 0;
+  }
   node = g_kernel_registry;
   while (node) {
     if (strcmp(node->kernel_id, kernel_id) == 0 && node->kernel != k) {
@@ -273,6 +299,7 @@ int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]
     return 0;
   }
   node->kernel_id = copy;
+  node->kernel_uid = kernel_uid;
   node->kernel = k;
   node->next = g_kernel_registry;
   g_kernel_registry = node;
@@ -284,7 +311,12 @@ int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]
     if (err) snprintf(err, EPA_MAX_ERR, "kernel_set_id: OOM");
     return 0;
   }
+  k->kernel_uid = kernel_uid;
   return 1;
+}
+
+int epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_MAX_ERR]) {
+  return epa_kernel_register_identity(k, kernel_id, fnv1a64_bytes(kernel_id), err);
 }
 
 const char* epa_kernel_get_id(const EpaKernel *k) {
@@ -310,6 +342,7 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
                                 char err[EPA_MAX_ERR]) {
   EpaKernel *target;
   uint32_t target_wid;
+  size_t i;
   if (err) err[0] = 0;
   if (!sender || !target_kernel_id || !target_kernel_id[0] || !payload || payload_len == 0u) {
     if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad args");
@@ -325,7 +358,22 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
     if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' not found", target_kernel_id);
     return 0;
   }
-  target_wid = kernel_default_ingress_wid(target);
+  target_wid = 0u;
+  if (target->prog.acl_count > 0u) {
+    for (i = 0; i < target->prog.acl_count; i++) {
+      const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
+      if (acl->remote_kernel_uid != sender->kernel_uid) continue;
+      target_wid = acl->local_wid;
+      break;
+    }
+    if (target_wid == 0u) {
+      if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: sender '%s' is not allowed by target '%s' ACL",
+                        sender->kernel_id ? sender->kernel_id : "(unnamed)", target_kernel_id);
+      return 0;
+    }
+  } else {
+    target_wid = kernel_default_ingress_wid(target);
+  }
   if (target_wid == 0u) {
     if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' has no default ingress worker", target_kernel_id);
     return 0;
@@ -438,6 +486,12 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
     return 0;
   }
   k->prog_loaded = 1;
+  if (k->prog.kernel_path && !epa_kernel_register_identity(k, k->prog.kernel_path, k->prog.kernel_uid, err)) {
+    epa_program_free(&k->prog);
+    k->prog_loaded = 0;
+    free(blob);
+    return 0;
+  }
 
   if (!init_workers_from_prog(&k->impl, &k->prog, err)) return 0;
 
@@ -496,6 +550,13 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
     return 0;
   }
   k->prog_loaded = 1;
+  if (k->prog.kernel_path && !epa_kernel_register_identity(k, k->prog.kernel_path, k->prog.kernel_uid, err)) {
+    epa_program_free(&k->prog);
+    k->prog_loaded = 0;
+    free(owned);
+    epa_kernel_set_status_text(k, EPA_KERNEL_STATUS_ERROR, err);
+    return 0;
+  }
 
   if (!init_workers_from_prog(&k->impl, &k->prog, err)) {
     epa_program_free(&k->prog);
@@ -1036,14 +1097,14 @@ EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err
       free(buf);
       return NULL;
     }
-    if (!epa_kernel_set_id(kernel, path_id, err)) {
+    if (!epa_kernel_load_blob(kernel, dst->blob, dst->blob_len, err)) {
       epa_kernel_destroy(kernel);
       module_free_entries(module);
       free(module);
       free(buf);
       return NULL;
     }
-    if (!epa_kernel_load_blob(kernel, dst->blob, dst->blob_len, err)) {
+    if (!epa_kernel_get_id(kernel) && !epa_kernel_set_id(kernel, path_id, err)) {
       epa_kernel_destroy(kernel);
       module_free_entries(module);
       free(module);

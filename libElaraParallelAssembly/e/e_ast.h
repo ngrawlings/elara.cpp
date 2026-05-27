@@ -192,10 +192,18 @@ typedef struct {
 } EWorker;
 
 typedef struct {
+  char *remote_kernel;
+  char *local_worker;
+} EAclEntry;
+
+typedef struct {
+  char *path;
   EParam *params;
   size_t param_count;
   EStmt *body;
   EEntryAttributes attrs;
+  EAclEntry *acl_entries;
+  size_t acl_count;
 } EKernel;
 
 typedef struct {

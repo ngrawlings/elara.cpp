@@ -22,6 +22,21 @@ static char *xstrdup_local(const char *s) {
   return p;
 }
 
+static char *xstrdup_string_token_local(const char *s) {
+  size_t n = strlen(s);
+  if (n >= 2u && s[0] == '"' && s[n - 1u] == '"') {
+    char *p = (char*)malloc(n - 1u);
+    if (!p) {
+      fprintf(stderr, "OOM\n");
+      exit(1);
+    }
+    memcpy(p, s + 1, n - 2u);
+    p[n - 2u] = 0;
+    return p;
+  }
+  return xstrdup_local(s);
+}
+
 static void type_ref_add_union_name(ETypeRef *out, const char *name) {
   out->union_names = (char**)realloc(out->union_names, sizeof(char*) * (out->union_count + 1u));
   if (!out->union_names) {
@@ -660,8 +675,50 @@ static int parse_type_param_list(Parser *p, ETypeDecl *decl) {
   return 1;
 }
 
+static int kernel_acl_push(EKernel *kernel, const char *remote_kernel, int remote_is_string, const char *local_worker) {
+  EAclEntry *next = (EAclEntry*)realloc(kernel->acl_entries, sizeof(EAclEntry) * (kernel->acl_count + 1u));
+  if (!next) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  kernel->acl_entries = next;
+  kernel->acl_entries[kernel->acl_count].remote_kernel =
+    remote_is_string ? xstrdup_string_token_local(remote_kernel) : xstrdup_local(remote_kernel);
+  kernel->acl_entries[kernel->acl_count].local_worker = xstrdup_local(local_worker);
+  kernel->acl_count++;
+  return 1;
+}
+
+static int parse_kernel_acl_block(Parser *p, EKernel *kernel) {
+  if (!expect(p, E_TOK_LBRACE, "expected '{' after acl")) return 0;
+  while (peek(p)->kind != E_TOK_RBRACE && peek(p)->kind != E_TOK_EOF) {
+    const char *remote_kernel = NULL;
+    const char *local_worker = NULL;
+    int remote_is_string = 0;
+    if (peek(p)->kind == E_TOK_IDENT || peek(p)->kind == E_TOK_STRING_LIT) {
+      remote_kernel = peek(p)->text;
+      remote_is_string = (peek(p)->kind == E_TOK_STRING_LIT);
+      p->pos++;
+    } else {
+      return set_err(p, "expected remote kernel name in acl block", peek(p));
+    }
+    if (!expect(p, E_TOK_MINUS, "expected '->' in acl block")) return 0;
+    if (!expect(p, E_TOK_GT, "expected '->' in acl block")) return 0;
+    if (!expect(p, E_TOK_IDENT, "expected local worker name in acl block")) return 0;
+    local_worker = p->tokens->items[p->pos - 1].text;
+    kernel_acl_push(kernel, remote_kernel, remote_is_string, local_worker);
+    if (match(p, E_TOK_SEMI) || match(p, E_TOK_COMMA)) {
+    } else if (peek(p)->kind != E_TOK_RBRACE) {
+      return set_err(p, "expected ';' or '}' after acl entry", peek(p));
+    }
+  }
+  if (!expect(p, E_TOK_RBRACE, "expected '}' after acl block")) return 0;
+  return 1;
+}
+
 int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256]) {
   Parser p;
+  EKernel *current_kernel = NULL;
   memset(&p, 0, sizeof(p));
   memset(out_program, 0, sizeof(*out_program));
   if (err) err[0] = 0;
@@ -733,6 +790,17 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       continue;
     }
 
+    if (match(&p, E_TOK_KW_ACL)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
+      if (!current_kernel) {
+        return set_err(&p, "acl block must follow a kernel declaration", peek(&p));
+      }
+      if (!parse_kernel_acl_block(&p, current_kernel)) return 0;
+      continue;
+    }
+
     if (match(&p, E_TOK_KW_STRUCT)) {
       if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
         return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
@@ -764,10 +832,18 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       top.kind = E_TOP_KERNEL;
       top.as.kernel.attrs = pending_attrs;
       if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
+      if (peek(&p)->kind == E_TOK_STRING_LIT) {
+        top.as.kernel.path = xstrdup_string_token_local(peek(&p)->text);
+        p.pos++;
+        if (!match(&p, E_TOK_COMMA) && peek(&p)->kind != E_TOK_RPAREN) {
+          return set_err(&p, "expected ',' after kernel path", peek(&p));
+        }
+      }
       if (!parse_param_list(&p, &top.as.kernel.params, &top.as.kernel.param_count)) return 0;
       top.as.kernel.body = parse_block(&p);
       if (!top.as.kernel.body) return 0;
       top_push(out_program, &top);
+      current_kernel = &out_program->items[out_program->count - 1u].as.kernel;
       continue;
     }
 

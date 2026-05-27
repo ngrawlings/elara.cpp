@@ -95,6 +95,7 @@ typedef struct EpaKernel {
 
   EpaKernelSignal signal_cb;
   char *kernel_id;
+  uint64_t kernel_uid;
   uint8_t *owned_blob;
   size_t owned_blob_len;
 
