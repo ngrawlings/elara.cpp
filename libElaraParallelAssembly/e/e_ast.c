@@ -107,6 +107,9 @@ static void free_stmt(EStmt *s) {
     case E_STMT_RAW_EPA:
       free(s->as.raw_epa.text);
       break;
+    case E_STMT_KERNAL_ID:
+      free(s->as.kernal_id.name);
+      break;
     case E_STMT_FOREACH:
       free_stmt(s->as.foreach_stmt.var_decl);
       free(s->as.foreach_stmt.iter_name);
@@ -154,7 +157,6 @@ void e_program_free(EProgram *p) {
         free(d->as.sdecl.name);
         break;
       case E_TOP_KERNEL:
-        free(d->as.kernel.path);
         free_params(d->as.kernel.params, d->as.kernel.param_count);
         free_acl_entries(d->as.kernel.acl_entries, d->as.kernel.acl_count);
         free_stmt(d->as.kernel.body);
@@ -399,6 +401,10 @@ static void dump_stmt(FILE *out, const EStmt *s, int depth) {
       indent(out, depth);
       fputs("}\n", out);
       break;
+    case E_STMT_KERNAL_ID:
+      indent(out, depth);
+      fprintf(out, "kernalId(\"%s\");\n", s->as.kernal_id.name ? s->as.kernal_id.name : "");
+      break;
     case E_STMT_FOREACH:
       indent(out, depth);
       fprintf(out, "foreach(%s = dynamic_next(%s))\n",
@@ -461,10 +467,6 @@ void e_program_dump(FILE *out, const EProgram *p) {
           dump_entry_attrs(out, &d->as.kernel.attrs);
         }
         fputs("kernel(", out);
-        if (d->as.kernel.path) {
-          fprintf(out, "\"%s\"", d->as.kernel.path);
-          if (d->as.kernel.param_count > 0u) fputs(", ", out);
-        }
         for (j = 0; j < d->as.kernel.param_count; j++) {
           if (j) fputs(", ", out);
           dump_type_ref(out, &d->as.kernel.params[j].type);

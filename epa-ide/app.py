@@ -1817,6 +1817,7 @@ def _e_template_summary(template_id: str) -> str:
 
 def _e_root_node_template(file_name: str) -> str:
     stem = Path(file_name).stem
+    kernel_uid = f"todo.{_to_symbol_name(stem)}"
     type_name = f"{_to_class_name(stem)}Payload"
     worker_name = f"{_to_symbol_name(stem)}_worker"
     child_worker_name = f"{_to_symbol_name(stem)}_child_kernel_worker"
@@ -1843,6 +1844,7 @@ def _e_root_node_template(file_name: str) -> str:
         "}\n"
         "\n"
         "kernel(VM vm) {\n"
+        f"  kernalId(\"{kernel_uid}\");\n"
         f"  {worker_name}(vm);\n"
         f"  {child_worker_name}(vm);\n"
         "  int wid = 0;\n"
@@ -1857,6 +1859,11 @@ def _e_root_node_template(file_name: str) -> str:
         "    }\n"
         "  }\n"
         "}\n"
+        "\n"
+        "// acl {\n"
+        "//   \"todo.remote.kernel\" -> "
+        f"{worker_name};\n"
+        "// }\n"
         "\n"
         f"worker {worker_name}({type_name} {payload_name}) {{\n"
         "  // TODO: add worker logic here.\n"
@@ -1881,6 +1888,7 @@ def _e_root_node_template(file_name: str) -> str:
 
 def _e_specialised_worker_template(file_name: str) -> str:
     stem = Path(file_name).stem
+    kernel_uid = f"todo.{_to_symbol_name(stem)}"
     type_name = f"{_to_class_name(stem)}Payload"
     route_type = f"{_to_class_name(stem)}Route"
     worker_name = f"{_to_symbol_name(stem)}_worker"
@@ -1901,6 +1909,7 @@ def _e_specialised_worker_template(file_name: str) -> str:
         "}\n"
         "\n"
         "kernel(VM vm) {\n"
+        f"  kernalId(\"{kernel_uid}\");\n"
         f"  {worker_name}(vm);\n"
         "  int wid = 0;\n"
         "  while (wid = kernel_wait_signal()) {\n"
@@ -1910,6 +1919,10 @@ def _e_specialised_worker_template(file_name: str) -> str:
         "    }\n"
         "  }\n"
         "}\n"
+        "\n"
+        "// acl {\n"
+        f"//   \"todo.remote.kernel\" -> {worker_name};\n"
+        "// }\n"
         "\n"
         "function int clamp_count(int count) {\n"
         "  int result = count;\n"
@@ -1926,15 +1939,14 @@ def _e_specialised_worker_template(file_name: str) -> str:
         f"worker {worker_name}({type_name} payload) {{\n"
         "  reg int loop_count;\n"
         f"  local {route_type} outbound;\n"
-        "  local byte[64] target_kernel_id;\n"
         "  int count = clamp_count(payload.counter);\n"
         "  loop_count = count;\n"
         "  while (loop_count) {\n"
         "    loop_count = loop_count - 1;\n"
         "  }\n"
-        "  // TODO: fill target_kernel_id with a kernel id string.\n"
+        "  // TODO: replace the placeholder string with the real remote kernel id.\n"
         "  // TODO: populate outbound from worker-local state before far_signal().\n"
-        "  far_signal(target_kernel_id, outbound);\n"
+        "  far_signal(\"todo.remote.kernel\", outbound);\n"
         "  host_signal();\n"
         "  kernel_signal();\n"
         "}\n"
@@ -1943,6 +1955,7 @@ def _e_specialised_worker_template(file_name: str) -> str:
 
 def _e_child_kernel_router_template(file_name: str) -> str:
     stem = Path(file_name).stem
+    kernel_uid = f"todo.{_to_symbol_name(stem)}"
     root_type = f"{_to_class_name(stem)}Root"
     router_name = f"{_to_symbol_name(stem)}_router"
     return (
@@ -1967,6 +1980,7 @@ def _e_child_kernel_router_template(file_name: str) -> str:
         "}\n"
         "\n"
         "kernel(VM vm) {\n"
+        f"  kernalId(\"{kernel_uid}\");\n"
         f"  {router_name}(vm);\n"
         "  int wid = 0;\n"
         "  while (wid = kernel_wait_signal()) {\n"
@@ -1976,6 +1990,10 @@ def _e_child_kernel_router_template(file_name: str) -> str:
         "    }\n"
         "  }\n"
         "}\n"
+        "\n"
+        "// acl {\n"
+        f"//   \"todo.remote.kernel\" -> {router_name};\n"
+        "// }\n"
         "\n"
         f"worker {router_name}(EPABlob|KeyInput ingress) {{\n"
         "  int ingress_kind = typeof(ingress);\n"
@@ -1993,6 +2011,7 @@ def _e_child_kernel_router_template(file_name: str) -> str:
 
 def _e_pipeline_chain_template(file_name: str) -> str:
     stem = Path(file_name).stem
+    kernel_uid = f"todo.{_to_symbol_name(stem)}"
     type_name = f"{_to_class_name(stem)}Packet"
     base = _to_symbol_name(stem)
     return (
@@ -2007,6 +2026,7 @@ def _e_pipeline_chain_template(file_name: str) -> str:
         "}\n"
         "\n"
         "kernel(VM vm) {\n"
+        f"  kernalId(\"{kernel_uid}\");\n"
         f"  {base}_ingress(vm);\n"
         f"  {base}_transform(vm);\n"
         f"  {base}_egress(vm);\n"
@@ -2018,6 +2038,10 @@ def _e_pipeline_chain_template(file_name: str) -> str:
         "    }\n"
         "  }\n"
         "}\n"
+        "\n"
+        "// acl {\n"
+        f"//   \"todo.remote.kernel\" -> {base}_ingress;\n"
+        "// }\n"
         "\n"
         f"@attributes in_words:128 out_words:128 signal_mail_box_size:64\n"
         f"worker {base}_ingress({type_name} packet) {{\n"
@@ -2040,6 +2064,7 @@ def _e_pipeline_chain_template(file_name: str) -> str:
 
 def _e_feature_showcase_template(file_name: str) -> str:
     stem = Path(file_name).stem
+    kernel_uid = f"todo.{_to_symbol_name(stem)}"
     type_name = f"{_to_class_name(stem)}State"
     outbound_type = f"{_to_class_name(stem)}Event"
     worker_name = f"{_to_symbol_name(stem)}_worker"
@@ -2060,6 +2085,7 @@ def _e_feature_showcase_template(file_name: str) -> str:
         "}\n"
         "\n"
         "kernel(VM vm) {\n"
+        f"  kernalId(\"{kernel_uid}\");\n"
         f"  {worker_name}(vm);\n"
         "  int wid = 0;\n"
         "  while (wid = kernel_wait_signal()) {\n"
@@ -2069,6 +2095,10 @@ def _e_feature_showcase_template(file_name: str) -> str:
         "    }\n"
         "  }\n"
         "}\n"
+        "\n"
+        "// acl {\n"
+        f"//   \"todo.remote.kernel\" -> {worker_name};\n"
+        "// }\n"
         "\n"
         "function int accumulate(int start) {\n"
         "  int sum = start;\n"
@@ -2083,7 +2113,6 @@ def _e_feature_showcase_template(file_name: str) -> str:
         "\n"
         f"worker {worker_name}({type_name} state) {{\n"
         "  reg int loop_count;\n"
-        "  local byte[96] target_kernel_id;\n"
         f"  local {outbound_type} outbound;\n"
         "  int total = accumulate(state.count);\n"
         "  loop_count = total;\n"
@@ -2099,9 +2128,9 @@ def _e_feature_showcase_template(file_name: str) -> str:
         "  EPA {\n"
         "    // TODO: insert raw EPA instructions for fine-grained tuning here.\n"
         "  }\n"
-        "  // TODO: stage a target kernel id into target_kernel_id.\n"
+        "  // TODO: replace the placeholder string with the real remote kernel id.\n"
         "  // TODO: fill outbound as a staged local-area message.\n"
-        "  far_signal(target_kernel_id, outbound);\n"
+        "  far_signal(\"todo.remote.kernel\", outbound);\n"
         "  host_signal();\n"
         "  kernel_signal();\n"
         "}\n"

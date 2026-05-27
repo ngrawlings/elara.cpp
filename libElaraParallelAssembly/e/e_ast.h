@@ -99,6 +99,7 @@ typedef enum {
   E_STMT_FOREACH,
   E_STMT_DYNAMIC,
   E_STMT_STATIC_BLOCK,
+  E_STMT_KERNAL_ID,
 } EStmtKind;
 
 typedef struct {
@@ -166,6 +167,9 @@ struct EStmt {
       char *text;
     } raw_epa;
     struct {
+      char *name;
+    } kernal_id;
+    struct {
       EStmt *var_decl;   /* E_STMT_DECL for loop variable (MyType t), no init */
       char *iter_name;   /* name of the Iterator variable */
       EStmt *body;
@@ -197,7 +201,6 @@ typedef struct {
 } EAclEntry;
 
 typedef struct {
-  char *path;
   EParam *params;
   size_t param_count;
   EStmt *body;

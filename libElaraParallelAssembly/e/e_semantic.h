@@ -2,6 +2,7 @@
 
 #include "e_ast.h"
 
+#include <stdint.h>
 #include <stddef.h>
 #include <stdio.h>
 
@@ -126,6 +127,9 @@ typedef struct {
 
   EDynamicPool *dynamic_pools;
   size_t dynamic_pool_count;
+
+  char *kernel_declared_id;
+  uint64_t kernel_declared_uid;
 } ESemanticModel;
 
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]);

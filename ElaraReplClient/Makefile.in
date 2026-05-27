@@ -1,0 +1,140 @@
+NAME=elara-repl-client
+CC=@CXX@
+DEFS =
+ELARA_ROOT?=$(abspath ../build)
+ELARA_INCLUDE_DIR?=$(ELARA_ROOT)/include
+ELARA_LIB_DIR?=$(ELARA_ROOT)/lib
+ELARA_BIN_DIR?=$(ELARA_ROOT)/bin
+ELARA_CPP_LINT_LOCAL?=$(ELARA_BIN_DIR)/elara.cpp-lint
+ELARA_CPP_LINT_SYSTEM?=/usr/local/bin/elara.cpp-lint
+ELARA_CPP_LINT?=$(shell if [ -x "$(ELARA_CPP_LINT_LOCAL)" ]; then printf '%s' "$(ELARA_CPP_LINT_LOCAL)"; else printf '%s' "$(ELARA_CPP_LINT_SYSTEM)"; fi)
+PREFIX?=$(abspath ./dist)
+BIN_DIR?=$(PREFIX)/bin
+SHARE_DIR?=$(PREFIX)/share/elara-repl-client
+INSTALL_MANIFEST?=$(SHARE_DIR)/install-manifest.txt
+BUILDPATH=./build
+BUILD_STATE_FILE=$(BUILDPATH)/.build-state
+BUILD_STATE_TMP=.build-state.tmp
+BUILD_PROFILE?=release
+COMMON_CFLAGS=-std=gnu++11
+DEBUG_CFLAGS=$(COMMON_CFLAGS) -O0 -g3
+RELEASE_CFLAGS=$(COMMON_CFLAGS) -O3 -DNDEBUG
+ASAN_CFLAGS=$(COMMON_CFLAGS) -O1 -g3 -fno-omit-frame-pointer -fsanitize=address,undefined
+DEBUG_LDFLAGS=
+RELEASE_LDFLAGS=
+ASAN_LDFLAGS=-fsanitize=address,undefined
+ifeq ($(BUILD_PROFILE),debug)
+PROFILE_CFLAGS=$(DEBUG_CFLAGS)
+PROFILE_LDFLAGS=$(DEBUG_LDFLAGS)
+else ifeq ($(BUILD_PROFILE),release)
+PROFILE_CFLAGS=$(RELEASE_CFLAGS)
+PROFILE_LDFLAGS=$(RELEASE_LDFLAGS)
+else ifeq ($(BUILD_PROFILE),asan)
+PROFILE_CFLAGS=$(ASAN_CFLAGS)
+PROFILE_LDFLAGS=$(ASAN_LDFLAGS)
+else
+$(error Unsupported BUILD_PROFILE '$(BUILD_PROFILE)'. Use debug, release, or asan)
+endif
+STD_CFLAGS=-c $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) $(DEFS)
+STD_LDFLAGS=$(PROFILE_LDFLAGS) -L$(ELARA_LIB_DIR) -lelaracore
+SOURCES=$(shell find ./src -type f -name '*.cpp' -print)
+OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))
+TEST_SOURCES=$(shell find ./tests -type f -name '*.cpp' -print)
+TEST_OBJECTS=$(patsubst ./tests/%.cpp,build/tests/%.o,$(TEST_SOURCES))
+TEST_TARGET=$(TARGET)-debug
+ARTIFACT_ROOT?=./artifacts
+TEST_DURATION_SECONDS?=30
+TEST_RUNNER=$(BUILDPATH)/$(TEST_TARGET)
+TEST_STD_LDFLAGS=$(PROFILE_LDFLAGS) -L$(ELARA_LIB_DIR) -lelaradebug -lelaraio -lelaracore
+LINT_PATHS=./src ./tests
+LINT_STAMP=$(BUILDPATH)/.lint-ok
+TARGET=elara-repl-client
+
+.PHONY: all lint install clean remove cleanconf prepare-build tests debug stress fuzz
+
+all: $(TARGET)
+
+prepare-build:
+	@mkdir -p $(BUILDPATH)
+	@printf '%s\n' "BUILD_PROFILE=$(BUILD_PROFILE)" > $(BUILD_STATE_TMP)
+	@printf '%s\n' "PROFILE_CFLAGS=$(PROFILE_CFLAGS)" >> $(BUILD_STATE_TMP)
+	@printf '%s\n' "PROFILE_LDFLAGS=$(PROFILE_LDFLAGS)" >> $(BUILD_STATE_TMP)
+	@printf '%s\n' "STD_LDFLAGS=$(STD_LDFLAGS)" >> $(BUILD_STATE_TMP)
+	@if [ -d "$(BUILDPATH)" ] && [ ! -f "$(BUILD_STATE_FILE)" ] && [ -n "$$(find "$(BUILDPATH)" -mindepth 1 -print -quit)" ]; then \
+		echo "Cleaning due to missing build state"; \
+		rm -rf "$(BUILDPATH)"; \
+		mkdir -p "$(BUILDPATH)"; \
+	fi
+	@if [ -f "$(BUILD_STATE_FILE)" ] && ! cmp -s "$(BUILD_STATE_FILE)" "$(BUILD_STATE_TMP)"; then \
+		echo "Cleaning due to build configuration change"; \
+		rm -rf "$(BUILDPATH)"; \
+		mkdir -p "$(BUILDPATH)"; \
+	fi
+	@mkdir -p $(BUILDPATH)
+	@mv $(BUILD_STATE_TMP) $(BUILD_STATE_FILE)
+
+$(TARGET): $(OBJECTS)
+	$(CC) $(OBJECTS) $(STD_LDFLAGS) $(LDFLAGS) -o $(BUILDPATH)/$(TARGET)
+
+$(TEST_TARGET): $(TEST_OBJECTS)
+	$(CC) $(TEST_OBJECTS) $(TEST_STD_LDFLAGS) $(LDFLAGS) -o $(TEST_RUNNER)
+
+$(LINT_STAMP): $(SOURCES) Makefile $(TEST_SOURCES)
+	@mkdir -p $(BUILDPATH)
+	@if [ ! -x "$(ELARA_CPP_LINT)" ]; then \
+		echo "Missing elara.cpp-lint. Checked $(ELARA_CPP_LINT_LOCAL) and $(ELARA_CPP_LINT_SYSTEM). Build ElaraCppLint locally, install it to /usr/local, or set ELARA_CPP_LINT=/path/to/elara.cpp-lint."; \
+		exit 1; \
+	fi
+	$(ELARA_CPP_LINT) $(LINT_PATHS)
+	@touch $(LINT_STAMP)
+
+build/src/%.o: ./src/%.cpp prepare-build $(LINT_STAMP)
+	@mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@
+
+build/tests/%.o: ./tests/%.cpp prepare-build $(LINT_STAMP)
+	@mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./tests/$*.cpp -o $@
+
+lint: $(LINT_STAMP)
+
+tests: $(TEST_TARGET)
+
+debug: $(TEST_TARGET)
+	ELARA_DEBUG_MODE=validator ELARA_DEBUG_ARTIFACT_ROOT="$(ARTIFACT_ROOT)" $(TEST_RUNNER)
+
+stress: $(TEST_TARGET)
+	ELARA_DEBUG_MODE=stress ELARA_DEBUG_DURATION_SECONDS="$(TEST_DURATION_SECONDS)" ELARA_DEBUG_ARTIFACT_ROOT="$(ARTIFACT_ROOT)" $(TEST_RUNNER)
+
+fuzz: $(TEST_TARGET)
+	ASAN_OPTIONS="detect_leaks=0" LSAN_OPTIONS="detect_leaks=0" ELARA_DEBUG_MODE=fuzz ELARA_DEBUG_DURATION_SECONDS="$(TEST_DURATION_SECONDS)" ELARA_DEBUG_ARTIFACT_ROOT="$(ARTIFACT_ROOT)" $(TEST_RUNNER)
+
+install:
+	@if [ ! -x "$(BUILDPATH)/$(TARGET)" ]; then \
+		echo "Missing built binary $(BUILDPATH)/$(TARGET). Run ./build.sh first."; \
+		exit 1; \
+	fi
+	mkdir -p $(BIN_DIR)
+	cp $(BUILDPATH)/$(TARGET) $(BIN_DIR)/$(TARGET)
+	mkdir -p $(SHARE_DIR)
+	printf '%s\n' "$(BIN_DIR)/$(TARGET)" > $(INSTALL_MANIFEST)
+
+clean:
+	rm -rf $(BUILDPATH)
+
+remove:
+	@if [ -f "$(INSTALL_MANIFEST)" ]; then \
+		while IFS= read -r installed_path; do \
+			rm -f "$$installed_path"; \
+		done < "$(INSTALL_MANIFEST)"; \
+		rm -f "$(INSTALL_MANIFEST)"; \
+	else \
+		rm -f $(BIN_DIR)/$(TARGET); \
+	fi
+	@rmdir $(SHARE_DIR) 2>/dev/null || true
+
+cleanconf:
+	rm -f config.log
+	rm -f config.status
+	rm -f Makefile
+	rm -f configure

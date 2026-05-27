@@ -97,6 +97,15 @@ static EpaKernel *registry_find_kernel_locked(const char *kernel_id) {
   return NULL;
 }
 
+static EpaKernel *registry_find_kernel_by_uid_locked(uint64_t kernel_uid) {
+  KernelRegistryNode *node = g_kernel_registry;
+  while (node) {
+    if (node->kernel_uid == kernel_uid) return node->kernel;
+    node = node->next;
+  }
+  return NULL;
+}
+
 static int registry_uid_exists_locked(uint64_t kernel_uid, const EpaKernel *except_kernel) {
   KernelRegistryNode *node = g_kernel_registry;
   while (node) {
@@ -113,6 +122,14 @@ static uint64_t fnv1a64_bytes(const char *s) {
     h *= 1099511628211ull;
   }
   return h;
+}
+
+static int epa_kernel_register_identity(EpaKernel *k, const char *kernel_id, uint64_t kernel_uid, char err[EPA_MAX_ERR]);
+
+static int epa_kernel_register_uid_only(EpaKernel *k, uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
+  char synthetic_id[64];
+  snprintf(synthetic_id, sizeof(synthetic_id), "uid.%016llx", (unsigned long long)kernel_uid);
+  return epa_kernel_register_identity(k, synthetic_id, kernel_uid, err);
 }
 
 static uint32_t kernel_default_ingress_wid(const EpaKernel *k) {
@@ -337,25 +354,28 @@ EpaKernel* epa_kernel_find_by_id(const char *kernel_id) {
   return k;
 }
 
-int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
-                                const void *payload, uint32_t payload_len, uint32_t payload_tag,
-                                char err[EPA_MAX_ERR]) {
+int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_t target_kernel_uid,
+                                 const void *payload, uint32_t payload_len, uint32_t payload_tag,
+                                 char err[EPA_MAX_ERR]) {
   EpaKernel *target;
   uint32_t target_wid;
   size_t i;
   if (err) err[0] = 0;
-  if (!sender || !target_kernel_id || !target_kernel_id[0] || !payload || payload_len == 0u) {
-    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad args");
+  if (!sender || target_kernel_uid == 0u || !payload || payload_len == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: bad args");
     return 0;
   }
   if (source_wid >= EPA_MAX_WORKERS || !sender->impl.workers[source_wid].inited) {
-    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad source wid %u", (unsigned)source_wid);
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: bad source wid %u", (unsigned)source_wid);
     return 0;
   }
 
-  target = epa_kernel_find_by_id(target_kernel_id);
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  target = registry_find_kernel_by_uid_locked(target_kernel_uid);
+  pthread_mutex_unlock(&g_kernel_registry_mu);
   if (!target) {
-    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' not found", target_kernel_id);
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: target kernel 0x%016llx not found",
+                      (unsigned long long)target_kernel_uid);
     return 0;
   }
   target_wid = 0u;
@@ -367,24 +387,38 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
       break;
     }
     if (target_wid == 0u) {
-      if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: sender '%s' is not allowed by target '%s' ACL",
-                        sender->kernel_id ? sender->kernel_id : "(unnamed)", target_kernel_id);
+      if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: sender '%s' is not allowed by target 0x%016llx ACL",
+                        sender->kernel_id ? sender->kernel_id : "(unnamed)",
+                        (unsigned long long)target_kernel_uid);
       return 0;
     }
   } else {
     target_wid = kernel_default_ingress_wid(target);
   }
   if (target_wid == 0u) {
-    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target kernel '%s' has no default ingress worker", target_kernel_id);
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: target kernel 0x%016llx has no default ingress worker",
+                      (unsigned long long)target_kernel_uid);
     return 0;
   }
 
   if (!epa_kernel_ingress_push_tagged(target, target_wid, payload_tag, payload, payload_len)) {
-    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: target ingress queue full for '%s'", target_kernel_id);
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: target ingress queue full for 0x%016llx",
+                      (unsigned long long)target_kernel_uid);
     return 0;
   }
   epa_kernel_request_interrupt(target);
   return 1;
+}
+
+int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
+                                const void *payload, uint32_t payload_len, uint32_t payload_tag,
+                                char err[EPA_MAX_ERR]) {
+  if (!target_kernel_id || !target_kernel_id[0]) {
+    if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_id: bad target id");
+    return 0;
+  }
+  return epa_kernel_far_signal_by_uid(sender, source_wid, fnv1a64_bytes(target_kernel_id),
+                                      payload, payload_len, payload_tag, err);
 }
 
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {
@@ -486,7 +520,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
     return 0;
   }
   k->prog_loaded = 1;
-  if (k->prog.kernel_path && !epa_kernel_register_identity(k, k->prog.kernel_path, k->prog.kernel_uid, err)) {
+  if (k->prog.kernel_uid != 0u && !epa_kernel_register_uid_only(k, k->prog.kernel_uid, err)) {
     epa_program_free(&k->prog);
     k->prog_loaded = 0;
     free(blob);
@@ -550,7 +584,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
     return 0;
   }
   k->prog_loaded = 1;
-  if (k->prog.kernel_path && !epa_kernel_register_identity(k, k->prog.kernel_path, k->prog.kernel_uid, err)) {
+  if (k->prog.kernel_uid != 0u && !epa_kernel_register_uid_only(k, k->prog.kernel_uid, err)) {
     epa_program_free(&k->prog);
     k->prog_loaded = 0;
     free(owned);

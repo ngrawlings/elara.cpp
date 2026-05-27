@@ -2,6 +2,13 @@
 
 This note defines the current storage model for `E`.
 
+The current language also requires each kernel to declare:
+
+- `kernalId("...");` inside the kernel block
+- an optional `acl { ... }` whitelist for cross-kernel ingress
+
+See [CURRENT_E_LANGUAGE.md](/home/nyhl/workspace/elara.cpp/libElaraParallelAssembly/e/CURRENT_E_LANGUAGE.md) for the current identity and routing rules.
+
 It is important because `E` is strict on purpose. If storage intent is vague, worker behavior becomes unstable, payload ownership becomes ambiguous, and the debugger becomes much harder to trust.
 
 The current model has three explicit storage classes:
@@ -117,6 +124,14 @@ This distinction matters for engine work.
 Use `local` when you are building a typed payload or temporary typed work object:
 
 ```c
+kernel(VM vm) {
+  kernalId("player.input");
+}
+
+acl {
+  "gameplay.rules" -> player_input;
+}
+
 worker player_input(KeyInput input) {
   local PlayerIntent intent;
   intent.move_x = input.key_code;
@@ -127,6 +142,10 @@ worker player_input(KeyInput input) {
 Use `static` when you are maintaining worker-owned state:
 
 ```c
+kernel(VM vm) {
+  kernalId("player.avatar");
+}
+
 worker player_avatar(KeyInput input) {
   static int x;
   static int z;

@@ -33,6 +33,9 @@ int        epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_M
 const char* epa_kernel_get_id(const EpaKernel *k);
 void       epa_kernel_set_signal_callback(EpaKernel *k, EpaKernelSignal cb);
 EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
+int        epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_t target_kernel_uid,
+                                        const void *payload, uint32_t payload_len, uint32_t payload_tag,
+                                        char err[EPA_MAX_ERR]);
 int        epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
                                        const void *payload, uint32_t payload_len, uint32_t payload_tag,
                                        char err[EPA_MAX_ERR]);

@@ -35,7 +35,7 @@ X(ENTRY_END,      0x0121u, "ENTRY_END",    0) // End entry block definition
 X(ENTRY_EXEC,     0x0122u, "ENTRY_EXEC",   1) // Execute worker by id (u8 wid)
 X(ENTRY_HALT,     0x0123u, "ENTRY_HALT",   1) // Halt worker by id (u8 wid)
 X(DYNAMIC_POOL,   0x0124u, "DYNAMIC_POOL", 20) // Program-level dynamic pool manifest (pool_id, element_size, min_free, max_free, grow_by)
-X(KERNEL_ID_STR,  0x0125u, "KERNEL_ID_STR", 4) // Program-level kernel id string const id
+X(KERNEL_ID,      0x0125u, "KERNEL_ID",    8) // Program-level kernel 64-bit id (lo,hi)
 X(ACL_ALLOW,      0x0126u, "ACL_ALLOW",   12) // Program-level ACL allow (remote_id_lo, remote_id_hi, local_wid)
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker

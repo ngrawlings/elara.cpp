@@ -4,10 +4,15 @@ type GreetingIngress(int day_phase, int greeting_id) {
 }
 
 kernel(VM vm) {
+  kernalId("example.ingress_hello");
   // Pipeline sketch:
   // 1. data ingress creates the underlying GHS block for GreetingIngress
   // 2. kernel routes that typed block to the hello worker
   ingress_greeting(vm, hello_world);
+}
+
+acl {
+  "example.remote" -> hello_world;
 }
 
 worker hello_world(GreetingIngress ingress) {

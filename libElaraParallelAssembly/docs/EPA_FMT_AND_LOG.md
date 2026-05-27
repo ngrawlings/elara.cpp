@@ -1,117 +1,60 @@
----
+# EPA Formatting and Logging Semantics
 
-## 3️⃣ `EPA_FMT_AND_LOG.md`
+This document defines the current EPA contract for strings, formatting, and logging.
 
-```markdown
-# 🖨️ EPA Formatting and Logging Semantics
+## Canonical String Representation
 
-This document defines how **strings, formatting, and logging**
-are expected to behave in EPA.
+EPA still treats strings as an explicit pair:
 
-This is a **semantic contract**; opcodes may be implemented incrementally.
+- `r0` = offset
+- `r1` = length
 
----
+No null terminator is implied.
 
-## 1. Canonical String Representation
+## String Sources
 
-All strings are represented as:
+Strings may come from:
 
-(offset, length)
+- `DATA_BLOCK` constants loaded with `LOAD_CONST`
+- formatting operations
+- future worker-local or kernel-owned arenas
 
-yaml
-Copy code
+Kernel identity is not represented as a runtime string in the current cross-kernel routing path. Kernel ids are compiled into manifest uids via `KERNEL_ID` and `ACL_ALLOW`.
 
-Where:
-- `offset` is an absolute offset into the program blob
-- `length` is the number of bytes
+## `LOAD_CONST`
 
-No null-termination is assumed.
+For string constants:
 
----
+- `r0` = offset
+- `r1` = length
+- `r2` = constant kind
 
-## 2. String Sources
+## Formatting
 
-Strings may originate from:
-- `DATA_BLOCK` constants (`.CONST_STR`)
-- formatting operations (`FMT`)
-- future kernel-owned arenas
+`FMT` conceptually:
 
-Workers **must not store transient strings in globals**.
+- consumes a template string in `(r0, r1)`
+- consumes arguments from the stack
+- produces a new string reference in `(r0, r1)`
 
----
+The resulting string is transient worker-local data.
 
-## 3. LOAD_CONST for Strings
+## Logging
 
-LOAD_CONST <id>
+`LOG` conceptually:
 
-markdown
-Copy code
-
-Registers:
-- `r0` → offset
-- `r1` → length
-- `r2` → kind == STR
-
----
-
-## 4. Formatting (`FMT`)
-
-### Conceptual Behavior
-`FMT`:
-- consumes a template string `(r0,r1)`
-- consumes N arguments from stack
-- produces a **new string reference**
-
-The resulting string:
-- lives in worker-local transient memory
-- is valid until worker halts or yields
-
-### Return Convention
-r0 = offset
-r1 = length
-
-yaml
-Copy code
-
----
-
-## 5. Logging (`LOG`)
-
-### Conceptual Behavior
-`LOG`:
-- consumes a string `(r0,r1)`
+- consumes a string in `(r0, r1)`
 - emits it to the host logging facility
-- may be a NOOP on some platforms
+- may degrade to a no-op on constrained targets
 
-Logging:
-- must never mutate VM state
-- must never trap
-- must not require string persistence
+Logging must never mutate VM semantics and must never crash execution.
 
----
+## Current Design Direction
 
-## 6. Failure Semantics
+The language/runtime has evolved in one important way around strings:
 
-If:
-- `FMT` receives a non-string template
-- formatting fails
-- logging backend is unavailable
+- `far_signal` no longer depends on building a target kernel id string at runtime
+- `kernalId("...")` is hashed by the E compiler
+- cross-kernel routing uses the compiled 64-bit uid split across two `u32` values
 
-Then:
-- result is empty string or NOOP
-- execution continues
-
-Logging must **never crash the VM**.
-
----
-
-## 7. Design Intent
-
-- Logging is optional, not structural
-- Formatting is deterministic
-- Strings are explicit, not magical
-- Works on GPU, headless, or embedded targets
-
----
-
-_End of EPA Formatting and Logging Semantics_
+So string formatting remains a regular data feature, but cross-kernel identity is now manifest-driven rather than string-buffer-driven.

@@ -185,66 +185,6 @@ static uint64_t fnv1a64_bytes(const char *s) {
   return h;
 }
 
-static char *default_kernel_path_from_main_file(const char *main_file) {
-  const char *base = main_file;
-  const char *dot;
-  size_t len;
-  size_t i;
-  size_t j = 0u;
-  int last_dot = 0;
-  char *out;
-  if (!main_file || !main_file[0]) return xstrdup_local_emit("kernel");
-  base = strrchr(main_file, '/');
-  base = base ? base + 1 : main_file;
-  dot = strrchr(base, '.');
-  len = (dot && dot > base) ? (size_t)(dot - base) : strlen(base);
-  out = (char*)malloc(len + 2u);
-  if (!out) {
-    fprintf(stderr, "OOM\n");
-    exit(1);
-  }
-  for (i = 0; i < len; i++) {
-    unsigned char ch = (unsigned char)base[i];
-    if (isalnum(ch) || ch == '_') {
-      out[j++] = (char)ch;
-      last_dot = 0;
-    } else if (!last_dot && j > 0u) {
-      out[j++] = '.';
-      last_dot = 1;
-    }
-  }
-  while (j > 0u && out[j - 1u] == '.') j--;
-  if (j == 0u) out[j++] = 'k';
-  out[j] = 0;
-  return out;
-}
-
-static char *quote_string_literal(const char *s) {
-  size_t len = strlen(s);
-  char *out = (char*)malloc(len + 3u);
-  if (!out) {
-    fprintf(stderr, "OOM\n");
-    exit(1);
-  }
-  out[0] = '"';
-  memcpy(out + 1, s, len);
-  out[len + 1u] = '"';
-  out[len + 2u] = 0;
-  return out;
-}
-
-static const char *resolved_kernel_path(const EmitCtx *ctx, char **owned_out) {
-  if (owned_out) *owned_out = NULL;
-  if (ctx->model && ctx->model->kernel && ctx->model->kernel->path) {
-    return ctx->model->kernel->path;
-  }
-  if (owned_out) {
-    *owned_out = default_kernel_path_from_main_file(ctx->main_file);
-    return *owned_out;
-  }
-  return "kernel";
-}
-
 static unsigned int intern_string_const(EmitCtx *ctx, const char *literal) {
   size_t i;
   for (i = 0; i < ctx->string_count; i++) {
@@ -314,6 +254,7 @@ static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       break;
   }
 }
@@ -351,13 +292,6 @@ static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr) {
 
 static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
   size_t i;
-  char *default_kernel_path = NULL;
-  const char *kernel_path = resolved_kernel_path(ctx, &default_kernel_path);
-  if (kernel_path && kernel_path[0]) {
-    char *quoted = quote_string_literal(kernel_path);
-    intern_string_const(ctx, quoted);
-    free(quoted);
-  }
   for (i = 0; i < prog->count; i++) {
     const ETopDecl *top = &prog->items[i];
     switch (top->kind) {
@@ -371,7 +305,6 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
         break;
     }
   }
-  free(default_kernel_path);
 }
 
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -395,7 +328,7 @@ static int emit_dyn_iterator_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx,
 static int emit_dyn_next_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
-static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth);
 static unsigned int next_label(EmitCtx *ctx);
 static unsigned int worker_entry_id_for_name(const ESemanticModel *model, const char *name);
@@ -1103,9 +1036,9 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
     fputs("; far_signal only valid in workers\n", out);
     return 0;
   }
-  if (!emit_target_string_ref_to_regs(out, expr->as.call.args[0], ctx, depth)) {
+  if (!emit_target_kernel_uid_to_regs(out, expr->as.call.args[0], ctx, depth)) {
     emit_indent(out, depth);
-    fputs("; far_signal target_id must be a string literal or a local/string ref variable\n", out);
+    fputs("; far_signal target_id must be a string literal\n", out);
     return 0;
   }
   if (expr->as.call.args[1]->kind != E_EXPR_IDENT) {
@@ -1153,31 +1086,17 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   return 1;
 }
 
-static int emit_target_string_ref_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
-  const ELocalBinding *binding;
-  unsigned int string_id;
+static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  uint64_t uid;
+  (void)ctx;
   if (!expr) return 0;
   if (expr->kind == E_EXPR_STRING) {
-    string_id = find_string_const_id(ctx, expr->as.string_lit);
     emit_indent(out, depth);
-    fprintf(out, "LOAD_CONST %u\n", string_id);
+    uid = fnv1a64_bytes(expr->as.string_lit);
+    fprintf(out, "SET_R 0 %u\n", (unsigned int)(uid & 0xFFFFFFFFu));
+    emit_indent(out, depth);
+    fprintf(out, "SET_R 1 %u\n", (unsigned int)((uid >> 32) & 0xFFFFFFFFu));
     return 1;
-  }
-  if (expr->kind == E_EXPR_IDENT) {
-    binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.ident);
-    if (binding && binding->vm_local_words == 2u) {
-      emit_indent(out, depth);
-      EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
-      emit_indent(out, depth);
-      fputs("POP R0\n", out);
-      emit_indent(out, depth);
-      EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
-      emit_indent(out, depth);
-      fputs("POP R1\n", out);
-      emit_indent(out, depth);
-      fprintf(out, "SET_R 2 %u\n", EPA_CONST_TMP_STR);
-      return 1;
-    }
   }
   return 0;
 }
@@ -1856,6 +1775,8 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
       break;
     case E_STMT_DYNAMIC:
       break;
+    case E_STMT_KERNAL_ID:
+      break;
     case E_STMT_STATIC_BLOCK:
       emit_indent(out, depth);
       fputs("; static { } block — emitted before worker loop\n", out);
@@ -2045,13 +1966,11 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
   if (ctx.string_count > 0u) fputc('\n', out);
 
   {
-    char *default_kernel_path = NULL;
-    const char *kernel_path = resolved_kernel_path(&ctx, &default_kernel_path);
-    char *quoted = quote_string_literal(kernel_path);
-    unsigned int kernel_path_const = intern_string_const(&ctx, quoted);
     uint64_t remote_id;
     size_t ai;
-    fprintf(out, "KERNEL_ID_STR %u\n", kernel_path_const);
+    fprintf(out, "KERNEL_ID %u %u\n",
+            (unsigned int)(ctx.model->kernel_declared_uid & 0xFFFFFFFFu),
+            (unsigned int)((ctx.model->kernel_declared_uid >> 32) & 0xFFFFFFFFu));
     for (ai = 0; ctx.model->kernel && ai < ctx.model->kernel->acl_count; ai++) {
       unsigned int local_wid = worker_entry_id_for_name(ctx.model, ctx.model->kernel->acl_entries[ai].local_worker);
       remote_id = fnv1a64_bytes(ctx.model->kernel->acl_entries[ai].remote_kernel);
@@ -2061,8 +1980,6 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
               local_wid);
     }
     fputc('\n', out);
-    free(quoted);
-    free(default_kernel_path);
   }
 
   /* Emit DYNAMIC_POOL records for pools declared inside worker bodies.

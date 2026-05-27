@@ -580,6 +580,13 @@ static EStmt *parse_stmt(Parser *p) {
     if (!expect(p, E_TOK_IDENT, "expected worker name after next")) return NULL;
     s->as.next_stmt.worker_name = xstrdup_local(p->tokens->items[p->pos - 1].text);
     if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
+  } else if (match(p, E_TOK_KW_KERNAL_ID)) {
+    s = new_stmt(E_STMT_KERNAL_ID);
+    if (!expect(p, E_TOK_LPAREN, "expected '(' after kernalId")) return NULL;
+    if (!expect(p, E_TOK_STRING_LIT, "expected string literal in kernalId")) return NULL;
+    s->as.kernal_id.name = xstrdup_string_token_local(p->tokens->items[p->pos - 1].text);
+    if (!expect(p, E_TOK_RPAREN, "expected ')' after kernalId string")) return NULL;
+    if (!expect(p, E_TOK_SEMI, "expected ';'")) return NULL;
   } else if (peek(p)->kind == E_TOK_KW_STATIC && peek_n(p, 1)->kind == E_TOK_LBRACE) {
     p->pos++; /* consume 'static' */
     s = new_stmt(E_STMT_STATIC_BLOCK);
@@ -832,13 +839,6 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       top.kind = E_TOP_KERNEL;
       top.as.kernel.attrs = pending_attrs;
       if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
-      if (peek(&p)->kind == E_TOK_STRING_LIT) {
-        top.as.kernel.path = xstrdup_string_token_local(peek(&p)->text);
-        p.pos++;
-        if (!match(&p, E_TOK_COMMA) && peek(&p)->kind != E_TOK_RPAREN) {
-          return set_err(&p, "expected ',' after kernel path", peek(&p));
-        }
-      }
       if (!parse_param_list(&p, &top.as.kernel.params, &top.as.kernel.param_count)) return 0;
       top.as.kernel.body = parse_block(&p);
       if (!top.as.kernel.body) return 0;

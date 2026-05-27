@@ -6,8 +6,17 @@ type Packet(int tag, int primitive_int) {
   return base + 41;
 }
 
+type Blob(int id) {
+  return id;
+}
+
 kernel(VM vm) {
+  kernalId("example.seed");
   worker_ingest(vm);
+}
+
+acl {
+  "example.remote" -> worker_ingest;
 }
 
 worker worker_ingest(Packet packet) {

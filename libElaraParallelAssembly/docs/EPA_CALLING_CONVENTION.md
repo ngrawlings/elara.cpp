@@ -64,6 +64,13 @@ r1 = high / length
 
 This convention is **universal** across EPA.
 
+It is also used by the current cross-kernel routing path:
+
+- `r0` = target kernel uid low 32 bits
+- `r1` = target kernel uid high 32 bits
+
+before `FAR_SIGNAL` executes.
+
 ---
 
 ## 5. Register Volatility
@@ -88,4 +95,3 @@ PUSH_I32 10
 PUSH_I32 20
 CALL 42
 ; result now in r0
-

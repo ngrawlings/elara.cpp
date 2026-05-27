@@ -42,6 +42,15 @@ static int streq(const char *a, const char *b) {
   return strcmp(a, b) == 0;
 }
 
+static uint64_t fnv1a64_bytes(const char *s) {
+  uint64_t h = 14695981039346656037ull;
+  while (s && *s) {
+    h ^= (unsigned char)*s++;
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
 static size_t primitive_size(const char *name) {
   if (strcmp(name, "byte") == 0) return 1u;
   if (strcmp(name, "char") == 0) return 1u;
@@ -492,6 +501,107 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
   return 1;
 }
 
+static int collect_kernal_id_in_stmt(
+  const EStmt *stmt,
+  const char **out_name,
+  int *out_count,
+  char err[256],
+  const char *owner_name,
+  int allow
+) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_KERNAL_ID:
+      if (!allow) {
+        snprintf(err, 256, "kernalId is only valid inside the kernel block (found in %s)", owner_name);
+        return 0;
+      }
+      if (*out_count > 0) {
+        snprintf(err, 256, "kernel block may only declare kernalId once");
+        return 0;
+      }
+      *out_name = stmt->as.kernal_id.name;
+      *out_count = 1;
+      return 1;
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!collect_kernal_id_in_stmt(stmt->as.block.items[i], out_name, out_count, err, owner_name, allow)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      if (!collect_kernal_id_in_stmt(stmt->as.if_stmt.then_branch, out_name, out_count, err, owner_name, allow)) return 0;
+      return collect_kernal_id_in_stmt(stmt->as.if_stmt.else_branch, out_name, out_count, err, owner_name, allow);
+    case E_STMT_WHILE:
+      return collect_kernal_id_in_stmt(stmt->as.while_stmt.body, out_name, out_count, err, owner_name, allow);
+    case E_STMT_FOR:
+      if (!collect_kernal_id_in_stmt(stmt->as.for_stmt.init, out_name, out_count, err, owner_name, allow)) return 0;
+      return collect_kernal_id_in_stmt(stmt->as.for_stmt.body, out_name, out_count, err, owner_name, allow);
+    case E_STMT_FOREACH:
+      return collect_kernal_id_in_stmt(stmt->as.foreach_stmt.body, out_name, out_count, err, owner_name, allow);
+    case E_STMT_SWITCH:
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!collect_kernal_id_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], out_name, out_count, err, owner_name, allow)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_STATIC_BLOCK:
+      for (i = 0; i < stmt->as.static_block.count; i++) {
+        if (!collect_kernal_id_in_stmt(stmt->as.static_block.items[i], out_name, out_count, err, owner_name, allow)) return 0;
+      }
+      return 1;
+    case E_STMT_DECL:
+    case E_STMT_RETURN:
+    case E_STMT_EXPR:
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
+      return 1;
+  }
+  return 1;
+}
+
+static int collect_kernel_identity(const EProgram *program, ESemanticModel *model, char err[256]) {
+  size_t i;
+  const char *kernel_id = NULL;
+  int count = 0;
+  if (!model || !model->kernel) return 1;
+  if (!collect_kernal_id_in_stmt(model->kernel->body, &kernel_id, &count, err, "kernel", 1)) return 0;
+  if (count == 0 || !kernel_id || !kernel_id[0]) {
+    snprintf(err, 256, "kernel block must declare kernalId(\"...\");");
+    return 0;
+  }
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    const char *owner_name = NULL;
+    if (top->kind == E_TOP_WORKER) {
+      body = top->as.worker.body;
+      owner_name = top->as.worker.name;
+    } else if (top->kind == E_TOP_FUNCTION) {
+      body = top->as.func.body;
+      owner_name = top->as.func.name;
+    } else if (top->kind == E_TOP_TYPE) {
+      body = top->as.tdecl.body;
+      owner_name = top->as.tdecl.name;
+    } else {
+      continue;
+    }
+    {
+      const char *unused_name = NULL;
+      int unused_count = 0;
+      if (!collect_kernal_id_in_stmt(body, &unused_name, &unused_count, err, owner_name ? owner_name : "(anon)", 0)) return 0;
+    }
+  }
+  model->kernel_declared_id = xstrdup_local(kernel_id);
+  model->kernel_declared_uid = fnv1a64_bytes(kernel_id);
+  return 1;
+}
+
 static int register_dynamic_pool_decl(ESemanticModel *model, const EDynamicDecl *decl, char err[256]) {
   size_t element_size;
   if (find_dynamic_pool(model, decl->name)) {
@@ -779,6 +889,7 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       return 1;
   }
   return 1;
@@ -911,6 +1022,7 @@ static int validate_next_stmt_in_stmt(
     case E_STMT_CONTINUE:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       return 1;
   }
   return 1;
@@ -969,6 +1081,7 @@ static int validate_loop_control_in_stmt(const EStmt *stmt, int loop_depth, int 
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       return 1;
   }
   return 1;
@@ -1251,6 +1364,7 @@ static int validate_kernel_get_ghs_usage_in_stmt(const EStmt *stmt,
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       return 1;
   }
   return 1;
@@ -1308,6 +1422,7 @@ static int validate_typeof_typeid_usage_in_stmt(const EStmt *stmt,
     case E_STMT_NEXT:
     case E_STMT_RAW_EPA:
     case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
       return 1;
   }
   return 1;
@@ -1329,6 +1444,158 @@ static int validate_typeof_typeid_usage(const EProgram *program, const ESemantic
         break;
     }
     if (body && !validate_typeof_typeid_usage_in_stmt(body, model, err)) return 0;
+  }
+  return 1;
+}
+
+static int validate_far_signal_expr(const EExpr *expr,
+                                    const EFunctionFrame *frame,
+                                    const EWorker *worker,
+                                    char err[256]) {
+  if (!expr) return 1;
+  switch (expr->kind) {
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+    case E_EXPR_STRING:
+      return 1;
+    case E_EXPR_FIELD:
+      return validate_far_signal_expr(expr->as.field.base, frame, worker, err);
+    case E_EXPR_INDEX:
+      return validate_far_signal_expr(expr->as.index.base, frame, worker, err) &&
+             validate_far_signal_expr(expr->as.index.index, frame, worker, err);
+    case E_EXPR_ASSIGN:
+      return validate_far_signal_expr(expr->as.assign.lhs, frame, worker, err) &&
+             validate_far_signal_expr(expr->as.assign.rhs, frame, worker, err);
+    case E_EXPR_BINARY:
+      return validate_far_signal_expr(expr->as.binary.lhs, frame, worker, err) &&
+             validate_far_signal_expr(expr->as.binary.rhs, frame, worker, err);
+    case E_EXPR_CALL:
+      if (strcmp(expr->as.call.callee, "far_signal") == 0) {
+        const ELocalBinding *payload_local;
+        if (!worker) {
+          snprintf(err, 256, "far_signal is only valid inside worker blocks");
+          return 0;
+        }
+        if (expr->as.call.arg_count != 2u) {
+          snprintf(err, 256, "far_signal expects exactly 2 arguments");
+          return 0;
+        }
+        if (expr->as.call.args[0]->kind != E_EXPR_STRING) {
+          snprintf(err, 256, "far_signal target kernel must be a string literal");
+          return 0;
+        }
+        if (expr->as.call.args[1]->kind != E_EXPR_IDENT) {
+          snprintf(err, 256, "far_signal payload must be a local declared value");
+          return 0;
+        }
+        payload_local = find_local_binding_by_name(frame, expr->as.call.args[1]->as.ident);
+        if (!payload_local || is_primitive_type(payload_local->type_name)) {
+          snprintf(err, 256, "far_signal payload '%s' must be a local declared custom type",
+                   expr->as.call.args[1]->as.ident);
+          return 0;
+        }
+      }
+      {
+        size_t i;
+        for (i = 0; i < expr->as.call.arg_count; i++) {
+          if (!validate_far_signal_expr(expr->as.call.args[i], frame, worker, err)) return 0;
+        }
+      }
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_far_signal_usage_in_stmt(const EStmt *stmt,
+                                             const EFunctionFrame *frame,
+                                             const EWorker *worker,
+                                             char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_DECL:
+      return validate_far_signal_expr(stmt->as.decl.init, frame, worker, err);
+    case E_STMT_RETURN:
+      return validate_far_signal_expr(stmt->as.ret.value, frame, worker, err);
+    case E_STMT_EXPR:
+      return validate_far_signal_expr(stmt->as.expr, frame, worker, err);
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_far_signal_usage_in_stmt(stmt->as.block.items[i], frame, worker, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      return validate_far_signal_expr(stmt->as.if_stmt.cond, frame, worker, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.then_branch, frame, worker, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.else_branch, frame, worker, err);
+    case E_STMT_WHILE:
+      return validate_far_signal_expr(stmt->as.while_stmt.cond, frame, worker, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.while_stmt.body, frame, worker, err);
+    case E_STMT_FOR:
+      return validate_far_signal_usage_in_stmt(stmt->as.for_stmt.init, frame, worker, err) &&
+             validate_far_signal_expr(stmt->as.for_stmt.cond, frame, worker, err) &&
+             validate_far_signal_expr(stmt->as.for_stmt.step, frame, worker, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.for_stmt.body, frame, worker, err);
+    case E_STMT_FOREACH:
+      return validate_far_signal_usage_in_stmt(stmt->as.foreach_stmt.body, frame, worker, err);
+    case E_STMT_SWITCH:
+      if (!validate_far_signal_expr(stmt->as.switch_stmt.target, frame, worker, err)) return 0;
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_far_signal_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], frame, worker, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_STATIC_BLOCK: {
+      size_t j;
+      for (j = 0; j < stmt->as.static_block.count; j++) {
+        if (!validate_far_signal_usage_in_stmt(stmt->as.static_block.items[j], frame, worker, err)) return 0;
+      }
+      return 1;
+    }
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_far_signal_usage(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    const EFunctionFrame *frame = NULL;
+    const EWorker *worker = NULL;
+    switch (top->kind) {
+      case E_TOP_KERNEL:
+        body = top->as.kernel.body;
+        frame = find_frame(model, "kernel");
+        break;
+      case E_TOP_WORKER:
+        body = top->as.worker.body;
+        frame = find_frame(model, top->as.worker.name);
+        worker = &top->as.worker;
+        break;
+      case E_TOP_FUNCTION:
+        body = top->as.func.body;
+        frame = find_frame(model, top->as.func.name);
+        break;
+      case E_TOP_TYPE:
+        body = top->as.tdecl.body;
+        frame = find_frame(model, top->as.tdecl.name);
+        break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
+        break;
+    }
+    if (body && !validate_far_signal_usage_in_stmt(body, frame, worker, err)) return 0;
   }
   return 1;
 }
@@ -1430,6 +1697,20 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
   return 1;
 }
 
+static int semantic_fail_cleanup(ESemanticModel *model, char err[256]) {
+  char saved[256];
+  if (err) {
+    strncpy(saved, err, sizeof(saved));
+    saved[sizeof(saved) - 1u] = '\0';
+  }
+  e_semantic_model_free(model);
+  if (err) {
+    strncpy(err, saved, 256u);
+    err[255] = '\0';
+  }
+  return 0;
+}
+
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]) {
   memset(out_model, 0, sizeof(*out_model));
   if (err) err[0] = 0;
@@ -1438,33 +1719,31 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   out_model->default_signal_mail_box_size = 128u;
 
   if (!collect_declares(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!collect_validators(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!collect_type_layouts(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!collect_dynamic_pools(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!collect_top_level_roles(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
+  }
+
+  if (!collect_kernel_identity(program, out_model, err)) {
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!collect_function_checks(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   /* Build vm_local frames for type bodies so their local decls get slots.
@@ -1477,8 +1756,7 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
       if (top->kind != E_TOP_TYPE || !top->as.tdecl.body) continue;
       memset(&frame, 0, sizeof(frame));
       if (!collect_local_decls_in_stmt(top->as.tdecl.body, out_model, &frame, 0, err)) {
-        e_semantic_model_free(out_model);
-        return 0;
+        return semantic_fail_cleanup(out_model, err);
       }
       push_frame(out_model, top->as.tdecl.name, NULL, 0,
                  frame.stack_local_size, frame.reserved_reg_words,
@@ -1487,33 +1765,31 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_non_function_local_decls(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!validate_worker_next_targets(out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!validate_kernel_acl_targets(out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
+  }
+
+  if (!validate_far_signal_usage(program, out_model, err)) {
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!validate_kernel_get_ghs_usage(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!validate_typeof_typeid_usage(program, out_model, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   if (!validate_loop_control_usage(program, err)) {
-    e_semantic_model_free(out_model);
-    return 0;
+    return semantic_fail_cleanup(out_model, err);
   }
 
   return 1;
@@ -1562,6 +1838,8 @@ void e_semantic_model_free(ESemanticModel *model) {
   model->workers = NULL;
   model->functions = NULL;
   model->dynamic_pools = NULL;
+  model->kernel_declared_id = NULL;
+  model->kernel_declared_uid = 0;
   model->kernel_count = 0;
   model->worker_count = 0;
   model->function_count = 0;
@@ -1602,6 +1880,11 @@ void e_semantic_model_dump(FILE *out, const ESemanticModel *model) {
     fprintf(out, "    first_param=%s %s\n",
             model->kernel->params[0].type.name,
             model->kernel->params[0].name);
+    if (model->kernel_declared_id) {
+      fprintf(out, "    kernalId=%s uid=0x%016llx\n",
+              model->kernel_declared_id,
+              (unsigned long long)model->kernel_declared_uid);
+    }
   }
   fprintf(out, "  workers count=%zu\n", model->worker_count);
   for (i = 0; i < model->worker_count; i++) {

@@ -37,6 +37,8 @@ It is authoritative for EPAASM authors (human or AI).
 | `ENTRY_END` | End entry definition |
 | `ENTRY_EXEC` | Execute worker |
 | `ENTRY_HALT` | Halt worker |
+| `KERNEL_ID` | Program-level kernel uid manifest entry |
+| `ACL_ALLOW` | Program-level ACL whitelist manifest entry |
 | `SYNC` | Worker → kernel signal |
 | `WAIT_ON_SYNC` | Kernel blocks until SYNC |
 
@@ -102,6 +104,9 @@ It is authoritative for EPAASM authors (human or AI).
 | `WORKER_TRX_IN_L` | Worker pulls kernel data |
 | `WORKER_TRX_OUT_L` | Worker pushes data to kernel |
 | `WORKER_TRX` | Local-to-local transfer |
+| `SIGNAL` | Worker → kernel signal hook |
+| `FAR_SIGNAL` | Worker → external kernel signal |
+| `HOST_SIGNAL` | Worker → host signal hook |
 
 ---
 
@@ -209,6 +214,7 @@ Backends may map these opcodes to OpenGL, Vulkan, CUDA, Metal, or emulate them.
 - Explicit kernel/worker scheduling
 - Deterministic message passing
 - Load-time constants via `DATA_BLOCK`
+- Load-time kernel identity and ACL manifest
 - No implicit shared-state mutation from workers
 
 ---
@@ -219,6 +225,8 @@ Backends may map these opcodes to OpenGL, Vulkan, CUDA, Metal, or emulate them.
 - Treat `(r0, r1)` as the canonical pair
 - Do not assume registers survive `YIELD` or `SYNC`
 - Constants must be declared via `.CONST_*` directives
+- `KERNEL_ID` and `ACL_ALLOW` are loader-consumed manifest records, not runtime control-flow instructions
+- For `FAR_SIGNAL`, the target kernel uid low/high pair is staged in `r0/r1` before the instruction executes
 
 ---
 

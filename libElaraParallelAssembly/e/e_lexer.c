@@ -71,6 +71,7 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "declare") == 0) return E_TOK_KW_DECLARE;
   if (strcmp(text, "dynamic") == 0) return E_TOK_KW_DYNAMIC;
   if (strcmp(text, "acl") == 0) return E_TOK_KW_ACL;
+  if (strcmp(text, "kernalId") == 0) return E_TOK_KW_KERNAL_ID;
   if (strcmp(text, "next") == 0) return E_TOK_KW_NEXT;
   if (strcmp(text, "reg") == 0) return E_TOK_KW_REG;
   if (strcmp(text, "local") == 0) return E_TOK_KW_LOCAL;

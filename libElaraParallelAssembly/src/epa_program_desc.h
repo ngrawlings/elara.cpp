@@ -68,7 +68,6 @@ typedef struct {
   EpaProgramDynamicPoolDesc *dynamic_pools;
   size_t dynamic_pool_count;
 
-  char *kernel_path;
   uint64_t kernel_uid;
   EpaProgramAclEntry *acl_entries;
   size_t acl_count;

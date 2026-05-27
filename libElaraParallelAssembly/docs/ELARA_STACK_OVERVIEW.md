@@ -52,6 +52,7 @@ Kernel:
 - Owns global state
 - Schedules workers
 - Performs coordination
+- Declares a stable kernel identity via the E-level `kernalId("...")` contract
 
 Workers:
 - Isolated compute units
@@ -125,6 +126,7 @@ EPA never depends on ElaraScript at runtime.
 4. EPA is GPU-first
 5. ElaraScript owns host concerns
 6. Execution is deterministic
+7. Cross-kernel routing is identity- and ACL-driven
 
 ---
 
@@ -134,5 +136,14 @@ EPA never depends on ElaraScript at runtime.
 - Future mapping to custom silicon
 - ElaraScript orchestrates distributed AI systems
 - AI compute becomes reproducible and inspectable
+
+## Current E/EPA Evolution
+
+The language/runtime boundary has recently become more explicit:
+
+- E kernels must declare `kernalId("...");`
+- E may declare `acl { "remote.kernel" -> local_worker; }`
+- EPA receives those as `KERNEL_ID` and `ACL_ALLOW` manifest records
+- cross-kernel `far_signal` no longer depends on runtime string assembly
 
 End of document.

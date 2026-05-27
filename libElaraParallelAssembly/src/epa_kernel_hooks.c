@@ -206,14 +206,12 @@ int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char e
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   EpaKernel *k = (EpaKernel*)user;
   EpaWorkerState *w;
-  uint32_t target_off;
-  uint32_t target_len;
-  uint32_t target_kind;
+  uint32_t target_uid_lo;
+  uint32_t target_uid_hi;
   uint32_t payload_off;
   uint32_t payload_size;
   uint32_t payload_tag;
-  const uint8_t *target_ptr = NULL;
-  char *target_id = NULL;
+  uint64_t target_uid;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_far_signal: kernel null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
     snprintf(err, EPA_MAX_ERR, "hook_far_signal: bad wid %u", (unsigned)wid);
@@ -221,9 +219,8 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   }
 
   w = &k->impl.workers[wid];
-  target_off = (uint32_t)w->vm.csc[0];
-  target_len = (uint32_t)w->vm.csc[1];
-  target_kind = (uint32_t)w->vm.csc[2];
+  target_uid_lo = (uint32_t)w->vm.csc[0];
+  target_uid_hi = (uint32_t)w->vm.csc[1];
   payload_off = (uint32_t)w->vm.csc[3];
 
   if (!epa_stack_pop(&w->vm.stack, &payload_size) ||
@@ -232,26 +229,9 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
-  if (target_len == 0u) {
-    snprintf(err, EPA_MAX_ERR, "hook_far_signal: empty target kernel id");
-    return 0;
-  }
-  if (target_kind == EPA_CONST_STR) {
-    if (!k->prog.image_base ||
-        (size_t)target_off > k->prog.image_size ||
-        (size_t)target_off + (size_t)target_len > k->prog.image_size) {
-      snprintf(err, EPA_MAX_ERR, "hook_far_signal: target literal out of bounds");
-      return 0;
-    }
-    target_ptr = k->prog.image_base + target_off;
-  } else if (target_kind == EPA_CONST_TMP_STR) {
-    if (!w->vm.lbytes || target_off + target_len > w->vm.lbytes_top) {
-      snprintf(err, EPA_MAX_ERR, "hook_far_signal: target local string out of bounds");
-      return 0;
-    }
-    target_ptr = w->vm.lbytes + target_off;
-  } else {
-    snprintf(err, EPA_MAX_ERR, "hook_far_signal: unsupported target string kind %u", (unsigned)target_kind);
+  target_uid = ((uint64_t)target_uid_hi << 32) | (uint64_t)target_uid_lo;
+  if (target_uid == 0u) {
+    snprintf(err, EPA_MAX_ERR, "hook_far_signal: empty target kernel uid");
     return 0;
   }
   if (!w->vm.lbytes || payload_off + payload_size > w->vm.lbytes_top) {
@@ -259,18 +239,8 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
-  target_id = (char*)malloc((size_t)target_len + 1u);
-  if (!target_id) {
-    snprintf(err, EPA_MAX_ERR, "hook_far_signal: OOM");
+  if (!epa_kernel_far_signal_by_uid(k, wid, target_uid, w->vm.lbytes + payload_off, payload_size, payload_tag, err)) {
     return 0;
   }
-  memcpy(target_id, target_ptr, target_len);
-  target_id[target_len] = 0;
-
-  if (!epa_kernel_far_signal_by_id(k, wid, target_id, w->vm.lbytes + payload_off, payload_size, payload_tag, err)) {
-    free(target_id);
-    return 0;
-  }
-  free(target_id);
   return 1;
 }
