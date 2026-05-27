@@ -6,6 +6,7 @@
 // - output HudCommand / UI render products toward entry kernel
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.render_ui");
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

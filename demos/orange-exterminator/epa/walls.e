@@ -7,6 +7,7 @@
 // - later emit wall slices / visibility products toward scene or render kernels
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.walls");
   request_threads(2);
 
   int wid = 0;

@@ -7,6 +7,7 @@
 // - later spawn effect/projectile kernels via far_signal(...)
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.player_machinegun");
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

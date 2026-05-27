@@ -27,6 +27,10 @@ static uint32_t read_le_u32(const unsigned char *p) {
          | ((uint32_t)p[3] << 24);
 }
 
+static int32_t read_le_i32(const unsigned char *p) {
+    return (int32_t)read_le_u32(p);
+}
+
 static double parse_json_number_after(const String& text, const String& needle, double fallback) {
     String text_copy(text);
     int index = text_copy.indexOf(needle);
@@ -72,6 +76,43 @@ struct ProjectedRectState {
     int h;
 };
 
+struct Scene3DCamera {
+    double x;
+    double y;
+    double z;
+    double yaw_deg;
+    double pitch_deg;
+    double roll_deg;
+    double fov_deg;
+    double near_z;
+    double far_z;
+};
+
+struct Scene3DInstance {
+    int id;
+    int mesh_id;
+    int material_id;
+    double x;
+    double y;
+    double z;
+    double yaw_deg;
+    double pitch_deg;
+    double roll_deg;
+    double sx;
+    double sy;
+    double sz;
+    double r;
+    double g;
+    double b;
+};
+
+struct ScenePoint2D {
+    bool visible;
+    double x;
+    double y;
+    double z;
+};
+
 struct CalibrationProjectionState {
     ProjectedRectState end_wall;
     ProjectedRectState side_wall;
@@ -96,6 +137,106 @@ static int wrapDegrees360(int value) {
         wrapped += 360;
     }
     return wrapped;
+}
+
+static double sceneMilli(int value) {
+    return ((double)value) / 1000.0;
+}
+
+static double sceneMilliDeg(int value) {
+    return ((double)value) / 1000.0;
+}
+
+static String jsonLineCommand(double x0, double y0, double x1, double y1, double width,
+                              double r, double g, double b) {
+    return String("{\"op\":\"line\",\"x0\":") + String(x0)
+        + String(",\"y0\":") + String(y0)
+        + String(",\"x1\":") + String(x1)
+        + String(",\"y1\":") + String(y1)
+        + String(",\"line_width\":") + String(width)
+        + String(",\"r\":") + String(r)
+        + String(",\"g\":") + String(g)
+        + String(",\"b\":") + String(b)
+        + String("}");
+}
+
+static void appendJsonCommand(String &json, int &emitted, const String &command) {
+    if (emitted) {
+        json += String(",");
+    }
+    json += command;
+    emitted = 1;
+}
+
+static ScenePoint2D projectScenePoint(const Scene3DCamera &cam, double wx, double wy, double wz,
+                                      int width, int height) {
+    double dx = wx - cam.x;
+    double dy = wy - cam.y;
+    double dz = wz - cam.z;
+    double yaw = -cam.yaw_deg * 3.14159265358979323846 / 180.0;
+    double pitch = -cam.pitch_deg * 3.14159265358979323846 / 180.0;
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double cp = cos(pitch);
+    double sp = sin(pitch);
+
+    double vx = (dx * cy) - (dz * sy);
+    double vz = (dx * sy) + (dz * cy);
+    double vy = (dy * cp) - (vz * sp);
+    vz = (dy * sp) + (vz * cp);
+
+    ScenePoint2D out;
+    out.visible = false;
+    out.x = 0.0;
+    out.y = 0.0;
+    out.z = vz;
+    if (vz <= cam.near_z || vz >= cam.far_z) {
+        return out;
+    }
+
+    double fov = cam.fov_deg > 1.0 ? cam.fov_deg : 60.0;
+    double focal = ((double)height * 0.5) / tan((fov * 3.14159265358979323846 / 180.0) * 0.5);
+    out.x = ((double)width * 0.5) + ((vx / vz) * focal);
+    out.y = ((double)height * 0.5) - ((vy / vz) * focal);
+    out.visible = true;
+    return out;
+}
+
+static void appendSceneInstanceWireframe(String &json, int &emitted, const Scene3DCamera &cam,
+                                         const Scene3DInstance &inst, int width, int height) {
+    double hx = inst.sx * 0.5;
+    double hy = inst.sy * 0.5;
+    double hz = inst.sz * 0.5;
+    double yaw = inst.yaw_deg * 3.14159265358979323846 / 180.0;
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double corners[8][3] = {
+        {-hx, -hy, -hz}, { hx, -hy, -hz}, { hx,  hy, -hz}, {-hx,  hy, -hz},
+        {-hx, -hy,  hz}, { hx, -hy,  hz}, { hx,  hy,  hz}, {-hx,  hy,  hz},
+    };
+    ScenePoint2D pts[8];
+    for (int i = 0; i < 8; i++) {
+        double lx = corners[i][0];
+        double ly = corners[i][1];
+        double lz = corners[i][2];
+        double wx = inst.x + (lx * cy) - (lz * sy);
+        double wz = inst.z + (lx * sy) + (lz * cy);
+        double wy = inst.y + ly;
+        pts[i] = projectScenePoint(cam, wx, wy, wz, width, height);
+    }
+    const int edges[12][2] = {
+        {0,1}, {1,2}, {2,3}, {3,0},
+        {4,5}, {5,6}, {6,7}, {7,4},
+        {0,4}, {1,5}, {2,6}, {3,7},
+    };
+    for (int i = 0; i < 12; i++) {
+        const ScenePoint2D &a = pts[edges[i][0]];
+        const ScenePoint2D &b = pts[edges[i][1]];
+        if (!a.visible || !b.visible) {
+            continue;
+        }
+        appendJsonCommand(json, emitted, jsonLineCommand(a.x, a.y, b.x, b.y, 2.0, inst.r, inst.g, inst.b));
+    }
 }
 
 class UiEventSinkService : public sockets::rpc::json::JsonRPCService {
@@ -895,20 +1036,154 @@ void OrangeExterminatorApp::updateSurfaceCommandsFromMailbox(unsigned int wid, c
     if ((size_t)msg_len < offset + 20u) {
         return;
     }
-    {
-        uint32_t width = read_le_u32(bytes + offset); offset += 4;
-        uint32_t height = read_le_u32(bytes + offset); offset += 4;
-        uint32_t clear_r = read_le_u32(bytes + offset); offset += 4;
-        uint32_t clear_g = read_le_u32(bytes + offset); offset += 4;
-        uint32_t clear_b = read_le_u32(bytes + offset); offset += 4;
-        (void)width;
-        (void)height;
-        json += String("{\"op\":\"clear\",\"r\":") + String(((double)clear_r) / 255.0)
-             + String(",\"g\":") + String(((double)clear_g) / 255.0)
-             + String(",\"b\":") + String(((double)clear_b) / 255.0)
-             + String("}");
-        emitted = 1;
+    uint32_t width = read_le_u32(bytes + offset); offset += 4;
+    uint32_t height = read_le_u32(bytes + offset); offset += 4;
+    uint32_t frame_type = read_le_u32(bytes + offset); offset += 4;
+    uint32_t frame_id = read_le_u32(bytes + offset); offset += 4;
+    uint32_t record_count = read_le_u32(bytes + offset); offset += 4;
+
+    if (frame_type == 3u) {
+        Scene3DCamera camera;
+        camera.x = 0.0;
+        camera.y = 0.62;
+        camera.z = -0.90;
+        camera.yaw_deg = 0.0;
+        camera.pitch_deg = 0.0;
+        camera.roll_deg = 0.0;
+        camera.fov_deg = 60.0;
+        camera.near_z = 0.08;
+        camera.far_z = 12.0;
+
+        double clear_r = 18.0 / 255.0;
+        double clear_g = 20.0 / 255.0;
+        double clear_b = 24.0 / 255.0;
+        double default_r = 1.0;
+        double default_g = 0.52;
+        double default_b = 0.08;
+        double material_r[16];
+        double material_g[16];
+        double material_b[16];
+        std::vector<Scene3DInstance> instances;
+        for (int i = 0; i < 16; i++) {
+            material_r[i] = default_r;
+            material_g[i] = default_g;
+            material_b[i] = default_b;
+        }
+
+        while (offset + 4u <= (size_t)msg_len) {
+            uint32_t record_opcode = read_le_u32(bytes + offset);
+            offset += 4;
+            if (record_opcode == 255u) {
+                break;
+            }
+            if (record_opcode != 2u || offset + 32u > (size_t)msg_len) {
+                break;
+            }
+            int32_t op = read_le_i32(bytes + offset); offset += 4;
+            int32_t a0 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a1 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a2 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a3 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a4 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a5 = read_le_i32(bytes + offset); offset += 4;
+            int32_t a6 = read_le_i32(bytes + offset); offset += 4;
+
+            if (op == 10) {
+                camera.x = sceneMilli(a0);
+                camera.y = sceneMilli(a1);
+                camera.z = sceneMilli(a2);
+                camera.yaw_deg = sceneMilliDeg(a3);
+                camera.pitch_deg = sceneMilliDeg(a4);
+                camera.roll_deg = sceneMilliDeg(a5);
+                camera.fov_deg = sceneMilliDeg(a6);
+            } else if (op == 11) {
+                camera.near_z = sceneMilli(a0);
+                camera.far_z = sceneMilli(a1);
+                if (camera.near_z < 0.01) camera.near_z = 0.01;
+                if (camera.far_z <= camera.near_z) camera.far_z = camera.near_z + 10.0;
+            } else if (op == 20) {
+                clear_r = ((double)clampInt(a0, 0, 255)) / 255.0;
+                clear_g = ((double)clampInt(a1, 0, 255)) / 255.0;
+                clear_b = ((double)clampInt(a2, 0, 255)) / 255.0;
+            } else if (op == 30) {
+                int mat = clampInt(a0, 0, 15);
+                material_r[mat] = ((double)clampInt(a1, 0, 255)) / 255.0;
+                material_g[mat] = ((double)clampInt(a2, 0, 255)) / 255.0;
+                material_b[mat] = ((double)clampInt(a3, 0, 255)) / 255.0;
+            } else if (op == 50) {
+                Scene3DInstance inst;
+                inst.id = a0;
+                inst.mesh_id = a1;
+                inst.material_id = clampInt(a2, 0, 15);
+                inst.x = sceneMilli(a3);
+                inst.y = sceneMilli(a4);
+                inst.z = sceneMilli(a5);
+                inst.yaw_deg = 0.0;
+                inst.pitch_deg = 0.0;
+                inst.roll_deg = 0.0;
+                inst.sx = 0.35;
+                inst.sy = 0.35;
+                inst.sz = 0.35;
+                inst.r = material_r[inst.material_id];
+                inst.g = material_g[inst.material_id];
+                inst.b = material_b[inst.material_id];
+                instances.push_back(inst);
+            } else if (op == 51) {
+                for (size_t i = 0; i < instances.size(); i++) {
+                    if (instances[i].id == a0) {
+                        instances[i].yaw_deg = sceneMilliDeg(a1);
+                        instances[i].pitch_deg = sceneMilliDeg(a2);
+                        instances[i].roll_deg = sceneMilliDeg(a3);
+                        instances[i].sx = sceneMilli(a4);
+                        instances[i].sy = sceneMilli(a5);
+                        instances[i].sz = sceneMilli(a6);
+                    }
+                }
+            }
+        }
+
+        appendJsonCommand(json, emitted,
+            String("{\"op\":\"clear\",\"r\":") + String(clear_r)
+            + String(",\"g\":") + String(clear_g)
+            + String(",\"b\":") + String(clear_b)
+            + String("}"));
+        for (size_t i = 0; i < instances.size(); i++) {
+            appendSceneInstanceWireframe(json, emitted, camera, instances[i], (int)width, (int)height);
+        }
+        appendJsonCommand(json, emitted,
+            String("{\"op\":\"text\",\"x\":56,\"y\":52,\"text\":\"Orange Exterminator 3D E3SB\",\"size\":30,\"r\":1.0,\"g\":0.95,\"b\":0.90}"));
+        appendJsonCommand(json, emitted,
+            String("{\"op\":\"text\",\"x\":56,\"y\":84,\"text\":")
+            + JsonString(String("frame=") + String((int)frame_id)
+                + String(" records=") + String((int)record_count)
+                + String(" instances=") + String((int)instances.size()), true).toString()
+            + String(",\"size\":17,\"r\":0.82,\"g\":0.90,\"b\":0.78}"));
+
+        json += String("]");
+        {
+            Mutex::Lock lock(render_lock);
+            latest_surface_commands = json;
+            latest_surface_valid = emitted;
+            if (emitted) {
+                surface_revision++;
+            }
+        }
+        printf("surface E3SB parsed: emitted=%d instances=%d frame=%u records=%u\n",
+               emitted, (int)instances.size(), (unsigned)frame_id, (unsigned)record_count);
+        traceLine(String("{\"event\":\"mailbox_e3sb_parsed\",\"emitted\":") + String(emitted)
+            + String(",\"instances\":") + String((int)instances.size()) + String("}"));
+        traceKernelStateSnapshot("after_mailbox_e3sb");
+        return;
     }
+
+    uint32_t clear_r = frame_type;
+    uint32_t clear_g = frame_id;
+    uint32_t clear_b = record_count;
+    json += String("{\"op\":\"clear\",\"r\":") + String(((double)clear_r) / 255.0)
+         + String(",\"g\":") + String(((double)clear_g) / 255.0)
+         + String(",\"b\":") + String(((double)clear_b) / 255.0)
+         + String("}");
+    emitted = 1;
 
     while (offset + 4u <= (size_t)msg_len) {
         uint32_t opcode = read_le_u32(bytes + offset);

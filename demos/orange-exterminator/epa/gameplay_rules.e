@@ -7,6 +7,7 @@
 // - output toward player avatar / world simulation / weapon kernel
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.gameplay_rules");
   request_threads(2);
 
   int wid = 0;

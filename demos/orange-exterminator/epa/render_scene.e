@@ -8,6 +8,7 @@
 // - output RenderProduct back to entry kernel
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.render_scene");
   request_threads(4);
 
   int wid = 0;

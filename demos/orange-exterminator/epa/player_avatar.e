@@ -7,6 +7,7 @@
 // - output actor state to gameplay and render.scene
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.player_avatar");
   request_threads(2);
 
   int wid = 0;

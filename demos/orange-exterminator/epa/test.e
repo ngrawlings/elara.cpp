@@ -18,6 +18,7 @@ type MarkerProbe(int seed, int limit, int stride) {
 }
 
 kernel(VM vm) {
+    kernalId("orange.exterminator.test");
     int wid = 0;
     while (1) {
         wid = kernel_wait_signal();

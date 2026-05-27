@@ -8,6 +8,7 @@
 // Camera pose (cam_x, cam_z, yaw, pitch) drives all projection.
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.scene");
   request_threads(2);
 
   int wid = 0;
@@ -210,24 +211,29 @@ worker scene_camera_update(ScenePoseInput input) {
     }
   }
 
-  frame_begin(1280, 720, 18, 20, 24);
+  // E3SB type 3: 3D scene records for the Vulkan surface.
+  frame_begin(1280, 720, 3, input.depth, 13);
 
-  frame_rect(0, 0, 1280, sky_height, 42, 44, 40);
-  frame_rect(0, horizon_y, 1280, ground_height, 106, 88, 60);
-  frame_rect(0, horizon_band_y, 1280, 8, 78, 72, 64);
+  // Camera records. Positions are milliunits; angles are millidegrees.
+  frame_line(10, input.cam_x, 620, input.cam_z - 900, input.yaw * 1000, input.pitch * 1000, 0, 60000);
+  frame_line(11, 80, 12000, 1000, 0, 0, 0, 0);
 
-  if (far_visible) {
-    frame_rect(far_x, far_y, far_size, far_size, 120, 208, 232);
-    frame_rect(far_x + 6, far_y + 6, far_size - 12, far_size - 12, 214, 246, 255);
-  }
-  if (mid_visible) {
-    frame_rect(mid_x, mid_y, mid_size, mid_size, 242, 196, 78);
-    frame_rect(mid_x + 8, mid_y + 8, mid_size - 16, mid_size - 16, 255, 242, 164);
-  }
-  if (near_visible) {
-    frame_rect(near_x, near_y, near_size, near_size, 156, 224, 124);
-    frame_rect(near_x + 10, near_y + 10, near_size - 20, near_size - 20, 236, 255, 208);
-  }
+  // Environment and material records.
+  frame_line(20, 18, 20, 24, 54, 48, 42, 0);
+  frame_line(30, 1, 255, 132, 22, 0, 760, 0);
+  frame_line(30, 2, 92, 150, 88, 0, 880, 0);
+
+  // Built-in mesh ids: 1 = cube, 2 = plane/grid marker in the Orange host.
+  frame_line(40, 1, 0, 0, 36, 0, 1000, 0);
+  frame_line(40, 2, 0, 0, 6, 0, 1000, 0);
+
+  // Three cube instances in depth, matching the old calibration markers.
+  frame_line(50, 1, 1, 1, 260, 700, 900, 0);
+  frame_line(51, 1, 0, 0, 0, 260, 260, 260);
+  frame_line(50, 2, 1, 1, 0, 520, 1700, 0);
+  frame_line(51, 2, 22000, 0, 0, 420, 420, 420);
+  frame_line(50, 3, 1, 2, 0 - 420, 0, 2600, 0);
+  frame_line(51, 3, 0, 0, 0, 2200, 60, 2200);
 
   frame_commit();
 }

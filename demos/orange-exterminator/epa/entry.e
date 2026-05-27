@@ -7,6 +7,7 @@
 // - later far-signal domain kernels once local payload codegen is more complete
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.entry");
   request_threads(3);
 
   int wid = 0;

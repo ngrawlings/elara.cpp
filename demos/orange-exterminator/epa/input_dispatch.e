@@ -6,6 +6,7 @@
 // - output toward gameplay rules and UI kernels
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.input_dispatch");
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

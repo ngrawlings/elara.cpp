@@ -8,6 +8,7 @@
 // - output world state toward player/render/gameplay
 
 kernel(VM vm) {
+  kernalId("orange.exterminator.world_runtime");
   request_threads(2);
 
   int wid = 0;
