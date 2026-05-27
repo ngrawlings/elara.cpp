@@ -140,7 +140,6 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.add_grid_row_exact(ids["container"], 34)
     ui.add_grid_row_fill(ids["container"])
 
-    # Toolbar — E and EPA only
     ui.create_grid(ids["toolbar"])
     ui.add_grid_column_exact(ids["toolbar"], 54)
     ui.add_grid_column_exact(ids["toolbar"], 64)
@@ -153,7 +152,6 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
     ui.place_grid_child(ids["toolbar"], ids["button_epa"], 1, 0)
     ui.place_grid_child(ids["container"], ids["toolbar"], 0, 0)
 
-    # Content area: editors in col 0, debug memory panel in col 1 (starts hidden at 0 width)
     ui.create_grid(ids["debug_panel"])
     ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
     ui.add_grid_column_exact(ids["debug_panel"], 0)
@@ -997,10 +995,7 @@ def build_document():
     ui.create_grid("nav.debug_panel")
     ui.add_grid_column_fill("nav.debug_panel")
     ui.add_grid_row_exact("nav.debug_panel", 28)         # 0  header
-    ui.add_grid_row_exact("nav.debug_panel", 246)        # 1  ingress designer (fixed)
-    ui.add_grid_row_exact("nav.debug_panel", 22)         # 2  kernels section label
-    ui.add_grid_row_weighted_fill("nav.debug_panel", 1)  # 3  kernel list
-    ui.add_grid_row_exact("nav.debug_panel", 58)         # 4  VM status + controls
+    ui.add_grid_row_fill("nav.debug_panel")              # 1  language debug tabs
 
     ui.create_grid("nav.debug_header")
     ui.add_grid_column_exact("nav.debug_header", 8)
@@ -1008,6 +1003,41 @@ def build_document():
     ui.add_grid_row_fill("nav.debug_header")
     ui.create_label("nav.debug_title", "DEBUG", 11)
     ui.place_grid_child("nav.debug_header", "nav.debug_title", 1, 0)
+
+    ui.create_tabs("nav.debug.lang_tabs")
+
+    ui.create_grid("nav.debug.epa_panel")
+    ui.add_grid_column_fill("nav.debug.epa_panel")
+    ui.add_grid_row_exact("nav.debug.epa_panel", 246)        # 0 ingress designer
+    ui.add_grid_row_exact("nav.debug.epa_panel", 22)         # 1 kernels label
+    ui.add_grid_row_weighted_fill("nav.debug.epa_panel", 1)  # 2 kernel list
+    ui.add_grid_row_exact("nav.debug.epa_panel", 58)         # 3 vm controls
+
+    ui.create_grid("nav.debug.cpp_panel")
+    ui.add_grid_column_fill("nav.debug.cpp_panel")
+    ui.add_grid_row_fill("nav.debug.cpp_panel")
+    ui.create_code_editor(
+        "nav.debug.cpp_view",
+        "// C++ debug view placeholder\n"
+        "//\n"
+        "// Reserve this tab for host-side debug controls and state.\n",
+    )
+    ui.set_property_string("nav.debug.cpp_view", "language", "cpp")
+    ui.set_property_bool("nav.debug.cpp_view", "read_only", True)
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_view", 0, 0)
+
+    ui.create_grid("nav.debug.python_panel")
+    ui.add_grid_column_fill("nav.debug.python_panel")
+    ui.add_grid_row_fill("nav.debug.python_panel")
+    ui.create_code_editor(
+        "nav.debug.python_view",
+        "# Python debug view placeholder\n"
+        "#\n"
+        "# Reserve this tab for Python tooling and runtime inspection.\n",
+    )
+    ui.set_property_string("nav.debug.python_view", "language", "python")
+    ui.set_property_bool("nav.debug.python_view", "read_only", True)
+    ui.place_grid_child("nav.debug.python_panel", "nav.debug.python_view", 0, 0)
 
     # VM control strip at the bottom
     ui.create_grid("nav.debug.vm_controls")
@@ -1093,11 +1123,15 @@ def build_document():
         _build_kernel_row_widgets(ui, tab_id, kernel_name)
         ui.place_list_layout_child("nav.debug.kernels", f"nav.debug.kernel.{tab_id}", row_height=52)
 
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.ingress",        0, 0)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels_header", 0, 1)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels",        0, 2)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.vm_controls",    0, 3)
+    ui.add_tab("nav.debug.lang_tabs", "EPA", "nav.debug.epa_panel")
+    ui.add_tab("nav.debug.lang_tabs", "C++", "nav.debug.cpp_panel")
+    ui.add_tab("nav.debug.lang_tabs", "Python", "nav.debug.python_panel")
     ui.place_grid_child("nav.debug_panel", "nav.debug_header",         0, 0)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.ingress",        0, 1)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels_header", 0, 2)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.kernels",        0, 3)
-    ui.place_grid_child("nav.debug_panel", "nav.debug.vm_controls",    0, 4)
+    ui.place_grid_child("nav.debug_panel", "nav.debug.lang_tabs",      0, 1)
     ui.set_property_bool("nav.debug_panel", "visible", False)
 
     # -- Bottom tools panel -------------------------------------------------
