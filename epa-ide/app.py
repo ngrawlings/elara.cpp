@@ -4759,13 +4759,19 @@ def main():
 
         return [{"id": n, "label": n} for n in type_names]
 
-    def _apply_combo_items(client, target: str, items: list):
+    def _apply_combo_items(client, target: str, items: list, selected_id: str = ""):
         try:
             client.call("ui.setSectionJson", {
                 "target": target,
                 "section": "items",
                 "value": items,
             })
+            valid_ids = [str(it.get("id", "")) for it in items if isinstance(it, dict)]
+            sel = str(selected_id or "")
+            if not sel and valid_ids:
+                sel = valid_ids[0]
+            if sel and sel in valid_ids:
+                client.set_text(target, sel)
         except Exception:
             pass
 
@@ -4796,10 +4802,17 @@ def main():
     def _refresh_kernel_worker_combo(client, kernel_tab_id: str, snapshot: dict | None = None):
         if not client or not kernel_tab_id:
             return
+        items = _worker_combo_items_for_kernel(kernel_tab_id, snapshot)
+        selected_id = str(app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "") or "")
+        valid_ids = [str(it.get("id", "")) for it in items if isinstance(it, dict)]
+        if valid_ids and selected_id not in valid_ids:
+            selected_id = valid_ids[0]
+            app_state[f"debug_kernel_worker_{kernel_tab_id}"] = selected_id
         _apply_combo_items(
             client,
             f"nav.debug.kernel.{kernel_tab_id}.worker",
-            _worker_combo_items_for_kernel(kernel_tab_id, snapshot),
+            items,
+            selected_id,
         )
 
     def _apply_ingress_types_combo(client, items):
