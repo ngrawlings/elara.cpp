@@ -1,6 +1,7 @@
 {
   "epa": [
     "epa/entry.e",
+    "epa/intruder.e",
     "epa/remote_sink.e"
   ],
   "cpp": [

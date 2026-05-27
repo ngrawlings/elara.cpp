@@ -875,6 +875,15 @@ static uint8_t *compile_from_fp(FILE *f, size_t *out_len, char err[EPA_MAX_ERR])
   // -------------------------
   while (fgets(line, (int)sizeof(line), f)) {
     line_no++;
+    { char *s = line; while (*s && isspace((unsigned char)*s)) s++;
+      if (strncmp(s, "// error:", 9) == 0) {
+        char *msg = s + 9; while (*msg && isspace((unsigned char)*msg)) msg++;
+        char *end = msg + strlen(msg);
+        while (end > msg && isspace((unsigned char)end[-1])) *--end = 0;
+        snprintf(err, EPA_MAX_ERR, "line %d: %s", line_no, msg);
+        sstrvec_free(&ssv); return NULL;
+      }
+    }
     strip_comment(line);
     uint32_t id = 0; uint8_t *bytes = NULL; uint16_t slen = 0;
     int r = parse_sstr_directive_line(line, &id, &bytes, &slen, line_no, err);
@@ -919,6 +928,15 @@ static uint8_t *compile_from_fp(FILE *f, size_t *out_len, char err[EPA_MAX_ERR])
   line_no = 0;
   while (fgets(line, (int)sizeof(line), f)) {
     line_no++;
+    { char *s = line; while (*s && isspace((unsigned char)*s)) s++;
+      if (strncmp(s, "// error:", 9) == 0) {
+        char *msg = s + 9; while (*msg && isspace((unsigned char)*msg)) msg++;
+        char *end = msg + strlen(msg);
+        while (end > msg && isspace((unsigned char)end[-1])) *--end = 0;
+        snprintf(err, EPA_MAX_ERR, "line %d: %s", line_no, msg);
+        goto fail;
+      }
+    }
     strip_comment(line);
     { char tmp[1024]; strncpy(tmp, line, sizeof(tmp)-1); tmp[sizeof(tmp)-1] = 0;
       char *s = ltrim(tmp); rtrim(s);

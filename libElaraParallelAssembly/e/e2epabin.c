@@ -4,6 +4,7 @@
 #include "e_semantic.h"
 #include "e_emit_epa.h"
 #include "e_preprocess.h"
+#include "e_compiler.h"
 
 #include "../src/epa_asm_compiler.h"
 
@@ -253,79 +254,30 @@ static int path_id_exists(BundleEntry *entries, int count, const char *path_id) 
   return 0;
 }
 
-static int emit_e_to_epaasm(const char *input_path, const char *epaasm_path, char err[256]) {
-  char *src;
-  ETokenVec toks;
-  EProgram prog;
-  ESemanticModel model;
+static int assemble_epaasm_str(BundleEntry *entry, const char *epaasm_str, char err[256]) {
   FILE *out;
+  size_t slen = strlen(epaasm_str);
 
-  src = e_load_translation_unit(input_path, err);
-  if (!src) return 0;
+  if (!ensure_parent_dir(entry->epaasm_path, err)) return 0;
 
-  if (!e_lex_source(src, &toks, err)) {
-    snprintf(err, 256, "lex: %s", err[0] ? err : "unknown error");
-    free(src);
-    return 0;
-  }
-
-  if (!e_parse_program(&toks, &prog, err)) {
-    char local[256];
-    snprintf(local, sizeof(local), "parse: %s", err[0] ? err : "unknown error");
-    strncpy(err, local, 255u);
-    err[255] = 0;
-    e_token_vec_free(&toks);
-    free(src);
-    return 0;
-  }
-
-  if (!e_build_semantic_model(&prog, &model, err)) {
-    char local[256];
-    snprintf(local, sizeof(local), "semantic: %s", err[0] ? err : "unknown error");
-    strncpy(err, local, 255u);
-    err[255] = 0;
-    e_program_free(&prog);
-    e_token_vec_free(&toks);
-    free(src);
-    return 0;
-  }
-
-  if (!ensure_parent_dir(epaasm_path, err)) {
-    e_semantic_model_free(&model);
-    e_program_free(&prog);
-    e_token_vec_free(&toks);
-    free(src);
-    return 0;
-  }
-
-  out = fopen(epaasm_path, "wb");
+  out = fopen(entry->epaasm_path, "wb");
   if (!out) {
-    snprintf(err, 256, "open failed: %s", epaasm_path);
-    e_semantic_model_free(&model);
-    e_program_free(&prog);
-    e_token_vec_free(&toks);
-    free(src);
+    snprintf(err, 256, "open failed: %s", entry->epaasm_path);
     return 0;
   }
-
-  if (!e_emit_epa_asm(out, NULL, &prog, &model, NULL, input_path, err)) {
-    char local[256];
-    snprintf(local, sizeof(local), "emit: %s", err[0] ? err : "unknown error");
-    strncpy(err, local, 255u);
-    err[255] = 0;
+  if (slen > 0u && fwrite(epaasm_str, 1, slen, out) != slen) {
     fclose(out);
-    e_semantic_model_free(&model);
-    e_program_free(&prog);
-    e_token_vec_free(&toks);
-    free(src);
+    snprintf(err, 256, "write failed: %s", entry->epaasm_path);
     return 0;
   }
-
   fclose(out);
-  e_semantic_model_free(&model);
-  e_program_free(&prog);
-  e_token_vec_free(&toks);
-  free(src);
+
+  entry->blob = epa_asm_compile_file(entry->epaasm_path, &entry->blob_len, err);
+  if (!entry->blob) {
+    if (!err[0]) snprintf(err, 256, "assemble failed: %s", entry->epaasm_path);
+    return 0;
+  }
+  if (!write_file_bin(entry->blob_path, entry->blob, entry->blob_len, err)) return 0;
   return 1;
 }
 
@@ -340,17 +292,6 @@ static void free_entries(BundleEntry *entries, int count) {
     free(entries[i].blob);
   }
   free(entries);
-}
-
-static int compile_entry(BundleEntry *entry, char err[256]) {
-  if (!emit_e_to_epaasm(entry->input_path, entry->epaasm_path, err)) return 0;
-  entry->blob = epa_asm_compile_file(entry->epaasm_path, &entry->blob_len, err);
-  if (!entry->blob) {
-    snprintf(err, 256, "asm: %s", err[0] ? err : "unknown error");
-    return 0;
-  }
-  if (!write_file_bin(entry->blob_path, entry->blob, entry->blob_len, err)) return 0;
-  return 1;
 }
 
 static int write_bundle(const char *out_path, BundleEntry *entries, int entry_count, char err[256]) {
@@ -592,13 +533,57 @@ int main(int argc, char **argv) {
       return 1;
     }
 
-    if (!compile_entry(&entries[i], err)) {
-      fprintf(stderr, "%s: %s\n", input_path, err[0] ? err : "compile failed");
+  }
+
+  /* Multi-file compilation: build cross-kernel index across all .e files so
+     far_signal can resolve worker names from any kernel in the bundle. */
+  {
+    const char **input_paths = (const char**)malloc((size_t)input_count * sizeof(char*));
+    char **out_asm = (char**)calloc((size_t)input_count, sizeof(char*));
+    char (*err_per_file)[256] = (char(*)[256])calloc((size_t)input_count, 256u);
+    int compile_ok = 1;
+
+    if (!input_paths || !out_asm || !err_per_file) {
+      fprintf(stderr, "OOM\n");
+      free(input_paths); free(out_asm); free(err_per_file);
       free_entries(entries, input_count);
-      free(build_dir);
-      free(default_out_path);
-      free(epaasm_dir);
-      free(blob_dir);
+      free(build_dir); free(default_out_path);
+      free(out_dir); free(epaasm_dir); free(blob_dir);
+      return 1;
+    }
+
+    for (i = 0; i < input_count; i++) input_paths[i] = entries[i].input_path;
+
+    if (!e_compile_files_to_epaasm(input_paths, (size_t)input_count, out_asm, err_per_file, err)) {
+      fprintf(stderr, "compile: %s\n", err[0] ? err : "fatal error");
+      for (i = 0; i < input_count; i++) free(out_asm[i]);
+      free(input_paths); free(out_asm); free(err_per_file);
+      free_entries(entries, input_count);
+      free(build_dir); free(default_out_path);
+      free(out_dir); free(epaasm_dir); free(blob_dir);
+      return 1;
+    }
+
+    for (i = 0; i < input_count; i++) {
+      if (!out_asm[i]) {
+        fprintf(stderr, "%s: %s\n", entries[i].input_path,
+                err_per_file[i][0] ? err_per_file[i] : "compile failed");
+        compile_ok = 0;
+        continue;
+      }
+      if (!assemble_epaasm_str(&entries[i], out_asm[i], err)) {
+        fprintf(stderr, "%s: %s\n", entries[i].input_path, err[0] ? err : "assemble failed");
+        compile_ok = 0;
+      }
+      free(out_asm[i]);
+    }
+
+    free(input_paths); free(out_asm); free(err_per_file);
+
+    if (!compile_ok) {
+      free_entries(entries, input_count);
+      free(build_dir); free(default_out_path);
+      free(out_dir); free(epaasm_dir); free(blob_dir);
       return 1;
     }
   }

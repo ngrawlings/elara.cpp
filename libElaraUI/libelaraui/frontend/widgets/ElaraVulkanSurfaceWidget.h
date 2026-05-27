@@ -12,10 +12,19 @@ namespace elara {
 class ElaraVulkanSurfaceCommand {
 public:
     enum Type {
+        // 2D raster ops (existing path)
         CLEAR,
         RECT,
         LINE,
-        TEXT
+        TEXT,
+        // 3D scene ops (E3SB path — emitted by elara.platform.scene_compiler)
+        // SCENE_CAMERA: x0/y0/x1 = pos_x/y/z (world units), y1/value0 = yaw/pitch (degrees),
+        //               value1 = fov (degrees), r = near_z, g = far_z (world units)
+        SCENE_CAMERA,
+        // SCENE_OBJECT: x0 = mesh_id, y0 = material_id,
+        //               x1/y1/value0 = pos_x/y/z (world units), value1 = yaw (degrees),
+        //               r = scale (1.0 = full size)
+        SCENE_OBJECT,
     };
 
     Type type;

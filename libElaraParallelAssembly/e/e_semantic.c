@@ -1495,7 +1495,11 @@ static int validate_far_signal_expr(const EExpr *expr,
             /* not in this kernel — check cross-kernel index */
             const char *target_kernel = (expr->as.call.args[0]->kind == E_EXPR_STRING)
                                         ? expr->as.call.args[0]->as.string_lit : NULL;
-            if (!target_kernel || e_cross_kernel_lookup(&model->cross_kernel, target_kernel, wname) == 0u) {
+            /* If cross_kernel index is not yet built (count==0), defer validation
+               to emit-time so multi-file first-pass compilation can succeed. */
+            if (model->cross_kernel.count == 0 && target_kernel) {
+              /* deferred — emit will reject if still unresolved */
+            } else if (!target_kernel || e_cross_kernel_lookup(&model->cross_kernel, target_kernel, wname) == 0u) {
               snprintf(err, 256, "far_signal worker '%s' not found in this compilation unit or cross-kernel index", wname);
               return 0;
             }

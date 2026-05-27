@@ -59,6 +59,7 @@ size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, siz
         dst->eip.block_type = w->vm.eip.block_type;
         dst->eip.block_id   = w->vm.eip.block_id;
         dst->eip.rel_pc     = w->vm.eip.rel_pc;
+        memcpy(dst->fault_message, w->fault_message, sizeof(dst->fault_message));
     }
     return count;
 }
@@ -120,6 +121,7 @@ int epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorker
     }
     out->has_current_ghs = (uint32_t)w->has_current_ghs;
     out->current_ghs = (uint64_t)w->current_ghs;
+    memcpy(out->fault_message, w->fault_message, sizeof(out->fault_message));
     if (kernel->impl.ghs) {
         out->ghs_live_count = epa_ghs_live_count(kernel->impl.ghs);
         out->ghs_capacity = epa_ghs_capacity(kernel->impl.ghs);

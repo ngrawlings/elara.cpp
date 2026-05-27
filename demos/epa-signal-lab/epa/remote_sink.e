@@ -18,6 +18,8 @@ kernel(VM vm) {
   }
 }
 
+// Only the entry kernel is whitelisted. Any other kernel that attempts
+// far_signal into remote_ingress will be hard-faulted by the ACL check.
 acl {
   "demo.signal_lab.entry" -> remote_ingress;
 }

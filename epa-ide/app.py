@@ -2444,6 +2444,32 @@ def _folder_items(path: str) -> list:
     return entries
 
 
+def build_worker_fault_dialog(worker_name: str, fault_message: str):
+    """Build a hard-fault popup for a faulted worker."""
+    ui = UiDocumentBuilder()
+    ui.create_window(f"Worker Fault — {worker_name}", 540, 200, "org.elara.ui.epa-ide.worker-fault")
+    ui.set_theme_mode("dark")
+    ui.create_grid("fault.shell")
+    ui.add_grid_column_exact("fault.shell", 16)
+    ui.add_grid_column_fill("fault.shell")
+    ui.add_grid_column_exact("fault.shell", 16)
+    ui.add_grid_row_exact("fault.shell", 16)
+    ui.add_grid_row_fill("fault.shell")
+    ui.add_grid_row_exact("fault.shell", 40)
+    ui.create_rich_text_edit("fault.message", fault_message or "Hard fault (no message)")
+    ui.create_grid("fault.buttons")
+    ui.add_grid_column_fill("fault.buttons")
+    ui.add_grid_column_exact("fault.buttons", 80)
+    ui.add_grid_column_exact("fault.buttons", 8)
+    ui.add_grid_row_fill("fault.buttons")
+    ui.create_button("fault.close", "✕", "worker_fault.close")
+    ui.place_grid_child("fault.buttons", "fault.close", 1, 0)
+    ui.place_grid_child("fault.shell", "fault.message", 1, 1)
+    ui.place_grid_child("fault.shell", "fault.buttons", 1, 2)
+    ui.set_root_content("fault.shell")
+    return ui
+
+
 def build_error_dialog(title: str, message: str):
     """Build a simple error message dialog."""
     ui = UiDocumentBuilder()
@@ -4790,7 +4816,9 @@ def main():
                 tags.append(f"q={int(state.get('inq_count', 0) or 0)}")
             if state.get("has_current_ghs"):
                 tags.append("GHS")
-            if state.get("at_running"):
+            if state.get("faulted"):
+                tags.append("FAULT")
+            elif state.get("at_running"):
                 tags.append("run")
             elif state.get("waiting_for_data"):
                 tags.append("wait")
@@ -7860,6 +7888,11 @@ def main():
             _deferred(lambda: c.close_window("epa-dbg-error") if c else None)
             return {"received": True}
 
+        if item_action == "worker_fault.close":
+            c = client
+            _deferred(lambda: c.close_window("worker-fault") if c else None)
+            return {"received": True}
+
         # Kernel step worker combo — track selection per kernel
         if action in ("action", "valueChanged") and target and target.endswith(".worker"):
             prefix = "nav.debug.kernel."
@@ -7875,6 +7908,19 @@ def main():
                     if snapshot:
                         _update_kernel_indicator_from_snapshot(client, kernel_id_str, snapshot)
                         _refresh_runtime_debug_sidebars(client, kernel_id_str, snapshot)
+                        # Show fault popup when a faulted worker is selected.
+                        selected = _selected_worker_from_snapshot(kernel_id_str, snapshot)
+                        if selected and selected.get("faulted"):
+                            fault_msg = str(selected.get("fault_message") or "Hard fault")
+                            try:
+                                client.open_window(
+                                    "worker-fault",
+                                    f"Worker Fault — {worker_name}",
+                                    540, 200,
+                                    build_worker_fault_dialog(worker_name, fault_msg),
+                                )
+                            except Exception:
+                                pass
                 return {"received": True}
 
         # Ingress designer — profile selected in list

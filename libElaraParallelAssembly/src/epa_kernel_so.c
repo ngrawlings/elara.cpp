@@ -386,14 +386,18 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
     target_wid = 0u;
     for (i = 0; i < target->prog.acl_count; i++) {
       const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
-      if (acl->remote_kernel_uid != sender->kernel_uid) continue;
+      if (acl->remote_kernel_uid != 0u && acl->remote_kernel_uid != sender->kernel_uid) continue;
       target_wid = acl->local_wid;
       break;
     }
     if (target_wid == 0u) {
-      if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: sender '%s' is not allowed by target 0x%016llx ACL",
-                        sender->kernel_id ? sender->kernel_id : "(unnamed)",
-                        (unsigned long long)target_kernel_uid);
+      EpaWorkerState *sw = &sender->impl.workers[source_wid];
+      sw->faulted = 1;
+      snprintf(sw->fault_message, sizeof(sw->fault_message),
+               "ACL FAULT: kernel '%s' is not whitelisted by target kernel 0x%016llx",
+               sender->kernel_id ? sender->kernel_id : "(unnamed)",
+               (unsigned long long)target_kernel_uid);
+      if (err) snprintf(err, EPA_MAX_ERR, "%s", sw->fault_message);
       return 0;
     }
   } else {

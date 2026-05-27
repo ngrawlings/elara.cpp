@@ -49,6 +49,7 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   // block themselves explicitly when they reach WAIT_FOR_DATA.
   w->blocked = 0;
   w->faulted = 0;
+  w->fault_message[0] = '\0';
   w->halted  = 0;
   w->waiting_for_data = 0;
   w->at_running = 0;
@@ -112,6 +113,7 @@ void epa_worker_reset(EpaWorkerState *w) {
   epa_ring_clear(&w->outq);
 
   w->faulted = 0;
+  w->fault_message[0] = '\0';
   w->halted  = 0;
   w->waiting_for_data = 0;
   w->at_running = 0;

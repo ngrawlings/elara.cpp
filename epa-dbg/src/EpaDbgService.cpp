@@ -575,6 +575,7 @@ String EpaDbgService::buildSnapshotJson(const String &path_id) const {
         result += String(",\"local_arena\":{\"top\":") + String((int)w.lbytes_top)
                + String(",\"cap\":") + String((int)w.lbytes_cap)
                + String(",\"scope_depth\":") + String((int)w.lscope_depth) + String("}");
+        result += String(",\"fault_message\":") + jq(String(w.fault_message));
         result += String("}");
     }
     result += String("]}");

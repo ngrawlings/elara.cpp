@@ -343,6 +343,7 @@ static int emit_dyn_swap_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int
 static int emit_dyn_iterator_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_next_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int depth);
+static int emit_field_store(FILE *out, const EExpr *lhs, EmitCtx *ctx, int depth);
 static int emit_worker_field_load(FILE *out, const char *base_name, const char *field_name, EmitCtx *ctx, int depth);
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, EmitCtx *ctx, int depth);
@@ -701,9 +702,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         }
       } else if (expr_is_dynamic_index(expr->as.assign.lhs, ctx->model, NULL)) {
         /* emit_dynamic_index_store already leaves the assigned ref on stack. */
-      } else {
+      } else if (!emit_field_store(out, expr->as.assign.lhs, ctx, depth)) {
         emit_indent(out, depth);
-        fputs("; assign pending lowering\n", out);
+        fprintf(out, "// error: unsupported assignment target (kind=%d)\n",
+                expr->as.assign.lhs ? (int)expr->as.assign.lhs->kind : -1);
       }
       break;
     case E_EXPR_CALL:
@@ -713,8 +715,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       if (emit_user_func_call(out, expr, ctx, depth)) {
         break;
       }
-      emit_indent(out, depth);
-      fprintf(out, "; call %s argc=%zu — unknown callee\n", expr->as.call.callee, expr->as.call.arg_count);
+      if (worker_entry_id_for_name(ctx->model, expr->as.call.callee) == 0u) {
+        emit_indent(out, depth);
+        fprintf(out, "// error: unresolved call to '%s' (argc=%zu)\n", expr->as.call.callee, expr->as.call.arg_count);
+      }
       break;
     case E_EXPR_FIELD:
       if (expr->as.field.base && expr->as.field.base->kind == E_EXPR_IDENT &&
@@ -729,7 +733,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
     case E_EXPR_INDEX:
       if (emit_dynamic_index_load(out, expr, ctx, depth)) break;
       emit_indent(out, depth);
-      fputs("; index pending lowering\n", out);
+      fputs("// error: unsupported index expression\n", out);
       break;
   }
 }
@@ -742,6 +746,57 @@ static int emit_scalar_store(FILE *out, const char *name, EmitCtx *ctx, int dept
     return 1;
   }
   fprintf(out, "; store %s unsupported\n", name);
+  return 0;
+}
+
+/* Emit a store into a struct field on the LHS of an assignment.
+   The value to store is already on the stack top.
+   Returns 1 if emitted, 0 if not handled (caller emits error). */
+static int emit_field_store(FILE *out, const EExpr *lhs, EmitCtx *ctx, int depth) {
+  if (!lhs || lhs->kind != E_EXPR_FIELD) return 0;
+  if (!lhs->as.field.base || lhs->as.field.base->kind != E_EXPR_IDENT) return 0;
+  const char *base_name  = lhs->as.field.base->as.ident;
+  const char *field_name = lhs->as.field.field;
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+
+  /* lbytes-backed local (local Foo x): use RLB_MOV4 to write */
+  {
+    const ELocalBinding *binding = find_local_binding_by_name(frame, base_name);
+    if (binding && binding->vm_local_words == 2u && binding->storage == E_LOCAL_ARENA_SCOPED) {
+      const EGhsField *field = find_field_layout(ctx->model, binding->type_name, field_name);
+      if (field && field->ghs_size == 4u) {
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);                        /* R0 = value to store */
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot); /* push lbytes base offset */
+        if (field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fprintf(out, "PUSH %zu\n", field->ghs_offset);
+          emit_indent(out, depth);
+          fputs("ADD_I32\n", out);
+        }
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);                        /* R1 = destination address */
+        emit_indent(out, depth);
+        fputs("RLB_MOV4 R0 R1\n", out);               /* lbytes[R1] = R0 */
+        return 1;
+      }
+    }
+  }
+
+  /* GHS handle ref (kernal_get_ghs result, worker param): no GHS write opcode — discard */
+  {
+    const ELocalBinding *binding = find_local_binding_by_name(frame, base_name);
+    const EWorker *worker = ctx->current_worker;
+    int is_ghs_ref = (binding && binding->vm_local_words == 2u && binding->storage != E_LOCAL_ARENA_SCOPED)
+                  || (worker && worker->param_count == 1u && strcmp(worker->params[0].name, base_name) == 0);
+    if (is_ghs_ref) {
+      emit_indent(out, depth);
+      fputs("POP 0\n", out); /* discard — GHS write not supported in bytecode */
+      return 1;
+    }
+  }
+
   return 0;
 }
 
@@ -1062,12 +1117,14 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
     const char *wname = expr->as.call.args[1]->as.ident;
     target_wid = worker_entry_id_for_name(ctx->model, wname);
     if (target_wid == 0u && expr->as.call.args[0]->kind == E_EXPR_STRING) {
+      char norm_kernel[512];
       target_wid = e_cross_kernel_lookup(&ctx->model->cross_kernel,
-                                          expr->as.call.args[0]->as.string_lit, wname);
+                                          normalized_string_token(expr->as.call.args[0]->as.string_lit, norm_kernel, sizeof(norm_kernel)),
+                                          wname);
     }
     if (target_wid == 0u) {
       emit_indent(out, depth);
-      fprintf(out, "; far_signal worker '%s' not found in compilation unit or cross-kernel index\n", wname);
+      fprintf(out, "// error: far_signal: worker '%s' not found in compilation unit or cross-kernel index\n", wname);
       return 0;
     }
   } else if (expr->as.call.args[1]->kind == E_EXPR_INT) {
@@ -2012,11 +2069,16 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
             (unsigned int)((ctx.model->kernel_declared_uid >> 32) & 0xFFFFFFFFu));
     for (ai = 0; ctx.model->kernel && ai < ctx.model->kernel->acl_count; ai++) {
       unsigned int local_wid = worker_entry_id_for_name(ctx.model, ctx.model->kernel->acl_entries[ai].local_worker);
-      remote_id = fnv1a64_bytes(ctx.model->kernel->acl_entries[ai].remote_kernel);
-      fprintf(out, "ACL_ALLOW %u %u %u\n",
-              (unsigned int)(remote_id & 0xFFFFFFFFu),
-              (unsigned int)((remote_id >> 32) & 0xFFFFFFFFu),
-              local_wid);
+      const char *remote_kernel = ctx.model->kernel->acl_entries[ai].remote_kernel;
+      if (strcmp(remote_kernel, "*") == 0) {
+        fprintf(out, "ACL_ALLOW 0 0 %u\n", local_wid);
+      } else {
+        remote_id = fnv1a64_bytes(remote_kernel);
+        fprintf(out, "ACL_ALLOW %u %u %u\n",
+                (unsigned int)(remote_id & 0xFFFFFFFFu),
+                (unsigned int)((remote_id >> 32) & 0xFFFFFFFFu),
+                local_wid);
+      }
     }
     fputc('\n', out);
   }

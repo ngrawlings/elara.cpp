@@ -48,6 +48,7 @@ EPA_SRCS := \
 
 EPABIN_SRCS := \
 	e2epabin.c \
+	e_compiler.c \
 	e_preprocess.c \
 	e_lexer.c \
 	e_parser.c \

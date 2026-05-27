@@ -45,6 +45,7 @@ typedef struct {
     uint32_t  lscope_depth;
     uint64_t  current_ghs;
     EpaDbgEip eip;
+    char      fault_message[256];
 } EpaDbgWorkerSnapshot;
 
 typedef struct {
@@ -94,6 +95,7 @@ typedef struct {
     uint32_t ghs_live_count;
     uint32_t ghs_capacity;
     EpaDbgGhsInspect ghs;
+    char fault_message[256];
 } EpaDbgWorkerInspect;
 
 int    epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out);

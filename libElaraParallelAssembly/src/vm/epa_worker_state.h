@@ -57,6 +57,7 @@ typedef struct {
   // scheduling
   uint8_t blocked;   // 1 = do not tick
   uint8_t faulted;
+  char    fault_message[256]; // filled when faulted != 0
 
   uint8_t waiting_for_data;
   uint8_t at_running;
