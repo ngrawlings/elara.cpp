@@ -9,15 +9,6 @@
 #include <map>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
 
-extern "C" {
-typedef struct EpaKernel EpaKernel;
-#ifndef EPA_MAX_ERR
-#define EPA_MAX_ERR 256
-#endif
-int  epa_kernel_run(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
-void epa_kernel_request_interrupt(EpaKernel *k);
-}
-
 namespace elara {
 using sockets::rpc::json::JsonRPCCodec;
 
@@ -30,6 +21,31 @@ static String jq(const String &v) {
 static bool startsWith(const String &value, const char *prefix) {
     String cmp(prefix);
     return value.substr(0, cmp.length()) == cmp;
+}
+
+static String hexBytes(const uint8_t *bytes, size_t count) {
+    static const char *HEX = "0123456789ABCDEF";
+    String out;
+    for (size_t i = 0; i < count; i++) {
+        unsigned char b = bytes[i];
+        char pair[3];
+        pair[0] = HEX[(b >> 4) & 0xF];
+        pair[1] = HEX[b & 0xF];
+        pair[2] = 0;
+        out += String(pair);
+    }
+    return out;
+}
+
+static const char *ghsTypeName(uint32_t type) {
+    switch (type) {
+        case 1: return "bytes";
+        case 2: return "i32";
+        case 3: return "f32";
+        case 4: return "pixels";
+        case 5: return "string";
+        default: return "none";
+    }
 }
 
 class StdoutCapture {
@@ -595,6 +611,78 @@ String EpaDbgService::buildBreakpointJson() const {
     return result;
 }
 
+String EpaDbgService::buildWorkerInspectJson(const String &path_id, uint32_t wid,
+                                             uint32_t stack_words, uint32_t arena_bytes,
+                                             uint32_t ghs_bytes, String &error_message) const {
+    EpaKernel *k = kernelForPath(path_id);
+    EpaDbgWorkerInspect info;
+    memset(&info, 0, sizeof(info));
+    if (!k) {
+        error_message = String("kernel not created");
+        return String();
+    }
+    if (!epa_dbg_capture_worker_inspect(k, wid, &info, stack_words, arena_bytes, ghs_bytes)) {
+        error_message = String("worker inspect unavailable");
+        return String();
+    }
+
+    String result("{");
+    result += String("\"wid\":") + String((int)info.wid);
+    result += String(",\"eip\":{\"block_type\":") + String((int)info.eip.block_type)
+           + String(",\"block_id\":") + String((int)info.eip.block_id)
+           + String(",\"rel_pc\":") + String((int)info.eip.rel_pc) + String("}");
+    result += String(",\"regs\":[") + String((int)info.csc[0]) + String(",")
+           + String((int)info.csc[1]) + String(",")
+           + String((int)info.csc[2]) + String(",")
+           + String((int)info.csc[3]) + String("]");
+    result += String(",\"queues\":{\"inq_count\":") + String((int)info.inq_count)
+           + String(",\"outq_count\":") + String((int)info.outq_count) + String("}");
+    result += String(",\"flags\":{\"halted\":") + String((int)info.halted)
+           + String(",\"blocked\":") + String((int)info.blocked)
+           + String(",\"faulted\":") + String((int)info.faulted)
+           + String(",\"waiting_for_data\":") + String((int)info.waiting_for_data)
+           + String(",\"at_running\":") + String((int)info.at_running) + String("}");
+    result += String(",\"stack\":{\"depth\":") + String((int)info.stack_depth)
+           + String(",\"start_index\":") + String((int)info.stack_start)
+           + String(",\"words\":[");
+    for (uint32_t i = 0; i < info.stack_word_count; i++) {
+        if (i) result += String(",");
+        result += String((int)info.stack_words[i]);
+    }
+    result += String("]}");
+    result += String(",\"locals\":{\"count\":") + String((int)EPA_DBG_LOCALS) + String(",\"values\":[");
+    for (uint32_t i = 0; i < EPA_DBG_LOCALS; i++) {
+        if (i) result += String(",");
+        result += String((int)info.locals[i]);
+    }
+    result += String("]}");
+    result += String(",\"local_arena\":{\"top\":") + String((int)info.lbytes_top)
+           + String(",\"cap\":") + String((int)info.lbytes_cap)
+           + String(",\"scope_depth\":") + String((int)info.lscope_depth)
+           + String(",\"preview_from\":") + String((int)info.arena_preview_from)
+           + String(",\"preview_len\":") + String((int)info.arena_preview_len)
+           + String(",\"preview_hex\":") + jq(hexBytes(info.arena_preview, info.arena_preview_len)) + String("}");
+    result += String(",\"ghs\":{\"present\":") + String(info.has_current_ghs ? "true" : "false")
+           + String(",\"handle\":") + String((unsigned long long)info.current_ghs)
+           + String(",\"live_count\":") + String((int)info.ghs_live_count)
+           + String(",\"capacity\":") + String((int)info.ghs_capacity)
+           + String(",\"valid\":") + String(info.ghs.valid ? "true" : "false");
+    if (info.ghs.valid) {
+        result += String(",\"meta\":{\"type\":") + String((int)info.ghs.type)
+               + String(",\"type_name\":") + jq(String(ghsTypeName((uint32_t)info.ghs.type)))
+               + String(",\"owner\":") + String((int)info.ghs.owner)
+               + String(",\"flags\":") + String((int)info.ghs.flags)
+               + String(",\"size_bytes\":") + String((int)info.ghs.size_bytes)
+               + String(",\"capacity\":") + String((int)info.ghs.capacity)
+               + String(",\"generation\":") + String((int)info.ghs.generation) + String("}");
+        result += String(",\"preview_len\":") + String((int)info.ghs.preview_len)
+               + String(",\"preview_hex\":") + jq(hexBytes(info.ghs.preview, info.ghs.preview_len));
+    }
+    result += String("}");
+    result += String("}");
+    return result;
+}
+
 bool EpaDbgService::call(const String &method, const String &params_json,
                           String &result_json, String &error_code, String &error_message) {
 
@@ -739,6 +827,22 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         String path_id;
         parseString(params_json, String("path_id"), path_id);
         result_json = buildSnapshotJson(path_id); return true;
+    }
+    if (method == String("debug.inspectWorker")) {
+        uint32_t wid = 0, stack_words = 32, arena_bytes = 128, ghs_bytes = 128;
+        String path_id;
+        parseUint(params_json, String("wid"), 0, &wid);
+        parseUint(params_json, String("stack_words"), 32, &stack_words);
+        parseUint(params_json, String("arena_bytes"), 128, &arena_bytes);
+        parseUint(params_json, String("ghs_bytes"), 128, &ghs_bytes);
+        parseString(params_json, String("path_id"), path_id);
+        result_json = buildWorkerInspectJson(path_id, wid, stack_words, arena_bytes, ghs_bytes, error_message);
+        if (!result_json.length()) {
+            error_code = String("inspect_worker_failed");
+            if (!error_message.length()) error_message = String("worker inspect failed");
+            return false;
+        }
+        return true;
     }
     if (method == String("debug.events")) {
         bool clear = true;

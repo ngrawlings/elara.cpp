@@ -85,6 +85,9 @@ private:
     String buildEventsJson(bool clear_after_read);
     String buildBreakpointJson() const;
     String buildMarkerJson(const WorkerMarkerState &state) const;
+    String buildWorkerInspectJson(const String &path_id, uint32_t wid,
+                                  uint32_t stack_words, uint32_t arena_bytes,
+                                  uint32_t ghs_bytes, String &error_message) const;
 
     bool parseUint(const String &json, const String &field, uint32_t def, uint32_t *out) const;
     bool parseBool(const String &json, const String &field, bool def, bool *out) const;

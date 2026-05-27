@@ -212,6 +212,24 @@ class EpaDbgClient:
             params["path_id"] = path_id
         return self.call("epa.debug.snapshot", params)
 
+    def inspect_worker(
+        self,
+        wid: int,
+        path_id: str = "",
+        stack_words: int = 32,
+        arena_bytes: int = 128,
+        ghs_bytes: int = 128,
+    ) -> dict:
+        params: dict = {
+            "wid": wid,
+            "stack_words": stack_words,
+            "arena_bytes": arena_bytes,
+            "ghs_bytes": ghs_bytes,
+        }
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.inspectWorker", params)
+
     def events(self, kernel_id: int, clear: bool = False) -> list:
         return self.call("epa.debug.events",
                          {"kernel_id": kernel_id, "clear": clear})

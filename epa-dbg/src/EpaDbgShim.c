@@ -5,6 +5,7 @@
 #include <libelaraparallelassembly/vm/epa_worker_state.h>
 #include <libelaraparallelassembly/memory/epa_stack.h>
 #include <libelaraparallelassembly/memory/epa_ring_buffer.h>
+#include <libelaraparallelassembly/memory/epa_ghs.h>
 
 int epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out) {
     uint32_t wid;
@@ -74,4 +75,74 @@ int epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint32_t block_
         }
     }
     return 0;
+}
+
+int epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorkerInspect *out,
+                                   uint32_t stack_words_limit, uint32_t arena_bytes_limit, uint32_t ghs_bytes_limit) {
+    EpaWorkerState *w;
+    uint32_t stack_take, arena_take, ghs_take;
+    if (!kernel || !out || wid >= EPA_MAX_WORKERS) return 0;
+    w = &kernel->impl.workers[wid];
+    if (!w->inited) return 0;
+    memset(out, 0, sizeof(*out));
+    out->wid = wid;
+    out->halted = (uint32_t)w->halted;
+    out->blocked = (uint32_t)w->blocked;
+    out->faulted = (uint32_t)w->faulted;
+    out->waiting_for_data = (uint32_t)w->waiting_for_data;
+    out->at_running = (uint32_t)w->at_running;
+    out->inq_count = kernel->ingress.inq[wid].count;
+    out->outq_count = epa_ring_count(&w->outq);
+    memcpy(out->csc, w->vm.csc, sizeof(out->csc));
+    out->eip.block_type = w->vm.eip.block_type;
+    out->eip.block_id = w->vm.eip.block_id;
+    out->eip.rel_pc = w->vm.eip.rel_pc;
+    out->stack_depth = (uint32_t)w->vm.stack.sp;
+    stack_take = stack_words_limit ? stack_words_limit : EPA_DBG_STACK_WORDS;
+    if (stack_take > EPA_DBG_STACK_WORDS) stack_take = EPA_DBG_STACK_WORDS;
+    if (stack_take > out->stack_depth) stack_take = out->stack_depth;
+    out->stack_word_count = stack_take;
+    out->stack_start = out->stack_depth > stack_take ? (out->stack_depth - stack_take) : 0u;
+    if (w->vm.stack.words && stack_take) {
+        memcpy(out->stack_words, &w->vm.stack.words[out->stack_start], stack_take * sizeof(uint32_t));
+    }
+    memcpy(out->locals, w->vm.locals, sizeof(out->locals));
+    out->lbytes_top = w->vm.lbytes_top;
+    out->lbytes_cap = w->vm.lbytes_cap;
+    out->lscope_depth = w->vm.lscope_depth;
+    arena_take = arena_bytes_limit ? arena_bytes_limit : EPA_DBG_ARENA_PREVIEW;
+    if (arena_take > EPA_DBG_ARENA_PREVIEW) arena_take = EPA_DBG_ARENA_PREVIEW;
+    if (arena_take > out->lbytes_top) arena_take = out->lbytes_top;
+    out->arena_preview_len = arena_take;
+    out->arena_preview_from = out->lbytes_top - arena_take;
+    if (w->vm.lbytes && arena_take) {
+        memcpy(out->arena_preview, &w->vm.lbytes[out->arena_preview_from], arena_take);
+    }
+    out->has_current_ghs = (uint32_t)w->has_current_ghs;
+    out->current_ghs = (uint64_t)w->current_ghs;
+    if (kernel->impl.ghs) {
+        out->ghs_live_count = epa_ghs_live_count(kernel->impl.ghs);
+        out->ghs_capacity = epa_ghs_capacity(kernel->impl.ghs);
+    }
+    if (kernel->impl.ghs && w->has_current_ghs) {
+        epa_ghs_meta_t meta;
+        memset(&meta, 0, sizeof(meta));
+        if (epa_ghs_get_meta(kernel->impl.ghs, w->current_ghs, &meta) == EPA_GHS_OK) {
+            out->ghs.valid = 1u;
+            out->ghs.type = (uint32_t)meta.type;
+            out->ghs.owner = meta.owner;
+            out->ghs.flags = meta.flags;
+            out->ghs.size_bytes = meta.size_bytes;
+            out->ghs.capacity = meta.capacity;
+            out->ghs.generation = meta.generation;
+            ghs_take = ghs_bytes_limit ? ghs_bytes_limit : EPA_DBG_GHS_PREVIEW;
+            if (ghs_take > EPA_DBG_GHS_PREVIEW) ghs_take = EPA_DBG_GHS_PREVIEW;
+            if (ghs_take > meta.size_bytes) ghs_take = meta.size_bytes;
+            out->ghs.preview_len = ghs_take;
+            if (ghs_take) {
+                epa_ghs_read_bytes(kernel->impl.ghs, w->current_ghs, 0u, out->ghs.preview, ghs_take);
+            }
+        }
+    }
+    return 1;
 }
