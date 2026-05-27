@@ -821,9 +821,13 @@ def build_document():
     ui.create_grid("nav.tree_toolbar")
     ui.add_grid_column_fill("nav.tree_toolbar")
     ui.add_grid_column_exact("nav.tree_toolbar", 28)
+    ui.add_grid_column_exact("nav.tree_toolbar", 4)
+    ui.add_grid_column_exact("nav.tree_toolbar", 28)
     ui.add_grid_row_fill("nav.tree_toolbar")
+    ui.create_button("nav.add", "+", "nav.add")
     ui.create_button("nav.refresh", "↺", "nav.refresh")
-    ui.place_grid_child("nav.tree_toolbar", "nav.refresh", 1, 0)
+    ui.place_grid_child("nav.tree_toolbar", "nav.add", 1, 0)
+    ui.place_grid_child("nav.tree_toolbar", "nav.refresh", 3, 0)
 
     ui.place_grid_child("nav.panel", "nav.tree_toolbar", 0, 0)
     ui.place_grid_child("nav.panel", "nav.no_project", 0, 1)
@@ -2733,6 +2737,31 @@ def build_error_dialog(title: str, message: str):
     return ui
 
 
+def build_project_add_menu_dialog(items: list[dict]):
+    ui = UiDocumentBuilder()
+    height = max(120, 50 + len(items) * 38)
+    ui.create_window("Project Actions", 320, height, "org.elara.ui.epa-ide.project-add-menu")
+    ui.set_theme_mode("dark")
+    ui.create_grid("project_add.shell")
+    ui.add_grid_column_exact("project_add.shell", 12)
+    ui.add_grid_column_fill("project_add.shell")
+    ui.add_grid_column_exact("project_add.shell", 12)
+    ui.add_grid_row_exact("project_add.shell", 12)
+    ui.add_grid_row_exact("project_add.shell", 20)
+    for _ in items:
+        ui.add_grid_row_exact("project_add.shell", 34)
+    ui.add_grid_row_fill("project_add.shell")
+    ui.create_label("project_add.title", "Project Actions", 13)
+    ui.place_grid_child("project_add.shell", "project_add.title", 1, 1)
+    for idx, item in enumerate(items):
+        button_id = f"project_add.item.{idx}"
+        ui.create_button(button_id, item["label"], item["action"])
+        ui.set_property_number(button_id, "font_size", 12)
+        ui.place_grid_child("project_add.shell", button_id, 1, idx + 2)
+    ui.set_root_content("project_add.shell")
+    return ui
+
+
 def build_ingress_profile_editor(type_name: str, fields: list):
     """Build the ingress profile editor window for type_name with the given field list."""
     ui = UiDocumentBuilder()
@@ -3472,8 +3501,53 @@ def main():
     def _project_python_root(project_root: Path) -> Path:
         return project_root / "python"
 
+    def _project_epa_root(project_root: Path) -> Path:
+        return project_root / "epa"
+
     def _project_has_python_root(project_root: Path | None) -> bool:
         return bool(project_root and _project_python_root(project_root).is_dir())
+
+    def _project_technologies(project_root: Path | None) -> list[str]:
+        if not project_root:
+            return []
+        techs: list[str] = []
+        try:
+            meta = _project_meta(project_root)
+            for tech in meta.get("technologies", []):
+                if isinstance(tech, str) and tech not in techs:
+                    techs.append(tech)
+        except Exception:
+            pass
+        for tech, root_fn in (
+            ("epa", _project_epa_root),
+            ("cpp", _project_cpp_root),
+            ("python", _project_python_root),
+        ):
+            try:
+                if root_fn(project_root).is_dir() and tech not in techs:
+                    techs.append(tech)
+            except Exception:
+                pass
+        return techs
+
+    def _project_add_menu_items() -> list[dict]:
+        project_root_text = app_state.get("project_root", "")
+        project_root = Path(project_root_text) if project_root_text else None
+        techs = set(_project_technologies(project_root))
+        items: list[dict] = []
+        if "epa" in techs:
+            items.append({"label": "New E File", "action": "project_add.new_file.E"})
+        else:
+            items.append({"label": "Add EPA Technology", "action": "project_add.add_tech.epa"})
+        if "cpp" in techs:
+            items.append({"label": "New C++ File", "action": "project_add.new_file.Cpp"})
+        else:
+            items.append({"label": "Add C++ Technology", "action": "project_add.add_tech.cpp"})
+        if "python" in techs:
+            items.append({"label": "New Python File", "action": "project_add.new_file.Python"})
+        else:
+            items.append({"label": "Add Python Technology", "action": "project_add.add_tech.python"})
+        return items
 
     def _refresh_debug_language_tabs(client):
         project_root_text = app_state.get("project_root", "")
@@ -3495,6 +3569,94 @@ def main():
                 })
             except Exception:
                 pass
+
+    def _write_project_meta(project_root: Path, meta: dict):
+        meta_path = project_root / ".elaraproject" / "project.json"
+        meta_path.parent.mkdir(parents=True, exist_ok=True)
+        meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+    def _project_add_technology(client, tech: str):
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            raise RuntimeError("No project open.")
+        project_root = Path(project_root_text)
+        meta = _project_meta(project_root)
+        techs = _project_technologies(project_root)
+        if tech in techs:
+            return
+        project_name = meta.get("name", project_root.name)
+        rpc_host = str(meta.get("rpc_host", "127.0.0.1"))
+        rpc_port = int(meta.get("rpc_port", 18777))
+        python_multi_cpu = bool(meta.get("python_multi_cpu", False))
+        cpp_epa_vm_host = bool(meta.get("cpp_epa_vm_host", False))
+        cpp_epa_debug_rpc = bool(meta.get("cpp_epa_debug_rpc", False))
+        ui_template = str(meta.get("ui_template", "plain"))
+        (project_root / "build").mkdir(parents=True, exist_ok=True)
+        if tech == "epa":
+            epa_root = _project_epa_root(project_root)
+            epa_root.mkdir(parents=True, exist_ok=True)
+            (project_root / "build" / "epa").mkdir(parents=True, exist_ok=True)
+            entry_path = epa_root / "entry.e"
+            if not entry_path.exists():
+                entry_path.write_text(_e_file_content("entry.e", "root_node"), encoding="utf-8")
+        elif tech == "cpp":
+            builder = _ensure_project_builder()
+            cpp_root = _project_cpp_root(project_root)
+            env = os.environ.copy()
+            env["LC_ALL"] = "C"
+            subprocess.run(
+                [
+                    str(builder),
+                    "--non-interactive",
+                    "--app-kind", "ui",
+                    "--ui-client-language", "cpp",
+                    "--ui-template", ui_template,
+                    "--epa-vm-host", "yes" if cpp_epa_vm_host else "no",
+                    "--epa-debug-rpc", "yes" if cpp_epa_debug_rpc else "no",
+                    "--address", rpc_host,
+                    "--port", str(rpc_port),
+                    "--name", project_name,
+                    "--output", str(cpp_root),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+        elif tech == "python":
+            builder = _ensure_project_builder()
+            python_root = _project_python_root(project_root)
+            env = os.environ.copy()
+            env["LC_ALL"] = "C"
+            subprocess.run(
+                [
+                    str(builder),
+                    "--non-interactive",
+                    "--app-kind", "ui",
+                    "--ui-client-language", "python",
+                    "--ui-template", ui_template,
+                    "--multi-cpu-python", "yes" if python_multi_cpu else "no",
+                    "--address", rpc_host,
+                    "--port", str(rpc_port),
+                    "--name", project_name,
+                    "--output", str(python_root),
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+        else:
+            raise RuntimeError(f"Unknown technology: {tech}")
+
+        updated_techs = [t for t in techs if t in ("epa", "cpp", "python")]
+        if tech not in updated_techs:
+            updated_techs.append(tech)
+        meta["technologies"] = updated_techs
+        _write_project_meta(project_root, meta)
+        _open_project(client, project_root)
 
     def _read_make_var(makefile: Path, name: str) -> str:
         try:
@@ -7266,6 +7428,47 @@ def main():
                 project_root = app_state.get("project_root", "")
                 if project_root and client is not None:
                     _deferred(lambda: _open_project(c, project_root))
+
+            elif item_action == "nav.add":
+                items = _project_add_menu_items()
+                _deferred(lambda: c.open_window(
+                    "project-add-menu",
+                    "Project Actions",
+                    320,
+                    max(120, 50 + len(items) * 38),
+                    build_project_add_menu_dialog(items),
+                ))
+
+            elif item_action and item_action.startswith("project_add.new_file."):
+                tech = item_action[len("project_add.new_file."):]
+                project_root = app_state.get("project_root", "")
+                tech_sub = {"E": "epa", "Cpp": "cpp", "Python": "python"}.get(tech, "")
+                initial = project_root or str(Path.home())
+                if project_root and tech_sub:
+                    candidate = str(Path(project_root) / tech_sub)
+                    if Path(candidate).is_dir():
+                        initial = candidate
+                _deferred(lambda: c.close_window("project-add-menu"))
+                _deferred(lambda: c.open_window(
+                    "new-file",
+                    f"New {tech} File",
+                    460,
+                    650 if tech == "E" else 520,
+                    build_new_file_dialog(tech, initial, new_file_state.get("template")),
+                ))
+
+            elif item_action and item_action.startswith("project_add.add_tech."):
+                tech = item_action[len("project_add.add_tech."):]
+                def _do_add_tech():
+                    try:
+                        _project_add_technology(c, tech)
+                        c.close_window("project-add-menu")
+                    except subprocess.CalledProcessError as exc:
+                        message = (exc.stderr or exc.stdout or str(exc)).strip()
+                        _append_build_output(c, f"[project-add-error] {message}\n")
+                    except Exception as exc:
+                        _append_build_output(c, f"[project-add-error] {exc}\n")
+                _deferred(_do_add_tech)
 
             elif item_action == "build.build_project":
                 _deferred(lambda: _build_project(c, rebuild=False))

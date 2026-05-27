@@ -2,7 +2,8 @@
   "name": "epa-signal-lab",
   "technologies": [
     "epa",
-    "cpp"
+    "cpp",
+    "python"
   ],
   "ui_template": "tabbed-control-panel",
   "rpc_host": "127.0.0.1",
