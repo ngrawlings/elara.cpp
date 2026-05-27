@@ -211,6 +211,7 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   uint32_t payload_off;
   uint32_t payload_size;
   uint32_t payload_tag;
+  uint32_t target_wid;
   uint64_t target_uid;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_far_signal: kernel null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
@@ -223,9 +224,10 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   target_uid_hi = (uint32_t)w->vm.csc[1];
   payload_off = (uint32_t)w->vm.csc[3];
 
-  if (!epa_stack_pop(&w->vm.stack, &payload_size) ||
+  if (!epa_stack_pop(&w->vm.stack, &target_wid) ||
+      !epa_stack_pop(&w->vm.stack, &payload_size) ||
       !epa_stack_pop(&w->vm.stack, &payload_tag)) {
-    snprintf(err, EPA_MAX_ERR, "hook_far_signal: expected payload size/tag on stack");
+    snprintf(err, EPA_MAX_ERR, "hook_far_signal: expected target_wid/payload size/tag on stack");
     return 0;
   }
 
@@ -239,7 +241,7 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
-  if (!epa_kernel_far_signal_by_uid(k, wid, target_uid, w->vm.lbytes + payload_off, payload_size, payload_tag, err)) {
+  if (!epa_kernel_far_signal_by_uid(k, wid, target_uid, target_wid, w->vm.lbytes + payload_off, payload_size, payload_tag, err)) {
     return 0;
   }
   return 1;

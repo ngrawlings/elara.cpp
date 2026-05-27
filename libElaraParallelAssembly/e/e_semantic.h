@@ -101,6 +101,17 @@ typedef struct {
 } EDynamicPool;
 
 typedef struct {
+  char *kernel_id;
+  char *worker_name;
+  unsigned int worker_index; /* 1-based index within that kernel */
+} ECrossKernelWorkerEntry;
+
+typedef struct {
+  ECrossKernelWorkerEntry *entries;
+  size_t count;
+} ECrossKernelIndex;
+
+typedef struct {
   const EKernel *kernel;
   size_t kernel_count;
   unsigned int default_in_words;
@@ -130,8 +141,19 @@ typedef struct {
 
   char *kernel_declared_id;
   uint64_t kernel_declared_uid;
+
+  ECrossKernelIndex cross_kernel; /* workers from other kernels compiled together */
 } ESemanticModel;
 
 int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, char err[256]);
 void e_semantic_model_free(ESemanticModel *model);
 void e_semantic_model_dump(FILE *out, const ESemanticModel *model);
+
+/* Build a cross-kernel index from an array of already-built semantic models. */
+int e_build_cross_kernel_index(const ESemanticModel **models, size_t model_count,
+                                ECrossKernelIndex *out_index, char err[256]);
+void e_cross_kernel_index_free(ECrossKernelIndex *index);
+
+/* Lookup a worker index (1-based) by kernel_id + worker_name; returns 0 if not found. */
+unsigned int e_cross_kernel_lookup(const ECrossKernelIndex *index,
+                                    const char *kernel_id, const char *worker_name);

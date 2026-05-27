@@ -44,7 +44,7 @@ worker local_forward(DemoIngress ingress) {
   signal();
 
   // Local worker -> remote kernel typed payload.
-  far_signal("demo.signal_lab.remote", outbound);
+  far_signal("demo.signal_lab.remote", remote_ingress, outbound);
 
   // Worker -> host mailbox payload. The host decodes the frame words.
   frame_begin(ingress.seq, ingress.left_value, ingress.right_value, outbound.sum_value, outbound.route_code);

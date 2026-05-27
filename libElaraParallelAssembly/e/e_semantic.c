@@ -1451,6 +1451,7 @@ static int validate_typeof_typeid_usage(const EProgram *program, const ESemantic
 static int validate_far_signal_expr(const EExpr *expr,
                                     const EFunctionFrame *frame,
                                     const EWorker *worker,
+                                    const ESemanticModel *model,
                                     char err[256]) {
   if (!expr) return 1;
   switch (expr->kind) {
@@ -1459,46 +1460,65 @@ static int validate_far_signal_expr(const EExpr *expr,
     case E_EXPR_STRING:
       return 1;
     case E_EXPR_FIELD:
-      return validate_far_signal_expr(expr->as.field.base, frame, worker, err);
+      return validate_far_signal_expr(expr->as.field.base, frame, worker, model, err);
     case E_EXPR_INDEX:
-      return validate_far_signal_expr(expr->as.index.base, frame, worker, err) &&
-             validate_far_signal_expr(expr->as.index.index, frame, worker, err);
+      return validate_far_signal_expr(expr->as.index.base, frame, worker, model, err) &&
+             validate_far_signal_expr(expr->as.index.index, frame, worker, model, err);
     case E_EXPR_ASSIGN:
-      return validate_far_signal_expr(expr->as.assign.lhs, frame, worker, err) &&
-             validate_far_signal_expr(expr->as.assign.rhs, frame, worker, err);
+      return validate_far_signal_expr(expr->as.assign.lhs, frame, worker, model, err) &&
+             validate_far_signal_expr(expr->as.assign.rhs, frame, worker, model, err);
     case E_EXPR_BINARY:
-      return validate_far_signal_expr(expr->as.binary.lhs, frame, worker, err) &&
-             validate_far_signal_expr(expr->as.binary.rhs, frame, worker, err);
+      return validate_far_signal_expr(expr->as.binary.lhs, frame, worker, model, err) &&
+             validate_far_signal_expr(expr->as.binary.rhs, frame, worker, model, err);
     case E_EXPR_CALL:
       if (strcmp(expr->as.call.callee, "far_signal") == 0) {
         const ELocalBinding *payload_local;
+        size_t wi;
         if (!worker) {
           snprintf(err, 256, "far_signal is only valid inside worker blocks");
           return 0;
         }
-        if (expr->as.call.arg_count != 2u) {
-          snprintf(err, 256, "far_signal expects exactly 2 arguments");
+        if (expr->as.call.arg_count != 3u) {
+          snprintf(err, 256, "far_signal expects exactly 3 arguments: (kernel_id, worker_name, payload)");
           return 0;
         }
         if (expr->as.call.args[0]->kind != E_EXPR_STRING) {
           snprintf(err, 256, "far_signal target kernel must be a string literal");
           return 0;
         }
-        if (expr->as.call.args[1]->kind != E_EXPR_IDENT) {
+        if (expr->as.call.args[1]->kind == E_EXPR_IDENT) {
+          const char *wname = expr->as.call.args[1]->as.ident;
+          for (wi = 0; wi < model->worker_count; wi++) {
+            if (strcmp(model->workers[wi]->name, wname) == 0) break;
+          }
+          if (wi >= model->worker_count) {
+            /* not in this kernel — check cross-kernel index */
+            const char *target_kernel = (expr->as.call.args[0]->kind == E_EXPR_STRING)
+                                        ? expr->as.call.args[0]->as.string_lit : NULL;
+            if (!target_kernel || e_cross_kernel_lookup(&model->cross_kernel, target_kernel, wname) == 0u) {
+              snprintf(err, 256, "far_signal worker '%s' not found in this compilation unit or cross-kernel index", wname);
+              return 0;
+            }
+          }
+        } else if (expr->as.call.args[1]->kind != E_EXPR_INT) {
+          snprintf(err, 256, "far_signal worker must be a worker name or integer index");
+          return 0;
+        }
+        if (expr->as.call.args[2]->kind != E_EXPR_IDENT) {
           snprintf(err, 256, "far_signal payload must be a local declared value");
           return 0;
         }
-        payload_local = find_local_binding_by_name(frame, expr->as.call.args[1]->as.ident);
+        payload_local = find_local_binding_by_name(frame, expr->as.call.args[2]->as.ident);
         if (!payload_local || is_primitive_type(payload_local->type_name)) {
           snprintf(err, 256, "far_signal payload '%s' must be a local declared custom type",
-                   expr->as.call.args[1]->as.ident);
+                   expr->as.call.args[2]->as.ident);
           return 0;
         }
       }
       {
         size_t i;
         for (i = 0; i < expr->as.call.arg_count; i++) {
-          if (!validate_far_signal_expr(expr->as.call.args[i], frame, worker, err)) return 0;
+          if (!validate_far_signal_expr(expr->as.call.args[i], frame, worker, model, err)) return 0;
         }
       }
       return 1;
@@ -1509,48 +1529,49 @@ static int validate_far_signal_expr(const EExpr *expr,
 static int validate_far_signal_usage_in_stmt(const EStmt *stmt,
                                              const EFunctionFrame *frame,
                                              const EWorker *worker,
+                                             const ESemanticModel *model,
                                              char err[256]) {
   size_t i;
   if (!stmt) return 1;
   switch (stmt->kind) {
     case E_STMT_DECL:
-      return validate_far_signal_expr(stmt->as.decl.init, frame, worker, err);
+      return validate_far_signal_expr(stmt->as.decl.init, frame, worker, model, err);
     case E_STMT_RETURN:
-      return validate_far_signal_expr(stmt->as.ret.value, frame, worker, err);
+      return validate_far_signal_expr(stmt->as.ret.value, frame, worker, model, err);
     case E_STMT_EXPR:
-      return validate_far_signal_expr(stmt->as.expr, frame, worker, err);
+      return validate_far_signal_expr(stmt->as.expr, frame, worker, model, err);
     case E_STMT_BLOCK:
       for (i = 0; i < stmt->as.block.count; i++) {
-        if (!validate_far_signal_usage_in_stmt(stmt->as.block.items[i], frame, worker, err)) return 0;
+        if (!validate_far_signal_usage_in_stmt(stmt->as.block.items[i], frame, worker, model, err)) return 0;
       }
       return 1;
     case E_STMT_IF:
-      return validate_far_signal_expr(stmt->as.if_stmt.cond, frame, worker, err) &&
-             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.then_branch, frame, worker, err) &&
-             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.else_branch, frame, worker, err);
+      return validate_far_signal_expr(stmt->as.if_stmt.cond, frame, worker, model, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.then_branch, frame, worker, model, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.if_stmt.else_branch, frame, worker, model, err);
     case E_STMT_WHILE:
-      return validate_far_signal_expr(stmt->as.while_stmt.cond, frame, worker, err) &&
-             validate_far_signal_usage_in_stmt(stmt->as.while_stmt.body, frame, worker, err);
+      return validate_far_signal_expr(stmt->as.while_stmt.cond, frame, worker, model, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.while_stmt.body, frame, worker, model, err);
     case E_STMT_FOR:
-      return validate_far_signal_usage_in_stmt(stmt->as.for_stmt.init, frame, worker, err) &&
-             validate_far_signal_expr(stmt->as.for_stmt.cond, frame, worker, err) &&
-             validate_far_signal_expr(stmt->as.for_stmt.step, frame, worker, err) &&
-             validate_far_signal_usage_in_stmt(stmt->as.for_stmt.body, frame, worker, err);
+      return validate_far_signal_usage_in_stmt(stmt->as.for_stmt.init, frame, worker, model, err) &&
+             validate_far_signal_expr(stmt->as.for_stmt.cond, frame, worker, model, err) &&
+             validate_far_signal_expr(stmt->as.for_stmt.step, frame, worker, model, err) &&
+             validate_far_signal_usage_in_stmt(stmt->as.for_stmt.body, frame, worker, model, err);
     case E_STMT_FOREACH:
-      return validate_far_signal_usage_in_stmt(stmt->as.foreach_stmt.body, frame, worker, err);
+      return validate_far_signal_usage_in_stmt(stmt->as.foreach_stmt.body, frame, worker, model, err);
     case E_STMT_SWITCH:
-      if (!validate_far_signal_expr(stmt->as.switch_stmt.target, frame, worker, err)) return 0;
+      if (!validate_far_signal_expr(stmt->as.switch_stmt.target, frame, worker, model, err)) return 0;
       for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
         size_t j;
         for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
-          if (!validate_far_signal_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], frame, worker, err)) return 0;
+          if (!validate_far_signal_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], frame, worker, model, err)) return 0;
         }
       }
       return 1;
     case E_STMT_STATIC_BLOCK: {
       size_t j;
       for (j = 0; j < stmt->as.static_block.count; j++) {
-        if (!validate_far_signal_usage_in_stmt(stmt->as.static_block.items[j], frame, worker, err)) return 0;
+        if (!validate_far_signal_usage_in_stmt(stmt->as.static_block.items[j], frame, worker, model, err)) return 0;
       }
       return 1;
     }
@@ -1595,7 +1616,7 @@ static int validate_far_signal_usage(const EProgram *program, const ESemanticMod
       case E_TOP_DYNAMIC:
         break;
     }
-    if (body && !validate_far_signal_usage_in_stmt(body, frame, worker, err)) return 0;
+    if (body && !validate_far_signal_usage_in_stmt(body, frame, worker, model, err)) return 0;
   }
   return 1;
 }
@@ -1795,6 +1816,60 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   return 1;
 }
 
+int e_build_cross_kernel_index(const ESemanticModel **models, size_t model_count,
+                                ECrossKernelIndex *out_index, char err[256]) {
+  size_t i, wi, total = 0;
+  ECrossKernelWorkerEntry *entries;
+  size_t pos = 0;
+  if (!out_index) { snprintf(err, 256, "e_build_cross_kernel_index: null out_index"); return 0; }
+  out_index->entries = NULL;
+  out_index->count = 0;
+  for (i = 0; i < model_count; i++) {
+    if (models[i]) total += models[i]->worker_count;
+  }
+  if (total == 0) return 1;
+  entries = (ECrossKernelWorkerEntry*)calloc(total, sizeof(*entries));
+  if (!entries) { snprintf(err, 256, "e_build_cross_kernel_index: OOM"); return 0; }
+  for (i = 0; i < model_count; i++) {
+    const ESemanticModel *m = models[i];
+    if (!m || !m->kernel_declared_id) continue;
+    for (wi = 0; wi < m->worker_count; wi++) {
+      entries[pos].kernel_id    = xstrdup_local(m->kernel_declared_id);
+      entries[pos].worker_name  = xstrdup_local(m->workers[wi]->name);
+      entries[pos].worker_index = (unsigned int)(wi + 1u);
+      pos++;
+    }
+  }
+  out_index->entries = entries;
+  out_index->count = pos;
+  return 1;
+}
+
+void e_cross_kernel_index_free(ECrossKernelIndex *index) {
+  size_t i;
+  if (!index) return;
+  for (i = 0; i < index->count; i++) {
+    free(index->entries[i].kernel_id);
+    free(index->entries[i].worker_name);
+  }
+  free(index->entries);
+  index->entries = NULL;
+  index->count = 0;
+}
+
+unsigned int e_cross_kernel_lookup(const ECrossKernelIndex *index,
+                                    const char *kernel_id, const char *worker_name) {
+  size_t i;
+  if (!index || !kernel_id || !worker_name) return 0u;
+  for (i = 0; i < index->count; i++) {
+    if (strcmp(index->entries[i].kernel_id, kernel_id) == 0 &&
+        strcmp(index->entries[i].worker_name, worker_name) == 0) {
+      return index->entries[i].worker_index;
+    }
+  }
+  return 0u;
+}
+
 void e_semantic_model_free(ESemanticModel *model) {
   size_t i;
   if (!model) return;
@@ -1830,6 +1905,7 @@ void e_semantic_model_free(ESemanticModel *model) {
     free(model->dynamic_pools[i].element_type_name);
   }
   free(model->dynamic_pools);
+  e_cross_kernel_index_free(&model->cross_kernel);
   model->kernel = NULL;
   model->validators = NULL;
   model->type_layouts = NULL;

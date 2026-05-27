@@ -355,6 +355,7 @@ EpaKernel* epa_kernel_find_by_id(const char *kernel_id) {
 }
 
 int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_t target_kernel_uid,
+                                 uint32_t target_wid_hint,
                                  const void *payload, uint32_t payload_len, uint32_t payload_tag,
                                  char err[EPA_MAX_ERR]) {
   EpaKernel *target;
@@ -378,8 +379,11 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
                       (unsigned long long)target_kernel_uid);
     return 0;
   }
-  target_wid = 0u;
-  if (target->prog.acl_count > 0u) {
+
+  if (target_wid_hint != 0u) {
+    target_wid = target_wid_hint;
+  } else if (target->prog.acl_count > 0u) {
+    target_wid = 0u;
     for (i = 0; i < target->prog.acl_count; i++) {
       const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
       if (acl->remote_kernel_uid != sender->kernel_uid) continue;
@@ -418,7 +422,7 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
     return 0;
   }
   return epa_kernel_far_signal_by_uid(sender, source_wid, fnv1a64_bytes(target_kernel_id),
-                                      payload, payload_len, payload_tag, err);
+                                      0u, payload, payload_len, payload_tag, err);
 }
 
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {

@@ -1041,10 +1041,11 @@ static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx,
 static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   const ELocalBinding *binding;
   const EValidatorBinding *validator;
+  unsigned int target_wid;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
-  if (expr->as.call.arg_count != 2u) {
+  if (expr->as.call.arg_count != 3u) {
     emit_indent(out, depth);
-    fprintf(out, "; far_signal expects 2 args, got %zu\n", expr->as.call.arg_count);
+    fprintf(out, "; far_signal expects 3 args, got %zu\n", expr->as.call.arg_count);
     return 0;
   }
   if (!ctx->current_worker) {
@@ -1057,12 +1058,31 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
     fputs("; far_signal target_id must be a string literal\n", out);
     return 0;
   }
-  if (expr->as.call.args[1]->kind != E_EXPR_IDENT) {
+  if (expr->as.call.args[1]->kind == E_EXPR_IDENT) {
+    const char *wname = expr->as.call.args[1]->as.ident;
+    target_wid = worker_entry_id_for_name(ctx->model, wname);
+    if (target_wid == 0u && expr->as.call.args[0]->kind == E_EXPR_STRING) {
+      target_wid = e_cross_kernel_lookup(&ctx->model->cross_kernel,
+                                          expr->as.call.args[0]->as.string_lit, wname);
+    }
+    if (target_wid == 0u) {
+      emit_indent(out, depth);
+      fprintf(out, "; far_signal worker '%s' not found in compilation unit or cross-kernel index\n", wname);
+      return 0;
+    }
+  } else if (expr->as.call.args[1]->kind == E_EXPR_INT) {
+    target_wid = (unsigned int)expr->as.call.args[1]->as.int_lit;
+  } else {
+    emit_indent(out, depth);
+    fputs("; far_signal worker must be a worker name or integer index\n", out);
+    return 0;
+  }
+  if (expr->as.call.args[2]->kind != E_EXPR_IDENT) {
     emit_indent(out, depth);
     fputs("; far_signal payload must be a local area variable identifier\n", out);
     return 0;
   }
-  binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.call.args[1]->as.ident);
+  binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.call.args[2]->as.ident);
   if (!binding || (binding->storage != E_LOCAL_ARENA_SCOPED && binding->storage != E_LOCAL_STACK_STATIC) || binding->vm_local_words != 2u) {
     emit_indent(out, depth);
     fputs("; far_signal payload must be a local or static declared type variable\n", out);
@@ -1077,6 +1097,8 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   fprintf(out, "PUSH %u\n", validator ? validator->validator_id : 0u);
   emit_indent(out, depth);
   fprintf(out, "PUSH %zu\n", binding->byte_size);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", target_wid);
   emit_indent(out, depth);
   fputs("FAR_SIGNAL\n", out);
   return 1;

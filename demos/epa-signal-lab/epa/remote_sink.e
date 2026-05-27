@@ -30,7 +30,7 @@ worker remote_ingress(RemotePayload inbound) {
   ack.stage_code = inbound.route_code + 1;
 
   // Remote kernel -> original kernel typed payload.
-  far_signal("demo.signal_lab.entry", ack);
+  far_signal("demo.signal_lab.entry", remote_ack_receiver, ack);
 
   // Also signal the remote kernel so it can inspect its current GHS.
   signal();
