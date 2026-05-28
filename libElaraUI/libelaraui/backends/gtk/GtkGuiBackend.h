@@ -127,6 +127,7 @@ public:
     void beginWindowMove(int button, double x, double y);
     bool isWindowMaximized() const;
     void setWindowMaximized(bool maximized);
+    void getWindowSize(int& w, int& h) const;
     void setClipboardText(const String& text);
     String getClipboardText();
     void setMouseCaptured(bool captured);

@@ -929,6 +929,19 @@ void GtkGuiBackend::setWindowMaximized(bool maximized) {
     }
 }
 
+void GtkGuiBackend::getWindowSize(int& w, int& h) const {
+    w = 0;
+    h = 0;
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            w = gtk_widget_get_width(GTK_WIDGET(state->window));
+            h = gtk_widget_get_height(GTK_WIDGET(state->window));
+            return;
+        }
+    }
+}
+
 void GtkGuiBackend::setMouseCaptured(bool captured) {
     for(int i = 0; i < (int)windows.length(); i++) {
         WindowState* state = windows[i];

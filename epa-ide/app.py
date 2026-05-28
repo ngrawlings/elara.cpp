@@ -966,14 +966,14 @@ def build_document():
 
     ui.create_grid("nav.debug.epa_panel")
     ui.add_grid_column_fill("nav.debug.epa_panel")
-    ui.add_grid_row_exact("nav.debug.epa_panel", 246)        # 0 ingress designer
-    ui.add_grid_row_exact("nav.debug.epa_panel", 22)         # 1 kernels label
-    ui.add_grid_row_weighted_fill("nav.debug.epa_panel", 1)  # 2 kernel list
-    ui.add_grid_row_exact("nav.debug.epa_panel", 58)         # 3 vm controls
+    ui.add_grid_row_exact("nav.debug.epa_panel", 46)         # 0 vm controls (top)
+    ui.add_grid_row_exact("nav.debug.epa_panel", 246)        # 1 ingress designer
+    ui.add_grid_row_exact("nav.debug.epa_panel", 22)         # 2 kernels label
+    ui.add_grid_row_weighted_fill("nav.debug.epa_panel", 1)  # 3 kernel list
 
     ui.create_grid("nav.debug.cpp_panel")
     ui.add_grid_column_fill("nav.debug.cpp_panel")
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 168)
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 188)
     ui.add_grid_row_exact("nav.debug.cpp_panel", 22)
     ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)
 
@@ -982,16 +982,17 @@ def build_document():
     ui.add_grid_column_fill("nav.debug.cpp_controls")
     ui.add_grid_column_exact("nav.debug.cpp_controls", 4)
     ui.add_grid_column_exact("nav.debug.cpp_controls", 80)
-    ui.add_grid_column_exact("nav.debug.cpp_controls", 4)
+    ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
     ui.add_grid_column_exact("nav.debug.cpp_controls", 80)
     ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 22)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 24)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 22)   # 0 title
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 24)   # 1 status + start/stop
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 20)   # 2 section label
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 3 step row
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)   # 4 gap
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 5 lower row
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 6 status text
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)   # 7 bottom gap
 
     ui.create_label("nav.debug.cpp_title", "C++ DEBUG CONTROL", 10)
     ui.set_property_bool("nav.debug.cpp_title", "enabled", False)
@@ -1007,6 +1008,10 @@ def build_document():
     ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_vm_status", 1, 1)
     ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_reset", 3, 1)
     ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_stop", 5, 1)
+
+    ui.create_label("nav.debug.cpp_step_label", "STEP CONTROLS", 10)
+    ui.set_property_bool("nav.debug.cpp_step_label", "enabled", False)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_label", 1, 2, 5, 1)
 
     ui.create_grid("nav.debug.cpp_step_row")
     ui.add_grid_column_fill("nav.debug.cpp_step_row")
@@ -1024,7 +1029,7 @@ def build_document():
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_continue", 0, 0)
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_over", 2, 0)
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_into", 4, 0)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_row", 1, 2, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_row", 1, 3, 5, 1)
 
     ui.create_grid("nav.debug.cpp_lower_row")
     ui.add_grid_column_fill("nav.debug.cpp_lower_row")
@@ -1037,7 +1042,7 @@ def build_document():
     ui.set_property_number("nav.debug.cpp_pause", "font_size", 11)
     ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_step_out", 0, 0)
     ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_pause", 2, 0)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_lower_row", 1, 4, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_lower_row", 1, 5, 5, 1)
 
     ui.create_label(
         "nav.debug.cpp_status",
@@ -1045,7 +1050,7 @@ def build_document():
         11,
     )
     ui.set_property_bool("nav.debug.cpp_status", "enabled", False)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_status", 1, 5, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_status", 1, 6, 5, 1)
 
     ui.create_label("nav.debug.cpp_threads_label", "CURRENT THREADS", 10)
     ui.set_property_bool("nav.debug.cpp_threads_label", "enabled", False)
@@ -1061,7 +1066,7 @@ def build_document():
 
     ui.create_grid("nav.debug.python_panel")
     ui.add_grid_column_fill("nav.debug.python_panel")
-    ui.add_grid_row_exact("nav.debug.python_panel", 168)
+    ui.add_grid_row_exact("nav.debug.python_panel", 188)
     ui.add_grid_row_exact("nav.debug.python_panel", 22)
     ui.add_grid_row_weighted_fill("nav.debug.python_panel", 1)
 
@@ -1070,16 +1075,17 @@ def build_document():
     ui.add_grid_column_fill("nav.debug.python_controls")
     ui.add_grid_column_exact("nav.debug.python_controls", 4)
     ui.add_grid_column_exact("nav.debug.python_controls", 80)
-    ui.add_grid_column_exact("nav.debug.python_controls", 4)
+    ui.add_grid_column_exact("nav.debug.python_controls", 8)
     ui.add_grid_column_exact("nav.debug.python_controls", 80)
     ui.add_grid_column_exact("nav.debug.python_controls", 8)
-    ui.add_grid_row_exact("nav.debug.python_controls", 22)
-    ui.add_grid_row_exact("nav.debug.python_controls", 24)
-    ui.add_grid_row_exact("nav.debug.python_controls", 30)
-    ui.add_grid_row_exact("nav.debug.python_controls", 12)
-    ui.add_grid_row_exact("nav.debug.python_controls", 30)
-    ui.add_grid_row_exact("nav.debug.python_controls", 30)
-    ui.add_grid_row_exact("nav.debug.python_controls", 12)
+    ui.add_grid_row_exact("nav.debug.python_controls", 22)   # 0 title
+    ui.add_grid_row_exact("nav.debug.python_controls", 24)   # 1 status + start/stop
+    ui.add_grid_row_exact("nav.debug.python_controls", 20)   # 2 section label
+    ui.add_grid_row_exact("nav.debug.python_controls", 30)   # 3 step row
+    ui.add_grid_row_exact("nav.debug.python_controls", 12)   # 4 gap
+    ui.add_grid_row_exact("nav.debug.python_controls", 30)   # 5 lower row
+    ui.add_grid_row_exact("nav.debug.python_controls", 30)   # 6 status text
+    ui.add_grid_row_exact("nav.debug.python_controls", 12)   # 7 bottom gap
 
     ui.create_label("nav.debug.python_title", "PYTHON DEBUG CONTROL", 10)
     ui.set_property_bool("nav.debug.python_title", "enabled", False)
@@ -1095,6 +1101,10 @@ def build_document():
     ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_vm_status", 1, 1)
     ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_reset", 3, 1)
     ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_stop", 5, 1)
+
+    ui.create_label("nav.debug.python_step_label", "STEP CONTROLS", 10)
+    ui.set_property_bool("nav.debug.python_step_label", "enabled", False)
+    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_step_label", 1, 2, 5, 1)
 
     ui.create_grid("nav.debug.python_step_row")
     ui.add_grid_column_fill("nav.debug.python_step_row")
@@ -1112,7 +1122,7 @@ def build_document():
     ui.place_grid_child("nav.debug.python_step_row", "nav.debug.python_continue", 0, 0)
     ui.place_grid_child("nav.debug.python_step_row", "nav.debug.python_step_over", 2, 0)
     ui.place_grid_child("nav.debug.python_step_row", "nav.debug.python_step_into", 4, 0)
-    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_step_row", 1, 2, 5, 1)
+    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_step_row", 1, 3, 5, 1)
 
     ui.create_grid("nav.debug.python_lower_row")
     ui.add_grid_column_fill("nav.debug.python_lower_row")
@@ -1125,7 +1135,7 @@ def build_document():
     ui.set_property_number("nav.debug.python_pause", "font_size", 11)
     ui.place_grid_child("nav.debug.python_lower_row", "nav.debug.python_step_out", 0, 0)
     ui.place_grid_child("nav.debug.python_lower_row", "nav.debug.python_pause", 2, 0)
-    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_lower_row", 1, 4, 5, 1)
+    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_lower_row", 1, 5, 5, 1)
 
     ui.create_label(
         "nav.debug.python_status",
@@ -1133,7 +1143,7 @@ def build_document():
         11,
     )
     ui.set_property_bool("nav.debug.python_status", "enabled", False)
-    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_status", 1, 5, 5, 1)
+    ui.place_grid_child("nav.debug.python_controls", "nav.debug.python_status", 1, 6, 5, 1)
 
     ui.create_label("nav.debug.python_threads_label", "CURRENT THREADS", 10)
     ui.set_property_bool("nav.debug.python_threads_label", "enabled", False)
@@ -1147,17 +1157,19 @@ def build_document():
     ui.place_grid_child("nav.debug.python_panel", "nav.debug.python_threads_label", 0, 1)
     ui.place_grid_child("nav.debug.python_panel", "nav.debug.python_threads", 0, 2)
 
-    # VM control strip at the bottom
+    # VM control strip (top of EPA panel, consistent with C++/Python layout)
     ui.create_grid("nav.debug.vm_controls")
     ui.add_grid_column_exact("nav.debug.vm_controls", 8)
     ui.add_grid_column_fill("nav.debug.vm_controls")
     ui.add_grid_column_exact("nav.debug.vm_controls", 4)
     ui.add_grid_column_exact("nav.debug.vm_controls", 80)
-    ui.add_grid_column_exact("nav.debug.vm_controls", 4)
+    ui.add_grid_column_exact("nav.debug.vm_controls", 8)
     ui.add_grid_column_exact("nav.debug.vm_controls", 80)
     ui.add_grid_column_exact("nav.debug.vm_controls", 8)
+    ui.add_grid_row_exact("nav.debug.vm_controls", 22)
     ui.add_grid_row_exact("nav.debug.vm_controls", 24)
-    ui.add_grid_row_exact("nav.debug.vm_controls", 30)
+    ui.create_label("nav.debug.vm_title", "EPA DEBUG CONTROL", 10)
+    ui.set_property_bool("nav.debug.vm_title", "enabled", False)
     ui.create_label("nav.debug.vm_status", "●  VM idle", 10)
     ui.set_property_string("nav.debug.vm_status", "foreground_color", "#777777")
     ui.create_button("nav.debug.vm_reset", "▶  Start", "debug.vm.reset")
@@ -1165,7 +1177,8 @@ def build_document():
     ui.create_button("nav.debug.vm_stop", "■  Stop", "debug.vm.stop")
     ui.set_property_number("nav.debug.vm_stop", "font_size", 11)
     ui.set_property_bool("nav.debug.vm_stop", "enabled", False)
-    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_status", 1, 0, 5, 1)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_title",  1, 0, 5, 1)
+    ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_status", 1, 1)
     ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_reset",  3, 1)
     ui.place_grid_child("nav.debug.vm_controls", "nav.debug.vm_stop",   5, 1)
 
@@ -1232,10 +1245,10 @@ def build_document():
         _build_kernel_row_widgets(ui, tab_id, kernel_name)
         ui.place_list_layout_child("nav.debug.kernels", f"nav.debug.kernel.{tab_id}", row_height=52)
 
-    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.ingress",        0, 0)
-    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels_header", 0, 1)
-    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels",        0, 2)
-    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.vm_controls",    0, 3)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.vm_controls",    0, 0)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.ingress",        0, 1)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels_header", 0, 2)
+    ui.place_grid_child("nav.debug.epa_panel", "nav.debug.kernels",        0, 3)
     ui.add_tab("nav.debug.lang_tabs", "EPA",    "nav.debug.epa_panel")
     ui.add_tab("nav.debug.lang_tabs", "C++",    "nav.debug.cpp_panel")
     ui.add_tab("nav.debug.lang_tabs", "Python", "nav.debug.python_panel")
@@ -1399,40 +1412,44 @@ def _bottom_panel_visible(ide_state: dict | None = None) -> bool:
 
 
 def _persist_runtime_layout_state(client):
+    # Window size — saved independently so a layout query failure does not lose size.
     try:
-        shell = client.get_grid_layout_state("app.shell")
-        center = client.get_grid_layout_state("app.center")
-        shell_snapshot = client.snapshot_widget("app.shell")
-        window_state = client.get_window_state()
+        window_state = client.get_window_state() or {}
+        win_w = _window_value(window_state.get("width"), 0, minimum=1)
+        win_h = _window_value(window_state.get("height"), 0, minimum=1)
+        maximized = bool(window_state.get("maximized", False))
+        if win_w > 0 and win_h > 0:
+            _save_ide_state({"window": {"width": win_w, "height": win_h, "maximized": maximized}})
+        elif not maximized:
+            _save_ide_state({"window": {"maximized": False}})
+    except Exception:
+        pass
+
+    # Panel layout — column/row sizes saved independently.
+    try:
+        shell = client.get_grid_layout_state("app.shell") or {}
         columns = shell.get("columns") or []
-        center_rows = center.get("rows") or []
         nav_width = None
         ai_width = None
-        bottom_height = None
         right_panel_visible = _right_panel_visible()
-        bottom_panel_visible = _bottom_panel_visible()
         if len(columns) > 1:
             nav_width = _layout_value(columns[1].get("computed_size"), 220)
         if len(columns) > 3 and right_panel_visible:
             ai_width = _layout_value(columns[3].get("computed_size"), 320)
+        layout = {"nav_width": nav_width if nav_width is not None else 220}
+        if ai_width is not None:
+            layout["ai_width"] = ai_width
+        _save_ide_state({"layout": layout})
+    except Exception:
+        pass
+
+    try:
+        center = client.get_grid_layout_state("app.center") or {}
+        center_rows = center.get("rows") or []
+        bottom_panel_visible = _bottom_panel_visible()
         if len(center_rows) > 1 and bottom_panel_visible:
             bottom_height = _layout_value(center_rows[1].get("computed_size"), 220)
-        bounds = (shell_snapshot or {}).get("bounds") or {}
-        updates = {
-            "window": {
-                "width": _window_value(bounds.get("width"), 1080),
-                "height": _window_value(bounds.get("height"), 760, minimum=480),
-                "maximized": bool((window_state or {}).get("maximized", False)),
-            },
-            "layout": {
-                "nav_width": nav_width if nav_width is not None else 220,
-            },
-        }
-        if ai_width is not None:
-            updates["layout"]["ai_width"] = ai_width
-        if bottom_height is not None:
-            updates["layout"]["bottom_height"] = bottom_height
-        _save_ide_state(updates)
+            _save_ide_state({"layout": {"bottom_height": bottom_height}})
     except Exception:
         pass
 

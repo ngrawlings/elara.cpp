@@ -1335,11 +1335,16 @@ bool ElaraUiRpcUiService::getWindowState(
     (void)error_message;
 
     bool maximized = false;
+    int win_w = 0, win_h = 0;
     if(root && root->getGuiBackend()) {
         maximized = root->getGuiBackend()->isWindowMaximized();
+        root->getGuiBackend()->getWindowSize(win_w, win_h);
     }
 
-    result_json = String("{\"maximized\":") + jsonBoolean(maximized) + String("}");
+    result_json = String("{\"maximized\":") + jsonBoolean(maximized)
+        + String(",\"width\":") + String(win_w)
+        + String(",\"height\":") + String(win_h)
+        + String("}");
     return true;
 }
 

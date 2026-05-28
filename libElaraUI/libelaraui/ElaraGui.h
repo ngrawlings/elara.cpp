@@ -120,6 +120,7 @@ public:
     }
     virtual bool isWindowMaximized() const { return false; }
     virtual void setWindowMaximized(bool maximized) { (void)maximized; }
+    virtual void getWindowSize(int& w, int& h) const { w = 0; h = 0; }
     virtual void setClipboardText(const String& text) { (void)text; }
     virtual String getClipboardText() { return String(); }
     virtual void setMouseCaptured(bool captured) { (void)captured; }
