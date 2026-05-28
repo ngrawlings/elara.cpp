@@ -1270,6 +1270,7 @@ def build_document():
     ui.add_toolbar_item("bottom.toolbar", "bottom.build", "Build Output")
     ui.add_toolbar_item("bottom.toolbar", "bottom.host_io", "Host IO")
     ui.add_toolbar_item("bottom.toolbar", "bottom.terminal", "Terminal")
+    ui.add_toolbar_item("bottom.toolbar", "bottom.status", "IDE Status")
     ui.add_toolbar_separator("bottom.toolbar")
     ui.add_toolbar_item("bottom.toolbar", "bottom.clear", "Clear")
 
@@ -1310,12 +1311,71 @@ def build_document():
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
 
+    # IDE Status panel (three-column connection status display)
+    ui.create_grid("bottom.status_panel")
+    ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
+    ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
+    ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
+    ui.add_grid_row_fill("bottom.status_panel")
+
+    for _col_idx, (_sname, _stitle) in enumerate([
+        ("epa",    "EPA DBG"),
+        ("host",   "HOST / GDB"),
+        ("python", "PYTHON"),
+    ]):
+        _sid = f"bottom.status.{_sname}_section"
+        ui.create_grid(_sid)
+        ui.add_grid_column_exact(_sid, 12)   # col 0: left pad
+        ui.add_grid_column_exact(_sid, 16)   # col 1: dot
+        ui.add_grid_column_exact(_sid, 6)    # col 2: gap
+        ui.add_grid_column_fill(_sid)        # col 3: label text
+        ui.add_grid_column_exact(_sid, 4)    # col 4: inner gap
+        ui.add_grid_column_exact(_sid, 44)   # col 5: kill button
+        ui.add_grid_column_exact(_sid, 8)    # col 6: right margin
+        ui.add_grid_row_exact(_sid, 26)      # row 0: section title + kill button
+        ui.add_grid_row_exact(_sid, 20)      # row 1: port
+        ui.add_grid_row_exact(_sid, 22)      # row 2: primary status
+        ui.add_grid_row_exact(_sid, 22)      # row 3: secondary status
+        ui.add_grid_row_fill(_sid)           # row 4: spacer
+
+        ui.create_label(f"bottom.status.{_sname}.title", _stitle, 10)
+        ui.set_property_bool(f"bottom.status.{_sname}.title", "enabled", False)
+        ui.create_label(f"bottom.status.{_sname}.port", "Port: —", 10)
+        ui.set_property_bool(f"bottom.status.{_sname}.port", "enabled", False)
+
+        _dot_id = f"bottom.status.{_sname}.dot"
+        ui.create_widget(_dot_id, "demo.widgets.status_dot")
+        ui.set_property_string(_dot_id, "foreground_color", "#666666")
+        ui.create_label(f"bottom.status.{_sname}.label", "Offline", 10)
+        ui.set_property_bool(f"bottom.status.{_sname}.label", "enabled", False)
+
+        _dot2_id = f"bottom.status.{_sname}.dot2"
+        ui.create_widget(_dot2_id, "demo.widgets.status_dot")
+        ui.set_property_string(_dot2_id, "foreground_color", "#666666")
+        ui.create_label(f"bottom.status.{_sname}.label2", "—", 10)
+        ui.set_property_bool(f"bottom.status.{_sname}.label2", "enabled", False)
+
+        ui.create_button(f"bottom.status.{_sname}.kill", "Kill",
+                         f"bottom.status.{_sname}.kill")
+        ui.set_property_number(f"bottom.status.{_sname}.kill", "font_size", 10)
+
+        ui.place_grid_child(_sid, f"bottom.status.{_sname}.title",  0, 0, 5, 1)
+        ui.place_grid_child(_sid, f"bottom.status.{_sname}.kill",   5, 0)
+        ui.place_grid_child(_sid, f"bottom.status.{_sname}.port",   1, 1, 5, 1)
+        ui.place_grid_child(_sid, _dot_id,                           1, 2)
+        ui.place_grid_child(_sid, f"bottom.status.{_sname}.label",  3, 2)
+        ui.place_grid_child(_sid, _dot2_id,                          1, 3)
+        ui.place_grid_child(_sid, f"bottom.status.{_sname}.label2", 3, 3)
+        ui.place_grid_child("bottom.status_panel", _sid, _col_idx, 0)
+
     ui.set_property_bool("bottom.host_io_output", "visible", False)
     ui.set_property_bool("bottom.terminal_panel", "visible", False)
+    ui.set_property_bool("bottom.status_panel", "visible", False)
     ui.place_grid_child("bottom.panel", "bottom.toolbar", 0, 0)
     ui.place_grid_child("bottom.panel", "bottom.build_output", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.host_io_output", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.terminal_panel", 0, 1)
+    ui.place_grid_child("bottom.panel", "bottom.status_panel", 0, 1)
     ui.set_property_bool("bottom.panel", "visible", bottom_panel_visible)
 
     ui.place_grid_child("app.shell", "app.menu", 0, 0, 4, 1)
@@ -2703,6 +2763,7 @@ def main():
         "server": None,
         "thread": None,
         "port": None,
+        "client_connected": False,
     }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
@@ -3009,6 +3070,7 @@ def main():
             c.connect_retry(timeout=8.0)
             _epa_dbg["client"] = c
             _epa_dbg_set_vm_button(True)
+            _refresh_status_panel(client_ref.get("client"))
         except Exception as exc:
             exit_code = new_proc.poll()
             time.sleep(0.3)
@@ -3019,6 +3081,7 @@ def main():
             )
             _epa_dbg["proc"] = None
             _epa_dbg["port"] = None
+            _refresh_status_panel(client_ref.get("client"))
 
     def _epa_dbg_stop():
         """Terminate epa-dbg process and close client."""
@@ -3047,6 +3110,7 @@ def main():
         app_state.pop("debug_kernel_loaded", None)
         app_state.pop("debug_active_kernel", None)
         _epa_dbg_set_vm_button(False)
+        _refresh_status_panel(client_ref.get("client"))
 
     def _epa_dbg_reset(kernel_id: int = 0) -> dict:
         """Ensure epa-dbg is running and reset the kernel slot."""
@@ -3181,8 +3245,15 @@ def main():
         host_debug_bridge["server"] = None
         host_debug_bridge["thread"] = None
         host_debug_bridge["port"] = None
+        host_debug_bridge["client_connected"] = False
 
     def _host_debug_bridge_handle_message(raw_line: str):
+        if not host_debug_bridge.get("client_connected"):
+            host_debug_bridge["client_connected"] = True
+            _update_status_panel_dot(
+                client_ref.get("client"), "host",
+                _IND_GREEN, "Active", _IND_GREEN, "Host connected",
+            )
         try:
             payload = json.loads(raw_line)
         except Exception:
@@ -3659,12 +3730,14 @@ def main():
                 python_dbg_state["started"] = True
                 python_dbg_state["status"] = "Python debug bridge placeholder active."
                 _python_dbg_refresh_ui(client)
+                _refresh_status_panel(client)
                 _append_build_output(client, "[python] debug bridge placeholder started\n")
                 return True
             if action_id == "debug.python.stop":
                 python_dbg_state["started"] = False
                 python_dbg_state["status"] = "No Python debug session attached."
                 _python_dbg_refresh_ui(client)
+                _refresh_status_panel(client)
                 _append_build_output(client, "[python] debug bridge placeholder stopped\n")
                 return True
             if action_id in (
@@ -3733,16 +3806,21 @@ def main():
             raise RuntimeError("gdb stdout not available")
         deadline = time.time() + timeout
         while time.time() < deadline:
-            remaining = max(0.0, deadline - time.time())
-            ready, _, _ = select.select([proc.stdout], [], [], remaining)
-            if not ready:
-                continue
+            # BufferedReader may have consumed multiple lines from the OS fd in
+            # a single read, so check its internal buffer before calling select
+            # (which only sees the OS-level fd and would block if the buffer is
+            # non-empty but the fd has no new bytes).
+            if not proc.stdout.buffer.peek(1):
+                remaining = max(0.0, deadline - time.time())
+                ready, _, _ = select.select([proc.stdout], [], [], remaining)
+                if not ready:
+                    continue
             line = proc.stdout.readline()
             if not line:
                 break
             text = line.rstrip("\r\n")
             lines.append(text)
-            if text == "(gdb)":
+            if text.rstrip() == "(gdb)":
                 return lines
         raise RuntimeError("Timed out waiting for gdb prompt")
 
@@ -3972,7 +4050,7 @@ def main():
                 _cpp_gdb_execute(client, "-exec-interrupt", "pause", timeout=20.0)
                 return True
         except Exception as exc:
-            _set_cpp_status_text(client, f"GDB error: {exc}")
+            _set_cpp_status_text(client, "error")
             _set_cpp_vm_status(client, "error", str(exc))
             _cpp_gdb_log(client, f"[gdb-error] {exc}")
             _cpp_gdb_refresh_ui(client)
@@ -5050,11 +5128,13 @@ def main():
     _IND_OFF = "off"
     _IND_GREEN = "green"
     _IND_RED = "red"
+    _IND_ORANGE = "orange"
 
     _IND_COLORS = {
         _IND_OFF: "#666666",
         _IND_GREEN: "#2da44e",
         _IND_RED: "#d73a49",
+        _IND_ORANGE: "#e36209",
     }
 
     _EPA_FAULT_RE = re.compile(
@@ -6464,12 +6544,16 @@ def main():
         show_build = view == "build"
         show_host_io = view == "host_io"
         show_terminal = view == "terminal"
+        show_status = view == "status"
         try:
             client.set_visible("bottom.build_output", show_build)
             client.set_visible("bottom.host_io_output", show_host_io)
             client.set_visible("bottom.terminal_panel", show_terminal)
+            client.set_visible("bottom.status_panel", show_status)
             if show_terminal:
                 client.set_focus("bottom.terminal_input")
+            if show_status:
+                _refresh_status_panel(client)
         except Exception:
             pass
 
@@ -6692,6 +6776,85 @@ def main():
                 client.set_text("nav.ev_setup.error", "")
         except Exception:
             pass
+
+    def _update_status_panel_dot(client, section: str,
+                                dot1_state: str, label1: str,
+                                dot2_state: str, label2: str):
+        """Update a status section's two indicator dots and labels."""
+        if not client:
+            return
+        color1 = _IND_COLORS.get(dot1_state, _IND_COLORS[_IND_OFF])
+        color2 = _IND_COLORS.get(dot2_state, _IND_COLORS[_IND_OFF])
+        try:
+            client.call("ui.setForegroundColor",
+                        {"target": f"bottom.status.{section}.dot",  "color": color1})
+            client.call("ui.setForegroundColor",
+                        {"target": f"bottom.status.{section}.dot2", "color": color2})
+            client.set_text(f"bottom.status.{section}.label",  label1)
+            client.set_text(f"bottom.status.{section}.label2", label2)
+        except Exception:
+            pass
+
+    def _refresh_status_panel(client):
+        """Recompute and display current connection status for all three columns."""
+        if not client:
+            return
+
+        # ── EPA DBG ──────────────────────────────────────────────────────────
+        epa_proc = _epa_dbg.get("proc")
+        epa_client = _epa_dbg.get("client")
+        epa_port = _epa_dbg.get("port")
+        if not epa_proc or epa_proc.poll() is not None:
+            epa_dot1, epa_lbl1 = _IND_RED,    "Offline"
+            epa_dot2, epa_lbl2 = _IND_OFF,    "—"
+            epa_port_text = "Port: —"
+        elif not epa_client or not epa_client.connected:
+            epa_dot1, epa_lbl1 = _IND_ORANGE, "Listening"
+            epa_dot2, epa_lbl2 = _IND_RED,    "IDE not connected"
+            epa_port_text = f"Port: {epa_port}"
+        else:
+            epa_dot1, epa_lbl1 = _IND_GREEN,  "Running"
+            epa_dot2, epa_lbl2 = _IND_GREEN,  "IDE connected"
+            epa_port_text = f"Port: {epa_port}"
+
+        # ── Host / GDB bridge ─────────────────────────────────────────────────
+        bridge_server = host_debug_bridge.get("server")
+        bridge_port = host_debug_bridge.get("port")
+        bridge_connected = host_debug_bridge.get("client_connected", False)
+        if not bridge_server:
+            host_dot1, host_lbl1 = _IND_RED,    "Offline"
+            host_dot2, host_lbl2 = _IND_OFF,    "—"
+            host_port_text = "Port: —"
+        elif not bridge_connected:
+            host_dot1, host_lbl1 = _IND_ORANGE, "Listening"
+            host_dot2, host_lbl2 = _IND_RED,    "Host not connected"
+            host_port_text = f"Port: {bridge_port}"
+        else:
+            host_dot1, host_lbl1 = _IND_GREEN,  "Active"
+            host_dot2, host_lbl2 = _IND_GREEN,  "Host connected"
+            host_port_text = f"Port: {bridge_port}"
+
+        # ── Python ────────────────────────────────────────────────────────────
+        py_started = python_dbg_state.get("started", False)
+        py_port = args.ai_rpc_port if hasattr(args, "ai_rpc_port") and args.ai_rpc_port else None
+        if not py_started:
+            py_dot1, py_lbl1 = _IND_RED,   "Not started"
+            py_dot2, py_lbl2 = _IND_OFF,   "—"
+        else:
+            py_dot1, py_lbl1 = _IND_GREEN, "Started"
+            py_dot2, py_lbl2 = _IND_GREEN, "Streaming active"
+        py_port_text = f"Port: {py_port}" if py_port else "Port: —"
+
+        try:
+            client.set_text("bottom.status.epa.port",    epa_port_text)
+            client.set_text("bottom.status.host.port",   host_port_text)
+            client.set_text("bottom.status.python.port", py_port_text)
+        except Exception:
+            pass
+
+        _update_status_panel_dot(client, "epa",    epa_dot1,  epa_lbl1,  epa_dot2,  epa_lbl2)
+        _update_status_panel_dot(client, "host",   host_dot1, host_lbl1, host_dot2, host_lbl2)
+        _update_status_panel_dot(client, "python", py_dot1,   py_lbl1,   py_dot2,   py_lbl2)
 
     def _run_search(client, query: str):
         project_root = app_state.get("project_root", "")
@@ -7051,6 +7214,9 @@ def main():
                 return {"received": True}
             if btn == "bottom.terminal":
                 _deferred(lambda: _set_bottom_view(c, "terminal"))
+                return {"received": True}
+            if btn == "bottom.status":
+                _deferred(lambda: _set_bottom_view(c, "status"))
                 return {"received": True}
             if btn == "bottom.clear":
                 def _clear_bottom():
@@ -7567,6 +7733,26 @@ def main():
                 "debug.python.pause",
             ):
                 _deferred(lambda action_id=item_action: _python_dbg_handle_action(c, action_id))
+                return {"received": True}
+            if item_action == "bottom.status.epa.kill":
+                def _kill_epa():
+                    _epa_dbg_stop()
+                    _refresh_status_panel(c)
+                _deferred(_kill_epa)
+                return {"received": True}
+            if item_action == "bottom.status.host.kill":
+                def _kill_host():
+                    _host_debug_bridge_stop()
+                    _refresh_status_panel(c)
+                _deferred(_kill_host)
+                return {"received": True}
+            if item_action == "bottom.status.python.kill":
+                def _kill_python():
+                    python_dbg_state["started"] = False
+                    python_dbg_state["status"] = "No Python debug session attached."
+                    _python_dbg_refresh_ui(c)
+                    _refresh_status_panel(c)
+                _deferred(_kill_python)
                 return {"received": True}
             if item_action and item_action.startswith("tab.close."):
                 close_tab_id = item_action[len("tab.close."):]
