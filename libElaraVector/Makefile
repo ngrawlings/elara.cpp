@@ -7,7 +7,7 @@ DEFS = -DHAVE_CONFIG_H
 ROOT_BUILD_DIR?=$(abspath ../build)
 STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
 STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
-STD_CFLAGS= -c  -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS= -c -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
 C_CFLAGS=$(filter-out -std=gnu++11,$(CFLAGS))
 CPP_CFLAGS=$(CFLAGS)
 BUILDPATH=./build
@@ -19,6 +19,7 @@ C_OBJECTS=$(patsubst ./$(C_NAME)/%.c,$(BUILDPATH)/c/%.o,$(C_SOURCES))
 CPP_SOURCES=$(shell find ./$(CPP_NAME) \( -name x_*  \) -prune -o -type f -name '*.cpp' -print)
 CPP_HEADERS=$(shell find ./$(CPP_NAME) \( -name x_*  \) -prune -o -type f -name '*.h' -print)
 CPP_OBJECTS=$(patsubst ./$(CPP_NAME)/%.cpp,$(BUILDPATH)/cpp/%.o,$(CPP_SOURCES))
+DEPS=$(C_OBJECTS:.o=.d) $(CPP_OBJECTS:.o=.d)
 
 C_LIBRARY=$(C_NAME).a
 CPP_LIBRARY=$(CPP_NAME).a
@@ -33,7 +34,7 @@ $(C_LIBRARY): $(C_OBJECTS)
 $(CPP_LIBRARY): $(CPP_OBJECTS)
 	$(AR) rcs $(BUILDPATH)/$@ $(CPP_OBJECTS)
 
-$(BUILDPATH)/c/%.o: ./$(C_NAME)/%.c copyconfig
+$(BUILDPATH)/c/%.o: ./$(C_NAME)/%.c | copyconfig
 	@[ -d $(@D) ] || mkdir -p $(@D)
 	$(CC) $(STD_CFLAGS) $(C_CFLAGS) $< -o $@
 
@@ -73,3 +74,5 @@ cleanconf:
 	rm -Rf config.status
 	rm -f config.log
 	rm -f Makefile
+
+-include $(DEPS)

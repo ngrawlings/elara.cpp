@@ -125,20 +125,21 @@ endif
 CTEST_OBJS := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(CTEST_SRCS))
 EPA_OBJS   := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(EPA_CORE_SRCS))
 DYNAMIC_FUZZ_OBJS := $(patsubst $(ROOT_DIR)/%.c,$(OBJ_DIR)/%.o,$(DYNAMIC_FUZZ_SRCS))
+DEPS=$(CTEST_OBJS:.o=.d) $(EPA_OBJS:.o=.d) $(DYNAMIC_FUZZ_OBJS:.o=.d)
 
 # --- Explicit rules for tool objects (fixes your exact failure) ---
 $(OBJ_DIR)/unittests/ctest_main.o: $(TOOLS_DIR)/ctest_main.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
 
 $(OBJ_DIR)/unittests/ctest_registry.o: $(TOOLS_DIR)/ctest_registry.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
 
 # Generic compile rule for anything else in the repo
 $(OBJ_DIR)/%.o: $(ROOT_DIR)/%.c | $(OBJ_DIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
+	$(CC) $(CFLAGS) -MMD -MP -I$(SRC_DIR) -I$(TOOLS_DIR) -c -o $@ $<
 
 ctests: isa-lint $(CTEST_RUNNER)
 dynamic-fuzz: isa-lint $(DYNAMIC_FUZZ_RUNNER)
@@ -170,3 +171,5 @@ clean-ctests:
 	@rm -rf $(OBJ_DIR)/unittests $(OBJ_DIR)/src
 
 clean: clean-unit clean-ctests
+
+-include $(DEPS)

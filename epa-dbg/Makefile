@@ -21,7 +21,7 @@ PROFILE_CFLAGS=$(RELEASE_CFLAGS)
 endif
 STD_CCFLAGS=-std=gnu11 $(filter-out -std=gnu++11,$(PROFILE_CFLAGS))
 PROJECT_CFLAGS=$(filter-out -std=gnu++11,$(CFLAGS))
-STD_CFLAGS=-c $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR)
+STD_CFLAGS=-c -MMD -MP $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR)
 STD_LDFLAGS=-L$(ELARA_LIB_DIR) \
     -lelarasockets -lelarathreads -lelaraevent \
     -lelaraformat -lelaraio -lelaradebug -lelaracore \
@@ -36,6 +36,7 @@ C_SOURCES=$(shell find ./src -type f -name '*.c' -print)
 CPP_OBJECTS=$(patsubst ./src/%.cpp,$(BUILDPATH)/src/%.o,$(CPP_SOURCES))
 C_OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.c.o,$(C_SOURCES))
 OBJECTS=$(CPP_OBJECTS) $(C_OBJECTS)
+DEPS=$(CPP_OBJECTS:.o=.d) $(C_OBJECTS:.o=.d)
 
 .PHONY: all install remove clean cleanconf
 
@@ -46,11 +47,13 @@ $(TARGET): $(OBJECTS)
 
 $(BUILDPATH)/src/%.o: ./src/%.cpp
 	@mkdir -p $(dir $@)
-	$(CXX) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@
+	$(CXX) $(STD_CFLAGS) $(CFLAGS) $< -o $@
 
 $(BUILDPATH)/src/%.c.o: ./src/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -c $(STD_CCFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(PROJECT_CFLAGS) ./src/$*.c -o $@
+	$(CC) -c -MMD -MP $(STD_CCFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(PROJECT_CFLAGS) $< -o $@
+
+-include $(DEPS)
 
 install: all
 	mkdir -p $(STAGE_BIN_DIR)

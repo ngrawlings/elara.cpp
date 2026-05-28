@@ -16,6 +16,7 @@ EPAASM_REPL_SRCS := \
 EPAASM_REPL_OBJS := \
 	$(TOOLS_BUILD)/epa_asm_repl.o \
 	$(TOOLS_BUILD)/epa_asm_compiler.o
+DEPS=$(EPAASM_REPL_OBJS:.o=.d)
 
 .PHONY: tools
 tools: $(EPAASM_REPL)
@@ -26,12 +27,14 @@ $(EPAASM_REPL): $(EPAASM_REPL_OBJS)
 
 $(TOOLS_BUILD)/epa_asm_repl.o: $(TOOLS_SRC_DIR)/epa_asm_repl.c
 	@$(MKDIR) $(TOOLS_BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -MMD -MP -c $< -o $@
 
 $(TOOLS_BUILD)/epa_asm_compiler.o: src/epa_asm_compiler.c
 	@$(MKDIR) $(TOOLS_BUILD)
-	$(CC) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(CFLAGS) $(CPPFLAGS) -MMD -MP -c $< -o $@
 
 .PHONY: clean-tools
 clean-tools:
 	$(RM) -r $(TOOLS_BUILD)
+
+-include $(DEPS)

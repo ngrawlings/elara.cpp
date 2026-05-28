@@ -10,22 +10,23 @@ INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
 INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
 STATIC_LIBRARY=$(NAME).a
 
-STD_CFLAGS= -c -I$(shell pwd) -I../libElaraUI -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS= -c -MMD -MP -I$(shell pwd) -I../libElaraUI -I$(STAGE_INCLUDE_DIR) $(DEFS)
 STD_LDFLAGS=
 
 SOURCES=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
 HEADERS=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
+DEPS=$(OBJECTS:.o=.d)
 
 all: $(SOURCES) $(STATIC_LIBRARY)
 
 $(STATIC_LIBRARY): $(OBJECTS)
 	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
-	$(AR) rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
+	$(AR) rcs $(BUILDPATH)/$@ $(OBJECTS)
 
-$(BUILDPATH)/%.o: copyconfig
-	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
-	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
+$(BUILDPATH)/%.o: ./$(NAME)/%.cpp | copyconfig
+	@mkdir -p $(dir $@)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
 
 copyconfig:
 	@[ -d ./$(NAME) ] || mkdir -p ./$(NAME)
@@ -48,7 +49,7 @@ install: all
 	fi
 
 clean:
-	rm -Rf $(BUILDPATH)/*.o
+	rm -f $(BUILDPATH)/*.o $(BUILDPATH)/*.d
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 
 remove:
@@ -58,3 +59,5 @@ remove:
 cleanconf:
 	rm -Rf config.status autom4te.cache
 	rm -f config.log config.h Makefile
+
+-include $(DEPS)
