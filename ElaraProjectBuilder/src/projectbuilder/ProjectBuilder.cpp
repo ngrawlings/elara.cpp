@@ -721,7 +721,7 @@ namespace elara {
             contents += " $(DEFS)\n";
             contents += "STD_LDFLAGS=-L$(ELARA_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaradebug -lelaracore";
             if (options.include_epa_vm_host) {
-                contents += " -lelaraparallelassembly -lglfw -lGL -ldl -lrt";
+                contents += " -lelaraparallelassembly -ldl -lrt";
             }
             if (options.include_epa_debug_rpc) {
                 contents += " -levent -levent_pthreads";
@@ -2247,7 +2247,7 @@ namespace elara {
             if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
                 flags += "-pthread";
                 if (options.include_epa_vm_host) {
-                    flags += " -lglfw -lGL -ldl -lrt";
+                    flags += " -ldl -lrt";
                 }
                 if (options.include_epa_debug_rpc) {
                     flags += " -levent -levent_pthreads";

@@ -3,6 +3,7 @@ import json
 import os
 import re
 import select
+import signal
 import shutil
 import socket
 import socketserver
@@ -1311,8 +1312,9 @@ def build_document():
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
 
-    # IDE Status panel (three-column connection status display)
+    # IDE Status panel (connection status display)
     ui.create_grid("bottom.status_panel")
+    ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
     ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
     ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
     ui.add_grid_column_weighted_fill("bottom.status_panel", 1)
@@ -1320,8 +1322,9 @@ def build_document():
 
     for _col_idx, (_sname, _stitle) in enumerate([
         ("epa",    "EPA DBG"),
-        ("host",   "HOST / GDB"),
-        ("python", "PYTHON"),
+        ("host",   "HOST INTERCONNECT"),
+        ("cpp",    "C++ GDB"),
+        ("python", "PYTHON LOGIC"),
     ]):
         _sid = f"bottom.status.{_sname}_section"
         ui.create_grid(_sid)
@@ -2754,6 +2757,7 @@ def main():
         "binary": "",
         "args": [],
         "status": "No GDB session attached.",
+        "read_buffer": "",
     }
     python_dbg_state = {
         "started": False,
@@ -2764,6 +2768,7 @@ def main():
         "thread": None,
         "port": None,
         "client_connected": False,
+        "client_pid": None,
     }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
@@ -3246,13 +3251,14 @@ def main():
         host_debug_bridge["thread"] = None
         host_debug_bridge["port"] = None
         host_debug_bridge["client_connected"] = False
+        host_debug_bridge["client_pid"] = None
 
     def _host_debug_bridge_handle_message(raw_line: str):
         if not host_debug_bridge.get("client_connected"):
             host_debug_bridge["client_connected"] = True
             _update_status_panel_dot(
                 client_ref.get("client"), "host",
-                _IND_GREEN, "Active", _IND_GREEN, "Host connected",
+                _IND_GREEN, "EPA interconnect", _IND_GREEN, "External logic",
             )
         try:
             payload = json.loads(raw_line)
@@ -3266,9 +3272,14 @@ def main():
         ui_c = client_ref.get("client")
         if kind == "register":
             app_state["host_debug_registered"] = True
+            try:
+                host_debug_bridge["client_pid"] = int(payload.get("pid"))
+            except Exception:
+                host_debug_bridge["client_pid"] = None
             message = payload.get("message") or f"host registered pid={payload.get('pid', '?')}"
             if ui_c:
                 _append_host_io_output(ui_c, f"[host-debug] {message}\n")
+                _refresh_status_panel(ui_c)
             return
         if kind == "log":
             message = str(payload.get("message", "") or "")
@@ -3314,17 +3325,65 @@ def main():
             app_state["host_debug_state"] = state_text
             return
 
+    def _host_debug_bridge_mark_disconnected():
+        host_debug_bridge["client_connected"] = False
+        host_debug_bridge["client_pid"] = None
+        _refresh_status_panel(client_ref.get("client"))
+
+    def _host_debug_launch_gui_sudo_kill(pid: int) -> bool:
+        helpers = [
+            ("gksudo", ["gksudo", f"kill -TERM {pid}"]),
+            ("pkexec", ["pkexec", "kill", "-TERM", str(pid)]),
+            ("kdesudo", ["kdesudo", f"kill -TERM {pid}"]),
+        ]
+        for binary, command in helpers:
+            if shutil.which(binary):
+                subprocess.Popen(command)
+                return True
+        return False
+
+    def _host_debug_kill_connected(client):
+        pid = host_debug_bridge.get("client_pid")
+        if not pid:
+            _append_host_io_output(client, "[host-debug] no connected external host PID to kill\n")
+            _refresh_status_panel(client)
+            return
+        try:
+            pid = int(pid)
+        except Exception:
+            _append_host_io_output(client, "[host-debug] invalid external host PID\n")
+            _refresh_status_panel(client)
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+            _append_host_io_output(client, f"[host-debug] sent SIGTERM to external host pid={pid}\n")
+        except ProcessLookupError:
+            _append_host_io_output(client, f"[host-debug] external host pid={pid} is already gone\n")
+            host_debug_bridge["client_connected"] = False
+            host_debug_bridge["client_pid"] = None
+        except PermissionError:
+            if _host_debug_launch_gui_sudo_kill(pid):
+                _append_host_io_output(client, f"[host-debug] launched GUI sudo kill for external host pid={pid}\n")
+            else:
+                _append_host_io_output(client, "[host-debug] kill needs privileges, but no gksudo/pkexec/kdesudo helper was found\n")
+        except Exception as exc:
+            _append_host_io_output(client, f"[host-debug] failed to kill external host pid={pid}: {exc}\n")
+        _refresh_status_panel(client)
+
     def _host_debug_bridge_ensure():
         if host_debug_bridge.get("server") is not None:
             return int(host_debug_bridge.get("port") or 0)
 
         class _HostDebugBridgeHandler(socketserver.StreamRequestHandler):
             def handle(self):
-                while True:
-                    line = self.rfile.readline()
-                    if not line:
-                        break
-                    _host_debug_bridge_handle_message(line.decode("utf-8", errors="replace").strip())
+                try:
+                    while True:
+                        line = self.rfile.readline()
+                        if not line:
+                            break
+                        _host_debug_bridge_handle_message(line.decode("utf-8", errors="replace").strip())
+                finally:
+                    _host_debug_bridge_mark_disconnected()
 
         class _HostDebugBridgeServer(socketserver.ThreadingTCPServer):
             allow_reuse_address = True
@@ -3337,6 +3396,7 @@ def main():
         host_debug_bridge["server"] = server
         host_debug_bridge["thread"] = thread
         host_debug_bridge["port"] = port
+        _refresh_status_panel(client_ref.get("client"))
         return port
 
     def _debug_session_dir(project_root: Path | None = None) -> Path:
@@ -3768,18 +3828,20 @@ def main():
             return True
         return False
 
-    def _cpp_gdb_stop_session():
+    def _cpp_gdb_stop_session(update_ui: bool = True):
         proc = cpp_gdb_state.get("proc")
         cpp_gdb_state["proc"] = None
         cpp_gdb_state["running"] = False
         cpp_gdb_state["project_root"] = ""
         cpp_gdb_state["binary"] = ""
         cpp_gdb_state["args"] = []
+        cpp_gdb_state["read_buffer"] = ""
         if proc is None:
             ui_c = client_ref.get("client")
-            if ui_c:
+            if ui_c and update_ui:
                 _set_cpp_vm_buttons(ui_c, False)
                 _set_cpp_vm_status(ui_c, "stopped")
+                _refresh_status_panel(ui_c)
             return
         try:
             if proc.stdin:
@@ -3796,9 +3858,10 @@ def main():
             except Exception:
                 pass
         ui_c = client_ref.get("client")
-        if ui_c:
+        if ui_c and update_ui:
             _set_cpp_vm_buttons(ui_c, False)
             _set_cpp_vm_status(ui_c, "stopped")
+            _refresh_status_panel(ui_c)
 
     def _cpp_gdb_read_until_prompt(proc: subprocess.Popen, timeout: float = 5.0) -> list[str]:
         lines = []
@@ -3806,22 +3869,28 @@ def main():
             raise RuntimeError("gdb stdout not available")
         deadline = time.time() + timeout
         while time.time() < deadline:
-            # BufferedReader may have consumed multiple lines from the OS fd in
-            # a single read, so check its internal buffer before calling select
-            # (which only sees the OS-level fd and would block if the buffer is
-            # non-empty but the fd has no new bytes).
-            if not proc.stdout.buffer.peek(1):
-                remaining = max(0.0, deadline - time.time())
-                ready, _, _ = select.select([proc.stdout], [], [], remaining)
-                if not ready:
-                    continue
-            line = proc.stdout.readline()
-            if not line:
-                break
-            text = line.rstrip("\r\n")
-            lines.append(text)
-            if text.rstrip() == "(gdb)":
+            buffer = str(cpp_gdb_state.get("read_buffer", "") or "")
+            if "\n" in buffer:
+                line, buffer = buffer.split("\n", 1)
+                cpp_gdb_state["read_buffer"] = buffer
+                text = line.rstrip("\r")
+                lines.append(text)
+                if text.rstrip() == "(gdb)":
+                    return lines
+                continue
+            if buffer.rstrip() == "(gdb)":
+                cpp_gdb_state["read_buffer"] = ""
+                lines.append(buffer.rstrip("\r"))
                 return lines
+
+            remaining = max(0.0, deadline - time.time())
+            ready, _, _ = select.select([proc.stdout], [], [], remaining)
+            if not ready:
+                continue
+            chunk = os.read(proc.stdout.fileno(), 4096)
+            if not chunk:
+                break
+            cpp_gdb_state["read_buffer"] = buffer + chunk.decode("utf-8", errors="replace")
         raise RuntimeError("Timed out waiting for gdb prompt")
 
     def _cpp_gdb_send(command: str, timeout: float = 5.0) -> list[str]:
@@ -3959,7 +4028,7 @@ def main():
         ):
             _set_cpp_vm_buttons(client, True)
             return
-        _cpp_gdb_stop_session()
+        _cpp_gdb_stop_session(update_ui=False)
         session_path = _write_debug_session_descriptor()
         proc = subprocess.Popen(
             ["gdb", "--interpreter=mi2", "--quiet", "--args", str(binary), *wanted_args],
@@ -3980,14 +4049,21 @@ def main():
         cpp_gdb_state["binary"] = str(binary)
         cpp_gdb_state["args"] = wanted_args
         cpp_gdb_state["running"] = False
+        cpp_gdb_state["read_buffer"] = ""
         _cpp_gdb_log(client, f"[gdb] debug session {session_path}")
+        _set_cpp_vm_buttons(client, True)
+        _set_cpp_vm_status(client, "running", "GDB launched")
+        _set_cpp_status_text(client, "Waiting for GDB prompt...")
+        _refresh_status_panel(client)
         _cpp_gdb_read_until_prompt(proc, timeout=5.0)
+        _set_cpp_status_text(client, "GDB prompt ready; starting target...")
         _cpp_gdb_send('-gdb-set pagination off')
         _cpp_gdb_send('-gdb-set confirm off')
         start_lines = _cpp_gdb_send("-exec-run --start", timeout=20.0)
         _set_cpp_status_text(client, _cpp_gdb_status_from_lines(start_lines))
         _set_cpp_vm_buttons(client, True)
         _set_cpp_vm_status(client, "running", "stopped at main")
+        _refresh_status_panel(client)
         _cpp_gdb_refresh_ui(client)
 
     def _cpp_gdb_log(client, line: str):
@@ -4012,6 +4088,7 @@ def main():
                 if cpp_gdb_state.get("proc") is not None:
                     _cpp_gdb_stop_session()
                 _ensure_cpp_gdb_session(client)
+                _refresh_status_panel(client)
                 return True
             if action_id in ("debug.cpp.stop",):
                 _cpp_gdb_stop_session()
@@ -4021,6 +4098,7 @@ def main():
                 _set_cpp_locals_text(client, [])
                 _set_cpp_registers_text(client, [])
                 _set_cpp_memory_text(client, [])
+                _refresh_status_panel(client)
                 return True
             if action_id in ("debug.cpp.continue",):
                 _cpp_gdb_execute(client, "-exec-continue", "continue", timeout=5.0)
@@ -4053,7 +4131,12 @@ def main():
             _set_cpp_status_text(client, "error")
             _set_cpp_vm_status(client, "error", str(exc))
             _cpp_gdb_log(client, f"[gdb-error] {exc}")
-            _cpp_gdb_refresh_ui(client)
+            proc = cpp_gdb_state.get("proc")
+            if proc is None or proc.poll() is not None:
+                _set_cpp_vm_buttons(client, False)
+            else:
+                _cpp_gdb_refresh_ui(client)
+            _refresh_status_panel(client)
             return True
         return False
 
@@ -6817,22 +6900,49 @@ def main():
             epa_dot2, epa_lbl2 = _IND_GREEN,  "IDE connected"
             epa_port_text = f"Port: {epa_port}"
 
-        # ── Host / GDB bridge ─────────────────────────────────────────────────
+        # ── Host interconnect ─────────────────────────────────────────────────
+        # The host interconnect is part of the runtime contract, so keep the
+        # listener present even when Python/GDB logic is optional or stopped.
+        if host_debug_bridge.get("server") is None:
+            try:
+                _host_debug_bridge_ensure()
+            except Exception:
+                pass
         bridge_server = host_debug_bridge.get("server")
         bridge_port = host_debug_bridge.get("port")
         bridge_connected = host_debug_bridge.get("client_connected", False)
         if not bridge_server:
-            host_dot1, host_lbl1 = _IND_RED,    "Offline"
-            host_dot2, host_lbl2 = _IND_OFF,    "—"
+            host_dot1, host_lbl1 = _IND_RED, "Offline"
+            host_dot2, host_lbl2 = _IND_OFF, "—"
             host_port_text = "Port: —"
-        elif not bridge_connected:
-            host_dot1, host_lbl1 = _IND_ORANGE, "Listening"
-            host_dot2, host_lbl2 = _IND_RED,    "Host not connected"
-            host_port_text = f"Port: {bridge_port}"
+        elif bridge_connected:
+            host_dot1, host_lbl1 = _IND_GREEN, "EPA interconnect"
+            host_dot2, host_lbl2 = _IND_GREEN, "External logic"
+            host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
         else:
-            host_dot1, host_lbl1 = _IND_GREEN,  "Active"
-            host_dot2, host_lbl2 = _IND_GREEN,  "Host connected"
-            host_port_text = f"Port: {bridge_port}"
+            host_dot1, host_lbl1 = _IND_ORANGE, "EPA interconnect"
+            host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
+            host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
+
+        # ── C++ / GDB ────────────────────────────────────────────────────────
+        gdb_proc = cpp_gdb_state.get("proc")
+        gdb_status = str(cpp_gdb_state.get("status", "") or "")
+        if not gdb_proc:
+            cpp_dot1, cpp_lbl1 = _IND_RED, "GDB"
+            cpp_dot2, cpp_lbl2 = _IND_OFF, "Target"
+            cpp_port_text = "PID: —"
+        elif gdb_proc.poll() is not None:
+            cpp_dot1, cpp_lbl1 = _IND_RED, "GDB"
+            cpp_dot2, cpp_lbl2 = _IND_RED, "Target exited"
+            cpp_port_text = f"PID: {gdb_proc.pid}"
+        elif "waiting for gdb prompt" in gdb_status.lower() or "launch" in gdb_status.lower():
+            cpp_dot1, cpp_lbl1 = _IND_ORANGE, "GDB"
+            cpp_dot2, cpp_lbl2 = _IND_ORANGE, "Target"
+            cpp_port_text = f"PID: {gdb_proc.pid}"
+        else:
+            cpp_dot1, cpp_lbl1 = _IND_GREEN, "GDB"
+            cpp_dot2, cpp_lbl2 = _IND_GREEN, "Target running" if cpp_gdb_state.get("running") else "Target stopped"
+            cpp_port_text = f"PID: {gdb_proc.pid}"
 
         # ── Python ────────────────────────────────────────────────────────────
         py_started = python_dbg_state.get("started", False)
@@ -6848,12 +6958,14 @@ def main():
         try:
             client.set_text("bottom.status.epa.port",    epa_port_text)
             client.set_text("bottom.status.host.port",   host_port_text)
+            client.set_text("bottom.status.cpp.port",    cpp_port_text)
             client.set_text("bottom.status.python.port", py_port_text)
         except Exception:
             pass
 
         _update_status_panel_dot(client, "epa",    epa_dot1,  epa_lbl1,  epa_dot2,  epa_lbl2)
         _update_status_panel_dot(client, "host",   host_dot1, host_lbl1, host_dot2, host_lbl2)
+        _update_status_panel_dot(client, "cpp",    cpp_dot1,  cpp_lbl1,  cpp_dot2,  cpp_lbl2)
         _update_status_panel_dot(client, "python", py_dot1,   py_lbl1,   py_dot2,   py_lbl2)
 
     def _run_search(client, query: str):
@@ -7742,9 +7854,14 @@ def main():
                 return {"received": True}
             if item_action == "bottom.status.host.kill":
                 def _kill_host():
-                    _host_debug_bridge_stop()
-                    _refresh_status_panel(c)
+                    _host_debug_kill_connected(c)
                 _deferred(_kill_host)
+                return {"received": True}
+            if item_action == "bottom.status.cpp.kill":
+                def _kill_cpp():
+                    _cpp_gdb_stop_session()
+                    _refresh_status_panel(c)
+                _deferred(_kill_cpp)
                 return {"received": True}
             if item_action == "bottom.status.python.kill":
                 def _kill_python():

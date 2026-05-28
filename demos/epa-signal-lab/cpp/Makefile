@@ -24,7 +24,7 @@ PROFILE_CFLAGS=$(RELEASE_CFLAGS)
 endif
 STD_CCFLAGS=-std=gnu11 $(filter-out -std=gnu++11,$(PROFILE_CFLAGS))
 STD_CFLAGS=-c -MMD -MP $(PROFILE_CFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(DEFS)
-STD_LDFLAGS=-L$(ELARA_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaradebug -lelaracore -lelaraparallelassembly -lglfw -lGL -ldl -lrt -levent -levent_pthreads -pthread
+STD_LDFLAGS=-L$(ELARA_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaradebug -lelaracore -lelaraparallelassembly -ldl -lrt -levent -levent_pthreads -pthread
 TARGET=epa-signal-lab
 DEBUG_TARGET=$(TARGET)-epa-debug
 CPP_SOURCES=$(shell find ./src -type f -name '*.cpp' -print)
