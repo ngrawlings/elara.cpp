@@ -9,6 +9,8 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.walls");
   request_threads(2);
+  start_worker(walls_surface_ingress);
+  start_worker(walls_tick_ingress);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

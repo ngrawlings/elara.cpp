@@ -6,9 +6,9 @@ declare default_signal_mail_box_size 128
 
 kernel(VM vm) {
   kernalId("demo.signal_lab.entry");
-  ingress_source(vm);
-  local_forward(vm);
-  remote_ack_receiver(vm);
+  start_worker(ingress_source);
+  start_worker(local_forward);
+  start_worker(remote_ack_receiver);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

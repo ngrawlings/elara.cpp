@@ -9,6 +9,9 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.entry");
   request_threads(3);
+  start_worker(entry_tick_ingress);
+  start_worker(entry_render_feedback);
+  start_worker(entry_hud_feedback);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

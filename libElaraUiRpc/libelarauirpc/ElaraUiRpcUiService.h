@@ -4,6 +4,7 @@
 #include <libelaraui/frontend/ElaraWidgetStateProbe.h>
 #include <libelaraui/ElaraJsonUiProtocol.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
+#include <libelaraui/frontend/widgets/ElaraCheckboxWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraLabelWidget.h>
 #include <libelaraui/frontend/widgets/ElaraListViewWidget.h>
@@ -71,6 +72,12 @@ private:
         String& error_message
     );
     bool setEnabled(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool setChecked(
         const Json& params,
         String& result_json,
         String& error_code,

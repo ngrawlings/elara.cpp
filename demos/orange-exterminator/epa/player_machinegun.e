@@ -8,6 +8,9 @@
 
 kernel(VM vm) {
   kernalId("orange.exterminator.player_machinegun");
+  start_worker(weapon_command_ingress);
+  start_worker(weapon_tick_ingress);
+
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

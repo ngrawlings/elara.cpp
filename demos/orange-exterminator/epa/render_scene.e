@@ -10,6 +10,9 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.render_scene");
   request_threads(4);
+  start_worker(render_scene_tick_ingress);
+  start_worker(render_scene_actor_ingress);
+  start_worker(render_scene_world_ingress);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

@@ -189,10 +189,12 @@ class EpaDbgClient:
 
     # Execution control
 
-    def step(self, kernel_id: int, ticks: int = 1, path_id: str = "") -> dict:
+    def step(self, kernel_id: int, ticks: int = 1, path_id: str = "", wid: int | None = None) -> dict:
         params: dict = {"kernel_id": kernel_id, "ticks": ticks}
         if path_id:
             params["path_id"] = path_id
+        if wid is not None:
+            params["wid"] = int(wid)
         return self.call("epa.debug.step",
                          params,
                          timeout=60.0)
@@ -253,6 +255,18 @@ class EpaDbgClient:
         if path_id:
             params["path_id"] = path_id
         return self.call("epa.debug.inspectWorker", params)
+
+    def set_worker_debug(self, wid: int, enabled: bool, path_id: str = "") -> dict:
+        params: dict = {"wid": int(wid), "enabled": bool(enabled)}
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.setWorkerDebug", params)
+
+    def get_worker_debug(self, wid: int, path_id: str = "") -> dict:
+        params: dict = {"wid": int(wid)}
+        if path_id:
+            params["path_id"] = path_id
+        return self.call("epa.debug.getWorkerDebug", params)
 
     def events(self, kernel_id: int, clear: bool = False) -> list:
         return self.call("epa.debug.events",

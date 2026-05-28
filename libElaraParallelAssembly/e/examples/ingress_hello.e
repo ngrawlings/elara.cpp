@@ -8,7 +8,7 @@ kernel(VM vm) {
   // Pipeline sketch:
   // 1. data ingress creates the underlying GHS block for GreetingIngress
   // 2. kernel routes that typed block to the hello worker
-  ingress_greeting(vm, hello_world);
+  start_worker(hello_world);
 }
 
 acl {

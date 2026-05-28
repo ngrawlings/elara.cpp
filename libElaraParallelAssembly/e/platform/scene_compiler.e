@@ -49,8 +49,8 @@
 
 kernel(VM vm) {
   kernalId("elara.platform.scene_compiler");
-  scene_compile(vm);
-  scene_compile_full(vm);
+  start_worker(scene_compile);
+  start_worker(scene_compile_full);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

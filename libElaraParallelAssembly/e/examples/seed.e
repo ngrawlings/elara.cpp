@@ -12,7 +12,7 @@ type Blob(int id) {
 
 kernel(VM vm) {
   kernalId("example.seed");
-  worker_ingest(vm);
+  start_worker(worker_ingest);
 }
 
 acl {

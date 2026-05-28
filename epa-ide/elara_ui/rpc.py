@@ -244,6 +244,9 @@ class ElaraUiRpcClient:
     def set_enabled(self, target: str, enabled: bool, timeout: float = 5.0):
         return self.call("ui.setEnabled", {"target": target, "enabled": bool(enabled)}, timeout=timeout)
 
+    def set_checked(self, target: str, checked: bool, timeout: float = 5.0):
+        return self.call("ui.setChecked", {"target": target, "checked": bool(checked)}, timeout=timeout)
+
     def set_read_only(self, target: str, read_only: bool, timeout: float = 5.0):
         return self.call("ui.setReadOnly", {"target": target, "read_only": bool(read_only)}, timeout=timeout)
 

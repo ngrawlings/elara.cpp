@@ -335,6 +335,8 @@ static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
 static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -486,6 +488,10 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"frame_commit", emit_frame_commit_builtin},
     {"far_signal", emit_far_signal_builtin},
     {"request_threads", emit_request_threads_builtin},
+    {"start_worker", emit_worker_start_builtin},
+    {"stop_worker", emit_worker_stop_builtin},
+    {"worker_start", emit_worker_start_builtin},
+    {"worker_stop", emit_worker_stop_builtin},
     {"kernal_get_ghs", emit_kernel_get_ghs_builtin},
     {"kernel_get_ghs", emit_kernel_get_ghs_builtin},
     {"typeof", emit_typeof_builtin},
@@ -1191,6 +1197,53 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   emit_indent(out, depth);
   fputs("REQUEST_THREADS\n", out);
   return 1;
+}
+
+static int emit_worker_control_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, const char *opname) {
+  unsigned int wid = 0u;
+  const EExpr *arg;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects 1 arg, got %zu\n", expr->as.call.callee, expr->as.call.arg_count);
+    return 0;
+  }
+  if (ctx->current_worker || ctx->current_function) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid in kernel\n", expr->as.call.callee);
+    return 0;
+  }
+  arg = expr->as.call.args[0];
+  if (arg->kind == E_EXPR_IDENT) {
+    wid = worker_entry_id_for_name(ctx->model, arg->as.ident);
+    if (wid == 0u) {
+      emit_indent(out, depth);
+      fprintf(out, "; %s unknown worker: %s\n", expr->as.call.callee, arg->as.ident);
+      return 0;
+    }
+  } else if (arg->kind == E_EXPR_INT) {
+    if (arg->as.int_lit < 0 || arg->as.int_lit > 255) {
+      emit_indent(out, depth);
+      fprintf(out, "; %s worker id out of range: %lld\n", expr->as.call.callee, arg->as.int_lit);
+      return 0;
+    }
+    wid = (unsigned int)arg->as.int_lit;
+  } else {
+    emit_indent(out, depth);
+    fprintf(out, "; %s worker must be a worker name or integer id\n", expr->as.call.callee);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "%s %u\n", opname, wid);
+  return 1;
+}
+
+static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  return emit_worker_control_builtin(out, expr, ctx, depth, "ENTRY_EXEC");
+}
+
+static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  return emit_worker_control_builtin(out, expr, ctx, depth, "ENTRY_HALT");
 }
 
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {

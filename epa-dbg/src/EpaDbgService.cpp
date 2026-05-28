@@ -256,11 +256,30 @@ bool EpaDbgService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) cons
     return false;
 }
 
+std::string EpaDbgService::workerDebugKey(const String &path_id, uint32_t wid) const {
+    String pid(path_id);
+    return std::string(pid.operator char *()) + ":" + std::to_string((unsigned int)wid);
+}
+
+bool EpaDbgService::workerDebugIsEnabled(const String &path_id, uint32_t wid) const {
+    std::map<std::string, bool>::const_iterator it = worker_debug_enabled.find(workerDebugKey(path_id, wid));
+    if (it == worker_debug_enabled.end()) return true;
+    return it->second;
+}
+
+void EpaDbgService::setWorkerDebugEnabled(const String &path_id, uint32_t wid, bool enabled) {
+    worker_debug_enabled[workerDebugKey(path_id, wid)] = enabled;
+}
+
 bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool stop_on_bp,
+                              uint32_t target_wid,
                               String &stop_reason, uint32_t &ticks_ran, String &error_message) {
     EpaKernel *k = kernelForPath(path_id);
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
+    if (target_wid != 0xffffffffu && !workerDebugIsEnabled(path_id, target_wid)) {
+        return runToWait(path_id, target_wid, tick_count ? tick_count : 500000u, stop_reason, ticks_ran, error_message);
+    }
     ensureDebugCallback();
     ticks_ran = 0;
     for (;;) {
@@ -302,6 +321,17 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
     ensureDebugCallback();
     ticks_ran = 0;
     for (;;) {
+        EpaDbgWorkerSnapshot initial_ws[EPA_DBG_MAX_WORKERS];
+        size_t initial_wc = epa_dbg_capture_workers(k, initial_ws, EPA_DBG_MAX_WORKERS);
+        for (size_t i = 0; i < initial_wc; i++) {
+            if (initial_ws[i].wid == target_wid) {
+                if (initial_ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); return true; }
+                if (initial_ws[i].blocked)          { stop_reason = String("blocked");       return true; }
+                if (initial_ws[i].halted)           { stop_reason = String("halted");        return true; }
+                if (initial_ws[i].faulted)          { stop_reason = String("faulted");       return true; }
+                break;
+            }
+        }
         StdoutCapture cap;
         err[0] = 0;
         cap.begin();
@@ -322,8 +352,9 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
         for (size_t i = 0; i < wc; i++) {
             if (ws[i].wid == target_wid) {
                 if (ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); return true; }
-                if (ws[i].halted)           { stop_reason = String("halted");         return true; }
-                if (ws[i].faulted)          { stop_reason = String("faulted");        return true; }
+                if (ws[i].blocked)          { stop_reason = String("blocked");       return true; }
+                if (ws[i].halted)           { stop_reason = String("halted");        return true; }
+                if (ws[i].faulted)          { stop_reason = String("faulted");       return true; }
                 break;
             }
         }
@@ -448,6 +479,11 @@ bool EpaDbgService::stepBoundary(
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     if (!loadEpaMap(map_path, map, error_message)) return false;
+    if (!workerDebugIsEnabled(path_id, target_wid)) {
+        bool ok = runToWait(path_id, target_wid, max_ticks, stop_reason, ticks_ran, error_message);
+        out_state = markerStateForWorker(k, map, target_wid);
+        return ok;
+    }
     ensureDebugCallback();
     WorkerMarkerState before = markerStateForWorker(k, map, target_wid);
     if (!before.valid) {
@@ -553,6 +589,7 @@ String EpaDbgService::buildSnapshotJson(const String &path_id) const {
         result += String(",\"faulted\":") + String((int)w.faulted);
         result += String(",\"waiting_for_data\":") + String((int)w.waiting_for_data);
         result += String(",\"at_running\":") + String((int)w.at_running);
+        result += String(",\"debug_enabled\":") + String(workerDebugIsEnabled(path_id, w.wid) ? "true" : "false");
         result += String(",\"has_current_ghs\":") + String((int)w.has_current_ghs);
         result += String(",\"current_ghs\":") + String((unsigned long long)w.current_ghs);
         result += String(",\"eip\":{\"block_type\":") + String((int)w.eip.block_type)
@@ -699,7 +736,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         ensureDebugCallback(); result_json = String("{\"created\":true}"); return true;
     }
     if (method == String("debug.destroy")) {
-        host.destroy(); events.clear(); result_json = String("{\"destroyed\":true}"); return true;
+        host.destroy(); events.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true;
     }
     if (method == String("debug.setKernelId")) {
         String id;
@@ -750,12 +787,13 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         result_json = String("{\"queued\":true}"); return true;
     }
     if (method == String("debug.step")) {
-        uint32_t ticks = 1, ticks_ran = 0;
+        uint32_t ticks = 1, ticks_ran = 0, wid = 0xffffffffu;
         String stop_reason;
         String path_id;
         parseUint(params_json, String("ticks"), 1, &ticks);
+        parseUint(params_json, String("wid"), 0xffffffffu, &wid);
         parseString(params_json, String("path_id"), path_id);
-        if (!runTicks(path_id, ticks, false, stop_reason, ticks_ran, error_message)) {
+        if (!runTicks(path_id, ticks, false, wid, stop_reason, ticks_ran, error_message)) {
             error_code = String("step_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
@@ -769,7 +807,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         String path_id;
         parseUint(params_json, String("max_ticks"), 1000, &max_ticks);
         parseString(params_json, String("path_id"), path_id);
-        if (!runTicks(path_id, max_ticks, true, stop_reason, ticks_ran, error_message)) {
+        if (!runTicks(path_id, max_ticks, true, 0xffffffffu, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_failed"); return false;
         }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
@@ -821,6 +859,32 @@ bool EpaDbgService::call(const String &method, const String &params_json,
                     + String(",\"stop_reason\":") + jq(stop_reason)
                     + String(",\"marker\":") + buildMarkerJson(marker)
                     + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
+        return true;
+    }
+    if (method == String("debug.setWorkerDebug")) {
+        uint32_t wid = 0;
+        bool enabled = true;
+        String path_id;
+        parseUint(params_json, String("wid"), 0, &wid);
+        parseBool(params_json, String("enabled"), true, &enabled);
+        parseString(params_json, String("path_id"), path_id);
+        setWorkerDebugEnabled(path_id, wid, enabled);
+        result_json = String("{\"path_id\":") + jq(path_id)
+                    + String(",\"wid\":") + String((int)wid)
+                    + String(",\"debug_enabled\":") + String(enabled ? "true" : "false")
+                    + String("}");
+        return true;
+    }
+    if (method == String("debug.getWorkerDebug")) {
+        uint32_t wid = 0;
+        String path_id;
+        parseUint(params_json, String("wid"), 0, &wid);
+        parseString(params_json, String("path_id"), path_id);
+        bool enabled = workerDebugIsEnabled(path_id, wid);
+        result_json = String("{\"path_id\":") + jq(path_id)
+                    + String(",\"wid\":") + String((int)wid)
+                    + String(",\"debug_enabled\":") + String(enabled ? "true" : "false")
+                    + String("}");
         return true;
     }
     if (method == String("debug.interrupt")) {

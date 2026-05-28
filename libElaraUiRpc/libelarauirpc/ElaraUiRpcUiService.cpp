@@ -347,6 +347,30 @@ bool ElaraUiRpcUiService::setEnabled(
     return true;
 }
 
+bool ElaraUiRpcUiService::setChecked(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraCheckboxWidget* checkbox = dynamic_cast<ElaraCheckboxWidget*>(widget.getPtr());
+    if(!checkbox) {
+        error_code = "unsupported_widget";
+        error_message = "The target widget does not support setChecked";
+        return false;
+    }
+
+    checkbox->setChecked(jsonBool(params, "checked", false));
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::setReadOnly(
     const Json& params,
     String& result_json,
@@ -1446,6 +1470,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setEnabled")) {
         return setEnabled(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setChecked")) {
+        return setChecked(params, result_json, error_code, error_message);
     }
 
     if(method == String("setReadOnly")) {

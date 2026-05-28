@@ -10,6 +10,7 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.scene");
   request_threads(2);
+  start_worker(scene_camera_update);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

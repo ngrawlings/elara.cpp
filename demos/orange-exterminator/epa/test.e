@@ -19,6 +19,10 @@ type MarkerProbe(int seed, int limit, int stride) {
 
 kernel(VM vm) {
     kernalId("orange.exterminator.test");
+    start_worker(stress_worker);
+    start_worker(grow_worker);
+    start_worker(marker_probe);
+
     int wid = 0;
     while (1) {
         wid = kernel_wait_signal();

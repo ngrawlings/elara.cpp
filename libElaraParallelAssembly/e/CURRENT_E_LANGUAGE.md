@@ -41,6 +41,28 @@ Meaning:
 
 If a kernel omits `acl { ... }`, the compiler emits a warning.
 
+## Worker Execution Pool
+
+Workers are loaded as entry definitions, but the kernel controls when they enter
+or leave execution:
+
+```c
+kernel(VM vm) {
+  kernalId("scene.runtime");
+  start_worker(scene_compile);
+  stop_worker(scene_compile);
+}
+```
+
+Rules:
+
+- `start_worker(...)` emits `ENTRY_EXEC`
+- `stop_worker(...)` emits `ENTRY_HALT`
+- both are kernel-only
+- the argument may be a worker name or numeric worker id
+- `worker_start(...)` and `worker_stop(...)` are accepted aliases
+- worker static state and queues remain allocated; this controls scheduler eligibility
+
 ## `far_signal`
 
 `far_signal` now targets kernels by identity string at compile time:

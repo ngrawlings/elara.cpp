@@ -10,6 +10,8 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.world_runtime");
   request_threads(2);
+  start_worker(world_tick_ingress);
+  start_worker(world_actor_feedback);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

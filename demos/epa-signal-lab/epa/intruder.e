@@ -22,7 +22,7 @@ declare default_signal_mail_box_size 128
 
 kernel(VM vm) {
   kernalId("demo.signal_lab.intruder");
-  intrude_attempt(vm);
+  start_worker(intrude_attempt);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

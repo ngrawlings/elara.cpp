@@ -9,6 +9,9 @@
 kernel(VM vm) {
   kernalId("orange.exterminator.player_avatar");
   request_threads(2);
+  start_worker(player_intent_ingress);
+  start_worker(player_world_feedback);
+  start_worker(player_weapon_feedback);
 
   int wid = 0;
   while (wid = kernel_wait_signal()) {

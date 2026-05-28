@@ -7,6 +7,10 @@
 
 kernel(VM vm) {
   kernalId("orange.exterminator.render_ui");
+  start_worker(render_ui_input_ingress);
+  start_worker(render_ui_weapon_ingress);
+  start_worker(render_ui_tick_ingress);
+
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

@@ -60,6 +60,7 @@ private:
     EpaDbgVmHost            host;
     std::deque<DebugEvent>  events;
     std::vector<Breakpoint> breakpoints;
+    std::map<std::string, bool> worker_debug_enabled;
     uint64_t                next_event_id;
 
     static void onKernelDebug(void *user, int kind, uint8_t wid, uint32_t code,
@@ -70,6 +71,7 @@ private:
     void pushLog(const String &message);
 
     bool runTicks(const String &path_id, uint32_t tick_count, bool stop_on_breakpoint,
+                  uint32_t target_wid,
                   String &stop_reason, uint32_t &ticks_ran, String &error_message);
     bool runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
                    String &stop_reason, uint32_t &ticks_ran, String &error_message);
@@ -80,6 +82,9 @@ private:
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
     EpaKernel *activeKernel() const;
     EpaKernel *kernelForPath(const String &path_id) const;
+    std::string workerDebugKey(const String &path_id, uint32_t wid) const;
+    bool workerDebugIsEnabled(const String &path_id, uint32_t wid) const;
+    void setWorkerDebugEnabled(const String &path_id, uint32_t wid, bool enabled);
 
     String buildSnapshotJson(const String &path_id = String()) const;
     String buildEventsJson(bool clear_after_read);

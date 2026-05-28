@@ -7,6 +7,9 @@
 
 kernel(VM vm) {
   kernalId("orange.exterminator.input_dispatch");
+  start_worker(input_key_ingress);
+  start_worker(input_tick_reset);
+
   int wid = 0;
   while (wid = kernel_wait_signal()) {
     // Coordinator only for now.

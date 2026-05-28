@@ -14,6 +14,10 @@ type Cell(int id, int val) {
 }
 
 kernel(VM vm) {
+    kernalId("test.dynamic_memory");
+    start_worker(stress_worker);
+    start_worker(grow_worker);
+
     int wid = 0;
     while (1) {
         wid = kernel_wait_signal();

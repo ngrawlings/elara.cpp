@@ -413,6 +413,7 @@ bool targetsSpecificWidget(const String& method) {
     return method == String("setText") ||
         method == String("setVisible") ||
         method == String("setEnabled") ||
+        method == String("setChecked") ||
         method == String("setBounds") ||
         method == String("setFocus") ||
         method == String("clearChildren") ||

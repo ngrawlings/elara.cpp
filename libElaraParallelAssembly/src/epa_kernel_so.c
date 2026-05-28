@@ -488,9 +488,16 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     // worker_next[id] is already EPA_MAX_WORKERS (nil) from the memset above
     tail = id;
 
-    // Current E worker model: all entries start immediately and workers
-    // park themselves in WAIT_FOR_DATA until ingress arrives.
-    k->workers[id].blocked = 0;
+    // Worker entry definitions are loaded immediately, but only the kernel
+    // entry starts in the execution pool. The kernel activates workers with
+    // ENTRY_EXEC, surfaced in E as start_worker(...).
+    if (id == 0u) {
+      k->workers[id].halted = 0;
+      k->workers[id].blocked = 0;
+    } else {
+      k->workers[id].halted = 1;
+      k->workers[id].blocked = 1;
+    }
 
     // Store EIP in worker state if you've added it there.
     // If you haven't yet: add `EpaEip eip;` into EpaWorkerState.
@@ -1229,8 +1236,7 @@ int epa_kernel_module_start_kernel(EpaKernelModule *module, size_t index, char e
     return 0;
   }
   if (entry->thread_started) {
-    if (err) snprintf(err, EPA_MAX_ERR, "start_kernel: kernel already running");
-    return 0;
+    return 1;
   }
   if (epa_kernel_get_status(entry->kernel) == EPA_KERNEL_STATUS_HALTED ||
       epa_kernel_get_status(entry->kernel) == EPA_KERNEL_STATUS_FAULTED ||
@@ -1297,7 +1303,13 @@ int epa_kernel_module_start_all_kernels(EpaKernelModule *module, char err[EPA_MA
     return 0;
   }
   for (i = 0; i < module->count; i++) {
-    if (!(module->entries[i].flags & EPA_BUNDLE_FLAG_STARTED)) continue;
+    EpaKernel *k = module->entries[i].kernel;
+    if (k && epa_kernel_get_scheduler(k) == EPA_SCHED_CPU_THREAD &&
+        epa_kernel_thread_count(k) == 0u) {
+      uint32_t n = epa_kernel_worker_count(k);
+      if (n == 0u) n = 1u;
+      if (!epa_kernel_module_add_kernel_threads(module, i, n, err)) return 0;
+    }
     if (!epa_kernel_module_start_kernel(module, i, err)) return 0;
   }
   return 1;

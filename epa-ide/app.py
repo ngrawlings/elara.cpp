@@ -201,9 +201,10 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.add_grid_column_exact(row_id, 20)   # col 3: run indicator
     ui.add_grid_column_exact(row_id, 12)   # col 4: spacer before queue
     ui.add_grid_column_exact(row_id, 72)   # col 5: queue badge "total / worker"
-    ui.add_grid_column_exact(row_id, 32)   # col 6: ▶  (row 1)
-    ui.add_grid_column_exact(row_id, 32)   # col 7: ▶| (row 1)
-    ui.add_grid_column_exact(row_id, 4)    # col 8: right margin
+    ui.add_grid_column_exact(row_id, 48)   # col 6: debug checkbox (row 0)
+    ui.add_grid_column_exact(row_id, 32)   # col 7: ▶  (row 1)
+    ui.add_grid_column_exact(row_id, 32)   # col 8: ▶| (row 1)
+    ui.add_grid_column_exact(row_id, 4)    # col 9: right margin
     ui.add_grid_row_exact(row_id, 26)      # row 0: name + queue badge
     ui.add_grid_row_exact(row_id, 26)      # row 1: worker combo + buttons
     for dot_name in ("load_ind", "run_ind"):
@@ -214,19 +215,22 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.create_label(f"{row_id}.queue", "0 / 0", 10)
     ui.set_property_bool(f"{row_id}.queue", "enabled", False)
     ui.create_combo_box(f"{row_id}.worker", items=[], selected_id="")
+    ui.create_checkbox(f"{row_id}.debug", "Dbg", True)
+    ui.set_property_number(f"{row_id}.debug", "font_size", 10)
     ui.create_button(f"{row_id}.run",  "▶",  f"debug.kernel.run.{tab_id}")
     ui.set_property_number(f"{row_id}.run",  "font_size", 11)
     ui.create_button(f"{row_id}.step", "▶|", f"debug.kernel.step.{tab_id}")
     ui.set_property_number(f"{row_id}.step", "font_size", 11)
     ui.place_grid_child(row_id, f"{row_id}.load_ind", 2, 0)
     ui.place_grid_child(row_id, f"{row_id}.run_ind",  3, 0)
-    # row 0: name + queue
+    # row 0: name + queue + debug checkbox
     ui.place_grid_child(row_id, f"{row_id}.name",   1, 0)
     ui.place_grid_child(row_id, f"{row_id}.queue",  5, 0)
+    ui.place_grid_child(row_id, f"{row_id}.debug",  6, 0)
     # row 1: worker combo + buttons
     ui.place_grid_child(row_id, f"{row_id}.worker", 1, 1, 3, 1)
-    ui.place_grid_child(row_id, f"{row_id}.run",    6, 1)
-    ui.place_grid_child(row_id, f"{row_id}.step",   7, 1)
+    ui.place_grid_child(row_id, f"{row_id}.run",    7, 1)
+    ui.place_grid_child(row_id, f"{row_id}.step",   8, 1)
 
 
 def build_document():
@@ -4812,6 +4816,8 @@ def main():
 
         def _state_tags(state: dict) -> list[str]:
             tags: list[str] = []
+            if state and state.get("debug_enabled") is False:
+                tags.append("fast")
             if int(state.get("inq_count", 0) or 0) > 0:
                 tags.append(f"q={int(state.get('inq_count', 0) or 0)}")
             if int(state.get("owned_ghs_count", 0) or 0) > 0:
@@ -4829,13 +4835,22 @@ def main():
         items: list[dict] = []
         for idx, worker in enumerate(workers, start=1):
             label = worker.get("name", f"worker_{idx}")
-            state = snapshot_workers.get(idx) or {}
+            state = dict(snapshot_workers.get(idx) or {})
+            state.setdefault(
+                "debug_enabled",
+                app_state.setdefault("debug_worker_debug_state", {}).get(_worker_debug_cache_key(kernel_tab_id, idx), True),
+            )
             tags = _state_tags(state)
             if tags:
                 label += " [" + " ".join(tags) + "]"
             items.append({"id": worker.get("name", label), "label": label})
         kernel_label = "kernel (wid=0)"
-        kernel_tags = _state_tags(snapshot_workers.get(0) or {})
+        kernel_state = dict(snapshot_workers.get(0) or {})
+        kernel_state.setdefault(
+            "debug_enabled",
+            app_state.setdefault("debug_worker_debug_state", {}).get(_worker_debug_cache_key(kernel_tab_id, 0), True),
+        )
+        kernel_tags = _state_tags(kernel_state)
         if kernel_tags:
             kernel_label += " [" + " ".join(kernel_tags) + "]"
         items.append({"id": KERNEL_WORKER_ID, "label": kernel_label})
@@ -4902,6 +4917,7 @@ def main():
                 _refresh_kernel_worker_combo(client, k["id"])
                 _apply_cached_kernel_indicator_state(client, k["id"])
                 _apply_cached_kernel_queue_state(client, k["id"])
+                _set_kernel_worker_debug_checkbox(client, k["id"])
             except Exception:
                 pass
 
@@ -5098,6 +5114,42 @@ def main():
                 return wi + 1
         return 1
 
+    def _worker_debug_cache_key(kernel_tab_id: str, wid: int | None) -> str:
+        return f"{kernel_tab_id}:{0 if wid is None else int(wid)}"
+
+    def _selected_worker_debug_enabled(kernel_tab_id: str, snapshot: dict | None = None) -> bool:
+        wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+        if wid is None:
+            return True
+        snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
+        for worker in snapshot.get("workers", []) or []:
+            if int(worker.get("wid", -1)) == int(wid) and "debug_enabled" in worker:
+                enabled = bool(worker.get("debug_enabled"))
+                app_state.setdefault("debug_worker_debug_state", {})[_worker_debug_cache_key(kernel_tab_id, wid)] = enabled
+                return enabled
+        return bool(app_state.setdefault("debug_worker_debug_state", {}).get(_worker_debug_cache_key(kernel_tab_id, wid), True))
+
+    def _set_kernel_worker_debug_checkbox(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        try:
+            client.set_checked(
+                f"nav.debug.kernel.{kernel_tab_id}.debug",
+                _selected_worker_debug_enabled(kernel_tab_id, snapshot),
+            )
+        except Exception:
+            pass
+
+    def _sync_cached_worker_debug_states(dbg_c):
+        if not dbg_c:
+            return
+        for key, enabled in list((app_state.get("debug_worker_debug_state") or {}).items()):
+            try:
+                kernel_tab_id, wid_text = str(key).rsplit(":", 1)
+                dbg_c.set_worker_debug(int(wid_text), bool(enabled), path_id=kernel_tab_id)
+            except Exception:
+                pass
+
     def _set_kernel_queue_badge(client, kernel_tab_id: str, total_inq: int, sel_inq: int):
         try:
             client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue", f"{total_inq} / {sel_inq}")
@@ -5132,6 +5184,10 @@ def main():
         total_packets = total_queued + int(kernel.get("ghs_live_count", 0) or 0)
         worker_packets = {}
         for w in workers:
+            if "debug_enabled" in w:
+                app_state.setdefault("debug_worker_debug_state", {})[
+                    _worker_debug_cache_key(kernel_tab_id, int(w.get("wid", 0) or 0))
+                ] = bool(w.get("debug_enabled"))
             worker_packets[w.get("wid")] = int(w.get("inq_count", 0) or 0) + int(w.get("owned_ghs_count", 0) or 0)
         app_state.setdefault("debug_kernel_queue_state", {})[kernel_tab_id] = {
             "total_packets": total_packets,
@@ -5142,6 +5198,7 @@ def main():
             sel_packets = worker_packets.get(sel_wid, 0) if sel_wid is not None else 0
             _set_kernel_queue_badge(client, kernel_tab_id, total_packets, sel_packets)
             _refresh_kernel_worker_combo(client, kernel_tab_id, snapshot)
+            _set_kernel_worker_debug_checkbox(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
         """Set indicator colour based on the selected worker's state in the snapshot."""
@@ -5219,6 +5276,84 @@ def main():
             return
         _update_kernel_queue_state_from_snapshot(client, kernel_tab_id, snapshot)
         _update_eip_marker(client, kernel_tab_id, snapshot)
+
+    _debug_refresh_lock = threading.Lock()
+    _debug_refresh_state = {
+        "running": False,
+        "request": None,
+        "seq": 0,
+    }
+
+    def _apply_kernel_debug_snapshot(client, kernel_tab_id: str, snapshot: dict, refresh_sidebars: bool = False):
+        if not client or not kernel_tab_id or not isinstance(snapshot, dict) or not snapshot:
+            return
+        _update_queue_counters(client, snapshot, kernel_tab_id)
+        _update_kernel_indicator_from_snapshot(client, kernel_tab_id, snapshot)
+        if refresh_sidebars:
+            _refresh_runtime_debug_sidebars(client, kernel_tab_id, snapshot)
+
+    def _schedule_all_kernel_debug_state_refresh(client, dbg_c, active_kernel_tab_id: str = "", active_snapshot: dict | None = None):
+        """Coalesce all-kernel debug state refreshes onto one background worker."""
+        if not client or not dbg_c:
+            return
+        if active_kernel_tab_id and active_snapshot:
+            _apply_kernel_debug_snapshot(client, active_kernel_tab_id, active_snapshot, refresh_sidebars=True)
+
+        with _debug_refresh_lock:
+            _debug_refresh_state["seq"] = int(_debug_refresh_state.get("seq", 0)) + 1
+            _debug_refresh_state["request"] = {
+                "client": client,
+                "dbg_c": dbg_c,
+                "active_kernel_tab_id": active_kernel_tab_id,
+                "active_snapshot": active_snapshot,
+                "seq": _debug_refresh_state["seq"],
+            }
+            if _debug_refresh_state.get("running"):
+                return
+            _debug_refresh_state["running"] = True
+
+        def _worker():
+            while True:
+                with _debug_refresh_lock:
+                    request = _debug_refresh_state.get("request")
+                    _debug_refresh_state["request"] = None
+                if not request:
+                    with _debug_refresh_lock:
+                        if _debug_refresh_state.get("request") is None:
+                            _debug_refresh_state["running"] = False
+                            return
+                    continue
+
+                req_client = request.get("client")
+                req_dbg_c = request.get("dbg_c")
+                req_active = str(request.get("active_kernel_tab_id", "") or "")
+                req_active_snapshot = request.get("active_snapshot")
+                req_seq = int(request.get("seq", 0) or 0)
+                for k in _kernels_from_project():
+                    ktid = str(k.get("id", "") or "")
+                    if not ktid:
+                        continue
+                    if ktid == req_active and req_active_snapshot:
+                        continue
+                    with _debug_refresh_lock:
+                        if req_seq != int(_debug_refresh_state.get("seq", 0) or 0):
+                            break
+                    try:
+                        snap = req_dbg_c.snapshot(0, path_id=ktid)
+                    except Exception as exc:
+                        _epa_dbg_log(f"[snapshot-error] {ktid}: {exc}")
+                        continue
+                    with _debug_refresh_lock:
+                        if req_seq != int(_debug_refresh_state.get("seq", 0) or 0):
+                            break
+                    _apply_kernel_debug_snapshot(req_client, ktid, snap, refresh_sidebars=False)
+
+                with _debug_refresh_lock:
+                    if _debug_refresh_state.get("request") is None:
+                        _debug_refresh_state["running"] = False
+                        return
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _editor_tab_id_for_kernel(kernel_id: str) -> str:
         project_root = app_state.get("project_root", "")
@@ -5469,7 +5604,7 @@ def main():
             stop_reason = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
             return snap, stop_reason
         try:
-            resp = dbg_c.step(kernel_id, ticks=1, path_id=kernel_tab_id)
+            resp = dbg_c.step(kernel_id, ticks=1, path_id=kernel_tab_id, wid=wid)
             snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
             stop_reason = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
             return snap, stop_reason
@@ -5787,6 +5922,65 @@ def main():
             print(json.dumps({"open_project_window_close_failed": str(last_error)}), flush=True)
         return False
 
+    def _persist_editor_session_state(allow_empty_tabs: bool = False):
+        if app_state.get("_restoring_session"):
+            return
+        project_root = str(app_state.get("project_root", "") or "")
+        if not project_root:
+            return
+        previous_state = _load_ide_state()
+        previous_projects = previous_state.get("projects", {}) if isinstance(previous_state, dict) else {}
+        previous_session = previous_projects.get(project_root, {}) if isinstance(previous_projects, dict) else {}
+        if not previous_session and previous_state.get("last_project") == project_root:
+            legacy_session = previous_state.get("session", {})
+            if isinstance(legacy_session, dict):
+                previous_session = legacy_session
+        tabs = []
+        for t in sorted(tab_list, key=lambda item: int(item.get("index", 0) or 0)):
+            path = str(t.get("path", "") or "")
+            if not path:
+                continue
+            tabs.append({
+                "path": path,
+                "preview": bool(t.get("preview", False)),
+            })
+        active_tab_id = app_state.get("active_editor_tab", "")
+        active_path = ""
+        for t in tab_list:
+            if t.get("tab_id") == active_tab_id:
+                active_path = str(t.get("path", "") or "")
+                break
+        if not tabs and not allow_empty_tabs:
+            saved_tabs = previous_session.get("open_tabs", [])
+            if isinstance(saved_tabs, list) and saved_tabs:
+                tabs = saved_tabs
+                active_path = str(previous_session.get("active_path", "") or "")
+        updates = {
+            "projects": {
+                project_root: {
+                    "open_tabs": tabs,
+                    "active_path": active_path,
+                    "nav_view": app_state.get("nav_view", "files"),
+                    "bottom_view": app_state.get("bottom_view", "build"),
+                }
+            },
+            "last_project": project_root,
+        }
+        _save_ide_state(updates)
+
+    def _project_session_state(project_root: str, state: dict | None = None) -> dict:
+        state = state if isinstance(state, dict) else _load_ide_state()
+        projects = state.get("projects", {}) if isinstance(state, dict) else {}
+        if isinstance(projects, dict):
+            session = projects.get(project_root, {})
+            if isinstance(session, dict) and session:
+                return session
+        if state.get("last_project") == project_root:
+            legacy_session = state.get("session", {})
+            if isinstance(legacy_session, dict):
+                return legacy_session
+        return {}
+
     _NAV_SOURCE_EXTS: dict[str, set[str]] = {
         "epa":    {".e"},
         "cpp":    {".cpp", ".c", ".h", ".hpp", ".cc", ".cxx", ".hxx"},
@@ -5893,9 +6087,75 @@ def main():
         except Exception:
             pass
 
-    def _open_project(client, project_path):
+    def _clear_editor_tabs(client, persist_empty: bool = False):
+        for entry in sorted(list(tab_list), key=lambda item: int(item.get("index", 0) or 0), reverse=True):
+            tab_id = entry.get("tab_id", "")
+            if tab_id in editor_state:
+                try:
+                    _save_history(tab_id)
+                except Exception:
+                    pass
+            try:
+                client.call("ui.removeTab", {"target": "editor.tabs", "index": int(entry.get("index", 0) or 0)})
+            except Exception:
+                pass
+        tab_list.clear()
+        editor_state.clear()
+        app_state["active_editor_tab"] = ""
+        try:
+            client.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
+            client.call("ui.setVisible", {"target": "editor.welcome", "visible": True})
+        except Exception:
+            pass
+        if persist_empty:
+            _persist_editor_session_state(allow_empty_tabs=True)
+
+    def _restore_project_session(client, project_path: str, session: dict | None = None):
+        session = session if isinstance(session, dict) else _project_session_state(project_path)
+        if not session:
+            return
+        app_state["_restoring_session"] = True
+        try:
+            open_tabs = session.get("open_tabs", [])
+            if isinstance(open_tabs, list):
+                for entry in open_tabs:
+                    if isinstance(entry, str):
+                        path = entry
+                        preview = False
+                    elif isinstance(entry, dict):
+                        path = str(entry.get("path", "") or "")
+                        preview = bool(entry.get("preview", False))
+                    else:
+                        continue
+                    if path and Path(path).is_file():
+                        _open_file_tab(client, path, make_permanent=not preview)
+
+            active_path = str(session.get("active_path", "") or "")
+            active = next((t for t in tab_list if active_path and t.get("path") == active_path), None)
+            if active:
+                app_state["active_editor_tab"] = active["tab_id"]
+                try:
+                    client.call("ui.setActiveTab", {"target": "editor.tabs", "index": active["index"]})
+                except Exception:
+                    pass
+        finally:
+            app_state.pop("_restoring_session", None)
+
+        if tab_list:
+            try:
+                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
+                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+            except Exception:
+                pass
+        _persist_editor_session_state()
+
+    def _open_project(client, project_path, restore_session: bool = False):
         """Open a project: initialise state, populate nav trees, update UI chrome."""
         project_path = Path(project_path)
+        previous_project = str(app_state.get("project_root", "") or "")
+        project_changed = bool(previous_project and previous_project != str(project_path))
+        if project_changed:
+            _persist_editor_session_state()
         _cpp_gdb_stop_session()
         _host_debug_bridge_stop()
         _save_ide_state({"last_project": str(project_path)})
@@ -5930,6 +6190,8 @@ def main():
             "project_root": str(project_path),
             "project_name": project_name,
         })
+        if project_changed or restore_session:
+            _clear_editor_tabs(client, persist_empty=False)
         terminal_state["cwd"] = str(project_path)
         terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
         try:
@@ -5959,6 +6221,17 @@ def main():
         python_dbg_state["status"] = "No Python debug session attached."
         _python_dbg_refresh_ui(client)
         _close_open_project_window(client)
+        if restore_session:
+            session = _project_session_state(str(project_path))
+            nav_view = str(session.get("nav_view", "") or "")
+            if nav_view in _NAV_PANELS:
+                app_state["nav_view"] = nav_view
+            bottom_view = str(session.get("bottom_view", "") or "")
+            if bottom_view:
+                app_state["bottom_view"] = bottom_view
+            _restore_project_session(client, str(project_path), session)
+            _switch_nav_view(client, app_state.get("nav_view", "files"))
+            _set_bottom_view(client, app_state.get("bottom_view", "build"))
 
     _NAV_PANELS = {
         "files":  "nav.panel",
@@ -5972,6 +6245,7 @@ def main():
         if view not in _NAV_PANELS:
             return
         app_state["nav_view"] = view
+        _persist_editor_session_state()
         for v, panel in _NAV_PANELS.items():
             try:
                 client.call("ui.setVisible", {"target": panel, "visible": v == view})
@@ -6065,6 +6339,7 @@ def main():
 
     def _set_bottom_view(client, view: str):
         app_state["bottom_view"] = view
+        _persist_editor_session_state()
         show_build = view == "build"
         show_host_io = view == "host_io"
         show_terminal = view == "terminal"
@@ -6345,12 +6620,14 @@ def main():
         if existing:
             if make_permanent and existing["preview"]:
                 existing["preview"] = False
+            app_state["active_editor_tab"] = existing["tab_id"]
             try:
                 client.call("ui.setActiveTab", {"target": "editor.tabs", "index": existing["index"]})
                 client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
                 client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
             except Exception:
                 pass
+            _persist_editor_session_state()
             return
 
         preview_entry = next((t for t in tab_list if t["preview"]), None)
@@ -6425,6 +6702,7 @@ def main():
                 "index": insert_index,
                 "preview": is_preview,
             })
+            app_state["active_editor_tab"] = tab_id
             for t in tab_list:
                 if t is not tab_list[insert_index] and t["index"] >= insert_index:
                     t["index"] += 1
@@ -6435,8 +6713,26 @@ def main():
                 _refresh_e_tab(client, tab_id)
                 _cpp_gdb_refresh_ui(client)
             _focus_editor_widget(client, tab_id, editor_state.get(tab_id))
+            _persist_editor_session_state()
         except Exception:
             pass
+
+    def _restore_editor_session_state(client):
+        state = _load_ide_state()
+        last_project = str(state.get("last_project", "") or "") if isinstance(state, dict) else ""
+        if last_project and Path(last_project).is_dir():
+            _open_project(client, last_project, restore_session=True)
+
+        if app_state.get("project_root"):
+            _switch_nav_view(client, app_state.get("nav_view", "files"))
+            _set_bottom_view(client, app_state.get("bottom_view", "build"))
+        if tab_list:
+            try:
+                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
+                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+            except Exception:
+                pass
+        _persist_editor_session_state()
 
     def _ai_format_history(extra_assistant_text=None) -> str:
         """Return JSON-encoded messages for the chat dialog widget."""
@@ -6564,13 +6860,14 @@ def main():
 
         if action == "valueChanged" and target == "editor.tabs" and client is not None:
             new_index = int(payload.get("value", -1))
-            for tid, st in editor_state.items():
-                entry = next((t for t in tab_list if t.get("tab_id") == tid), None)
-                if entry and entry.get("index") == new_index:
-                    app_state["active_editor_tab"] = tid
-                    c = client
-                    _deferred(lambda t=tid, s=st: _focus_editor_widget(c, t, s))
-                    break
+            entry = next((t for t in tab_list if t.get("index") == new_index), None)
+            if entry:
+                tid = entry.get("tab_id", "")
+                app_state["active_editor_tab"] = tid
+                _persist_editor_session_state()
+                c = client
+                st = editor_state.get(tid, {})
+                _deferred(lambda t=tid, s=st: _focus_editor_widget(c, t, s))
             return {"received": True}
 
         for tab_id, state in editor_state.items():
@@ -7093,7 +7390,7 @@ def main():
                 fp = folder_path
                 def _handle_folder_dclick():
                     if (Path(fp) / ".elaraproject").is_dir():
-                        _open_project(c, fp)
+                        _open_project(c, fp, restore_session=True)
                     else:
                         _open_project_navigate(c, fp)
                 _deferred(_handle_folder_dclick)
@@ -7151,6 +7448,12 @@ def main():
                     for t in tab_list:
                         if t["index"] > close_index:
                             t["index"] -= 1
+                    if tab_list:
+                        next_entry = min(tab_list, key=lambda item: abs(int(item.get("index", 0) or 0) - close_index))
+                        app_state["active_editor_tab"] = next_entry.get("tab_id", "")
+                    else:
+                        app_state["active_editor_tab"] = ""
+                    _persist_editor_session_state(allow_empty_tabs=True)
                     ci = close_index
                     def _do_close_tab():
                         try:
@@ -7398,7 +7701,7 @@ def main():
                 cur = current
                 def _do_open():
                     if (Path(cur) / ".elaraproject").is_dir():
-                        _open_project(c, cur)
+                        _open_project(c, cur, restore_session=True)
                     else:
                         try:
                             c.set_text("open_project.hint", "No .elaraproject found — navigate into a project folder")
@@ -7777,6 +8080,7 @@ def main():
                             dbg_c = _epa_dbg_client()
                         if not dbg_c:
                             return
+                        _sync_cached_worker_debug_states(dbg_c)
                         # Mark as running before the call
                         if uc:
                             _set_kernel_run_indicator(uc, ktid, _IND_RED)
@@ -7787,10 +8091,8 @@ def main():
                                 step_status = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
                             else:
                                 snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid, wid)
-                            if snap and uc:
-                                _update_queue_counters(uc, snap, ktid)
-                                _update_kernel_indicator_from_snapshot(uc, ktid, snap)
-                                _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                            if uc:
+                                _schedule_all_kernel_debug_state_refresh(uc, dbg_c, ktid, snap if snap else None)
                             _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                             if snap and not r:
                                 _epa_dbg_log(_format_step_eip_log(ktid, snap))
@@ -7805,16 +8107,15 @@ def main():
                             if should_retry_load:
                                 try:
                                     dbg_c = _epa_dbg_client()
+                                    _sync_cached_worker_debug_states(dbg_c)
                                     if r:
                                         resp = dbg_c.run_to_wait(wid=wid, path_id=ktid)
                                         snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
                                         step_status = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
                                     else:
                                         snap, step_status = _dbg_step_for_active_view(dbg_c, k, ktid, wid)
-                                    if snap and uc:
-                                        _update_queue_counters(uc, snap, ktid)
-                                        _update_kernel_indicator_from_snapshot(uc, ktid, snap)
-                                        _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                                    if uc:
+                                        _schedule_all_kernel_debug_state_refresh(uc, dbg_c, ktid, snap if snap else None)
                                     _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                                     if snap and not r:
                                         _epa_dbg_log(_format_step_eip_log(ktid, snap))
@@ -7833,10 +8134,8 @@ def main():
                                     snap = dbg_c.snapshot(k)
                                 except Exception:
                                     snap = {}
-                                if snap and uc:
-                                    _update_queue_counters(uc, snap, ktid)
-                                    _update_kernel_indicator_from_snapshot(uc, ktid, snap)
-                                    _refresh_runtime_debug_sidebars(uc, ktid, snap)
+                                if uc:
+                                    _schedule_all_kernel_debug_state_refresh(uc, dbg_c, ktid, snap if snap else None)
                                 _drain_epa_dbg_events(uc, dbg_c, k, ktid)
                                 if snap:
                                     _epa_dbg_log(_format_step_eip_log(ktid, snap))
@@ -7959,6 +8258,7 @@ def main():
                 if client:
                     _refresh_kernel_worker_combo(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
                     _apply_cached_kernel_queue_state(client, kernel_id_str)
+                    _set_kernel_worker_debug_checkbox(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
                     snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
                     if snapshot:
                         _update_kernel_indicator_from_snapshot(client, kernel_id_str, snapshot)
@@ -7976,6 +8276,42 @@ def main():
                                 )
                             except Exception:
                                 pass
+                return {"received": True}
+
+        # Kernel worker debug checkbox — enabled means line/boundary stepping;
+        # disabled means run the selected wid until it blocks again.
+        if action == "valueChanged" and target and target.endswith(".debug"):
+            prefix = "nav.debug.kernel."
+            suffix = ".debug"
+            if target.startswith(prefix) and target.endswith(suffix):
+                kernel_id_str = target[len(prefix):-len(suffix)]
+                wid = _selected_worker_wid_for_kernel(kernel_id_str)
+                if wid is None:
+                    wid = 0
+                enabled = float(payload.get("value", 0) or 0) > 0.5
+                app_state.setdefault("debug_worker_debug_state", {})[
+                    _worker_debug_cache_key(kernel_id_str, wid)
+                ] = enabled
+                dbg_c = _epa_dbg_client()
+                if dbg_c and _epa_dbg_running():
+                    def _set_debug_state(ktid=kernel_id_str, worker_id=wid, is_enabled=enabled):
+                        try:
+                            resp = dbg_c.set_worker_debug(worker_id, is_enabled, path_id=ktid)
+                            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                            if snap and client:
+                                _apply_kernel_debug_snapshot(client, ktid, snap, refresh_sidebars=False)
+                        except Exception as exc:
+                            _epa_dbg_log(f"[debug-state-error] {ktid} wid={worker_id}: {exc}")
+                    _deferred(_set_debug_state)
+                snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
+                if snapshot:
+                    for worker in snapshot.get("workers", []) or []:
+                        if int(worker.get("wid", -1)) == int(wid):
+                            worker["debug_enabled"] = enabled
+                            break
+                    if client:
+                        _refresh_kernel_worker_combo(client, kernel_id_str, snapshot)
+                        _set_kernel_worker_debug_checkbox(client, kernel_id_str, snapshot)
                 return {"received": True}
 
         # Ingress designer — profile selected in list
@@ -8275,13 +8611,15 @@ def main():
             client.add_handler("ui.event", on_ui_event)
             load_result = client.load_document(builder)
             print(json.dumps(load_result, indent=2))
+            _restore_editor_session_state(client)
             if bool((initial_ide_state.get("window", {}) if isinstance(initial_ide_state, dict) else {}).get("maximized", False)):
                 try:
                     client.set_window_maximized(True)
                 except Exception:
                     pass
             try:
-                client.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
+                client.call("ui.setVisible", {"target": "editor.tabs", "visible": bool(tab_list)})
+                client.call("ui.setVisible", {"target": "editor.welcome", "visible": not bool(tab_list)})
             except Exception:
                 pass
             if not app_state.get("project_root"):
@@ -8425,6 +8763,7 @@ def main():
                             pass
                     tab_list[:] = [x for x in tab_list if x.get("tab_id") != tab_id]
                     editor_state.pop(tab_id, None)
+                    _persist_editor_session_state(allow_empty_tabs=True)
 
                 def _ai_rpc_get_nav_tree() -> list:
                     return app_state.get("nav_tree_nodes", [])
@@ -8518,7 +8857,7 @@ def main():
                     c = client_ref.get("client")
                     if not c:
                         raise RuntimeError("ui_unavailable: UI client not connected")
-                    _open_project(c, path)
+                    _open_project(c, path, restore_session=True)
                     return {
                         "project_root": app_state.get("project_root", ""),
                         "project_name": app_state.get("project_name", ""),
@@ -8733,6 +9072,7 @@ def main():
             while client._running and not app_state.get("_ui_reconnect_requested"):
                 now = time.monotonic()
                 if now >= next_layout_persist:
+                    _persist_editor_session_state()
                     _persist_runtime_layout_state(client)
                     next_layout_persist = now + 1.0
                 time.sleep(0.25)
