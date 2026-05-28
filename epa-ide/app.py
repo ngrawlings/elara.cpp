@@ -1333,21 +1333,25 @@ def _load_ide_state() -> dict:
         return {}
 
 
+_ide_state_lock = threading.Lock()
+
+
 def _save_ide_state(updates: dict):
     p = _ide_state_path()
-    try:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        state = _load_ide_state()
-        for key, value in updates.items():
-            if isinstance(value, dict) and isinstance(state.get(key), dict):
-                merged = dict(state[key])
-                merged.update(value)
-                state[key] = merged
-            else:
-                state[key] = value
-        p.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    with _ide_state_lock:
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            state = _load_ide_state()
+            for key, value in updates.items():
+                if isinstance(value, dict) and isinstance(state.get(key), dict):
+                    merged = dict(state[key])
+                    merged.update(value)
+                    state[key] = merged
+                else:
+                    state[key] = value
+            p.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        except Exception:
+            pass
 
 
 def _layout_value(value, fallback: int, minimum: int = 120) -> int:
@@ -6191,6 +6195,8 @@ def main():
             "project_name": project_name,
         })
         if project_changed or restore_session:
+            if restore_session and not project_changed:
+                _persist_editor_session_state()
             _clear_editor_tabs(client, persist_empty=False)
         terminal_state["cwd"] = str(project_path)
         terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
@@ -8565,20 +8571,20 @@ def main():
             print(json.dumps({"ui.event": params}, indent=2), flush=True)
         return {"received": True}
 
-    initial_ide_state = _current_layout_state()
-    builder = build_document()
     _init_editor_state()
-    document_json = builder.to_json(indent=2)
     artifact_root = Path(__file__).resolve().parent / "artifacts"
     if args.output:
         output_path = Path(args.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(document_json, encoding="utf-8")
+        output_path.write_text(build_document().to_json(indent=2), encoding="utf-8")
     worker = None
     _first_connect = True
     try:
       while True:  # reconnect loop — continues only when _ui_server manages the process
         try:
+          # Rebuild the document each time so reconnects use current saved layout state.
+          initial_ide_state = _current_layout_state()
+          builder = build_document()
           with ElaraUiRpcClient(args.host, args.port) as client:
             client_ref["client"] = client
             client.set_find_widget_artifact_root(str(artifact_root))

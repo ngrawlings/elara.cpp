@@ -130,6 +130,38 @@ const char* cursorName(ElaraMouseCursor cursor) {
     }
 }
 
+static const int WINDOW_RESIZE_BORDER = 8;
+
+static GdkSurfaceEdge windowResizeEdge(double x, double y, int w, int h) {
+    bool left   = x < WINDOW_RESIZE_BORDER;
+    bool right  = x >= w - WINDOW_RESIZE_BORDER;
+    bool top    = y < WINDOW_RESIZE_BORDER;
+    bool bottom = y >= h - WINDOW_RESIZE_BORDER;
+    if(top && left)     return GDK_SURFACE_EDGE_NORTH_WEST;
+    if(top && right)    return GDK_SURFACE_EDGE_NORTH_EAST;
+    if(bottom && left)  return GDK_SURFACE_EDGE_SOUTH_WEST;
+    if(bottom && right) return GDK_SURFACE_EDGE_SOUTH_EAST;
+    if(top)    return GDK_SURFACE_EDGE_NORTH;
+    if(bottom) return GDK_SURFACE_EDGE_SOUTH;
+    if(left)   return GDK_SURFACE_EDGE_WEST;
+    if(right)  return GDK_SURFACE_EDGE_EAST;
+    return (GdkSurfaceEdge)-1;
+}
+
+static const char* resizeEdgeCursor(GdkSurfaceEdge edge) {
+    switch(edge) {
+        case GDK_SURFACE_EDGE_NORTH:      return "n-resize";
+        case GDK_SURFACE_EDGE_SOUTH:      return "s-resize";
+        case GDK_SURFACE_EDGE_WEST:       return "w-resize";
+        case GDK_SURFACE_EDGE_EAST:       return "e-resize";
+        case GDK_SURFACE_EDGE_NORTH_WEST: return "nw-resize";
+        case GDK_SURFACE_EDGE_NORTH_EAST: return "ne-resize";
+        case GDK_SURFACE_EDGE_SOUTH_WEST: return "sw-resize";
+        case GDK_SURFACE_EDGE_SOUTH_EAST: return "se-resize";
+        default: return "default";
+    }
+}
+
 void onClipboardTextRead(GObject* source_object, GAsyncResult* result, gpointer user_data) {
     ClipboardReadState* state = (ClipboardReadState*)user_data;
     GdkClipboard* clipboard = GDK_CLIPBOARD(source_object);
@@ -556,7 +588,16 @@ void GtkGuiBackend::onMouseMotion(
             }
         } else {
             state->surface->dispatchMouseMove(x, y);
-            gtk_widget_set_cursor_from_name(state->drawing_area, cursorName(state->surface->currentCursor(x, y)));
+            const char* cursor = cursorName(state->surface->currentCursor(x, y));
+            if(!state->decorated) {
+                int w = gtk_widget_get_width(state->drawing_area);
+                int h = gtk_widget_get_height(state->drawing_area);
+                GdkSurfaceEdge edge = windowResizeEdge(x, y, w, h);
+                if(edge != (GdkSurfaceEdge)-1) {
+                    cursor = resizeEdgeCursor(edge);
+                }
+            }
+            gtk_widget_set_cursor_from_name(state->drawing_area, cursor);
             state->backend->invalidate();
         }
     }
@@ -593,6 +634,32 @@ void GtkGuiBackend::onMousePressed(
         state->last_mouse_x = x;
         state->last_mouse_y = y;
         int button = gtk_gesture_single_get_current_button(GTK_GESTURE_SINGLE(gesture));
+
+        if(!state->decorated && button == 1) {
+            int w = gtk_widget_get_width(state->drawing_area);
+            int h = gtk_widget_get_height(state->drawing_area);
+            GdkSurfaceEdge edge = windowResizeEdge(x, y, w, h);
+            if(edge != (GdkSurfaceEdge)-1) {
+                GdkSurface* gdk_surface = gtk_native_get_surface(GTK_NATIVE(state->window));
+                if(gdk_surface) {
+                    GdkSeat* seat = gdk_display_get_default_seat(gdk_surface_get_display(gdk_surface));
+                    if(seat) {
+                        gdk_toplevel_begin_resize(
+                            GDK_TOPLEVEL(gdk_surface),
+                            edge,
+                            gdk_seat_get_pointer(seat),
+                            button,
+                            x,
+                            y,
+                            GDK_CURRENT_TIME
+                        );
+                    }
+                }
+                if(state->backend) { state->backend->invalidate(); }
+                return;
+            }
+        }
+
         bool is_double = (n_press == 2) || (state->pending_timer_id != 0);
 
         if(state->pending_timer_id != 0) {
