@@ -13,12 +13,13 @@ GTK_CFLAGS=@GTK_CFLAGS@
 GTK_LIBS=@GTK_LIBS@ -lX11
 GTK_BACKEND_ENABLED=@GTK_BACKEND_ENABLED@
 
-STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -I./libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
+STD_CFLAGS=@ARCH@ -c @DEBUG_FLAGS@ -MMD -MP -I./libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
 STD_LDFLAGS=$(GTK_LIBS)
 
 SOURCES=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* @GTK_BACKEND_EXCLUDE@ \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
 HEADERS=$(shell for file in `@TOOLPATH@find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
+DEPS=$(addprefix $(BUILDPATH)/,$(notdir $(OBJECTS:.o=.d)))
 DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
 
 DEMO_SOURCE=./demo/main.cpp
@@ -77,7 +78,7 @@ install: all
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
 
 clean:
-	rm -Rf $(BUILDPATH)/*.o
+	rm -Rf $(BUILDPATH)/*.o $(BUILDPATH)/*.d
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 	rm -f $(DEMO_TARGET)
 	rm -f $(RPC_SERVER_TARGET)
@@ -91,3 +92,5 @@ remove:
 cleanconf:
 	rm -Rf config.status autom4te.cache
 	rm -f config.log config.h Makefile
+
+-include $(wildcard $(DEPS))

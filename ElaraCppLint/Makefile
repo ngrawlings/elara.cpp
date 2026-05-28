@@ -22,7 +22,7 @@ build/src/%.o: ./src/%.cpp
 	@mkdir -p $(dir $@)
 	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
 
--include $(DEPS)
+-include $(wildcard $(DEPS))
 
 install:
 	mkdir -p $(STAGE_BIN_DIR)

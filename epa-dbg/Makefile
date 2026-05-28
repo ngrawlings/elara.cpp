@@ -53,7 +53,7 @@ $(BUILDPATH)/src/%.c.o: ./src/%.c
 	@mkdir -p $(dir $@)
 	$(CC) -c -MMD -MP $(STD_CCFLAGS) -I$(shell pwd) -I$(ELARA_INCLUDE_DIR) -I$(EPA_PARALLEL_SRC_DIR) -I$(EPA_PARALLEL_OPCODES_DIR) $(PROJECT_CFLAGS) $< -o $@
 
--include $(DEPS)
+-include $(wildcard $(DEPS))
 
 install: all
 	mkdir -p $(STAGE_BIN_DIR)

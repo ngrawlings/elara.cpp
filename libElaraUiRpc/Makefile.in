@@ -10,12 +10,13 @@ INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
 INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
 STATIC_LIBRARY=$(NAME).a
 
-STD_CFLAGS= -c -I$(shell pwd) -I../libElaraUI -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS= -c -MMD -MP -I$(shell pwd) -I../libElaraUI -I$(STAGE_INCLUDE_DIR) $(DEFS)
 STD_LDFLAGS=
 
 SOURCES=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
 HEADERS=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
+DEPS=$(addprefix $(BUILDPATH)/,$(notdir $(OBJECTS:.o=.d)))
 
 all: $(SOURCES) $(STATIC_LIBRARY)
 
@@ -48,7 +49,7 @@ install: all
 	fi
 
 clean:
-	rm -Rf $(BUILDPATH)/*.o
+	rm -Rf $(BUILDPATH)/*.o $(BUILDPATH)/*.d
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 
 remove:
@@ -58,3 +59,5 @@ remove:
 cleanconf:
 	rm -Rf config.status autom4te.cache
 	rm -f config.log config.h Makefile
+
+-include $(wildcard $(DEPS))

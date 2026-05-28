@@ -7,7 +7,7 @@ DEFS = -DHAVE_CONFIG_H
 ROOT_BUILD_DIR?=$(abspath ../build)
 STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
 STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
-STD_CFLAGS= -c -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS= -c  -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
 C_CFLAGS=$(filter-out -std=gnu++11,$(CFLAGS))
 CPP_CFLAGS=$(CFLAGS)
 BUILDPATH=./build
@@ -34,7 +34,7 @@ $(C_LIBRARY): $(C_OBJECTS)
 $(CPP_LIBRARY): $(CPP_OBJECTS)
 	$(AR) rcs $(BUILDPATH)/$@ $(CPP_OBJECTS)
 
-$(BUILDPATH)/c/%.o: ./$(C_NAME)/%.c | copyconfig
+$(BUILDPATH)/c/%.o: ./$(C_NAME)/%.c copyconfig
 	@[ -d $(@D) ] || mkdir -p $(@D)
 	$(CC) $(STD_CFLAGS) $(C_CFLAGS) $< -o $@
 
@@ -75,4 +75,4 @@ cleanconf:
 	rm -f config.log
 	rm -f Makefile
 
--include $(DEPS)
+-include $(wildcard $(DEPS))

@@ -5,10 +5,11 @@ ROOT_BUILD_DIR?=$(abspath ../build)
 STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
 STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
 STAGE_BIN_DIR=$(ROOT_BUILD_DIR)/bin
-STD_CFLAGS=-c -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS=-c -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
 STD_LDFLAGS=-L$(STAGE_LIB_DIR) -lelaraio -lelaracore
 SOURCES=$(shell find ./src -type f -name '*.cpp' -print)
 OBJECTS=$(patsubst ./src/%.cpp,build/src/%.o,$(SOURCES))
+DEPS=$(OBJECTS:.o=.d)
 BUILDPATH=./build
 TARGET=elara.cpp-lint
 
@@ -19,7 +20,9 @@ $(TARGET): $(OBJECTS)
 
 build/src/%.o: ./src/%.cpp
 	@mkdir -p $(dir $@)
-	$(CC) $(STD_CFLAGS) $(CFLAGS) ./src/$*.cpp -o $@
+	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+
+-include $(wildcard $(DEPS))
 
 install:
 	mkdir -p $(STAGE_BIN_DIR)

@@ -13,13 +13,13 @@ GTK_CFLAGS=-I/usr/include/gtk-4.0 -I/usr/include/pango-1.0 -I/usr/include/glib-2
 GTK_LIBS=-lgtk-4 -lpangocairo-1.0 -lpango-1.0 -lharfbuzz -lgdk_pixbuf-2.0 -lcairo-gobject -lcairo -lvulkan -lgraphene-1.0 -lgio-2.0 -lgobject-2.0 -lglib-2.0  -lX11
 GTK_BACKEND_ENABLED=1
 
-STD_CFLAGS= -c -MMD -MP -I./libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
+STD_CFLAGS= -c  -MMD -MP -I./libelaraui -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(GTK_CFLAGS) $(DEFS)
 STD_LDFLAGS=$(GTK_LIBS)
 
 SOURCES=$(shell for file in `find ./$(NAME) \( -name x_*  \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
 HEADERS=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
-DEPS=$(OBJECTS:.o=.d)
+DEPS=$(addprefix $(BUILDPATH)/,$(notdir $(OBJECTS:.o=.d)))
 DST_HEADERS=$(subst ./$(NAME),$(INSTALL_HEADER_PATH),$(HEADERS))
 
 DEMO_SOURCE=./demo/main.cpp
@@ -36,11 +36,11 @@ all: $(SOURCES) $(STATIC_LIBRARY)
 
 $(STATIC_LIBRARY): $(OBJECTS)
 	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
-	ar rcs $(BUILDPATH)/$@ $(OBJECTS)
+	ar rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
 
-$(BUILDPATH)/%.o: ./$(NAME)/%.cpp | copyconfig
-	@mkdir -p $(dir $@)
-	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+$(BUILDPATH)/%.o: copyconfig
+	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
 
 demo: $(STATIC_LIBRARY)
 	@if [ "$(GTK_BACKEND_ENABLED)" != "1" ]; then \
@@ -78,8 +78,7 @@ install: all
 	cp $(BUILDPATH)/$(STATIC_LIBRARY) $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
 
 clean:
-	find $(BUILDPATH) -name '*.o' -delete
-	find $(BUILDPATH) -name '*.d' -delete
+	rm -Rf $(BUILDPATH)/*.o $(BUILDPATH)/*.d
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 	rm -f $(DEMO_TARGET)
 	rm -f $(RPC_SERVER_TARGET)
@@ -94,4 +93,4 @@ cleanconf:
 	rm -Rf config.status autom4te.cache
 	rm -f config.log config.h Makefile
 
--include $(DEPS)
+-include $(wildcard $(DEPS))

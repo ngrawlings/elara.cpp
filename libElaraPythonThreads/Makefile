@@ -19,13 +19,13 @@ PYTHON_EXTENSION_SUFFIX=$(shell $(PYTHON3_CONFIG) --extension-suffix)
 PYTHON_INCLUDES=$(shell $(PYTHON3_CONFIG) --includes)
 PYTHON_LDFLAGS=$(shell $(PYTHON3_CONFIG) --ldflags)
 
-STD_CFLAGS= -c -fPIC -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
+STD_CFLAGS= -c  -fPIC -MMD -MP -I$(shell pwd) -I$(STAGE_INCLUDE_DIR) $(DEFS)
 STD_LDFLAGS=
 
 SOURCES=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.cpp' -print`; do echo $$file; done)
 HEADERS=$(shell for file in `find ./$(NAME) \( -name x_* \) -prune -o -type f -name '*.h' -print`; do echo $$file; done)
 OBJECTS=$(subst $(NAME),build,$(SOURCES:.cpp=.o))
-DEPS=$(OBJECTS:.o=.d)
+DEPS=$(addprefix $(BUILDPATH)/,$(notdir $(OBJECTS:.o=.d)))
 
 PYTHON_MODULE_SOURCE=./python/module.cpp
 PYTHON_MODULE_TARGET=$(PYTHON_PACKAGE_PATH)/_native$(PYTHON_EXTENSION_SUFFIX)
@@ -45,11 +45,11 @@ all: $(STATIC_LIBRARY) python-module
 
 $(STATIC_LIBRARY): $(OBJECTS)
 	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
-	$(AR) rcs $(BUILDPATH)/$@ $(OBJECTS)
+	$(AR) rcs $(BUILDPATH)/$@ $(addprefix $(BUILDPATH)/, $(notdir $(OBJECTS)))
 
-$(BUILDPATH)/%.o: ./$(NAME)/%.cpp | copyconfig
-	@mkdir -p $(dir $@)
-	$(CC) $(STD_CFLAGS) $(CFLAGS) $< -o $@
+$(BUILDPATH)/%.o: copyconfig
+	@[ -d $(BUILDPATH) ] || mkdir -p $(BUILDPATH)
+	$(CC) $(STD_CFLAGS) $(CFLAGS) ./$(subst build,$(NAME),$(@:.o=.cpp)) -o $(BUILDPATH)/$(notdir $@)
 
 python-module: $(STATIC_LIBRARY) $(PYTHON_MODULE_SOURCE) $(PYTHON_PACKAGE_SOURCES)
 	@[ -d $(PYTHON_PACKAGE_PATH) ] || mkdir -p $(PYTHON_PACKAGE_PATH)
@@ -79,7 +79,7 @@ install: all
 	cp $(DEMO_CLIENT_SOURCE) $(DEMO_DIR)/example.py
 
 clean:
-	rm -f $(BUILDPATH)/*.o $(BUILDPATH)/*.d
+	rm -Rf $(BUILDPATH)/*.o $(BUILDPATH)/*.d
 	rm -f $(BUILDPATH)/$(STATIC_LIBRARY)
 	rm -Rf $(PYTHON_PACKAGE_PATH)
 	rm -Rf $(DEMO_DIR)
@@ -94,4 +94,4 @@ cleanconf:
 	rm -Rf config.status autom4te.cache
 	rm -f config.log config.h Makefile
 
--include $(DEPS)
+-include $(wildcard $(DEPS))
