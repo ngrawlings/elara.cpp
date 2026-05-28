@@ -5435,6 +5435,77 @@ def main():
             "epa_col": int(marker.get("epa_col", 1) or 1),
         }
 
+    def _editor_widget_tab_and_kind(target: str) -> tuple[str, str]:
+        if not target:
+            return "", ""
+        for tab_id in editor_state.keys():
+            ids = _editor_ids(tab_id)
+            if target == ids["source"]:
+                return tab_id, "source"
+            if target == ids["epa"]:
+                return tab_id, "epa"
+        return "", ""
+
+    def _set_editor_breakpoint_line(tab_id: str, kind: str, line: int, enabled: bool):
+        state = editor_state.get(tab_id)
+        if not state:
+            return
+        key = "source_breakpoint_lines" if kind == "source" else "epa_breakpoint_lines"
+        lines = set(int(v) for v in state.get(key, []) if int(v) >= 0)
+        if enabled:
+            lines.add(int(line))
+        else:
+            lines.discard(int(line))
+        state[key] = sorted(lines)
+
+    def _breakpoint_locations_for_kernel(kernel_tab_id: str) -> list[dict]:
+        stid = _editor_tab_id_for_kernel(kernel_tab_id)
+        st = editor_state.get(stid) if stid else None
+        if not st:
+            return []
+        locations: list[dict] = []
+        seen: set[tuple[int, int, int]] = set()
+
+        def _add_matching(kind: str, line0: int):
+            line1 = int(line0) + 1
+            for key, entries in (st.get("epa_block_map", {}) or {}).items():
+                try:
+                    block_type, block_id = int(key[0]), int(key[1])
+                except Exception:
+                    continue
+                for entry in entries or []:
+                    marker_line = int(entry.get("e_line" if kind == "source" else "epa_line", 0) or 0)
+                    if marker_line != line1:
+                        continue
+                    rel_pc = int(entry.get("offset", 0) or 0)
+                    loc_key = (block_type, block_id, rel_pc)
+                    if loc_key in seen:
+                        return
+                    seen.add(loc_key)
+                    locations.append({"block_type": block_type, "block_id": block_id, "rel_pc": rel_pc})
+                    return
+
+        for line in st.get("source_breakpoint_lines", []) or []:
+            _add_matching("source", int(line))
+        for line in st.get("epa_breakpoint_lines", []) or []:
+            _add_matching("epa", int(line))
+        return locations
+
+    def _sync_editor_breakpoints_for_run(dbg_c, kernel_id: int, kernel_tab_id: str):
+        if not dbg_c or not kernel_tab_id:
+            return
+        locations = _breakpoint_locations_for_kernel(kernel_tab_id)
+        dbg_c.breakpoint_clear_all(kernel_id)
+        for loc in locations:
+            dbg_c.call("epa.debug.breakpointAdd", {
+                "kernel_id": kernel_id,
+                "block_type": int(loc["block_type"]),
+                "block_id": int(loc["block_id"]),
+                "rel_pc": int(loc["rel_pc"]),
+            })
+        if locations:
+            _epa_dbg_log(f"[breakpoints] synced {len(locations)} for {kernel_tab_id}")
+
     def _format_fault_marker_detail(line: str) -> str:
         """Translate an EPA fault line into current-kernel EPA/E source coordinates when possible."""
         match = _EPA_FAULT_RE.search(line or "")
@@ -7450,6 +7521,17 @@ def main():
             item_action = payload.get("action")
             c = client
 
+            if isinstance(item_action, str) and item_action.startswith("breakpoint.toggle."):
+                parts = item_action.split(".")
+                if len(parts) >= 4:
+                    tab_id, kind = _editor_widget_tab_and_kind(target)
+                    if tab_id and kind:
+                        try:
+                            _set_editor_breakpoint_line(tab_id, kind, int(parts[2]), bool(int(parts[3])))
+                        except Exception:
+                            pass
+                return {"received": True}
+
             for tab_id, state in editor_state.items():
                 ids = _editor_ids(tab_id)
                 if item_action == ids["button_e"]:
@@ -8131,6 +8213,8 @@ def main():
                         if not dbg_c:
                             return
                         _sync_cached_worker_debug_states(dbg_c)
+                        if r:
+                            _sync_editor_breakpoints_for_run(dbg_c, k, ktid)
                         # Mark selected worker as healthy and not blocked while the RPC is in flight.
                         if uc:
                             _set_kernel_load_indicator(uc, ktid, _IND_GREEN)
@@ -8160,6 +8244,7 @@ def main():
                                     dbg_c = _epa_dbg_client()
                                     _sync_cached_worker_debug_states(dbg_c)
                                     if r:
+                                        _sync_editor_breakpoints_for_run(dbg_c, k, ktid)
                                         resp = dbg_c.run_to_wait(wid=wid, path_id=ktid)
                                         snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
                                         step_status = str(resp.get("stop_reason", "")) if isinstance(resp, dict) else ""
@@ -8333,7 +8418,7 @@ def main():
 
         # Kernel worker debug checkbox — enabled means line/boundary stepping;
         # disabled means run the selected wid until it blocks again.
-        if action == "valueChanged" and target and target.endswith(".debug"):
+        if action in ("valueChanged", "action", "clicked") and target and target.endswith(".debug"):
             prefix = "nav.debug.kernel."
             suffix = ".debug"
             if target.startswith(prefix) and target.endswith(suffix):
@@ -8341,7 +8426,14 @@ def main():
                 wid = _selected_worker_wid_for_kernel(kernel_id_str)
                 if wid is None:
                     wid = 0
-                enabled = float(payload.get("value", 0) or 0) > 0.5
+                if "checked" in payload:
+                    enabled = bool(payload.get("checked"))
+                elif "value" in payload:
+                    enabled = float(payload.get("value", 0) or 0) > 0.5
+                else:
+                    enabled = not bool(app_state.setdefault("debug_worker_debug_state", {}).get(
+                        _worker_debug_cache_key(kernel_id_str, wid), True
+                    ))
                 app_state.setdefault("debug_worker_debug_state", {})[
                     _worker_debug_cache_key(kernel_id_str, wid)
                 ] = enabled

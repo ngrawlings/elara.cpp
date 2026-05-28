@@ -80,7 +80,10 @@ private:
                   uint32_t target_wid,
                   String &stop_reason, uint32_t &ticks_ran, String &error_message);
     bool runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
+                   bool use_breakpoints,
                    String &stop_reason, uint32_t &ticks_ran, String &error_message);
+    bool drainNonDebugWorkers(const String &path_id, uint32_t max_ticks,
+                              uint32_t &ticks_ran, String &error_message);
     bool stepBoundary(const String &path_id, const String &map_path, uint32_t target_wid,
                       const String &step_mode, uint32_t max_ticks,
                       String &stop_reason, uint32_t &ticks_ran,

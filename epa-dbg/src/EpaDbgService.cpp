@@ -377,13 +377,13 @@ bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool st
     char err[EPA_MAX_ERR];
     if (!k) { error_message = String("kernel not created"); return false; }
     if (target_wid != 0xffffffffu && !workerDebugIsEnabled(path_id, target_wid)) {
-        return runToWait(path_id, target_wid, tick_count ? tick_count : 500000u, stop_reason, ticks_ran, error_message);
+        return runToWait(path_id, target_wid, tick_count ? tick_count : 500000u, false, stop_reason, ticks_ran, error_message);
     }
     ensureDebugCallback();
     ticks_ran = 0;
     size_t event_base = events.size();
     std::vector<BreakpointOverlay> overlays;
-    if (!installBreakpointOverlays(k, overlays, error_message)) {
+    if (stop_on_bp && !installBreakpointOverlays(k, overlays, error_message)) {
         stop_reason = String("error");
         return false;
     }
@@ -406,7 +406,7 @@ bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool st
                 break;
             }
         }
-        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
+        if (stop_on_bp && events.size() > event_base) translateOverlayBreakEvent(k, overlays);
         if (events.size() > event_base) { stop_reason = events.back().kind; break; }
         if (stop_on_bp) {
             uint32_t wid = 0; Breakpoint bp;
@@ -424,6 +424,7 @@ bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool st
 }
 
 bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
+                               bool use_breakpoints,
                                String &stop_reason, uint32_t &ticks_ran, String &error_message) {
     EpaKernel *k = kernelForPath(path_id);
     char err[EPA_MAX_ERR];
@@ -432,7 +433,7 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
     ticks_ran = 0;
     size_t event_base = events.size();
     std::vector<BreakpointOverlay> overlays;
-    if (!installBreakpointOverlays(k, overlays, error_message)) {
+    if (use_breakpoints && !installBreakpointOverlays(k, overlays, error_message)) {
         stop_reason = String("error");
         return false;
     }
@@ -465,7 +466,7 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
                 goto run_to_wait_done;
             }
         }
-        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
+        if (use_breakpoints && events.size() > event_base) translateOverlayBreakEvent(k, overlays);
         EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
         size_t wc = epa_dbg_capture_workers(k, ws, EPA_DBG_MAX_WORKERS);
         for (size_t i = 0; i < wc; i++) {
@@ -483,6 +484,33 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
 run_to_wait_done:
     restoreBreakpointOverlays(k, overlays);
     return result;
+}
+
+bool EpaDbgService::drainNonDebugWorkers(const String &path_id, uint32_t max_ticks,
+                                          uint32_t &ticks_ran, String &error_message) {
+    EpaKernel *k = kernelForPath(path_id);
+    if (!k) { error_message = String("kernel not created"); return false; }
+    ticks_ran = 0;
+    for (;;) {
+        EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
+        size_t wc = epa_dbg_capture_workers(k, ws, EPA_DBG_MAX_WORKERS);
+        bool did_work = false;
+        for (size_t i = 0; i < wc; i++) {
+            uint32_t wid = ws[i].wid;
+            if (workerDebugIsEnabled(path_id, wid)) continue;
+            if (ws[i].waiting_for_data || ws[i].blocked || ws[i].halted || ws[i].faulted) continue;
+            uint32_t ran = 0;
+            String stop_reason;
+            if (!runToWait(path_id, wid, max_ticks ? (max_ticks - ticks_ran) : 0u, false, stop_reason, ran, error_message)) {
+                ticks_ran += ran;
+                return false;
+            }
+            ticks_ran += ran;
+            did_work = true;
+            if (max_ticks != 0 && ticks_ran >= max_ticks) return true;
+        }
+        if (!did_work) return true;
+    }
 }
 
 std::string EpaDbgService::blockKey(uint8_t block_type, uint32_t block_id) const {
@@ -602,7 +630,7 @@ bool EpaDbgService::stepBoundary(
     if (!k) { error_message = String("kernel not created"); return false; }
     if (!loadEpaMap(map_path, map, error_message)) return false;
     if (!workerDebugIsEnabled(path_id, target_wid)) {
-        bool ok = runToWait(path_id, target_wid, max_ticks, stop_reason, ticks_ran, error_message);
+        bool ok = runToWait(path_id, target_wid, max_ticks, false, stop_reason, ticks_ran, error_message);
         out_state = markerStateForWorker(k, map, target_wid);
         return ok;
     }
@@ -619,11 +647,6 @@ bool EpaDbgService::stepBoundary(
     size_t event_base = events.size();
     bool use_epa_mode = false;
     if (step_mode == String("epa")) use_epa_mode = true;
-    std::vector<BreakpointOverlay> overlays;
-    if (!installBreakpointOverlays(k, overlays, error_message)) {
-        stop_reason = String("error");
-        return false;
-    }
     bool result = true;
     for (;;) {
         StdoutCapture cap;
@@ -642,7 +665,6 @@ bool EpaDbgService::stepBoundary(
                 break;
             }
         }
-        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
         if (events.size() > event_base) {
             stop_reason = events.back().kind;
             break;
@@ -661,10 +683,6 @@ bool EpaDbgService::stepBoundary(
             stop_reason = String("max_ticks");
             break;
         }
-    }
-    restoreBreakpointOverlays(k, overlays);
-    if (stop_reason == String("breakpoint")) {
-        out_state = markerStateForWorker(k, map, target_wid);
     }
     return result;
 }
@@ -923,7 +941,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         result_json = String("{\"queued\":true}"); return true;
     }
     if (method == String("debug.step")) {
-        uint32_t ticks = 1, ticks_ran = 0, wid = 0xffffffffu;
+        uint32_t ticks = 1, ticks_ran = 0, drain_ticks = 0, wid = 0xffffffffu;
         String stop_reason;
         String path_id;
         parseUint(params_json, String("ticks"), 1, &ticks);
@@ -932,13 +950,17 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         if (!runTicks(path_id, ticks, false, wid, stop_reason, ticks_ran, error_message)) {
             error_code = String("step_failed"); return false;
         }
+        if (!drainNonDebugWorkers(path_id, 500000u, drain_ticks, error_message)) {
+            error_code = String("drain_failed"); return false;
+        }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"drain_ticks_ran\":") + String((int)drain_ticks)
                     + String(",\"stop_reason\":") + jq(stop_reason)
                     + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.run")) {
-        uint32_t max_ticks = 1000, ticks_ran = 0;
+        uint32_t max_ticks = 1000, ticks_ran = 0, drain_ticks = 0;
         String stop_reason;
         String path_id;
         parseUint(params_json, String("max_ticks"), 1000, &max_ticks);
@@ -946,28 +968,36 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         if (!runTicks(path_id, max_ticks, true, 0xffffffffu, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_failed"); return false;
         }
+        if (!drainNonDebugWorkers(path_id, 500000u, drain_ticks, error_message)) {
+            error_code = String("drain_failed"); return false;
+        }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"drain_ticks_ran\":") + String((int)drain_ticks)
                     + String(",\"stop_reason\":") + jq(stop_reason)
                     + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.runToWait")) {
-        uint32_t wid = 0, max_ticks = 500000, ticks_ran = 0;
+        uint32_t wid = 0, max_ticks = 500000, ticks_ran = 0, drain_ticks = 0;
         String stop_reason;
         String path_id;
         parseUint(params_json, String("wid"),       0,      &wid);
         parseUint(params_json, String("max_ticks"), 500000, &max_ticks);
         parseString(params_json, String("path_id"), path_id);
-        if (!runToWait(path_id, wid, max_ticks, stop_reason, ticks_ran, error_message)) {
+        if (!runToWait(path_id, wid, max_ticks, true, stop_reason, ticks_ran, error_message)) {
             error_code = String("run_to_wait_failed"); return false;
         }
+        if (!drainNonDebugWorkers(path_id, 500000u, drain_ticks, error_message)) {
+            error_code = String("drain_failed"); return false;
+        }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"drain_ticks_ran\":") + String((int)drain_ticks)
                     + String(",\"stop_reason\":") + jq(stop_reason)
                     + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
         return true;
     }
     if (method == String("debug.stepBoundary")) {
-        uint32_t wid = 0, max_ticks = 4096, ticks_ran = 0;
+        uint32_t wid = 0, max_ticks = 4096, ticks_ran = 0, drain_ticks = 0;
         String path_id, map_path, step_mode, stop_reason;
         WorkerMarkerState marker;
         parseUint(params_json, String("wid"), 0, &wid);
@@ -991,7 +1021,11 @@ bool EpaDbgService::call(const String &method, const String &params_json,
             error_code = String("step_boundary_failed");
             return false;
         }
+        if (!drainNonDebugWorkers(path_id, 500000u, drain_ticks, error_message)) {
+            error_code = String("drain_failed"); return false;
+        }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran)
+                    + String(",\"drain_ticks_ran\":") + String((int)drain_ticks)
                     + String(",\"stop_reason\":") + jq(stop_reason)
                     + String(",\"marker\":") + buildMarkerJson(marker)
                     + String(",\"snapshot\":") + buildSnapshotJson(path_id) + String("}");
@@ -1005,9 +1039,17 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         parseBool(params_json, String("enabled"), true, &enabled);
         parseString(params_json, String("path_id"), path_id);
         setWorkerDebugEnabled(path_id, wid, enabled);
+        uint32_t drain_ticks = 0;
+        if (!enabled && kernelForPath(path_id)) {
+            if (!drainNonDebugWorkers(path_id, 500000u, drain_ticks, error_message)) {
+                error_code = String("drain_failed"); return false;
+            }
+        }
         result_json = String("{\"path_id\":") + jq(path_id)
                     + String(",\"wid\":") + String((int)wid)
                     + String(",\"debug_enabled\":") + String(enabled ? "true" : "false")
+                    + String(",\"drain_ticks_ran\":") + String((int)drain_ticks)
+                    + String(",\"snapshot\":") + buildSnapshotJson(path_id)
                     + String("}");
         return true;
     }
@@ -1061,12 +1103,32 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         parseUint(params_json, String("block_id"),   0, (uint32_t *)&bp.block_id);
         parseUint(params_json, String("rel_pc"),     0, &bp.rel_pc);
         if (parseUint(params_json, String("addr"), bp.rel_pc, &addr)) bp.rel_pc = addr;
-        breakpoints.push_back(bp);
+        bool exists = false;
+        for (size_t i = 0; i < breakpoints.size(); i++) {
+            if (breakpoints[i].block_type == bp.block_type &&
+                breakpoints[i].block_id == bp.block_id &&
+                breakpoints[i].rel_pc == bp.rel_pc) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) breakpoints.push_back(bp);
         result_json = buildBreakpointJson(); return true;
     }
     if (method == String("debug.breakpointClear")) {
         uint32_t bt = 0, bi = 0, rpc = 0;
         uint32_t addr = 0;
+        String ptext(params_json);
+        bool has_location = (
+            ptext.indexOf(String("\"block_type\"")) >= 0 ||
+            ptext.indexOf(String("\"block_id\"")) >= 0 ||
+            ptext.indexOf(String("\"rel_pc\"")) >= 0 ||
+            ptext.indexOf(String("\"addr\"")) >= 0
+        );
+        if (!has_location) {
+            breakpoints.clear();
+            result_json = buildBreakpointJson(); return true;
+        }
         parseUint(params_json, String("block_type"), 0, &bt);
         parseUint(params_json, String("block_id"),   0, &bi);
         parseUint(params_json, String("rel_pc"),     0, &rpc);

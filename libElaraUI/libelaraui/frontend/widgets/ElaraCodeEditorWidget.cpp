@@ -1560,6 +1560,8 @@ void ElaraCodeEditorWidget::onMouseDown(int button, double px, double py) {
             // Breakpoint toggle
             ensureDecorations(logical);
             decorations[logical].breakpoint = !decorations[logical].breakpoint;
+            emitAction(String("breakpoint.toggle.") + String(logical) + String(".") +
+                       String(decorations[logical].breakpoint ? 1 : 0));
 
         } else if (px < 22.0) {
             // Bookmark toggle

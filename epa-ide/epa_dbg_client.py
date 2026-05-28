@@ -284,6 +284,9 @@ class EpaDbgClient:
             params["addr"] = addr
         return self.call("epa.debug.breakpointClear", params)
 
+    def breakpoint_clear_all(self, kernel_id: int = 0) -> dict:
+        return self.call("epa.debug.breakpointClear", {"kernel_id": kernel_id})
+
     def breakpoint_list(self, kernel_id: int) -> list:
         return self.call("epa.debug.breakpointList", {"kernel_id": kernel_id})
 
