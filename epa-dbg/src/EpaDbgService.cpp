@@ -8,6 +8,7 @@
 #include <vector>
 #include <map>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
+#include "opcodes/epa_opcode_values.h"
 
 namespace elara {
 using sockets::rpc::json::JsonRPCCodec;
@@ -21,6 +22,21 @@ static String jq(const String &v) {
 static bool startsWith(const String &value, const char *prefix) {
     String cmp(prefix);
     return value.substr(0, cmp.length()) == cmp;
+}
+
+static const uint32_t EPA_DBG_OVERLAY_BREAK_CODE = 0xEADB0001u;
+static const size_t EPA_DBG_BREAK_OPCODE_LEN = 6u;
+
+static void writeLe16(uint8_t *p, uint16_t v) {
+    p[0] = (uint8_t)(v & 0xffu);
+    p[1] = (uint8_t)((v >> 8) & 0xffu);
+}
+
+static void writeLe32(uint8_t *p, uint32_t v) {
+    p[0] = (uint8_t)(v & 0xffu);
+    p[1] = (uint8_t)((v >> 8) & 0xffu);
+    p[2] = (uint8_t)((v >> 16) & 0xffu);
+    p[3] = (uint8_t)((v >> 24) & 0xffu);
 }
 
 static String hexBytes(const uint8_t *bytes, size_t count) {
@@ -221,6 +237,25 @@ bool EpaDbgService::parseBool(const String &json, const String &field, bool def,
         if (out) *out = (raw == String("1") || raw == String("true") || raw == String("yes") || raw == String("on"));
         return true;
     }
+    String key = String("\"") + field + String("\"");
+    int start = text.indexOf(key);
+    if (start < 0) { if (out) *out = def; return true; }
+    start = text.indexOf(String(":"), start);
+    if (start < 0) { if (out) *out = def; return false; }
+    start++;
+    while (start < text.length() && isspace(text.operator char *()[start])) start++;
+    int end = start;
+    const char *p = text.operator char *();
+    while (end < text.length() && (isalpha((unsigned char)p[end]) || isdigit((unsigned char)p[end]))) end++;
+    raw = text.substr(start, end - start).trim();
+    if (raw == String("true") || raw == String("1")) {
+        if (out) *out = true;
+        return true;
+    }
+    if (raw == String("false") || raw == String("0")) {
+        if (out) *out = false;
+        return true;
+    }
     if (out) *out = def;
     return true;
 }
@@ -256,6 +291,70 @@ bool EpaDbgService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) cons
     return false;
 }
 
+bool EpaDbgService::installBreakpointOverlays(EpaKernel *kernel, std::vector<BreakpointOverlay> &overlays, String &error_message) const {
+    uint8_t patch[EPA_DBG_BREAK_OPCODE_LEN];
+    overlays.clear();
+    if (!kernel || breakpoints.empty()) return true;
+    writeLe16(patch, EPA_OP_BREAK);
+    writeLe32(patch + 2, EPA_DBG_OVERLAY_BREAK_CODE);
+    for (size_t i = 0; i < breakpoints.size(); i++) {
+        const Breakpoint &bp = breakpoints[i];
+        uint32_t wid = 0;
+        if (epa_dbg_any_worker_at(kernel, bp.block_type, bp.block_id, bp.rel_pc, &wid)) {
+            continue;
+        }
+        bool duplicate = false;
+        for (size_t j = 0; j < overlays.size(); j++) {
+            const Breakpoint &existing = overlays[j].bp;
+            if (existing.block_type == bp.block_type && existing.block_id == bp.block_id && existing.rel_pc == bp.rel_pc) {
+                duplicate = true;
+                break;
+            }
+        }
+        if (duplicate) continue;
+        BreakpointOverlay overlay;
+        memset(&overlay, 0, sizeof(overlay));
+        overlay.bp = bp;
+        overlay.len = EPA_DBG_BREAK_OPCODE_LEN;
+        if (!epa_dbg_patch_code(kernel, bp.block_type, bp.block_id, bp.rel_pc, patch, overlay.len, overlay.original)) {
+            error_message = String("could not overlay breakpoint at block ")
+                          + String((int)bp.block_type) + String(":") + String((int)bp.block_id)
+                          + String(" +0x") + String((int)bp.rel_pc);
+            restoreBreakpointOverlays(kernel, overlays);
+            return false;
+        }
+        overlay.active = true;
+        overlays.push_back(overlay);
+    }
+    return true;
+}
+
+void EpaDbgService::restoreBreakpointOverlays(EpaKernel *kernel, std::vector<BreakpointOverlay> &overlays) const {
+    if (!kernel) return;
+    for (std::vector<BreakpointOverlay>::reverse_iterator it = overlays.rbegin(); it != overlays.rend(); ++it) {
+        if (!it->active) continue;
+        epa_dbg_patch_code(kernel, it->bp.block_type, it->bp.block_id, it->bp.rel_pc, it->original, it->len, NULL);
+        it->active = false;
+    }
+}
+
+bool EpaDbgService::translateOverlayBreakEvent(EpaKernel *kernel, const std::vector<BreakpointOverlay> &overlays) {
+    if (!kernel || events.empty()) return false;
+    DebugEvent &ev = events.back();
+    if (ev.kind != String("break") || ev.code != EPA_DBG_OVERLAY_BREAK_CODE) return false;
+    for (size_t i = 0; i < overlays.size(); i++) {
+        const BreakpointOverlay &overlay = overlays[i];
+        const Breakpoint &bp = overlay.bp;
+        if (bp.block_type != ev.block_type || bp.block_id != ev.block_id || bp.rel_pc != ev.rel_pc) continue;
+        epa_dbg_set_worker_eip(kernel, ev.wid, bp.block_type, bp.block_id, bp.rel_pc);
+        ev.kind = String("breakpoint");
+        ev.code = 0;
+        ev.message = String("breakpoint hit");
+        return true;
+    }
+    return false;
+}
+
 std::string EpaDbgService::workerDebugKey(const String &path_id, uint32_t wid) const {
     String pid(path_id);
     return std::string(pid.operator char *()) + ":" + std::to_string((unsigned int)wid);
@@ -282,6 +381,13 @@ bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool st
     }
     ensureDebugCallback();
     ticks_ran = 0;
+    size_t event_base = events.size();
+    std::vector<BreakpointOverlay> overlays;
+    if (!installBreakpointOverlays(k, overlays, error_message)) {
+        stop_reason = String("error");
+        return false;
+    }
+    bool result = true;
     for (;;) {
         StdoutCapture cap;
         String captured;
@@ -296,21 +402,25 @@ bool EpaDbgService::runTicks(const String &path_id, uint32_t tick_count, bool st
             if (!startsWith(et, "run: step complete returning to host")) {
                 error_message = et.length() ? et : host.lastError();
                 stop_reason   = String("error");
-                return false;
+                result = false;
+                break;
             }
         }
-        if (!events.empty()) { stop_reason = events.back().kind; return true; }
+        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
+        if (events.size() > event_base) { stop_reason = events.back().kind; break; }
         if (stop_on_bp) {
             uint32_t wid = 0; Breakpoint bp;
             if (hasBreakpointHit(&wid, &bp)) {
                 EpaDbgEip at; at.block_type = bp.block_type; at.block_id = bp.block_id; at.rel_pc = bp.rel_pc;
                 pushEvent(String("breakpoint"), wid, 0, &at, String("breakpoint hit"));
                 stop_reason = String("breakpoint");
-                return true;
+                break;
             }
         }
-        if (tick_count != 0 && ticks_ran >= tick_count) { stop_reason = String("step"); return true; }
+        if (tick_count != 0 && ticks_ran >= tick_count) { stop_reason = String("step"); break; }
     }
+    restoreBreakpointOverlays(k, overlays);
+    return result;
 }
 
 bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32_t max_ticks,
@@ -320,15 +430,22 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
     if (!k) { error_message = String("kernel not created"); return false; }
     ensureDebugCallback();
     ticks_ran = 0;
+    size_t event_base = events.size();
+    std::vector<BreakpointOverlay> overlays;
+    if (!installBreakpointOverlays(k, overlays, error_message)) {
+        stop_reason = String("error");
+        return false;
+    }
+    bool result = true;
     for (;;) {
         EpaDbgWorkerSnapshot initial_ws[EPA_DBG_MAX_WORKERS];
         size_t initial_wc = epa_dbg_capture_workers(k, initial_ws, EPA_DBG_MAX_WORKERS);
         for (size_t i = 0; i < initial_wc; i++) {
             if (initial_ws[i].wid == target_wid) {
-                if (initial_ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); return true; }
-                if (initial_ws[i].blocked)          { stop_reason = String("blocked");       return true; }
-                if (initial_ws[i].halted)           { stop_reason = String("halted");        return true; }
-                if (initial_ws[i].faulted)          { stop_reason = String("faulted");       return true; }
+                if (initial_ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); goto run_to_wait_done; }
+                if (initial_ws[i].blocked)          { stop_reason = String("blocked");       goto run_to_wait_done; }
+                if (initial_ws[i].halted)           { stop_reason = String("halted");        goto run_to_wait_done; }
+                if (initial_ws[i].faulted)          { stop_reason = String("faulted");       goto run_to_wait_done; }
                 break;
             }
         }
@@ -344,23 +461,28 @@ bool EpaDbgService::runToWait(const String &path_id, uint32_t target_wid, uint32
             if (!startsWith(et, "run: step complete returning to host")) {
                 error_message = et.length() ? et : host.lastError();
                 stop_reason = String("error");
-                return false;
+                result = false;
+                goto run_to_wait_done;
             }
         }
+        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
         EpaDbgWorkerSnapshot ws[EPA_DBG_MAX_WORKERS];
         size_t wc = epa_dbg_capture_workers(k, ws, EPA_DBG_MAX_WORKERS);
         for (size_t i = 0; i < wc; i++) {
             if (ws[i].wid == target_wid) {
-                if (ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); return true; }
-                if (ws[i].blocked)          { stop_reason = String("blocked");       return true; }
-                if (ws[i].halted)           { stop_reason = String("halted");        return true; }
-                if (ws[i].faulted)          { stop_reason = String("faulted");       return true; }
+                if (ws[i].waiting_for_data) { stop_reason = String("wait_for_data"); goto run_to_wait_done; }
+                if (ws[i].blocked)          { stop_reason = String("blocked");       goto run_to_wait_done; }
+                if (ws[i].halted)           { stop_reason = String("halted");        goto run_to_wait_done; }
+                if (ws[i].faulted)          { stop_reason = String("faulted");       goto run_to_wait_done; }
                 break;
             }
         }
-        if (!events.empty()) { stop_reason = events.back().kind; return true; }
-        if (max_ticks != 0 && ticks_ran >= max_ticks) { stop_reason = String("max_ticks"); return true; }
+        if (events.size() > event_base) { stop_reason = events.back().kind; goto run_to_wait_done; }
+        if (max_ticks != 0 && ticks_ran >= max_ticks) { stop_reason = String("max_ticks"); goto run_to_wait_done; }
     }
+run_to_wait_done:
+    restoreBreakpointOverlays(k, overlays);
+    return result;
 }
 
 std::string EpaDbgService::blockKey(uint8_t block_type, uint32_t block_id) const {
@@ -494,8 +616,15 @@ bool EpaDbgService::stepBoundary(
     }
     ticks_ran = 0;
     out_state = before;
+    size_t event_base = events.size();
     bool use_epa_mode = false;
     if (step_mode == String("epa")) use_epa_mode = true;
+    std::vector<BreakpointOverlay> overlays;
+    if (!installBreakpointOverlays(k, overlays, error_message)) {
+        stop_reason = String("error");
+        return false;
+    }
+    bool result = true;
     for (;;) {
         StdoutCapture cap;
         err[0] = 0;
@@ -509,28 +638,35 @@ bool EpaDbgService::stepBoundary(
             if (!startsWith(et, "run: step complete returning to host")) {
                 error_message = et.length() ? et : host.lastError();
                 stop_reason = String("error");
-                return false;
+                result = false;
+                break;
             }
+        }
+        if (events.size() > event_base) translateOverlayBreakEvent(k, overlays);
+        if (events.size() > event_base) {
+            stop_reason = events.back().kind;
+            break;
         }
         out_state = markerStateForWorker(k, map, target_wid);
         if (boundaryCrossed(use_epa_mode, before, out_state)) {
             stop_reason = String("boundary");
-            return true;
+            break;
         }
         String stalled = stalledReason(use_epa_mode, before, out_state);
         if (stalled.length()) {
             stop_reason = stalled;
-            return true;
-        }
-        if (!events.empty()) {
-            stop_reason = events.back().kind;
-            return true;
+            break;
         }
         if (max_ticks != 0 && ticks_ran >= max_ticks) {
             stop_reason = String("max_ticks");
-            return true;
+            break;
         }
     }
+    restoreBreakpointOverlays(k, overlays);
+    if (stop_reason == String("breakpoint")) {
+        out_state = markerStateForWorker(k, map, target_wid);
+    }
+    return result;
 }
 
 String EpaDbgService::buildMarkerJson(const WorkerMarkerState &state) const {
@@ -920,17 +1056,21 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     }
     if (method == String("debug.breakpointAdd")) {
         Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0;
+        uint32_t addr = 0;
         parseUint(params_json, String("block_type"), 0, (uint32_t *)&bp.block_type);
         parseUint(params_json, String("block_id"),   0, (uint32_t *)&bp.block_id);
         parseUint(params_json, String("rel_pc"),     0, &bp.rel_pc);
+        if (parseUint(params_json, String("addr"), bp.rel_pc, &addr)) bp.rel_pc = addr;
         breakpoints.push_back(bp);
         result_json = buildBreakpointJson(); return true;
     }
     if (method == String("debug.breakpointClear")) {
         uint32_t bt = 0, bi = 0, rpc = 0;
+        uint32_t addr = 0;
         parseUint(params_json, String("block_type"), 0, &bt);
         parseUint(params_json, String("block_id"),   0, &bi);
         parseUint(params_json, String("rel_pc"),     0, &rpc);
+        if (parseUint(params_json, String("addr"), rpc, &addr)) rpc = addr;
         for (std::vector<Breakpoint>::iterator it = breakpoints.begin(); it != breakpoints.end(); ) {
             if (it->block_type == bt && it->block_id == bi && it->rel_pc == rpc)
                 it = breakpoints.erase(it);

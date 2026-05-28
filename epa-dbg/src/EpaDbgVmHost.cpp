@@ -89,8 +89,6 @@ bool EpaDbgVmHost::loadBundlePath(const String &bundle_path) {
         EpaKernel *k = epa_kernel_module_kernel(module, i);
         if (!k) continue;
         epa_kernel_set_scheduler(k, EPA_SCHED_DEBUG, err);
-        uint32_t n = epa_kernel_worker_count(k);
-        if (n > 0) epa_kernel_module_add_kernel_threads(module, i, n, err);
     }
     error_text = String();
     return true;
@@ -193,8 +191,7 @@ bool EpaDbgVmHost::startAllKernels() {
     for (size_t i = 0; i < count; i++) {
         EpaKernel *k = epa_kernel_module_kernel(module, i);
         if (!k) continue;
-        uint32_t n = epa_kernel_worker_count(k);
-        if (n > 0) epa_kernel_module_add_kernel_threads(module, i, n, err);
+        epa_kernel_set_scheduler(k, EPA_SCHED_DEBUG, err);
     }
     if (!epa_kernel_module_start_all_kernels(module, err)) {
         setError("epa_kernel_module_start_all_kernels failed", err);

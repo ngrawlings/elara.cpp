@@ -6,6 +6,7 @@
 #include <libelaraparallelassembly/memory/epa_stack.h>
 #include <libelaraparallelassembly/memory/epa_ring_buffer.h>
 #include <libelaraparallelassembly/memory/epa_ghs.h>
+#include <libelaraparallelassembly/epa_program_desc.h>
 
 int epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out) {
     uint32_t wid;
@@ -94,6 +95,31 @@ int epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint32_t block_
         }
     }
     return 0;
+}
+
+int epa_dbg_patch_code(EpaKernel *kernel, uint8_t block_type, uint32_t block_id, uint32_t rel_pc,
+                       const uint8_t *bytes, size_t len, uint8_t *original) {
+    const uint8_t *code_const;
+    uint8_t *code;
+    size_t code_len;
+    if (!kernel || !bytes || !len) return 0;
+    if (!epa_prog_resolve(&kernel->prog, block_type, block_id, &code_const, &code_len)) return 0;
+    if ((size_t)rel_pc > code_len || len > code_len - (size_t)rel_pc) return 0;
+    code = (uint8_t *)code_const;
+    if (original) memcpy(original, code + rel_pc, len);
+    memcpy(code + rel_pc, bytes, len);
+    return 1;
+}
+
+int epa_dbg_set_worker_eip(EpaKernel *kernel, uint32_t wid, uint8_t block_type, uint32_t block_id, uint32_t rel_pc) {
+    EpaWorkerState *w;
+    if (!kernel || wid >= EPA_MAX_WORKERS) return 0;
+    w = &kernel->impl.workers[wid];
+    if (!w->inited) return 0;
+    w->vm.eip.block_type = block_type;
+    w->vm.eip.block_id = block_id;
+    w->vm.eip.rel_pc = rel_pc;
+    return 1;
 }
 
 int epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorkerInspect *out,

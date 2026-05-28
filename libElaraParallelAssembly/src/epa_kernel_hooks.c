@@ -226,6 +226,9 @@ int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char e
   if (desired_total <= 1u) {
     return 1;
   }
+  if (epa_kernel_get_scheduler(k) == EPA_SCHED_DEBUG) {
+    return 1;
+  }
   current = epa_kernel_thread_count(k);
   if (current >= desired_total) {
     return 1;

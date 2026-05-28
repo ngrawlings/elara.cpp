@@ -104,6 +104,9 @@ typedef struct {
 int    epa_dbg_capture_kernel(EpaKernel *kernel, EpaDbgKernelSnapshot *out);
 size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, size_t max_workers);
 int    epa_dbg_any_worker_at(EpaKernel *kernel, uint8_t block_type, uint32_t block_id, uint32_t rel_pc, uint32_t *out_wid);
+int    epa_dbg_patch_code(EpaKernel *kernel, uint8_t block_type, uint32_t block_id, uint32_t rel_pc,
+                          const uint8_t *bytes, size_t len, uint8_t *original);
+int    epa_dbg_set_worker_eip(EpaKernel *kernel, uint32_t wid, uint8_t block_type, uint32_t block_id, uint32_t rel_pc);
 int    epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorkerInspect *out,
                                       uint32_t stack_words_limit, uint32_t arena_bytes_limit, uint32_t ghs_bytes_limit);
 

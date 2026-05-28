@@ -5222,25 +5222,26 @@ def main():
             _set_kernel_worker_debug_checkbox(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
-        """Set indicator colour based on the selected worker's state in the snapshot."""
+        """Set health and blocked indicators from the selected worker snapshot."""
         if not kernel_tab_id:
             return
         sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
 
-        color = _IND_OFF
+        health_color = _IND_OFF
+        blocked_color = _IND_OFF
         if sel_wid is not None:
             for w in snapshot.get("workers", []):
                 if w.get("wid") == sel_wid:
                     if w.get("faulted"):
-                        color = _IND_RED
+                        health_color = _IND_RED
                     elif w.get("halted"):
-                        color = _IND_OFF
-                    elif w.get("waiting_for_data"):
-                        color = _IND_GREEN
+                        health_color = _IND_OFF
                     else:
-                        color = _IND_RED   # still running
+                        health_color = _IND_GREEN
+                    blocked_color = _IND_RED if (w.get("blocked") or w.get("waiting_for_data")) else _IND_GREEN
                     break
-        _set_kernel_run_indicator(client, kernel_tab_id, color)
+        _set_kernel_load_indicator(client, kernel_tab_id, health_color)
+        _set_kernel_run_indicator(client, kernel_tab_id, blocked_color)
 
     def _selected_worker_from_snapshot(kernel_tab_id: str, snapshot: dict) -> dict | None:
         sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
@@ -5509,6 +5510,32 @@ def main():
                 f"E:{src_line if src_line > 0 else '?'}"
             )
             return
+
+    def _activate_kernel_editor_tab(client, kernel_tab_id: str):
+        project_root = app_state.get("project_root", "")
+        if not client or not project_root or not kernel_tab_id:
+            return
+        file_path = str(Path(project_root) / "epa" / (kernel_tab_id.replace(".", "/") + ".e"))
+        if not Path(file_path).is_file():
+            return
+        _open_file_tab(client, file_path, True)
+
+    def _jump_to_selected_worker_eip(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id)
+        if not snapshot:
+            try:
+                dbg_c = _epa_dbg_client()
+                if dbg_c:
+                    snapshot = dbg_c.snapshot(0, path_id=kernel_tab_id)
+                    app_state.setdefault("debug_kernel_snapshot_state", {})[kernel_tab_id] = snapshot
+            except Exception:
+                snapshot = None
+        if not snapshot:
+            return
+        _activate_kernel_editor_tab(client, kernel_tab_id)
+        _update_eip_marker(client, kernel_tab_id, snapshot)
 
     def _selected_worker_snapshot(kernel_tab_id: str, snapshot: dict) -> dict | None:
         sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
@@ -8088,7 +8115,7 @@ def main():
                             dbg_c = _epa_dbg_client()
                         app_state["debug_active_kernel"] = ktid
                         already_loaded = app_state.get("debug_kernel_loaded") == bp
-                        if r or not already_loaded or not dbg_c:
+                        if not already_loaded or not dbg_c:
                             prev_ktid = _kernel_tab_id_from_bundle(app_state.get("debug_kernel_loaded", ""))
                             if prev_ktid and prev_ktid != ktid and uc:
                                 _clear_kernel_queue_state(uc, prev_ktid)
@@ -8104,9 +8131,10 @@ def main():
                         if not dbg_c:
                             return
                         _sync_cached_worker_debug_states(dbg_c)
-                        # Mark as running before the call
+                        # Mark selected worker as healthy and not blocked while the RPC is in flight.
                         if uc:
-                            _set_kernel_run_indicator(uc, ktid, _IND_RED)
+                            _set_kernel_load_indicator(uc, ktid, _IND_GREEN)
+                            _set_kernel_run_indicator(uc, ktid, _IND_GREEN)
                         try:
                             if r:
                                 resp = dbg_c.run_to_wait(wid=wid, path_id=ktid)
@@ -8164,6 +8192,7 @@ def main():
                                     _epa_dbg_log(_format_step_eip_log(ktid, snap))
                                 return
                             if uc:
+                                _set_kernel_load_indicator(uc, ktid, _IND_RED)
                                 _set_kernel_run_indicator(uc, ktid, _IND_OFF)
                             _epa_dbg_log(f"[error] dbg_run_or_step: {exc}")
                             _push_exception(exc, "dbg_run_or_step")
@@ -8299,6 +8328,7 @@ def main():
                                 )
                             except Exception:
                                 pass
+                    _jump_to_selected_worker_eip(client, kernel_id_str, snapshot)
                 return {"received": True}
 
         # Kernel worker debug checkbox — enabled means line/boundary stepping;

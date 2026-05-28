@@ -37,6 +37,12 @@ private:
         uint32_t block_id;
         uint32_t rel_pc;
     };
+    struct BreakpointOverlay {
+        Breakpoint bp;
+        uint8_t original[6];
+        size_t  len;
+        bool    active;
+    };
     struct MapEntry {
         uint32_t offset;
         int      epa_line;
@@ -80,6 +86,9 @@ private:
                       String &stop_reason, uint32_t &ticks_ran,
                       WorkerMarkerState &out_state, String &error_message);
     bool hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_bp) const;
+    bool installBreakpointOverlays(EpaKernel *kernel, std::vector<BreakpointOverlay> &overlays, String &error_message) const;
+    void restoreBreakpointOverlays(EpaKernel *kernel, std::vector<BreakpointOverlay> &overlays) const;
+    bool translateOverlayBreakEvent(EpaKernel *kernel, const std::vector<BreakpointOverlay> &overlays);
     EpaKernel *activeKernel() const;
     EpaKernel *kernelForPath(const String &path_id) const;
     std::string workerDebugKey(const String &path_id, uint32_t wid) const;
