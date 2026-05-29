@@ -1,19 +1,21 @@
-"""TCP JSON-RPC client for epa-dbg (port 18878).
+"""TCP BRPC client for epa-dbg (port 18878).
 
-Wire format: 4-byte big-endian length prefix + UTF-8 JSON body.
+Wire format: 4-byte big-endian length prefix + BRPC binary body.
 
-Request:  {"id": "<uuid>", "method": "<name>", "params": <json>}
-Response: {"id": "...", "ok": true,  "result": <json>}
-       or {"id": "...", "ok": false, "error": {"code": "...", "message": "..."}}
+Request  (BRPC array of 3 named fields): "id", "method", "params" (JSON string)
+Response (BRPC array):  namedString "id", namedByte "ok"=1, namedString "result"
+                     or namedString "id", namedByte "ok"=0, namedString "code",
+                        namedString "msg"
 """
 
-import json
 import select
 import socket
 import struct
 import threading
 import time
 import uuid
+
+from elara_ui.rpc import _BRpcCodec
 
 
 class EpaDbgError(RuntimeError):
@@ -126,9 +128,9 @@ class EpaDbgClient:
             body["params"] = params
         with self._lock:
             try:
-                self._send_raw(json.dumps(body, ensure_ascii=False).encode())
+                self._send_raw(_BRpcCodec.encode(body))
                 raw = self._recv_raw(timeout=timeout)
-                resp = json.loads(raw.decode("utf-8"))
+                resp = _BRpcCodec.decode(raw)
                 if resp.get("id") != req_id:
                     raise RuntimeError(f"response id mismatch: {resp.get('id')} != {req_id}")
                 if not resp.get("ok", False):

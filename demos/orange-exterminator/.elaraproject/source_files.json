@@ -1,0 +1,35 @@
+{
+  "epa": [
+    "epa/entry.e",
+    "epa/gameplay_rules.e",
+    "epa/input_dispatch.e",
+    "epa/player_avatar.e",
+    "epa/player_machinegun.e",
+    "epa/render_scene.e",
+    "epa/render_ui.e",
+    "epa/scene.e",
+    "epa/test.e",
+    "epa/walls.e",
+    "epa/world_runtime.e"
+  ],
+  "cpp": [
+    "cpp/src/OrangeExterminatorApp.cpp",
+    "cpp/src/OrangeExterminatorApp.h",
+    "cpp/src/OrangeExterminatorEpaDebugServer.cpp",
+    "cpp/src/OrangeExterminatorEpaDebugServer.h",
+    "cpp/src/OrangeExterminatorEpaDebugService.cpp",
+    "cpp/src/OrangeExterminatorEpaDebugService.h",
+    "cpp/src/OrangeExterminatorEpaDebugShim.c",
+    "cpp/src/OrangeExterminatorEpaDebugShim.h",
+    "cpp/src/OrangeExterminatorEpaVmHost.cpp",
+    "cpp/src/OrangeExterminatorEpaVmHost.h",
+    "cpp/src/epa_debug_main.cpp",
+    "cpp/src/main.cpp"
+  ],
+  "python": [
+    "python/app.py",
+    "python/elara_ui/__init__.py",
+    "python/elara_ui/builder.py",
+    "python/elara_ui/rpc.py"
+  ]
+}

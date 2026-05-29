@@ -1,14 +1,15 @@
 #ifndef EPADBGSERVER_H
 #define EPADBGSERVER_H
 
-#include <libelarasockets/rpc/json/JsonRPCServer.h>
+#include <libelarasockets/rpc/brpc/BRpcServer.h>
+#include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelaracore/memory/Ref.h>
 #include <libelaraevent/EventBase.h>
 #include "EpaDbgService.h"
 
 namespace elara {
 
-class EpaDbgServer : public sockets::rpc::json::JsonRPCServer {
+class EpaDbgServer : public sockets::rpc::brpc::BRpcServer {
 public:
     EpaDbgServer();
     virtual ~EpaDbgServer();

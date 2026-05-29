@@ -52,8 +52,8 @@ def build_document():
     ui.set_property_bool("app.menu", "custom_chrome", not use_system_window_header)
     ui.set_property_string("app.menu", "window_title", "EPA-IDE")
     ui.add_menu_bar_button("app.menu", "theme_toggle", "◑", "app.toggle_theme")
-    ui.add_menu_bar_button("app.menu", "right_panel_toggle", "◨", "app.toggle_right_panel")
     ui.add_menu_bar_button("app.menu", "bottom_panel_toggle", "▤", "app.toggle_bottom_panel")
+    ui.add_menu_bar_button("app.menu", "right_panel_toggle", "◨", "app.toggle_right_panel")
     ui.set_menu_bar_menus("app.menu", [
         {"id": "file", "label": "&File", "items": [
             {"id": "file.new_file", "label": "&New File", "shortcut": "Ctrl+N"},
