@@ -58,6 +58,129 @@ ANTHROPIC_SYSTEM_PROMPT = (
 )
 
 
+class PythonDapClient:
+    """DAP (Debug Adapter Protocol) client for communicating with debugpy."""
+
+    def __init__(self, host: str, port: int):
+        self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self._sock.connect((host, port))
+        self._seq = 0
+        self._seq_lock = threading.Lock()
+        self._send_lock = threading.Lock()
+        self._pending: dict[int, threading.Event] = {}
+        self._responses: dict[int, dict] = {}
+        self._pending_lock = threading.Lock()
+        self._event_handler = None
+        self._recv_buf = b""
+        self._closed = False
+        self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True)
+        self._recv_thread.start()
+
+    def set_event_handler(self, handler):
+        self._event_handler = handler
+
+    def send(self, command: str, arguments: dict = None, timeout: float = 5.0) -> dict:
+        with self._seq_lock:
+            self._seq += 1
+            seq = self._seq
+        msg = {"seq": seq, "type": "request", "command": command}
+        if arguments is not None:
+            msg["arguments"] = arguments
+        body = json.dumps(msg).encode()
+        frame = f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+        ev = threading.Event()
+        with self._pending_lock:
+            self._pending[seq] = ev
+        try:
+            with self._send_lock:
+                self._sock.sendall(frame)
+        except Exception:
+            with self._pending_lock:
+                self._pending.pop(seq, None)
+            return {}
+        ev.wait(timeout)
+        with self._pending_lock:
+            return self._responses.pop(seq, {})
+
+    def fire(self, command: str, arguments: dict = None):
+        """Send a request without waiting for a response (fire-and-forget)."""
+        with self._seq_lock:
+            self._seq += 1
+            seq = self._seq
+        msg = {"seq": seq, "type": "request", "command": command}
+        if arguments is not None:
+            msg["arguments"] = arguments
+        body = json.dumps(msg).encode()
+        frame = f"Content-Length: {len(body)}\r\n\r\n".encode() + body
+        try:
+            with self._send_lock:
+                self._sock.sendall(frame)
+        except Exception:
+            pass
+
+    def close(self):
+        self._closed = True
+        try:
+            self._sock.close()
+        except Exception:
+            pass
+
+    def _recv_loop(self):
+        while not self._closed:
+            try:
+                chunk = self._sock.recv(4096)
+                if not chunk:
+                    break
+                self._recv_buf += chunk
+                self._process_buf()
+            except Exception:
+                break
+        # unblock any waiting send() calls
+        with self._pending_lock:
+            for ev in self._pending.values():
+                ev.set()
+
+    def _process_buf(self):
+        while True:
+            sep = self._recv_buf.find(b"\r\n\r\n")
+            if sep == -1:
+                break
+            header = self._recv_buf[:sep].decode(errors="replace")
+            content_length = 0
+            for line in header.split("\r\n"):
+                if line.lower().startswith("content-length:"):
+                    try:
+                        content_length = int(line.split(":", 1)[1].strip())
+                    except ValueError:
+                        pass
+            start = sep + 4
+            if len(self._recv_buf) < start + content_length:
+                break
+            raw = self._recv_buf[start: start + content_length]
+            self._recv_buf = self._recv_buf[start + content_length:]
+            try:
+                self._dispatch(json.loads(raw))
+            except Exception:
+                pass
+
+    def _dispatch(self, msg: dict):
+        msg_type = msg.get("type")
+        if msg_type == "response":
+            seq = msg.get("request_seq")
+            with self._pending_lock:
+                ev = self._pending.pop(seq, None)
+                if ev is not None:
+                    self._responses[seq] = msg
+                    ev.set()
+        elif msg_type == "event":
+            handler = self._event_handler
+            if handler:
+                try:
+                    handler(msg.get("event", ""), msg.get("body") or {})
+                except Exception:
+                    pass
+
+
 def _editor_ids(tab_id: str):
     return {
         "container": f"{tab_id}.container",
@@ -2762,6 +2885,11 @@ def main():
     python_dbg_state = {
         "started": False,
         "status": "No Python debug session attached.",
+        "proc": None,
+        "dap": None,
+        "port": None,
+        "thread_id": None,
+        "stopped": False,
     }
     host_debug_bridge = {
         "server": None,
@@ -3697,32 +3825,23 @@ def main():
     def _set_python_thread_items(client, items: list[dict]):
         if not items:
             items = [{"id": "python.threads.empty", "label": "No Python thread data"}]
-        targets = ["nav.debug.python_threads"]
-        seen = set()
-        for target in targets:
-            if target in seen:
-                continue
-            seen.add(target)
-            try:
-                client.set_section_json(target, "items", items)
-            except Exception:
-                try:
-                    client.call("ui.setSectionJson", {"target": target, "section": "items", "value": items})
-                except Exception:
-                    pass
+        try:
+            client.call("ui.setSectionJson", {
+                "target": "nav.debug.python_threads",
+                "section": "items",
+                "value": items,
+            })
+        except Exception:
+            pass
 
     def _set_python_status_text(client, text: str):
         python_dbg_state["status"] = text
-        targets = ["nav.debug.python_status"]
-        seen = set()
-        for target in targets:
-            if target in seen:
-                continue
-            seen.add(target)
-            try:
-                client.set_text(target, text)
-            except Exception:
-                pass
+        try:
+            client.set_text("nav.debug.python_status", "")
+        except Exception:
+            pass
+        if text:
+            _append_build_output(client, f"[python] {text}\n")
 
     def _set_python_vm_status(client, state: str, detail: str = ""):
         color = "#777777"
@@ -3732,7 +3851,7 @@ def main():
             label = "Python debugger starting"
         elif state == "running":
             color = "#2da44e"
-            label = "Python debugger attached"
+            label = "Python debugger running"
         elif state == "stopped":
             color = "#d29922"
             label = "Python debugger stopped"
@@ -3768,61 +3887,348 @@ def main():
 
     def _python_dbg_refresh_ui(client):
         started = bool(python_dbg_state.get("started"))
+        stopped = bool(python_dbg_state.get("stopped"))
         _set_python_vm_buttons(client, started)
-        _set_python_vm_status(client, "running" if started else "stopped")
-        _set_python_status_text(client, python_dbg_state.get("status", "No Python debug session attached."))
-        if started:
-            _set_python_thread_items(client, [{"id": "python.threads.main", "label": "MainThread (placeholder)"}])
-            _set_python_frame_items(client, [{"id": "python.frames.main", "label": "No Python frame bridge yet"}])
-            _set_python_locals_text(client, ["No Python locals bridge yet"])
-            _set_python_registers_text(client, ["Python does not expose a GDB-style register set by default"])
-            _set_python_memory_text(client, ["Traditional memory inspector reserved for Python objects and frames"])
-        else:
+        try:
+            client.set_text("nav.debug.python_status", "")
+        except Exception:
+            pass
+        if not started:
+            _set_python_vm_status(client, "idle")
             _set_python_thread_items(client, [])
-            _set_python_frame_items(client, [])
-            _set_python_locals_text(client, [])
-            _set_python_registers_text(client, [])
-            _set_python_memory_text(client, [])
+        elif stopped:
+            _set_python_vm_status(client, "stopped")
+        else:
+            _set_python_vm_status(client, "running")
+
+    def _python_dbg_refresh_threads(client):
+        """Query DAP for live threads and stack frames, update UI."""
+        dap: PythonDapClient | None = python_dbg_state.get("dap")
+        if dap is None:
+            _append_build_output(client, "[python-dbg] refresh_threads: dap is None\n")
+            return
+
+        thread_id = python_dbg_state.get("thread_id")
+        stopped = python_dbg_state.get("stopped", False)
+
+        # --- Thread list ---
+        try:
+            resp = dap.send("threads", {}, timeout=3.0)
+            _append_build_output(client, f"[python-dbg] threads response: {resp}\n")
+            threads = (resp.get("body") or {}).get("threads", [])
+            items = [
+                {"id": f"python.thread.{t['id']}",
+                 "label": f"Thread {t['id']}: {t.get('name', '?')}"}
+                for t in threads
+            ]
+            _set_python_thread_items(client, items)
+            # Select the stopped/current thread
+            if thread_id and items:
+                try:
+                    client.set_text("nav.debug.python_threads",
+                                    f"python.thread.{thread_id}")
+                except Exception:
+                    pass
+        except Exception as e:
+            _append_build_output(client, f"[python-dbg] threads exception: {e}\n")
+
+        if not stopped or not thread_id:
+            return
+
+        # --- Stack trace and locals for stopped thread ---
+        try:
+            stack_resp = dap.send("stackTrace",
+                                  {"threadId": thread_id, "startFrame": 0, "levels": 30},
+                                  timeout=3.0)
+            frames = (stack_resp.get("body") or {}).get("stackFrames", [])
+            if not frames:
+                return
+
+            # Navigate the editor to the top frame's file and line
+            top_frame = frames[0]
+            top_src_path = (top_frame.get("source") or {}).get("path", "")
+            top_line = top_frame.get("line", 0)
+            if top_src_path and top_line > 0 and Path(top_src_path).is_file():
+                _open_file_tab(client, top_src_path, make_permanent=True)
+                tab_id = _tab_id_for_path(top_src_path)
+                editor_widget = tab_id + ".container"
+                try:
+                    client.set_eip_line(editor_widget, top_line - 1)
+                except Exception:
+                    pass
+
+            reason = python_dbg_state.get("status", "Stopped")
+            out_lines = [f"[python] {reason}"]
+            out_lines.append("[python] Traceback (most recent call last):")
+            for f in reversed(frames):
+                src_path = (f.get("source") or {}).get("path", "?")
+                src_name = Path(src_path).name
+                line = f.get("line", 0)
+                name = f.get("name", "?")
+                out_lines.append(f'[python]   File "{src_name}", line {line}, in {name}')
+
+            # Locals for the top frame
+            top_frame_id = top_frame.get("id")
+            scopes_resp = dap.send("scopes", {"frameId": top_frame_id}, timeout=3.0)
+            scopes = (scopes_resp.get("body") or {}).get("scopes", [])
+            for scope in scopes:
+                if scope.get("name", "").lower() != "locals":
+                    continue
+                vars_resp = dap.send(
+                    "variables",
+                    {"variablesReference": scope["variablesReference"]},
+                    timeout=3.0,
+                )
+                variables = (vars_resp.get("body") or {}).get("variables", [])[:20]
+                if variables:
+                    out_lines.append("[python] [locals]")
+                    for v in variables:
+                        out_lines.append(f"[python]   {v['name']} = {v['value']}")
+                break
+
+            _append_build_output(client, "\n".join(out_lines) + "\n")
+        except Exception:
+            pass
+
+    def _python_dap_on_event(event: str, body: dict):
+        """Called from the DAP receive thread.
+
+        Must NOT call dap.send() directly — that blocks waiting for a response
+        that can only arrive on this same thread, causing a deadlock.  Any
+        follow-up DAP requests must be dispatched onto a new thread.
+        """
+        c = client_ref.get("client")
+        dap: PythonDapClient | None = python_dbg_state.get("dap")
+
+        if event == "initialized":
+            # configurationDone is sent in the main launch sequence after attach,
+            # so there is nothing to do here except log receipt of the event.
+            if c:
+                _append_build_output(c, "[python] debugpy initialized\n")
+
+        elif event == "stopped":
+            reason = body.get("reason", "stopped")
+            thread_id = body.get("threadId")
+            python_dbg_state["stopped"] = True
+            python_dbg_state["thread_id"] = thread_id
+            python_dbg_state["status"] = f"Stopped: {reason}"
+            if c:
+                _append_build_output(c, f"[python-dbg] stopped event: reason={reason} thread={thread_id}\n")
+                _set_python_vm_status(c, "stopped")
+                _set_python_status_text(c, python_dbg_state["status"])
+                threading.Thread(target=_python_dbg_refresh_threads, args=(c,), daemon=True).start()
+
+        elif event == "continued":
+            python_dbg_state["stopped"] = False
+            python_dbg_state["status"] = "Running"
+            if c:
+                _set_python_vm_status(c, "running")
+                _set_python_status_text(c, "Running")
+                _set_python_thread_items(c, [])
+
+        elif event in ("terminated", "exited"):
+            threading.Thread(target=_python_dbg_stop, args=(c,), daemon=True).start()
+
+        elif event == "thread":
+            # Refresh the thread list whenever a thread starts or exits.
+            if c and python_dbg_state.get("started"):
+                threading.Thread(target=_python_dbg_refresh_threads, args=(c,), daemon=True).start()
+
+        elif event == "output":
+            output = body.get("output", "")
+            category = body.get("category", "console")
+            if c and output:
+                line = f"[python-{category}] {output}"
+                if not line.endswith("\n"):
+                    line += "\n"
+                _append_build_output(c, line)
+
+    def _python_dbg_stop(client=None):
+        """Terminate the debugpy process and clean up state."""
+        dap: PythonDapClient | None = python_dbg_state.get("dap")
+        if dap:
+            try:
+                dap.send("disconnect", {"terminateDebuggee": True}, timeout=2.0)
+            except Exception:
+                pass
+            dap.close()
+        python_dbg_state["dap"] = None
+
+        proc = python_dbg_state.get("proc")
+        if proc and proc.poll() is None:
+            try:
+                proc.terminate()
+                proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    proc.kill()
+                except Exception:
+                    pass
+        python_dbg_state["proc"] = None
+        python_dbg_state["started"] = False
+        python_dbg_state["stopped"] = False
+        python_dbg_state["status"] = "No Python debug session attached."
+        python_dbg_state["thread_id"] = None
+        python_dbg_state["port"] = None
+
+        if client:
+            _python_dbg_refresh_ui(client)
+            _refresh_status_panel(client)
+            _append_build_output(client, "[python] debug session ended\n")
+
+    def _python_dbg_launch(client):
+        """Launch app.py under debugpy and connect the DAP client."""
+        project_root_text = app_state.get("project_root", "")
+        if not project_root_text:
+            raise RuntimeError("No project open.")
+        project_root = Path(project_root_text)
+        python_root = _project_python_root(project_root)
+        entry = python_root / "app.py"
+        if not entry.is_file():
+            raise RuntimeError(f"python/app.py not found in project: {project_root}")
+
+        _python_dbg_stop()
+
+        port = _allocate_epa_dbg_port()
+        python_dbg_state["port"] = port
+
+        proc = subprocess.Popen(
+            [sys.executable, "-m", "debugpy",
+             "--listen", f"127.0.0.1:{port}",
+             "--wait-for-client",
+             str(entry)],
+            cwd=str(python_root),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        python_dbg_state["proc"] = proc
+
+        def _reader(stream, tag):
+            for raw in stream:
+                line = raw.decode(errors="replace").rstrip()
+                _append_build_output(client, f"[python-{tag}] {line}\n")
+        threading.Thread(target=_reader, args=(proc.stdout, "out"), daemon=True).start()
+        threading.Thread(target=_reader, args=(proc.stderr, "err"), daemon=True).start()
+
+        _append_build_output(client, f"[python] launching debugpy on port {port}\n")
+
+        # Wait for debugpy to open the socket
+        deadline = time.time() + 8.0
+        dap = None
+        while time.time() < deadline:
+            if proc.poll() is not None:
+                raise RuntimeError(f"Python process exited (code {proc.returncode}) before accepting connections")
+            try:
+                dap = PythonDapClient("127.0.0.1", port)
+                break
+            except ConnectionRefusedError:
+                time.sleep(0.2)
+        if dap is None:
+            raise RuntimeError("Timed out waiting for debugpy to accept connections")
+
+        python_dbg_state["dap"] = dap
+        dap.set_event_handler(_python_dap_on_event)
+
+        # DAP handshake (based on wire-level testing against debugpy 1.8.x):
+        #  1. initialize  — response arrives immediately
+        #  2. attach      — fires the 'initialized' event (arrives ~0.5s later);
+        #                   attach response is deferred until after configurationDone
+        #  3. setExceptionBreakpoints — response deferred until configurationDone
+        #  4. configurationDone — triggers all deferred responses + process/thread events
+        dap.send("initialize", {
+            "clientID": "epa-ide",
+            "adapterID": "python",
+            "pathFormat": "path",
+            "linesStartAt1": True,
+            "columnsStartAt1": True,
+            "supportsVariableType": True,
+            "supportsRunInTerminalRequest": False,
+        })
+        dap.fire("attach", {"__restart": False})
+        dap.fire("setExceptionBreakpoints", {"filters": ["uncaught"]})
+        dap.send("configurationDone", {})
+
+        python_dbg_state["started"] = True
+        python_dbg_state["status"] = "Running"
+        _append_build_output(client, "[python] DAP handshake complete — running\n")
+        _open_file_tab(client, str(entry), make_permanent=True)
+
+        # Poll threads periodically while the script runs so the list stays
+        # populated without requiring a stop event.
+        def _thread_poller():
+            for delay in (0.5, 2.0, 5.0):
+                time.sleep(delay)
+                if not python_dbg_state.get("started") or python_dbg_state.get("stopped"):
+                    return
+                try:
+                    resp = dap.send("threads", {}, timeout=3.0)
+                    threads = (resp.get("body") or {}).get("threads", [])
+                    c2 = client_ref.get("client")
+                    if c2 and threads:
+                        items = [
+                            {"id": f"python.thread.{t['id']}",
+                             "label": f"Thread {t['id']}: {t.get('name', '?')}"}
+                            for t in threads
+                        ]
+                        _set_python_thread_items(c2, items)
+                except Exception:
+                    pass
+        threading.Thread(target=_thread_poller, daemon=True).start()
 
     def _python_dbg_handle_action(client, action_id: str):
         try:
             if action_id == "debug.python.reset":
-                python_dbg_state["started"] = True
-                python_dbg_state["status"] = "Python debug bridge placeholder active."
+                _set_python_vm_status(client, "starting")
+                _python_dbg_launch(client)
                 _python_dbg_refresh_ui(client)
                 _refresh_status_panel(client)
-                _append_build_output(client, "[python] debug bridge placeholder started\n")
                 return True
+
             if action_id == "debug.python.stop":
-                python_dbg_state["started"] = False
-                python_dbg_state["status"] = "No Python debug session attached."
-                _python_dbg_refresh_ui(client)
-                _refresh_status_panel(client)
-                _append_build_output(client, "[python] debug bridge placeholder stopped\n")
+                _python_dbg_stop(client)
                 return True
-            if action_id in (
-                "debug.python.continue",
-                "debug.python.step_over",
-                "debug.python.step_into",
-                "debug.python.step_out",
-                "debug.python.pause",
-            ):
-                if not python_dbg_state.get("started"):
-                    raise RuntimeError("Python debugger is not started.")
-                label_map = {
-                    "debug.python.continue": "continue",
-                    "debug.python.step_over": "step over",
-                    "debug.python.step_into": "step into",
-                    "debug.python.step_out": "step out",
-                    "debug.python.pause": "pause",
-                }
-                python_dbg_state["status"] = f"{label_map[action_id]} requested"
-                _python_dbg_refresh_ui(client)
-                _append_build_output(client, f"[python] {label_map[action_id]} requested (bridge not linked yet)\n")
+
+            dap: PythonDapClient | None = python_dbg_state.get("dap")
+            if not python_dbg_state.get("started") or dap is None:
+                raise RuntimeError("Python debugger is not running.")
+
+            thread_id = python_dbg_state.get("thread_id") or 1
+
+            if action_id == "debug.python.continue":
+                dap.send("continue", {"threadId": thread_id})
+                python_dbg_state["stopped"] = False
+                python_dbg_state["status"] = "Running"
+                _set_python_vm_status(client, "running")
+                _set_python_status_text(client, "Running")
                 return True
+
+            if action_id == "debug.python.step_over":
+                dap.send("next", {"threadId": thread_id})
+                python_dbg_state["status"] = "Stepping…"
+                _set_python_status_text(client, "Stepping…")
+                return True
+
+            if action_id == "debug.python.step_into":
+                dap.send("stepIn", {"threadId": thread_id})
+                python_dbg_state["status"] = "Stepping…"
+                _set_python_status_text(client, "Stepping…")
+                return True
+
+            if action_id == "debug.python.step_out":
+                dap.send("stepOut", {"threadId": thread_id})
+                python_dbg_state["status"] = "Stepping…"
+                _set_python_status_text(client, "Stepping…")
+                return True
+
+            if action_id == "debug.python.pause":
+                dap.send("pause", {"threadId": thread_id})
+                python_dbg_state["status"] = "Pausing…"
+                _set_python_status_text(client, "Pausing…")
+                return True
+
         except Exception as exc:
-            python_dbg_state["status"] = f"Python debugger error: {exc}"
-            _set_python_vm_status(client, "error", str(exc))
+            python_dbg_state["status"] = f"Error: {exc}"
+            _set_python_vm_status(client, "error")
             _set_python_status_text(client, python_dbg_state["status"])
             _append_build_output(client, f"[python-error] {exc}\n")
             return True
@@ -6501,9 +6907,7 @@ def main():
         _set_cpp_locals_text(client, [])
         _set_cpp_registers_text(client, [])
         _set_cpp_memory_text(client, [])
-        python_dbg_state["started"] = False
-        python_dbg_state["status"] = "No Python debug session attached."
-        _python_dbg_refresh_ui(client)
+        _python_dbg_stop(client)
         _close_open_project_window(client)
         if restore_session:
             session = _project_session_state(str(project_path))
@@ -7864,12 +8268,7 @@ def main():
                 _deferred(_kill_cpp)
                 return {"received": True}
             if item_action == "bottom.status.python.kill":
-                def _kill_python():
-                    python_dbg_state["started"] = False
-                    python_dbg_state["status"] = "No Python debug session attached."
-                    _python_dbg_refresh_ui(c)
-                    _refresh_status_panel(c)
-                _deferred(_kill_python)
+                _deferred(lambda: _python_dbg_stop(c))
                 return {"received": True}
             if item_action and item_action.startswith("tab.close."):
                 close_tab_id = item_action[len("tab.close."):]
