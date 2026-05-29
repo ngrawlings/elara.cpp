@@ -8,6 +8,7 @@ import signal
 import shutil
 import socket
 import socketserver
+import struct
 import subprocess
 import sys
 import tempfile
@@ -17,7 +18,7 @@ import uuid
 from pathlib import Path
 
 from elara_ui.builder import UiDocumentBuilder
-from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
+from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError, _BRpcCodec
 from elara_ui.snapshot_dumper import UiSnapshotDumper
 from elara_ui.repl_client import ElaraUiRepl
 
@@ -319,6 +320,12 @@ def main():
         "port": None,
         "client_connected": False,
         "client_pid": None,
+        "external_logic_connected": False,
+    }
+    external_logic_bridge = {
+        "server": None,
+        "thread": None,
+        "port": None,
     }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
@@ -941,6 +948,7 @@ def main():
     def _host_debug_bridge_mark_disconnected():
         host_debug_bridge["client_connected"] = False
         host_debug_bridge["client_pid"] = None
+        host_debug_bridge["external_logic_connected"] = False
         _refresh_status_panel(client_ref.get("client"))
 
     def _host_debug_launch_gui_sudo_kill(pid: int) -> bool:
@@ -1022,6 +1030,76 @@ def main():
         _refresh_status_panel(client_ref.get("client"))
         return port
 
+    def _external_logic_bridge_ensure() -> int:
+        if external_logic_bridge.get("server") is not None:
+            return int(external_logic_bridge.get("port") or 0)
+
+        def _recv_n(sock: socket.socket, n: int) -> bytes:
+            buf = bytearray()
+            while len(buf) < n:
+                chunk = sock.recv(n - len(buf))
+                if not chunk:
+                    raise EOFError("connection closed")
+                buf.extend(chunk)
+            return bytes(buf)
+
+        def _send_brpc(sock: socket.socket, payload: dict) -> None:
+            body = _BRpcCodec.encode(payload)
+            sock.sendall(struct.pack(">I", len(body)) + body)
+
+        def _ext_dispatch(method: str, params: dict):
+            if method == "ext.ping":
+                return "pong"
+            if method == "ext.register":
+                name = (params or {}).get("name", "") or "unnamed"
+                ui_c = client_ref.get("client")
+                if ui_c:
+                    _append_host_io_output(ui_c, f"[ext-logic] connected: {name}\n")
+                return {"ok": True}
+            raise RuntimeError(f"unknown method: {method}")
+
+        class _ExtLogicHandler(socketserver.StreamRequestHandler):
+            def handle(self):
+                host_debug_bridge["external_logic_connected"] = True
+                _refresh_status_panel(client_ref.get("client"))
+                try:
+                    while True:
+                        header = _recv_n(self.request, 4)
+                        length = struct.unpack(">I", header)[0]
+                        if length > 16 * 1024 * 1024:
+                            break
+                        body = _recv_n(self.request, length)
+                        try:
+                            msg = _BRpcCodec.decode(body)
+                        except Exception:
+                            break
+                        if "id" in msg:
+                            req_id = msg["id"]
+                            try:
+                                result = _ext_dispatch(msg.get("method", ""), msg.get("params") or {})
+                                _send_brpc(self.request, {"id": req_id, "ok": True, "result": result})
+                            except Exception as exc:
+                                _send_brpc(self.request, {"id": req_id, "ok": False,
+                                           "error": {"code": "error", "message": str(exc)}})
+                except (EOFError, OSError):
+                    pass
+                finally:
+                    host_debug_bridge["external_logic_connected"] = False
+                    _refresh_status_panel(client_ref.get("client"))
+
+        class _ExtLogicServer(socketserver.ThreadingTCPServer):
+            allow_reuse_address = True
+            daemon_threads = True
+
+        port = _allocate_localhost_port()
+        server = _ExtLogicServer(("127.0.0.1", port), _ExtLogicHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        external_logic_bridge["server"] = server
+        external_logic_bridge["thread"] = thread
+        external_logic_bridge["port"] = port
+        return port
+
     def _bridge_info_path() -> Path:
         return Path(tempfile.gettempdir()) / "elara-debug-bridge.json"
 
@@ -1056,6 +1134,8 @@ def main():
             "epa_dbg_port": int(_epa_dbg_port() or 0),
             "host_debug_host": "127.0.0.1",
             "host_debug_port": int(_host_debug_bridge_ensure() or 0),
+            "ext_logic_host": "127.0.0.1",
+            "ext_logic_port": int(_external_logic_bridge_ensure() or 0),
             "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
 
@@ -4148,27 +4228,32 @@ def main():
                 _host_debug_bridge_ensure()
             except Exception:
                 pass
+        if external_logic_bridge.get("server") is None:
+            try:
+                _external_logic_bridge_ensure()
+            except Exception:
+                pass
         bridge_server = host_debug_bridge.get("server")
         bridge_port = host_debug_bridge.get("port")
         bridge_connected = host_debug_bridge.get("client_connected", False)
+        ext_logic_connected = host_debug_bridge.get("external_logic_connected", False)
         if not bridge_server:
             host_dot1, host_lbl1 = _IND_RED,    "Offline"
             host_dot2, host_lbl2 = _IND_OFF,    "—"
             host_port_text = "Port: —"
         else:
-            # EPA-DBG light: orange when either side alone is connected, green when both
+            # dot1: EPA-DBG interconnect — orange when IDE alone, green when C++ host also bridged
             if ide_connected and bridge_connected:
                 host_dot1, host_lbl1 = _IND_GREEN,  "EPA-DBG"
             elif ide_connected or bridge_connected:
                 host_dot1, host_lbl1 = _IND_ORANGE, "EPA-DBG"
             else:
                 host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
-            if not bridge_connected:
-                host_dot2, host_lbl2 = _IND_RED,    "External logic"
-            elif ide_connected:
-                host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
-            else:
+            # dot2: External logic — grey until Python-side logic explicitly connects
+            if ext_logic_connected:
                 host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
+            else:
+                host_dot2, host_lbl2 = _IND_OFF,    "External logic"
             host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
 
         # ── C++ / GDB ────────────────────────────────────────────────────────

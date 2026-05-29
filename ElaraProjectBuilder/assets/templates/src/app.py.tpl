@@ -1,6 +1,7 @@
 >>>>>>>>>>main>>>>PROJECT_NAME>TARGET_NAME>SOCKET_ADDRESS>SOCKET_PORT>IS_RICH_EDITOR>INCLUDE_MULTI_CPU
 import argparse
 import json
+import os
 import time
 from pathlib import Path
 
@@ -19,7 +20,27 @@ def build_document():
 
 @include [%INCLUDE_MULTI_CPU% == 1] app.py.start_background_worker>>>>
 
+def _run_as_external_logic(session_path: str) -> None:
+    import ext_logic_client
+    client = ext_logic_client.ExtLogicClient.from_session_file(session_path)
+    client.connect_retry(timeout=10.0)
+    client.register(name="%TARGET_NAME%")
+    print("[ext-logic] Registered with IDE", flush=True)
+    try:
+        while True:
+            time.sleep(1.0)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        client.close()
+
+
 def main():
+    elara_session = os.environ.get("ELARA_DEBUG_SESSION", "")
+    if elara_session:
+        _run_as_external_logic(elara_session)
+        return
+
     parser = argparse.ArgumentParser(description="Load the generated Elara UI document into a running RPC head")
     parser.add_argument("--host", default="%SOCKET_ADDRESS%", help="RPC server host")
     parser.add_argument("--port", default=%SOCKET_PORT%, type=int, help="RPC server port")

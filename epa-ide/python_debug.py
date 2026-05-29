@@ -6,6 +6,7 @@ are registered into ctx so they can be called from the rest of app.py and
 from other subsystem modules.
 """
 
+import os
 import subprocess
 import sys
 import threading
@@ -407,6 +408,14 @@ def setup(ctx: dict) -> None:
         port = ctx["_allocate_epa_dbg_port"]()
         python_dbg_state["port"] = port
 
+        session_path = ctx["_write_debug_session_descriptor"]()
+        epa_ide_dir = str(Path(__file__).parent)
+        env = dict(os.environ)
+        if session_path:
+            env["ELARA_DEBUG_SESSION"] = str(session_path)
+        existing_pypath = env.get("PYTHONPATH", "")
+        env["PYTHONPATH"] = epa_ide_dir + (":" + existing_pypath if existing_pypath else "")
+
         proc = subprocess.Popen(
             [sys.executable, "-m", "debugpy",
              "--listen", f"127.0.0.1:{port}",
@@ -415,6 +424,7 @@ def setup(ctx: dict) -> None:
             cwd=str(python_root),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            env=env,
         )
         python_dbg_state["proc"] = proc
 
