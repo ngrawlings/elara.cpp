@@ -132,11 +132,16 @@ bool EpaSignalLabApp::connectHostDebugBridge() {
         return true;
     }
 
+    printf("[C++ Host] connecting to IDE bridge %s:%d\n",
+           debug_session.host_debug_host.operator char *(),
+           debug_session.host_debug_port);
+
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
     snprintf(port_text, sizeof(port_text), "%d", debug_session.host_debug_port);
     if (getaddrinfo(debug_session.host_debug_host.operator char *(), port_text, &hints, &result) != 0) {
+        printf("[C++ Host] IDE bridge connect failed: getaddrinfo error\n");
         return false;
     }
     for (rp = result; rp != NULL; rp = rp->ai_next) {
@@ -149,6 +154,11 @@ bool EpaSignalLabApp::connectHostDebugBridge() {
         close(fd);
     }
     freeaddrinfo(result);
+    if (host_debug_fd >= 0) {
+        printf("[C++ Host] IDE bridge connected\n");
+    } else {
+        printf("[C++ Host] IDE bridge connect failed\n");
+    }
     return host_debug_fd >= 0;
 }
 
@@ -533,18 +543,21 @@ int EpaSignalLabApp::run() {
 
     ElaraUiDocumentBuilder ui;
     buildDocument(ui);
-    if (!loadDocument(ui.toJson())) {
+    bool ui_connected = loadDocument(ui.toJson());
+    if (!ui_connected) {
+        printf("[C++ Host] UI not available - running in headless debug mode\n");
         peer->close();
-        g_epa_signal_lab_app = NULL;
-        return 1;
+    } else {
+        enableUiEvents();
     }
-    enableUiEvents();
     sendHostDebugEvent(
         String("register"),
         String("\"pid\":") + String((int)getpid())
             + String(",\"message\":") + json_quote_simple(String("host connected to IDE debug bridge"))
     );
-    appendLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
+    if (ui_connected) {
+        appendLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
+    }
     appendLog(String("bundle path: ") + bundle_path);
     if (debug_session.enabled) {
         appendLog(String("debug session id: ") + debug_session.session_id);
@@ -555,7 +568,9 @@ int EpaSignalLabApp::run() {
             + String(debug_session.epa_dbg_port));
     }
     refreshEpaState();
-    pushUiState();
+    if (ui_connected) {
+        pushUiState();
+    }
 
     while (!should_quit) {
         fd_set readfds;
@@ -590,7 +605,7 @@ int EpaSignalLabApp::run() {
                 appendLog(String("unhandled command: ") + command);
             }
         }
-        if (!pushUiState()) {
+        if (ui_connected && !pushUiState()) {
             break;
         }
     }

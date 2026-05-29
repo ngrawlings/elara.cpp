@@ -4,6 +4,7 @@
 #include <fstream>
 #include <sstream>
 #include <regex>
+#include <unistd.h>
 #include "EpaSignalLabApp.h"
 
 using namespace elara;
@@ -56,6 +57,15 @@ static EpaSignalLabDebugSessionConfig load_debug_session_from_env() {
 }
 
 int main(int argc, const char *argv[]) {
+    const char *stdout_fd_str = getenv("ELARA_STDOUT_FD");
+    if (stdout_fd_str) {
+        int fd = atoi(stdout_fd_str);
+        if (fd > 0) {
+            dup2(fd, STDOUT_FILENO);
+            close(fd);
+            setvbuf(stdout, NULL, _IONBF, 0);
+        }
+    }
     EpaSignalLabDebugSessionConfig debug_session = load_debug_session_from_env();
     String host(debug_session.enabled && debug_session.ui_rpc_host.length()
         ? debug_session.ui_rpc_host

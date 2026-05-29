@@ -10,6 +10,8 @@ import os
 import re
 import select
 import subprocess
+import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -111,6 +113,12 @@ def setup(ctx: dict) -> None:
         cpp_gdb_state["binary"] = ""
         cpp_gdb_state["args"] = []
         cpp_gdb_state["read_buffer"] = ""
+        stdout_read_fd = cpp_gdb_state.pop("inferior_stdout_read_fd", -1)
+        if stdout_read_fd >= 0:
+            try:
+                os.close(stdout_read_fd)
+            except Exception:
+                pass
         if proc is None:
             ui_c = client_ref.get("client")
             if ui_c and update_ui:
@@ -168,7 +176,7 @@ def setup(ctx: dict) -> None:
             cpp_gdb_state["read_buffer"] = buffer + chunk.decode("utf-8", errors="replace")
         raise RuntimeError("Timed out waiting for gdb prompt")
 
-    def _cpp_gdb_send(command: str, timeout: float = 5.0) -> list:
+    def _cpp_gdb_send(command: str, timeout: float = 5.0, wait_for_stop: bool = False) -> list:
         proc = cpp_gdb_state.get("proc")
         if proc is None or proc.stdin is None:
             raise RuntimeError("No GDB session attached")
@@ -187,6 +195,16 @@ def setup(ctx: dict) -> None:
         cpp_gdb_state["running"] = any(line.startswith("*running") or "^running" in line for line in lines)
         if any(line.startswith("*stopped") for line in lines):
             cpp_gdb_state["running"] = False
+        # In async mode, step commands return ^running immediately then *stopped later.
+        # wait_for_stop=True waits for the second prompt that carries the *stopped notification.
+        if wait_for_stop and cpp_gdb_state.get("running"):
+            try:
+                extra = _cpp_gdb_read_until_prompt(proc, timeout=timeout)
+                lines.extend(extra)
+                if any(line.startswith("*stopped") for line in extra):
+                    cpp_gdb_state["running"] = False
+            except Exception:
+                pass
         return lines
 
     def _cpp_gdb_threads_from_lines(lines: list) -> tuple:
@@ -309,6 +327,26 @@ def setup(ctx: dict) -> None:
             return
         _cpp_gdb_stop_session(update_ui=False)
         session_path = ctx["_write_debug_session_descriptor"]()
+        stdout_read_fd, stdout_write_fd = os.pipe()
+        cpp_gdb_state["inferior_stdout_read_fd"] = stdout_read_fd
+
+        def _inferior_stdout_reader(rfd: int):
+            try:
+                with os.fdopen(rfd, "rb") as f:
+                    while True:
+                        line = f.readline()
+                        if not line:
+                            break
+                        text = line.decode("utf-8", errors="replace").rstrip("\r\n")
+                        if text:
+                            ui_c = client_ref.get("client")
+                            if ui_c:
+                                ctx["_append_host_io_output"](ui_c, f"[C++ Host] {text}\n")
+            except Exception:
+                pass
+
+        threading.Thread(target=_inferior_stdout_reader, args=(stdout_read_fd,), daemon=True).start()
+
         proc = subprocess.Popen(
             ["gdb", "--interpreter=mi2", "--quiet", "--args", str(binary), *wanted_args],
             cwd=str(cpp_root),
@@ -317,12 +355,15 @@ def setup(ctx: dict) -> None:
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            pass_fds=(stdout_write_fd,),
             env={
                 **os.environ,
                 "LC_ALL": "C",
                 "ELARA_DEBUG_SESSION": str(session_path),
+                "ELARA_STDOUT_FD": str(stdout_write_fd),
             },
         )
+        os.close(stdout_write_fd)
         cpp_gdb_state["proc"] = proc
         cpp_gdb_state["project_root"] = str(project_root)
         cpp_gdb_state["binary"] = str(binary)
@@ -338,19 +379,20 @@ def setup(ctx: dict) -> None:
         _set_cpp_status_text(client, "GDB prompt ready; starting target...")
         _cpp_gdb_send('-gdb-set pagination off')
         _cpp_gdb_send('-gdb-set confirm off')
-        start_lines = _cpp_gdb_send("-exec-run --start", timeout=20.0)
+        _cpp_gdb_send('-gdb-set target-async on')
+        start_lines = _cpp_gdb_send("-exec-run", timeout=20.0)
         _set_cpp_status_text(client, _cpp_gdb_status_from_lines(start_lines))
         _set_cpp_vm_buttons(client, True)
-        _set_cpp_vm_status(client, "running", "stopped at main")
+        _set_cpp_vm_status(client, "running", "running")
         ctx["_refresh_status_panel"](client)
         _cpp_gdb_refresh_ui(client)
 
     def _cpp_gdb_log(client, line: str):
         ctx["_append_build_output"](client, line.rstrip("\n") + "\n")
 
-    def _cpp_gdb_execute(client, mi_command: str, label: str, timeout: float = 15.0):
+    def _cpp_gdb_execute(client, mi_command: str, label: str, timeout: float = 15.0, wait_for_stop: bool = False):
         _ensure_cpp_gdb_session(client)
-        lines = _cpp_gdb_send(mi_command, timeout=timeout)
+        lines = _cpp_gdb_send(mi_command, timeout=timeout, wait_for_stop=wait_for_stop)
         status = _cpp_gdb_status_from_lines(lines)
         _set_cpp_status_text(client, status)
         _set_cpp_vm_buttons(client, True)
@@ -383,17 +425,17 @@ def setup(ctx: dict) -> None:
             if action_id in ("debug.cpp.step_over",):
                 if cpp_gdb_state.get("running"):
                     raise RuntimeError("GDB is running. Pause before stepping.")
-                _cpp_gdb_execute(client, "-exec-next", "step over", timeout=20.0)
+                _cpp_gdb_execute(client, "-exec-next", "step over", timeout=20.0, wait_for_stop=True)
                 return True
             if action_id in ("debug.cpp.step_into",):
                 if cpp_gdb_state.get("running"):
                     raise RuntimeError("GDB is running. Pause before stepping.")
-                _cpp_gdb_execute(client, "-exec-step", "step into", timeout=20.0)
+                _cpp_gdb_execute(client, "-exec-step", "step into", timeout=20.0, wait_for_stop=True)
                 return True
             if action_id in ("debug.cpp.step_out",):
                 if cpp_gdb_state.get("running"):
                     raise RuntimeError("GDB is running. Pause before stepping.")
-                _cpp_gdb_execute(client, "-exec-finish", "step out", timeout=20.0)
+                _cpp_gdb_execute(client, "-exec-finish", "step out", timeout=30.0, wait_for_stop=True)
                 return True
             if action_id in ("debug.cpp.pause",):
                 _ensure_cpp_gdb_session(client)
@@ -402,7 +444,7 @@ def setup(ctx: dict) -> None:
                     _cpp_gdb_refresh_ui(client)
                     _cpp_gdb_log(client, "[gdb] pause: already stopped")
                     return True
-                _cpp_gdb_execute(client, "-exec-interrupt", "pause", timeout=20.0)
+                _cpp_gdb_execute(client, "-exec-interrupt", "pause", timeout=20.0, wait_for_stop=True)
                 return True
         except Exception as exc:
             _set_cpp_status_text(client, "error")

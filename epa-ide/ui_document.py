@@ -754,45 +754,50 @@ def build_document():
 
     ui.create_grid("nav.debug.cpp_panel")
     ui.add_grid_column_fill("nav.debug.cpp_panel")
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 188)        # 0 controls
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 204)        # 0 controls
     ui.add_grid_row_exact("nav.debug.cpp_panel", 22)         # 1 threads label
     ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)  # 2 threads list
 
     ui.create_grid("nav.debug.cpp_controls")
     ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
     ui.add_grid_column_fill("nav.debug.cpp_controls")
-    ui.add_grid_column_exact("nav.debug.cpp_controls", 4)
-    ui.add_grid_column_exact("nav.debug.cpp_controls", 80)
-    ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
-    ui.add_grid_column_exact("nav.debug.cpp_controls", 80)
     ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
     ui.add_grid_row_exact("nav.debug.cpp_controls", 22)   # 0 title
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 24)   # 1 status + start/stop
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 20)   # 2 section label
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 3 step row
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)   # 4 gap
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 5 lower row
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 6 status text
-    ui.add_grid_row_exact("nav.debug.cpp_controls", 12)   # 7 bottom gap
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 18)   # 1 status
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 2 start/stop buttons
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 8)    # 3 gap
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 20)   # 4 step label
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 5 step row
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 8)    # 6 gap
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 7 lower row
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 30)   # 8 status text
+    ui.add_grid_row_exact("nav.debug.cpp_controls", 8)    # 9 bottom gap
 
     ui.create_label("nav.debug.cpp_title", "C++ DEBUG CONTROL", 10)
     ui.set_property_bool("nav.debug.cpp_title", "enabled", False)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_title", 1, 0, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_title", 1, 0)
 
     ui.create_label("nav.debug.cpp_vm_status", "●  C++ debugger idle", 10)
     ui.set_property_string("nav.debug.cpp_vm_status", "foreground_color", "#777777")
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_vm_status", 1, 1)
+
+    ui.create_grid("nav.debug.cpp_start_stop_row")
+    ui.add_grid_column_fill("nav.debug.cpp_start_stop_row")
+    ui.add_grid_column_exact("nav.debug.cpp_start_stop_row", 4)
+    ui.add_grid_column_fill("nav.debug.cpp_start_stop_row")
+    ui.add_grid_row_fill("nav.debug.cpp_start_stop_row")
     ui.create_button("nav.debug.cpp_reset", "▶  Start", "debug.cpp.reset")
     ui.set_property_number("nav.debug.cpp_reset", "font_size", 11)
     ui.create_button("nav.debug.cpp_stop", "■  Stop", "debug.cpp.stop")
     ui.set_property_number("nav.debug.cpp_stop", "font_size", 11)
     ui.set_property_bool("nav.debug.cpp_stop", "enabled", False)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_vm_status", 1, 1)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_reset", 3, 1)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_stop", 5, 1)
+    ui.place_grid_child("nav.debug.cpp_start_stop_row", "nav.debug.cpp_reset", 0, 0)
+    ui.place_grid_child("nav.debug.cpp_start_stop_row", "nav.debug.cpp_stop", 2, 0)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_start_stop_row", 1, 2)
 
     ui.create_label("nav.debug.cpp_step_label", "STEP CONTROLS", 10)
     ui.set_property_bool("nav.debug.cpp_step_label", "enabled", False)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_label", 1, 2, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_label", 1, 4)
 
     ui.create_grid("nav.debug.cpp_step_row")
     ui.add_grid_column_fill("nav.debug.cpp_step_row")
@@ -810,7 +815,7 @@ def build_document():
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_continue", 0, 0)
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_over", 2, 0)
     ui.place_grid_child("nav.debug.cpp_step_row", "nav.debug.cpp_step_into", 4, 0)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_row", 1, 3, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_step_row", 1, 5)
 
     ui.create_grid("nav.debug.cpp_lower_row")
     ui.add_grid_column_fill("nav.debug.cpp_lower_row")
@@ -823,7 +828,7 @@ def build_document():
     ui.set_property_number("nav.debug.cpp_pause", "font_size", 11)
     ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_step_out", 0, 0)
     ui.place_grid_child("nav.debug.cpp_lower_row", "nav.debug.cpp_pause", 2, 0)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_lower_row", 1, 5, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_lower_row", 1, 7)
 
     ui.create_label(
         "nav.debug.cpp_status",
@@ -831,7 +836,7 @@ def build_document():
         11,
     )
     ui.set_property_bool("nav.debug.cpp_status", "enabled", False)
-    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_status", 1, 6, 5, 1)
+    ui.place_grid_child("nav.debug.cpp_controls", "nav.debug.cpp_status", 1, 8)
 
     ui.create_label("nav.debug.cpp_threads_label", "CURRENT THREADS", 10)
     ui.set_property_bool("nav.debug.cpp_threads_label", "enabled", False)

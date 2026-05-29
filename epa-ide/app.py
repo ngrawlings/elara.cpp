@@ -897,7 +897,7 @@ def main():
         if kind == "log":
             message = str(payload.get("message", "") or "")
             if ui_c and message:
-                _append_host_io_output(ui_c, f"[host] {message}\n")
+                _append_host_io_output(ui_c, f"[C++ Host] {message}\n")
             return
         if kind == "ingress":
             if ui_c:
@@ -4138,6 +4138,7 @@ def main():
             epa_dot1, epa_lbl1 = _IND_GREEN,  "Running"
             epa_dot2, epa_lbl2 = _IND_GREEN,  "IDE connected"
             epa_port_text = f"Port: {epa_port}"
+        ide_connected = bool(epa_client and epa_client.connected)
 
         # ── Host interconnect ─────────────────────────────────────────────────
         # The host interconnect is part of the runtime contract, so keep the
@@ -4150,21 +4151,21 @@ def main():
         bridge_server = host_debug_bridge.get("server")
         bridge_port = host_debug_bridge.get("port")
         bridge_connected = host_debug_bridge.get("client_connected", False)
-        epa_ready = bool(epa_client and epa_client.connected)
         if not bridge_server:
             host_dot1, host_lbl1 = _IND_RED,    "Offline"
             host_dot2, host_lbl2 = _IND_OFF,    "—"
             host_port_text = "Port: —"
         else:
-            if not bridge_connected:
-                host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
-            elif epa_ready:
+            # EPA-DBG light: orange when either side alone is connected, green when both
+            if ide_connected and bridge_connected:
                 host_dot1, host_lbl1 = _IND_GREEN,  "EPA-DBG"
-            else:
+            elif ide_connected or bridge_connected:
                 host_dot1, host_lbl1 = _IND_ORANGE, "EPA-DBG"
+            else:
+                host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
             if not bridge_connected:
                 host_dot2, host_lbl2 = _IND_RED,    "External logic"
-            elif epa_ready:
+            elif ide_connected:
                 host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
             else:
                 host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
@@ -6408,6 +6409,7 @@ def main():
             ctx["_deferred"]                      = _deferred
             ctx["_refresh_status_panel"]          = _refresh_status_panel
             ctx["_append_build_output"]           = _append_build_output
+            ctx["_append_host_io_output"]         = _append_host_io_output
             ctx["_open_file_tab"]                 = _open_file_tab
             ctx["_tab_id_for_path"]               = _tab_id_for_path
             ctx["_write_debug_session_descriptor"] = _write_debug_session_descriptor
