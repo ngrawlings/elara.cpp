@@ -317,6 +317,39 @@ def _create_e_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: s
                button_glyph="×", button_action=f"tab.close.{tab_id}")
 
 
+def _create_python_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: str):
+    ids = _editor_ids(tab_id)
+    ui.create_grid(ids["container"])
+    ui.add_grid_column_fill(ids["container"])
+    ui.add_grid_row_fill(ids["container"])
+
+    ui.create_grid(ids["debug_panel"])
+    ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
+    ui.add_grid_column_exact(ids["debug_panel"], 0)
+    ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
+    ui.add_grid_row_fill(ids["debug_panel"])
+
+    ui.create_code_editor(ids["source"], source_text)
+    ui.set_property_string(ids["source"], "language", "python")
+    ui.set_property_number(ids["source"], "font_size", 13)
+
+    ui.create_tabs(ids["debug_tabs"])
+    ui.create_list_view(ids["debug_stack"])
+    ui.create_list_view(ids["debug_local"])
+    ui.set_property_number(ids["debug_stack"], "font_size", 11)
+    ui.set_property_number(ids["debug_local"], "font_size", 11)
+    ui.set_section_json(ids["debug_stack"], "items", [])
+    ui.set_section_json(ids["debug_local"], "items", [])
+    ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
+    ui.add_tab(ids["debug_tabs"], "Locals", ids["debug_local"])
+
+    ui.place_grid_child(ids["debug_panel"], ids["source"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
+    ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 0)
+    ui.add_tab("editor.tabs", title, ids["container"],
+               button_glyph="×", button_action=f"tab.close.{tab_id}")
+
+
 def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: str):
     row_id = f"nav.debug.kernel.{tab_id}"
     ui.create_grid(row_id)
@@ -1098,9 +1131,11 @@ def build_document():
 
     ui.create_grid("nav.debug.cpp_panel")
     ui.add_grid_column_fill("nav.debug.cpp_panel")
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 188)
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 22)
-    ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 188)        # 0 controls
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 22)         # 1 threads label
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 100)        # 2 threads list
+    ui.add_grid_row_exact("nav.debug.cpp_panel", 22)         # 3 inspection label
+    ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)  # 4 inspector tabs
 
     ui.create_grid("nav.debug.cpp_controls")
     ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
@@ -1189,11 +1224,25 @@ def build_document():
     ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads_label", 0, 1)
     ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads", 0, 2)
 
+    ui.create_label("nav.debug.cpp_inspect_label", "INSPECTION", 10)
+    ui.set_property_bool("nav.debug.cpp_inspect_label", "enabled", False)
+    ui.create_tabs("nav.debug.cpp_inspector_tabs")
+    ui.create_list_view("nav.debug.cpp_stack")
+    ui.set_property_number("nav.debug.cpp_stack", "font_size", 11)
+    ui.set_section_json("nav.debug.cpp_stack", "items", [])
+    ui.create_list_view("nav.debug.cpp_locals")
+    ui.set_property_number("nav.debug.cpp_locals", "font_size", 11)
+    ui.set_section_json("nav.debug.cpp_locals", "items", [])
+    ui.add_tab("nav.debug.cpp_inspector_tabs", "Stack", "nav.debug.cpp_stack")
+    ui.add_tab("nav.debug.cpp_inspector_tabs", "Locals", "nav.debug.cpp_locals")
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_inspect_label", 0, 3)
+    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_inspector_tabs", 0, 4)
+
     ui.create_grid("nav.debug.python_panel")
     ui.add_grid_column_fill("nav.debug.python_panel")
-    ui.add_grid_row_exact("nav.debug.python_panel", 188)
-    ui.add_grid_row_exact("nav.debug.python_panel", 22)
-    ui.add_grid_row_weighted_fill("nav.debug.python_panel", 1)
+    ui.add_grid_row_exact("nav.debug.python_panel", 188)        # 0 controls
+    ui.add_grid_row_exact("nav.debug.python_panel", 22)         # 1 threads label
+    ui.add_grid_row_weighted_fill("nav.debug.python_panel", 1)  # 2 threads list
 
     ui.create_grid("nav.debug.python_controls")
     ui.add_grid_column_exact("nav.debug.python_controls", 8)
@@ -3863,10 +3912,29 @@ def main():
                 pass
 
     def _set_cpp_frame_items(client, items: list[dict]):
-        pass
+        if not items:
+            items = [{"id": "cpp.stack.empty", "label": "No frame data"}]
+        try:
+            client.call("ui.setSectionJson", {
+                "target": "nav.debug.cpp_stack",
+                "section": "items",
+                "value": items,
+            })
+        except Exception:
+            pass
 
     def _set_cpp_locals_text(client, labels: list[str]):
-        pass
+        items = [{"id": f"cpp.local.{i}", "label": l} for i, l in enumerate(labels)]
+        if not items:
+            items = [{"id": "cpp.locals.empty", "label": "No local data"}]
+        try:
+            client.call("ui.setSectionJson", {
+                "target": "nav.debug.cpp_locals",
+                "section": "items",
+                "value": items,
+            })
+        except Exception:
+            pass
 
     def _set_cpp_registers_text(client, labels: list[str]):
         pass
@@ -3925,11 +3993,42 @@ def main():
         except Exception:
             pass
 
-    def _set_python_frame_items(client, items: list[dict]):
-        pass
+    def _set_python_frame_items(client, items: list[dict], tab_id: str = None):
+        tid = tab_id or python_dbg_state.get("inspect_tab_id")
+        if not tid:
+            return
+        python_dbg_state["inspect_tab_id"] = tid
+        ids = _editor_ids(tid)
+        panel_width = 280 if items else 0
+        try:
+            client.set_grid_column_exact_size(ids["debug_panel"], 1, panel_width)
+        except Exception:
+            pass
+        display = items if items else [{"id": "python.stack.empty", "label": "No frame data"}]
+        try:
+            client.call("ui.setSectionJson", {
+                "target": ids["debug_stack"],
+                "section": "items",
+                "value": display,
+            })
+        except Exception:
+            pass
 
-    def _set_python_locals_text(client, labels: list[str]):
-        pass
+    def _set_python_locals_text(client, labels: list[str], tab_id: str = None):
+        tid = tab_id or python_dbg_state.get("inspect_tab_id")
+        if not tid:
+            return
+        ids = _editor_ids(tid)
+        items = [{"id": f"python.local.{i}", "label": l} for i, l in enumerate(labels)]
+        display = items if items else [{"id": "python.locals.empty", "label": "No local data"}]
+        try:
+            client.call("ui.setSectionJson", {
+                "target": ids["debug_local"],
+                "section": "items",
+                "value": display,
+            })
+        except Exception:
+            pass
 
     def _set_python_registers_text(client, labels: list[str]):
         pass
@@ -3948,6 +4047,9 @@ def main():
         if not started:
             _set_python_vm_status(client, "idle")
             _set_python_thread_items(client, [])
+            _set_python_frame_items(client, [])
+            _set_python_locals_text(client, [])
+            python_dbg_state.pop("inspect_tab_id", None)
         elif stopped:
             _set_python_vm_status(client, "stopped")
         else:
@@ -4000,29 +4102,42 @@ def main():
             top_frame = frames[0]
             top_src_path = (top_frame.get("source") or {}).get("path", "")
             top_line = top_frame.get("line", 0)
+            inspect_tab_id = None
             if top_src_path and top_line > 0 and Path(top_src_path).is_file():
                 _open_file_tab(client, top_src_path, make_permanent=True)
-                tab_id = _tab_id_for_path(top_src_path)
-                editor_widget = tab_id + ".container"
+                inspect_tab_id = _tab_id_for_path(top_src_path)
+                ids = _editor_ids(inspect_tab_id)
                 try:
-                    client.set_eip_line(editor_widget, top_line - 1)
+                    client.set_eip_line(ids["source"], top_line - 1)
                 except Exception:
                     pass
 
             reason = python_dbg_state.get("status", "Stopped")
             out_lines = [f"[python] {reason}"]
             out_lines.append("[python] Traceback (most recent call last):")
+            frame_items = []
             for f in reversed(frames):
                 src_path = (f.get("source") or {}).get("path", "?")
                 src_name = Path(src_path).name
                 line = f.get("line", 0)
                 name = f.get("name", "?")
                 out_lines.append(f'[python]   File "{src_name}", line {line}, in {name}')
+            for idx, f in enumerate(frames):
+                src_path = (f.get("source") or {}).get("path", "?")
+                src_name = Path(src_path).name
+                line = f.get("line", 0)
+                name = f.get("name", "?")
+                frame_items.append({
+                    "id": f"python.frame.{f.get('id', idx)}",
+                    "label": f"{name}  ({src_name}:{line})",
+                })
+            _set_python_frame_items(client, frame_items, tab_id=inspect_tab_id)
 
             # Locals for the top frame
             top_frame_id = top_frame.get("id")
             scopes_resp = dap.send("scopes", {"frameId": top_frame_id}, timeout=3.0)
             scopes = (scopes_resp.get("body") or {}).get("scopes", [])
+            local_labels: list[str] = []
             for scope in scopes:
                 if scope.get("name", "").lower() != "locals":
                     continue
@@ -4035,8 +4150,11 @@ def main():
                 if variables:
                     out_lines.append("[python] [locals]")
                     for v in variables:
-                        out_lines.append(f"[python]   {v['name']} = {v['value']}")
+                        label = f"{v['name']} = {v['value']}"
+                        local_labels.append(label)
+                        out_lines.append(f"[python]   {label}")
                 break
+            _set_python_locals_text(client, local_labels, tab_id=inspect_tab_id)
 
             _append_build_output(client, "\n".join(out_lines) + "\n")
         except Exception:
@@ -4077,6 +4195,9 @@ def main():
                 _set_python_vm_status(c, "running")
                 _set_python_status_text(c, "Running")
                 _set_python_thread_items(c, [])
+                _set_python_frame_items(c, [])   # hides the panel via inspect_tab_id
+                _set_python_locals_text(c, [])
+                python_dbg_state.pop("inspect_tab_id", None)
 
         elif event in ("terminated", "exited"):
             threading.Thread(target=_python_dbg_stop, args=(c,), daemon=True).start()
@@ -7649,7 +7770,12 @@ def main():
         is_preview = not make_permanent
         close_action = f"tab.close.{tab_id}"
 
-        if ext == ".e":
+        if ext == ".py":
+            tab_ui = UiDocumentBuilder()
+            tab_ui.create_tabs("editor.tabs")
+            _create_python_tab(tab_ui, tab_id, title, source_text)
+            child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
+        elif ext == ".e":
             tab_ui = UiDocumentBuilder()
             tab_ui.create_tabs("editor.tabs")
             _create_e_tab(tab_ui, tab_id, title, source_text)
