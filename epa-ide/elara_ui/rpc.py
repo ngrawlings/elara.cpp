@@ -1,3 +1,4 @@
+import concurrent.futures
 import json
 import socket
 import struct
@@ -24,6 +25,7 @@ class ElaraUiRpcClient:
         self._running = False
         self._send_lock = threading.Lock()
         self._pending_lock = threading.Lock()
+        self._id_lock = threading.Lock()
         self._next_request_id = 1
         self._pending: Dict[str, Tuple[threading.Event, dict]] = {}
         self._handlers: Dict[str, Callable[[dict], object]] = {}
@@ -116,10 +118,17 @@ class ElaraUiRpcClient:
         self._handlers[method] = handler
         return self
 
+    def fire(self, method: str, params: Optional[dict] = None):
+        """Send a one-way notification — no response expected, returns immediately."""
+        self.connect()
+        payload = {"method": method, "params": params if params is not None else None}
+        self._send_payload(payload)
+
     def call(self, method: str, params: Optional[dict] = None, timeout: float = 5.0):
         self.connect()
-        request_id = str(self._next_request_id)
-        self._next_request_id += 1
+        with self._id_lock:
+            request_id = str(self._next_request_id)
+            self._next_request_id += 1
         params_dict = params if isinstance(params, dict) else {}
 
         request = {
@@ -189,30 +198,22 @@ class ElaraUiRpcClient:
         return self.call("ui.getGridLayoutState", {"target": target}, timeout=timeout)
 
     def set_grid_column_exact_size(self, target: str, index: int, size: float, timeout: float = 5.0):
-        return self.call(
-            "ui.setGridColumnExactSize",
-            {"target": target, "index": int(index), "size": float(size)},
-            timeout=timeout,
-        )
+        self.fire("ui.setGridColumnExactSize", {"target": target, "index": int(index), "size": float(size)})
 
     def set_grid_row_exact_size(self, target: str, index: int, size: float, timeout: float = 5.0):
-        return self.call(
-            "ui.setGridRowExactSize",
-            {"target": target, "index": int(index), "size": float(size)},
-            timeout=timeout,
-        )
+        self.fire("ui.setGridRowExactSize", {"target": target, "index": int(index), "size": float(size)})
 
     def get_window_state(self, timeout: float = 5.0):
         return self.call("ui.getWindowState", {}, timeout=timeout)
 
     def set_window_maximized(self, maximized: bool, timeout: float = 5.0):
-        return self.call("ui.setWindowMaximized", {"maximized": bool(maximized)}, timeout=timeout)
+        self.fire("ui.setWindowMaximized", {"maximized": bool(maximized)})
 
     def set_window_decorated(self, decorated: bool, timeout: float = 5.0):
-        return self.call("ui.setWindowDecorated", {"decorated": bool(decorated)}, timeout=timeout)
+        self.fire("ui.setWindowDecorated", {"decorated": bool(decorated)})
 
     def set_theme_mode(self, mode: str, timeout: float = 5.0):
-        return self.call("ui.setThemeMode", {"mode": mode}, timeout=timeout)
+        self.fire("ui.setThemeMode", {"mode": mode})
 
     def configure_menu_bar_chrome(
         self,
@@ -221,14 +222,13 @@ class ElaraUiRpcClient:
         window_title: str,
         timeout: float = 5.0,
     ):
-        return self.call(
+        self.fire(
             "ui.configureMenuBarChrome",
             {
                 "target": target,
                 "custom_chrome": bool(custom_chrome),
                 "window_title": window_title,
             },
-            timeout=timeout,
         )
 
     def replace_list_items(self, target: str, items: list, timeout: float = 5.0):
@@ -236,41 +236,42 @@ class ElaraUiRpcClient:
         return self.call("ui.replaceChildren", {"target": target, "document": document}, timeout=timeout)
 
     def set_text(self, target: str, value: str, timeout: float = 5.0):
-        return self.call("ui.setText", {"target": target, "value": value}, timeout=timeout)
+        self.fire("ui.setText", {"target": target, "value": value})
 
     def scroll_to_bottom(self, target: str, timeout: float = 5.0):
-        return self.call("ui.scrollToBottom", {"target": target}, timeout=timeout)
+        self.fire("ui.scrollToBottom", {"target": target})
 
     def set_visible(self, target: str, visible: bool, timeout: float = 5.0):
-        return self.call("ui.setVisible", {"target": target, "visible": bool(visible)}, timeout=timeout)
+        self.fire("ui.setVisible", {"target": target, "visible": bool(visible)})
+
+    def set_visible_batch(self, targets: list[tuple[str, bool]], timeout: float = 5.0):
+        """Fire all set_visible notifications immediately (no waiting needed)."""
+        for t, v in targets:
+            self.fire("ui.setVisible", {"target": t, "visible": bool(v)})
 
     def set_enabled(self, target: str, enabled: bool, timeout: float = 5.0):
-        return self.call("ui.setEnabled", {"target": target, "enabled": bool(enabled)}, timeout=timeout)
+        self.fire("ui.setEnabled", {"target": target, "enabled": bool(enabled)})
 
     def set_checked(self, target: str, checked: bool, timeout: float = 5.0):
-        return self.call("ui.setChecked", {"target": target, "checked": bool(checked)}, timeout=timeout)
+        self.fire("ui.setChecked", {"target": target, "checked": bool(checked)})
 
     def set_read_only(self, target: str, read_only: bool, timeout: float = 5.0):
-        return self.call("ui.setReadOnly", {"target": target, "read_only": bool(read_only)}, timeout=timeout)
+        self.fire("ui.setReadOnly", {"target": target, "read_only": bool(read_only)})
 
     def set_code_editor_diagnostics(self, target: str, diagnostics: list, timeout: float = 5.0):
-        return self.call(
-            "ui.setCodeEditorDiagnostics",
-            {"target": target, "diagnostics": diagnostics},
-            timeout=timeout,
-        )
+        self.fire("ui.setCodeEditorDiagnostics", {"target": target, "diagnostics": diagnostics})
 
     def set_eip_line(self, target: str, line: int, timeout: float = 5.0):
-        return self.call("ui.setEipLine", {"target": target, "line": int(line)}, timeout=timeout)
+        self.fire("ui.setEipLine", {"target": target, "line": int(line)})
 
     def set_focus(self, target: str, timeout: float = 5.0):
-        return self.call("ui.setFocus", {"target": target}, timeout=timeout)
+        self.fire("ui.setFocus", {"target": target})
 
     def lock_focus(self, target: str, timeout: float = 5.0):
-        return self.call("ui.lockFocus", {"target": target}, timeout=timeout)
+        self.fire("ui.lockFocus", {"target": target})
 
     def clear_focus_lock(self, timeout: float = 5.0):
-        return self.call("ui.clearFocusLock", {}, timeout=timeout)
+        self.fire("ui.clearFocusLock", {})
 
     def set_window_title(self, title: str, timeout: float = 5.0):
         return self.call("ui.setWindowTitle", {"title": title}, timeout=timeout)

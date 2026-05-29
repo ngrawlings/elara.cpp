@@ -808,6 +808,12 @@ public:
           loaded_window_use_system_header(true) {
     }
 
+    void notify(const String& method, const String& params_json) override {
+        Ref<DeferredUiRequest> request(new DeferredUiRequest(method, params_json));
+        Mutex::Lock lock(queue_lock);
+        queue.push(request);
+    }
+
     bool hasLoadedLayout() const {
         return layout_loaded;
     }

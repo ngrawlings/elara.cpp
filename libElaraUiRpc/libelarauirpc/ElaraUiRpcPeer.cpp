@@ -331,6 +331,18 @@ void ElaraUiRpcPeer::handleIncomingPayload(const String& payload) {
         return;
     }
 
+    String notif_method;
+    String notif_params;
+    if(sockets::rpc::json::JsonRPCCodec::parseNotification(
+        payload,
+        notif_method,
+        notif_params,
+        parse_error_message
+    )) {
+        registry.dispatchNotification(payload);
+        return;
+    }
+
     String response_json;
     registry.dispatch(payload, response_json);
     sendPayload(response_json);

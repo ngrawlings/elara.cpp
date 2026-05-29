@@ -29,6 +29,27 @@ namespace json {
         return Ref<JsonRPCService>();
     }
 
+    void JsonRPCRegistry::dispatchNotification(const String &notification_json) {
+        String method;
+        String params_json;
+        String parse_error;
+
+        if (!JsonRPCCodec::parseNotification(notification_json, method, params_json, parse_error))
+            return;
+
+        int split = method.indexOf(".");
+        if (split <= 0 || split >= method.length() - 1)
+            return;
+
+        String service_name = method.substr(0, split);
+        String service_method = method.substr(split + 1);
+        Ref<JsonRPCService> service = findService(service_name);
+        if (!service.getPtr())
+            return;
+
+        service->notify(service_method, params_json);
+    }
+
     bool JsonRPCRegistry::dispatch(const String &request_json, String &response_json) {
         String id;
         String method;

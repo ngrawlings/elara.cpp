@@ -16,6 +16,11 @@ namespace json {
         return service_name;
     }
 
+    void JsonRPCService::notify(const String &method, const String &params_json) {
+        (void)method;
+        (void)params_json;
+    }
+
 }
 }
 }

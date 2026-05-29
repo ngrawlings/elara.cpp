@@ -19,6 +19,7 @@ namespace json {
 
         void addService(Ref<JsonRPCService> service);
         bool dispatch(const String &request_json, String &response_json);
+        void dispatchNotification(const String &notification_json);
 
     private:
         Mutex services_lock;

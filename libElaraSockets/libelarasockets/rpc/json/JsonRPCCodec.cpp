@@ -48,6 +48,13 @@ namespace json {
         return String("{\"id\":\"") + escapeJsonString(id) + String("\",\"method\":\"") + escapeJsonString(method) + String("\",\"params\":") + params_json + String("}");
     }
 
+    String JsonRPCCodec::buildNotification(const String &method, String params_json) {
+        if (!params_json.length())
+            params_json = "null";
+
+        return String("{\"method\":\"") + escapeJsonString(method) + String("\",\"params\":") + params_json + String("}");
+    }
+
     String JsonRPCCodec::buildSuccessResponse(const String &id, String result_json) {
         if (!result_json.length())
             result_json = "null";
@@ -75,6 +82,30 @@ namespace json {
         }
 
         id = ((JsonString*)id_value.getPtr())->getValue();
+        method = ((JsonString*)method_value.getPtr())->getValue();
+        if (params_value.getPtr())
+            params_json = params_value->toString();
+        else
+            params_json = "null";
+
+        return true;
+    }
+
+    bool JsonRPCCodec::parseNotification(const String &json, String &method, String &params_json, String &error_message) {
+        Json root(json);
+        Ref<JsonValue> id_value = root.getJsonValue("id");
+        Ref<JsonValue> method_value = root.getJsonValue("method");
+        Ref<JsonValue> params_value = root.getJsonValue("params");
+
+        if (id_value.getPtr() && id_value->getType() == JsonValue::STRING) {
+            error_message = "Has request id — not a notification";
+            return false;
+        }
+        if (!method_value.getPtr() || method_value->getType() != JsonValue::STRING) {
+            error_message = "Missing or invalid notification method";
+            return false;
+        }
+
         method = ((JsonString*)method_value.getPtr())->getValue();
         if (params_value.getPtr())
             params_json = params_value->toString();

@@ -14,10 +14,12 @@ namespace json {
         static String escapeJsonString(const String &value);
 
         static String buildRequest(const String &id, const String &method, String params_json);
+        static String buildNotification(const String &method, String params_json);
         static String buildSuccessResponse(const String &id, String result_json);
         static String buildErrorResponse(const String &id, const String &code, const String &message);
 
         static bool parseRequest(const String &json, String &id, String &method, String &params_json, String &error_message);
+        static bool parseNotification(const String &json, String &method, String &params_json, String &error_message);
         static bool parseResponse(const String &json, String &id, bool &ok, String &result_json, String &error_code, String &error_message, String &parse_error_message);
         static bool getStringField(const String &json, const String &field, String &value);
 

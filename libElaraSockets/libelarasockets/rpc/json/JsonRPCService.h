@@ -16,6 +16,7 @@ namespace json {
         String getServiceName() const;
 
         virtual bool call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) = 0;
+        virtual void notify(const String &method, const String &params_json);
 
     private:
         String service_name;

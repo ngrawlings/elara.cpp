@@ -1,4 +1,5 @@
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -1544,33 +1545,57 @@ def _ide_state_path() -> Path:
     return Path.home() / ".config" / "epa-ide" / "state.json"
 
 
-def _load_ide_state() -> dict:
+_ide_state_lock = threading.Lock()
+_ide_state_cache: dict | None = None
+_ide_state_write_timer: threading.Timer | None = None
+_IDE_STATE_FLUSH_DELAY = 0.3
+
+
+def _flush_ide_state_to_disk():
+    global _ide_state_write_timer
+    with _ide_state_lock:
+        _ide_state_write_timer = None
+        snapshot = dict(_ide_state_cache) if _ide_state_cache is not None else None
+    if snapshot is None:
+        return
     p = _ide_state_path()
     try:
-        return json.loads(p.read_text(encoding="utf-8"))
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
     except Exception:
-        return {}
+        pass
 
 
-_ide_state_lock = threading.Lock()
+def _load_ide_state() -> dict:
+    global _ide_state_cache
+    with _ide_state_lock:
+        if _ide_state_cache is not None:
+            return dict(_ide_state_cache)
+        p = _ide_state_path()
+        try:
+            _ide_state_cache = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            _ide_state_cache = {}
+        return dict(_ide_state_cache)
 
 
 def _save_ide_state(updates: dict):
-    p = _ide_state_path()
+    global _ide_state_cache, _ide_state_write_timer
     with _ide_state_lock:
-        try:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            state = _load_ide_state()
-            for key, value in updates.items():
-                if isinstance(value, dict) and isinstance(state.get(key), dict):
-                    merged = dict(state[key])
-                    merged.update(value)
-                    state[key] = merged
-                else:
-                    state[key] = value
-            p.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        state = dict(_ide_state_cache) if _ide_state_cache is not None else {}
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(state.get(key), dict):
+                merged = dict(state[key])
+                merged.update(value)
+                state[key] = merged
+            else:
+                state[key] = value
+        _ide_state_cache = state
+        if _ide_state_write_timer is not None:
+            _ide_state_write_timer.cancel()
+        _ide_state_write_timer = threading.Timer(_IDE_STATE_FLUSH_DELAY, _flush_ide_state_to_disk)
+        _ide_state_write_timer.daemon = True
+        _ide_state_write_timer.start()
 
 
 def _layout_value(value, fallback: int, minimum: int = 120) -> int:
@@ -3815,7 +3840,7 @@ def main():
             label = f"{label}: {detail}"
         try:
             client.set_text("nav.debug.cpp_vm_status", f"●  {label}")
-            client.call("ui.setForegroundColor", {"target": "nav.debug.cpp_vm_status", "color": color})
+            client.fire("ui.setForegroundColor", {"target": "nav.debug.cpp_vm_status", "color": color})
         except Exception:
             pass
 
@@ -3889,7 +3914,7 @@ def main():
             label = f"{label}: {detail}"
         try:
             client.set_text("nav.debug.python_vm_status", f"●  {label}")
-            client.call("ui.setForegroundColor", {"target": "nav.debug.python_vm_status", "color": color})
+            client.fire("ui.setForegroundColor", {"target": "nav.debug.python_vm_status", "color": color})
         except Exception:
             pass
 
@@ -6159,7 +6184,7 @@ def main():
                 if src_line > 0:
                     client.set_eip_line(_editor_ids(stid)["source"], max(0, src_line - 1))
                 if epa_line > 0:
-                    client.call("ui.setEipPosition", {
+                    client.fire("ui.setEipPosition", {
                         "target": _editor_ids(stid)["epa"],
                         "line": max(0, epa_line - 1),
                         "column": max(0, epa_col - 1),
@@ -6793,8 +6818,8 @@ def main():
             except Exception:
                 pass
             try:
-                client.call("ui.setVisible", {"target": tree_id, "visible": has_tech})
-                client.call("ui.setVisible", {"target": wrap_id, "visible": not has_tech})
+                client.fire("ui.setVisible", {"target": tree_id, "visible": has_tech})
+                client.fire("ui.setVisible", {"target": wrap_id, "visible": not has_tech})
             except Exception:
                 pass
         app_state["nav_tree_nodes"] = all_nodes
@@ -6813,15 +6838,14 @@ def main():
                 except Exception:
                     pass
             try:
-                client.call("ui.removeTab", {"target": "editor.tabs", "index": int(entry.get("index", 0) or 0)})
+                client.fire("ui.removeTab", {"target": "editor.tabs", "index": int(entry.get("index", 0) or 0)})
             except Exception:
                 pass
         tab_list.clear()
         editor_state.clear()
         app_state["active_editor_tab"] = ""
         try:
-            client.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
-            client.call("ui.setVisible", {"target": "editor.welcome", "visible": True})
+            client.set_visible_batch([("editor.tabs", False), ("editor.welcome", True)])
         except Exception:
             pass
         if persist_empty:
@@ -6852,7 +6876,7 @@ def main():
             if active:
                 app_state["active_editor_tab"] = active["tab_id"]
                 try:
-                    client.call("ui.setActiveTab", {"target": "editor.tabs", "index": active["index"]})
+                    client.fire("ui.setActiveTab", {"target": "editor.tabs", "index": active["index"]})
                 except Exception:
                     pass
         finally:
@@ -6860,8 +6884,7 @@ def main():
 
         if tab_list:
             try:
-                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
-                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+                client.set_visible_batch([("editor.welcome", False), ("editor.tabs", True)])
             except Exception:
                 pass
         _persist_editor_session_state()
@@ -6914,9 +6937,9 @@ def main():
         terminal_state["cwd"] = str(project_path)
         terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
         try:
-            client.call("ui.setVisible", {"target": "nav.no_project", "visible": False})
-            client.call("ui.setVisible", {"target": "nav.file_tabs", "visible": True})
-            client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+            client.fire("ui.setVisible", {"target": "nav.no_project", "visible": False})
+            client.fire("ui.setVisible", {"target": "nav.file_tabs", "visible": True})
+            client.fire("ui.setVisible", {"target": "app.toolbar", "visible": True})
             client.set_text("bottom.terminal_output", terminal_state["output"])
             _set_project_toolbar_enabled(client, True)
         except Exception:
@@ -6965,7 +6988,7 @@ def main():
         _persist_editor_session_state()
         for v, panel in _NAV_PANELS.items():
             try:
-                client.call("ui.setVisible", {"target": panel, "visible": v == view})
+                client.fire("ui.setVisible", {"target": panel, "visible": v == view})
             except Exception:
                 pass
         if view == "repo":
@@ -7063,11 +7086,13 @@ def main():
         show_terminal = view == "terminal"
         show_status = view == "status"
         try:
-            client.set_visible("bottom.build_output", show_build)
-            client.set_visible("bottom.host_io_output", show_host_io)
-            client.set_visible("bottom.console_panel", show_console)
-            client.set_visible("bottom.terminal_panel", show_terminal)
-            client.set_visible("bottom.status_panel", show_status)
+            client.set_visible_batch([
+                ("bottom.build_output", show_build),
+                ("bottom.host_io_output", show_host_io),
+                ("bottom.console_panel", show_console),
+                ("bottom.terminal_panel", show_terminal),
+                ("bottom.status_panel", show_status),
+            ])
             if show_console:
                 client.set_focus("bottom.console_input")
             if show_terminal:
@@ -7444,9 +7469,9 @@ def main():
         color1 = _IND_COLORS.get(dot1_state, _IND_COLORS[_IND_OFF])
         color2 = _IND_COLORS.get(dot2_state, _IND_COLORS[_IND_OFF])
         try:
-            client.call("ui.setForegroundColor",
+            client.fire("ui.setForegroundColor",
                         {"target": f"bottom.status.{section}.dot",  "color": color1})
-            client.call("ui.setForegroundColor",
+            client.fire("ui.setForegroundColor",
                         {"target": f"bottom.status.{section}.dot2", "color": color2})
             client.set_text(f"bottom.status.{section}.label",  label1)
             client.set_text(f"bottom.status.{section}.label2", label2)
@@ -7593,9 +7618,8 @@ def main():
                 existing["preview"] = False
             app_state["active_editor_tab"] = existing["tab_id"]
             try:
-                client.call("ui.setActiveTab", {"target": "editor.tabs", "index": existing["index"]})
-                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
-                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+                client.fire("ui.setActiveTab", {"target": "editor.tabs", "index": existing["index"]})
+                client.set_visible_batch([("editor.welcome", False), ("editor.tabs", True)])
             except Exception:
                 pass
             _persist_editor_session_state()
@@ -7605,7 +7629,7 @@ def main():
         if preview_entry and not make_permanent:
             insert_index = preview_entry["index"]
             try:
-                client.call("ui.removeTab", {"target": "editor.tabs", "index": insert_index})
+                client.fire("ui.removeTab", {"target": "editor.tabs", "index": insert_index})
             except Exception:
                 pass
             tab_list.remove(preview_entry)
@@ -7677,9 +7701,8 @@ def main():
             for t in tab_list:
                 if t is not tab_list[insert_index] and t["index"] >= insert_index:
                     t["index"] += 1
-            client.call("ui.setActiveTab", {"target": "editor.tabs", "index": insert_index})
-            client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
-            client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+            client.fire("ui.setActiveTab", {"target": "editor.tabs", "index": insert_index})
+            client.set_visible_batch([("editor.welcome", False), ("editor.tabs", True)])
             if ext == ".e":
                 _refresh_e_tab(client, tab_id)
                 _cpp_gdb_refresh_ui(client)
@@ -7699,8 +7722,7 @@ def main():
             _set_bottom_view(client, app_state.get("bottom_view", "build"))
         if tab_list:
             try:
-                client.call("ui.setVisible", {"target": "editor.welcome", "visible": False})
-                client.call("ui.setVisible", {"target": "editor.tabs", "visible": True})
+                client.set_visible_batch([("editor.welcome", False), ("editor.tabs", True)])
             except Exception:
                 pass
         _persist_editor_session_state()
@@ -7766,8 +7788,8 @@ def main():
         try:
             c.set_text("ai.history", _ai_format_history(extra_assistant_text=""))
             c.set_text("ai.input", "")
-            c.call("ui.setVisible", {"target": "ai.stop", "visible": True})
-            c.call("ui.setVisible", {"target": "ai.send", "visible": False})
+            c.fire("ui.setVisible", {"target": "ai.stop", "visible": True})
+            c.fire("ui.setVisible", {"target": "ai.send", "visible": False})
         except Exception:
             pass
 
@@ -7811,14 +7833,16 @@ def main():
 
         try:
             c.set_text("ai.history", _ai_format_history())
-            c.call("ui.setVisible", {"target": "ai.stop", "visible": False})
-            c.call("ui.setVisible", {"target": "ai.send", "visible": True})
+            c.fire("ui.setVisible", {"target": "ai.stop", "visible": False})
+            c.fire("ui.setVisible", {"target": "ai.send", "visible": True})
         except Exception:
             pass
 
+    _deferred_pool = concurrent.futures.ThreadPoolExecutor(max_workers=8, thread_name_prefix="deferred")
+
     def _deferred(fn):
-        """Run fn on a thread so on_ui_event returns before any RPC calls are made."""
-        threading.Thread(target=fn, daemon=True).start()
+        """Submit fn to the worker pool so on_ui_event returns before any RPC calls are made."""
+        _deferred_pool.submit(fn)
 
     def on_ui_event(params):
         client = client_ref.get("client")
@@ -8536,10 +8560,10 @@ def main():
                     ci = close_index
                     def _do_close_tab():
                         try:
-                            c.call("ui.removeTab", {"target": "editor.tabs", "index": ci})
+                            c.fire("ui.removeTab", {"target": "editor.tabs", "index": ci})
                             if not tab_list:
-                                c.call("ui.setVisible", {"target": "editor.tabs", "visible": False})
-                                c.call("ui.setVisible", {"target": "editor.welcome", "visible": True})
+                                c.fire("ui.setVisible", {"target": "editor.tabs", "visible": False})
+                                c.fire("ui.setVisible", {"target": "editor.welcome", "visible": True})
                         except Exception:
                             pass
                     _deferred(_do_close_tab)
@@ -9603,7 +9627,7 @@ def main():
                     _epa_dbg_log("[ipe.save] empty profile name — showing error")
                     try:
                         c.set_text("ipe.name_label", "Profile name (required):")
-                        c.call("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
+                        c.fire("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
                     except Exception as exc:
                         _epa_dbg_log(f"[ipe.save] label update failed: {exc}")
                     return
@@ -9612,7 +9636,7 @@ def main():
                     _epa_dbg_log("[ipe.save] no project open — cannot save profile")
                     try:
                         c.set_text("ipe.name_label", "Open a project first:")
-                        c.call("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
+                        c.fire("ui.setForegroundColor", {"target": "ipe.name_label", "color": "#cc3333"})
                     except Exception:
                         pass
                     return
@@ -9710,13 +9734,15 @@ def main():
                 except Exception:
                     pass
             try:
-                client.call("ui.setVisible", {"target": "editor.tabs", "visible": bool(tab_list)})
-                client.call("ui.setVisible", {"target": "editor.welcome", "visible": not bool(tab_list)})
+                client.set_visible_batch([
+                    ("editor.tabs", bool(tab_list)),
+                    ("editor.welcome", not bool(tab_list)),
+                ])
             except Exception:
                 pass
             if not app_state.get("project_root"):
                 try:
-                    client.call("ui.setVisible", {"target": "app.toolbar", "visible": True})
+                    client.fire("ui.setVisible", {"target": "app.toolbar", "visible": True})
                 except Exception:
                     pass
                 try:
@@ -9725,13 +9751,13 @@ def main():
                     pass
                 for panel in _NAV_PANELS.values():
                     try:
-                        client.call("ui.setVisible", {"target": panel, "visible": False})
+                        client.fire("ui.setVisible", {"target": panel, "visible": False})
                     except Exception:
                         pass
                 try:
-                    client.call("ui.setVisible", {"target": "nav.panel", "visible": True})
-                    client.call("ui.setVisible", {"target": "nav.file_tabs", "visible": False})
-                    client.call("ui.setVisible", {"target": "nav.no_project", "visible": True})
+                    client.fire("ui.setVisible", {"target": "nav.panel", "visible": True})
+                    client.fire("ui.setVisible", {"target": "nav.file_tabs", "visible": False})
+                    client.fire("ui.setVisible", {"target": "nav.no_project", "visible": True})
                 except Exception:
                     pass
             else:
@@ -9838,7 +9864,7 @@ def main():
                     c = client_ref.get("client")
                     if c:
                         try:
-                            c.call("ui.setActiveTab", {"target": "editor.tabs", "index": t["index"]})
+                            c.fire("ui.setActiveTab", {"target": "editor.tabs", "index": t["index"]})
                         except Exception:
                             pass
                     app_state["active_editor_tab"] = tab_id
@@ -9850,7 +9876,7 @@ def main():
                     c = client_ref.get("client")
                     if c:
                         try:
-                            c.call("ui.removeTab", {"target": "editor.tabs", "index": t["index"]})
+                            c.fire("ui.removeTab", {"target": "editor.tabs", "index": t["index"]})
                         except Exception:
                             pass
                     tab_list[:] = [x for x in tab_list if x.get("tab_id") != tab_id]
