@@ -95,31 +95,6 @@ def setup(ctx: dict) -> None:
             except Exception:
                 pass
 
-    def _set_cpp_frame_items(client, items: list):
-        if not items:
-            items = [{"id": "cpp.stack.empty", "label": "No frame data"}]
-        try:
-            client.call("ui.setSectionJson", {
-                "target": "nav.debug.cpp_stack",
-                "section": "items",
-                "value": items,
-            })
-        except Exception:
-            pass
-
-    def _set_cpp_locals_text(client, labels: list):
-        items = [{"id": f"cpp.local.{i}", "label": l} for i, l in enumerate(labels)]
-        if not items:
-            items = [{"id": "cpp.locals.empty", "label": "No local data"}]
-        try:
-            client.call("ui.setSectionJson", {
-                "target": "nav.debug.cpp_locals",
-                "section": "items",
-                "value": items,
-            })
-        except Exception:
-            pass
-
     def _set_cpp_registers_text(client, labels: list):
         pass
 
@@ -228,30 +203,6 @@ def setup(ctx: dict) -> None:
             items.append({"id": f"cpp.thread.{tid}", "label": label})
         return items, current_id
 
-    def _cpp_gdb_frames_from_lines(lines: list) -> list:
-        joined = "\n".join(lines)
-        items = []
-        for match in re.finditer(r'level="([^"]+)".*?func="([^"]*)".*?(?:file="([^"]*)".*?line="([^"]*)")?', joined):
-            level, func, file_name, line_no = match.groups()
-            label = f"#{level} {func or '?'}"
-            if file_name:
-                label += f"  {file_name}:{line_no or '?'}"
-            items.append({"id": f"cpp.frame.{level}", "label": label})
-        return items
-
-    def _cpp_gdb_locals_from_lines(lines: list) -> list:
-        joined = "\n".join(lines)
-        labels = []
-        for match in re.finditer(r'\{name="([^"]+)"(?:,arg="[^"]*")?(?:,type="([^"]*)")?(?:,value="([^"]*)")?', joined):
-            name, type_name, value = match.groups()
-            label = name
-            if type_name:
-                label += f": {type_name}"
-            if value is not None:
-                label += f" = {value}"
-            labels.append(label)
-        return labels
-
     def _cpp_gdb_status_from_lines(lines: list) -> str:
         joined = "\n".join(lines)
         if "*stopped" in joined:
@@ -279,8 +230,6 @@ def setup(ctx: dict) -> None:
             _set_cpp_vm_buttons(client, False)
             _set_cpp_vm_status(client, "stopped")
             _set_cpp_thread_items(client, [])
-            _set_cpp_frame_items(client, [])
-            _set_cpp_locals_text(client, [])
             _set_cpp_registers_text(client, [])
             _set_cpp_memory_text(client, [])
             return
@@ -295,10 +244,6 @@ def setup(ctx: dict) -> None:
             thread_items, current_tid = _cpp_gdb_threads_from_lines(thread_lines)
             _set_cpp_vm_buttons(client, True)
             _set_cpp_thread_items(client, thread_items)
-            frame_lines = _cpp_gdb_send("-stack-list-frames", timeout=3.0)
-            _set_cpp_frame_items(client, _cpp_gdb_frames_from_lines(frame_lines))
-            local_lines = _cpp_gdb_send("-stack-list-variables --simple-values", timeout=3.0)
-            _set_cpp_locals_text(client, _cpp_gdb_locals_from_lines(local_lines))
             _set_cpp_registers_text(client, [f"Current thread: {current_tid or '?'}", "Register dump not wired yet"])
             _set_cpp_memory_text(client, ["Scope inspector active", "Raw memory view not wired yet"])
             _set_cpp_vm_status(client, "running", "stopped at breakpoint")
@@ -318,9 +263,6 @@ def setup(ctx: dict) -> None:
         try:
             _cpp_gdb_send(f"-thread-select {tid}", timeout=3.0)
             frame_lines = _cpp_gdb_send("-stack-list-frames", timeout=3.0)
-            _set_cpp_frame_items(client, _cpp_gdb_frames_from_lines(frame_lines))
-            local_lines = _cpp_gdb_send("-stack-list-variables --simple-values", timeout=3.0)
-            _set_cpp_locals_text(client, _cpp_gdb_locals_from_lines(local_lines))
 
             # Navigate editor to top frame location if source is available
             joined = "\n".join(frame_lines)
@@ -431,8 +373,6 @@ def setup(ctx: dict) -> None:
                 _cpp_gdb_stop_session()
                 _set_cpp_status_text(client, "No GDB session attached.")
                 _set_cpp_thread_items(client, [])
-                _set_cpp_frame_items(client, [])
-                _set_cpp_locals_text(client, [])
                 _set_cpp_registers_text(client, [])
                 _set_cpp_memory_text(client, [])
                 ctx["_refresh_status_panel"](client)
@@ -484,16 +424,12 @@ def setup(ctx: dict) -> None:
         "_set_cpp_vm_status":           _set_cpp_vm_status,
         "_set_cpp_vm_buttons":          _set_cpp_vm_buttons,
         "_set_cpp_tree_nodes":          _set_cpp_tree_nodes,
-        "_set_cpp_frame_items":         _set_cpp_frame_items,
-        "_set_cpp_locals_text":         _set_cpp_locals_text,
         "_set_cpp_registers_text":      _set_cpp_registers_text,
         "_set_cpp_memory_text":         _set_cpp_memory_text,
         "_cpp_gdb_stop_session":        _cpp_gdb_stop_session,
         "_cpp_gdb_read_until_prompt":   _cpp_gdb_read_until_prompt,
         "_cpp_gdb_send":                _cpp_gdb_send,
         "_cpp_gdb_threads_from_lines":  _cpp_gdb_threads_from_lines,
-        "_cpp_gdb_frames_from_lines":   _cpp_gdb_frames_from_lines,
-        "_cpp_gdb_locals_from_lines":   _cpp_gdb_locals_from_lines,
         "_cpp_gdb_status_from_lines":   _cpp_gdb_status_from_lines,
         "_cpp_gdb_refresh_ui":          _cpp_gdb_refresh_ui,
         "_cpp_gdb_show_thread":         _cpp_gdb_show_thread,

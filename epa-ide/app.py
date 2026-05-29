@@ -466,16 +466,12 @@ def main():
     _set_cpp_vm_status           = ctx["_set_cpp_vm_status"]
     _set_cpp_vm_buttons          = ctx["_set_cpp_vm_buttons"]
     _set_cpp_tree_nodes          = ctx["_set_cpp_tree_nodes"]
-    _set_cpp_frame_items         = ctx["_set_cpp_frame_items"]
-    _set_cpp_locals_text         = ctx["_set_cpp_locals_text"]
     _set_cpp_registers_text      = ctx["_set_cpp_registers_text"]
     _set_cpp_memory_text         = ctx["_set_cpp_memory_text"]
     _cpp_gdb_stop_session        = ctx["_cpp_gdb_stop_session"]
     _cpp_gdb_read_until_prompt   = ctx["_cpp_gdb_read_until_prompt"]
     _cpp_gdb_send                = ctx["_cpp_gdb_send"]
     _cpp_gdb_threads_from_lines  = ctx["_cpp_gdb_threads_from_lines"]
-    _cpp_gdb_frames_from_lines   = ctx["_cpp_gdb_frames_from_lines"]
-    _cpp_gdb_locals_from_lines   = ctx["_cpp_gdb_locals_from_lines"]
     _cpp_gdb_status_from_lines   = ctx["_cpp_gdb_status_from_lines"]
     _cpp_gdb_refresh_ui          = ctx["_cpp_gdb_refresh_ui"]
     _cpp_gdb_show_thread         = ctx["_cpp_gdb_show_thread"]
@@ -3588,8 +3584,6 @@ def main():
         _epa_dbg_set_vm_button(False)
         _set_cpp_status_text(client, "No GDB session attached.")
         _set_cpp_thread_items(client, [])
-        _set_cpp_frame_items(client, [])
-        _set_cpp_locals_text(client, [])
         _set_cpp_registers_text(client, [])
         _set_cpp_memory_text(client, [])
         _python_dbg_stop(client)

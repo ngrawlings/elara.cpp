@@ -756,9 +756,7 @@ def build_document():
     ui.add_grid_column_fill("nav.debug.cpp_panel")
     ui.add_grid_row_exact("nav.debug.cpp_panel", 188)        # 0 controls
     ui.add_grid_row_exact("nav.debug.cpp_panel", 22)         # 1 threads label
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 100)        # 2 threads list
-    ui.add_grid_row_exact("nav.debug.cpp_panel", 22)         # 3 inspection label
-    ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)  # 4 inspector tabs
+    ui.add_grid_row_weighted_fill("nav.debug.cpp_panel", 1)  # 2 threads list
 
     ui.create_grid("nav.debug.cpp_controls")
     ui.add_grid_column_exact("nav.debug.cpp_controls", 8)
@@ -846,20 +844,6 @@ def build_document():
     ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_controls", 0, 0)
     ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads_label", 0, 1)
     ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_threads", 0, 2)
-
-    ui.create_label("nav.debug.cpp_inspect_label", "INSPECTION", 10)
-    ui.set_property_bool("nav.debug.cpp_inspect_label", "enabled", False)
-    ui.create_tabs("nav.debug.cpp_inspector_tabs")
-    ui.create_list_view("nav.debug.cpp_stack")
-    ui.set_property_number("nav.debug.cpp_stack", "font_size", 11)
-    ui.set_section_json("nav.debug.cpp_stack", "items", [])
-    ui.create_list_view("nav.debug.cpp_locals")
-    ui.set_property_number("nav.debug.cpp_locals", "font_size", 11)
-    ui.set_section_json("nav.debug.cpp_locals", "items", [])
-    ui.add_tab("nav.debug.cpp_inspector_tabs", "Stack", "nav.debug.cpp_stack")
-    ui.add_tab("nav.debug.cpp_inspector_tabs", "Locals", "nav.debug.cpp_locals")
-    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_inspect_label", 0, 3)
-    ui.place_grid_child("nav.debug.cpp_panel", "nav.debug.cpp_inspector_tabs", 0, 4)
 
     ui.create_grid("nav.debug.python_panel")
     ui.add_grid_column_fill("nav.debug.python_panel")
