@@ -21,6 +21,17 @@ namespace json {
         bool dispatch(const String &request_json, String &response_json);
         void dispatchNotification(const String &notification_json);
 
+        // Pre-parsed variants for use with binary codecs (skips JSON parsing overhead).
+        bool dispatchParsed(
+            const String& id,
+            const String& method,
+            const String& params_json,
+            String& result_json,
+            String& error_code,
+            String& error_message
+        );
+        void dispatchNotificationParsed(const String& method, const String& params_json);
+
     private:
         Mutex services_lock;
         Array< Ref<JsonRPCService> > services;

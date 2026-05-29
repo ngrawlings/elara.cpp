@@ -1334,6 +1334,7 @@ private:
     bool layout_attached;
     bool persistent;
     bool client_connected_once;
+    bool use_brpc;
     DebugEventLog* debug_log;
 
     int listen_fd;
@@ -1350,7 +1351,8 @@ public:
         Ref<ElaraDrawSurface> surface,
         Ref<ElaraGuiBackend> gui_backend,
         ElaraTheme* ui_theme,
-        ElaraJsonUiProtocol* ui_protocol
+        ElaraJsonUiProtocol* ui_protocol,
+        bool brpc = true
     )
         : root_surface(surface),
           root((ElaraRootWidget*)surface.getPtr()),
@@ -1365,6 +1367,7 @@ public:
           layout_attached(false),
           persistent(false),
           client_connected_once(false),
+          use_brpc(brpc),
           debug_log(0),
           listen_fd(0),
           running(false),
@@ -1589,6 +1592,7 @@ private:
         }
 
         peer = Ref<ElaraUiRpcPeer>(new ElaraUiRpcPeer());
+        peer->setUseBrpc(use_brpc);
         peer->addService(rpc_ui_service_ref);
 
         if(peer->attach(fd)) {
@@ -1706,6 +1710,7 @@ int main(int argc, char** argv) {
     unsigned short rpc_port = 18777;
     const char* event_log_path = 0;
     bool persistent_mode = false;
+    bool use_brpc = true;  // default: binary RPC
 
     /* Parse and strip our custom args so GTK never sees them. */
     {
@@ -1717,6 +1722,8 @@ int main(int argc, char** argv) {
                 event_log_path = argv[++i];
             } else if(strcmp(argv[i], "--persistent") == 0) {
                 persistent_mode = true;
+            } else if(strcmp(argv[i], "--json-rpc") == 0) {
+                use_brpc = false;
             } else if(i == 1 && argv[i][0] != '-') {
                 rpc_port = (unsigned short)atoi(argv[i]);
             } else {
@@ -1739,7 +1746,7 @@ int main(int argc, char** argv) {
     if(root) {
         root->setGuiBackend(backend.getPtr());
     }
-    UiRpcHost host(root_surface, backend, &theme, &protocol);
+    UiRpcHost host(root_surface, backend, &theme, &protocol, use_brpc);
 
     if(event_log_path) {
         host.setEventLogPath(event_log_path);
@@ -1753,9 +1760,10 @@ int main(int argc, char** argv) {
 
     g_timeout_add(16, onHostTick, &host);
 
-    printf("libElaraUI RPC debug server starting, will listen on 0.0.0.0:%d after GTK init%s\n",
+    printf("libElaraUI RPC debug server starting, will listen on 0.0.0.0:%d after GTK init%s [codec: %s]\n",
            (int)rpc_port,
-           persistent_mode ? " (persistent)" : " (exits on disconnect)");
+           persistent_mode ? " (persistent)" : " (exits on disconnect)",
+           use_brpc ? "brpc" : "json");
     printf("event trace artifact: %s\n", (const char*)host.getSessionDir());
 
     ElaraWindow window(backend);

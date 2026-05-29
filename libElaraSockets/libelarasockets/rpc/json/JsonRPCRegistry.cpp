@@ -91,6 +91,57 @@ namespace json {
         return true;
     }
 
+    bool JsonRPCRegistry::dispatchParsed(
+        const String& id,
+        const String& method,
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) {
+        String m(method);
+        int split = m.indexOf(".");
+        if (split <= 0 || split >= m.length() - 1) {
+            error_code    = "invalid_method";
+            error_message = "Method must be in the form service.method";
+            return false;
+        }
+
+        String service_name   = m.substr(0, split);
+        String service_method = m.substr(split + 1);
+        Ref<JsonRPCService> service = findService(service_name);
+        if (!service.getPtr()) {
+            error_code    = "service_not_found";
+            error_message = "No registered service handled the requested method";
+            return false;
+        }
+
+        String p(params_json);
+        if (!service->call(service_method, p, result_json, error_code, error_message)) {
+            if (!error_code.length())    error_code    = "service_error";
+            if (!error_message.length()) error_message = "The service rejected the request";
+            return false;
+        }
+
+        return true;
+    }
+
+    void JsonRPCRegistry::dispatchNotificationParsed(
+        const String& method, const String& params_json
+    ) {
+        String m(method);
+        int split = m.indexOf(".");
+        if (split <= 0 || split >= m.length() - 1) return;
+
+        String service_name   = m.substr(0, split);
+        String service_method = m.substr(split + 1);
+        Ref<JsonRPCService> service = findService(service_name);
+        if (!service.getPtr()) return;
+
+        String p(params_json);
+        service->notify(service_method, p);
+    }
+
 }
 }
 }

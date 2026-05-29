@@ -4,6 +4,7 @@
 #include <pthread.h>
 
 #include <libelaracore/memory/Array.h>
+#include <libelaracore/memory/ByteArray.h>
 #include <libelaracore/memory/Ref.h>
 #include <libelaracore/memory/String.h>
 #include <libelarathreads/Mutex.h>
@@ -26,6 +27,10 @@ public:
     void close();
     bool isConnected() const;
 
+    // Switch codec before calling attach(). Default is BRPC (true).
+    // Set false to use JSON RPC (original protocol).
+    void setUseBrpc(bool use_brpc);
+
     void addService(Ref<sockets::rpc::json::JsonRPCService> service);
 
     bool call(
@@ -47,9 +52,10 @@ protected:
     bool sendAll(const char* buffer, size_t length);
     bool recvAll(char* buffer, size_t length);
     bool sendPayload(const String& payload);
+    bool sendFramedBytes(const ByteArray& framed);
 
     void receiverLoop();
-    void handleIncomingPayload(const String& payload);
+    void handleIncomingPayload(const char* data, size_t len);
     bool waitForPendingCall(
         Ref<ElaraUiRpcPendingCall> pending_call,
         String& result_json,
@@ -72,6 +78,7 @@ private:
     int fd;
     bool running;
     bool receiver_started;
+    bool use_brpc;
     unsigned long long next_request_id;
     pthread_t receiver_thread;
 

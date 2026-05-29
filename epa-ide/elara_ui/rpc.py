@@ -9,6 +9,158 @@ from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
 
+# ── BRpc RPC codec (Python) ───────────────────────────────────────────────────
+#
+# Mirrors BRpcRpcCodec.h/.cpp.  The params/result values remain JSON strings
+# inside the binary envelope — the outer fields (id, method, ok, …) are binary.
+#
+# Wire format (each message is a BRpc array of named fields):
+#   Request  (3): namedString "id", namedString "method", namedString "params"
+#   Notify   (2): namedString "method", namedString "params"
+#   OK resp  (3): namedString "id", namedByte "ok"=1, namedString "result"
+#   Err resp (4): namedString "id", namedByte "ok"=0, namedString "code",
+#                 namedString "msg"
+
+class _BRpcCodec:
+    _NAMED_BYTE   = 10
+    _NAMED_STRING = 14
+    _ARRAY        = 5
+
+    # ── low-level writers ─────────────────────────────────────────────────────
+
+    @staticmethod
+    def _ns(name: str, value: str) -> bytes:
+        """Write a named-string field."""
+        nb = name.encode("utf-8")
+        vb = value.encode("utf-8")
+        return (
+            bytes([_BRpcCodec._NAMED_STRING])
+            + struct.pack(">I", len(nb)) + nb
+            + struct.pack(">I", len(vb)) + vb
+        )
+
+    @staticmethod
+    def _nb(name: str, value: int) -> bytes:
+        """Write a named-byte field."""
+        nb = name.encode("utf-8")
+        return bytes([_BRpcCodec._NAMED_BYTE]) + struct.pack(">I", len(nb)) + nb + bytes([value & 0xFF])
+
+    @staticmethod
+    def _array(fields: bytes, count: int) -> bytes:
+        return (
+            bytes([_BRpcCodec._ARRAY])
+            + struct.pack(">I", len(fields))
+            + struct.pack(">I", count)
+            + fields
+        )
+
+    # ── encoders ──────────────────────────────────────────────────────────────
+
+    @classmethod
+    def encode(cls, payload: dict) -> bytes:
+        """Encode a payload dict (same shape as JSON RPC) into BRPC bytes."""
+        has_id = "id" in payload
+        has_ok = "ok" in payload
+
+        if has_id and has_ok:
+            # Response
+            pid = str(payload["id"])
+            if payload["ok"]:
+                result_json = json.dumps(payload.get("result"), separators=(",", ":"), ensure_ascii=False)
+                fields = cls._ns("id", pid) + cls._nb("ok", 1) + cls._ns("result", result_json)
+                return cls._array(fields, 3)
+            else:
+                err = payload.get("error") or {}
+                fields = (
+                    cls._ns("id", pid)
+                    + cls._nb("ok", 0)
+                    + cls._ns("code", err.get("code", ""))
+                    + cls._ns("msg",  err.get("message", ""))
+                )
+                return cls._array(fields, 4)
+
+        elif has_id:
+            # Request
+            pid    = str(payload["id"])
+            method = payload.get("method", "")
+            params = payload.get("params")
+            params_json = "null" if params is None else json.dumps(params, separators=(",", ":"), ensure_ascii=False)
+            fields = cls._ns("id", pid) + cls._ns("method", method) + cls._ns("params", params_json)
+            return cls._array(fields, 3)
+
+        else:
+            # Notification
+            method = payload.get("method", "")
+            params = payload.get("params")
+            params_json = "null" if params is None else json.dumps(params, separators=(",", ":"), ensure_ascii=False)
+            fields = cls._ns("method", method) + cls._ns("params", params_json)
+            return cls._array(fields, 2)
+
+    # ── decoder ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def decode(cls, data: bytes) -> dict:
+        """Decode BRPC bytes into a dict with the same shape as JSON RPC."""
+        pos = 0
+
+        def u8() -> int:
+            nonlocal pos
+            v = data[pos]; pos += 1; return v
+
+        def u32() -> int:
+            nonlocal pos
+            v = struct.unpack_from(">I", data, pos)[0]; pos += 4; return v
+
+        def read_str() -> str:
+            length = u32()
+            nonlocal pos
+            s = data[pos:pos + length].decode("utf-8"); pos += length; return s
+
+        type_byte = u8()
+        if type_byte != cls._ARRAY:
+            raise ValueError(f"Expected BRPC array, got type {type_byte}")
+
+        _total = u32()
+        count  = u32()
+
+        fields: dict = {}
+        for _ in range(count):
+            ftype = u8()
+            if ftype == cls._NAMED_STRING:
+                name  = read_str()
+                value = read_str()
+                fields[name] = value
+            elif ftype == cls._NAMED_BYTE:
+                name  = read_str()
+                value = u8()
+                fields[name] = value
+            else:
+                raise ValueError(f"Unexpected BRPC field type in RPC envelope: {ftype}")
+
+        # Reconstruct into the same shape as a JSON-decoded payload dict
+        if "id" in fields and "ok" in fields:
+            if fields["ok"]:
+                result_json = fields.get("result", "null")
+                result = None if result_json == "null" else json.loads(result_json)
+                return {"id": fields["id"], "ok": True, "result": result}
+            else:
+                return {
+                    "id": fields["id"],
+                    "ok": False,
+                    "error": {"code": fields.get("code", ""), "message": fields.get("msg", "")},
+                }
+        elif "id" in fields:
+            params_json = fields.get("params", "null")
+            params = None if params_json == "null" else json.loads(params_json)
+            return {"id": fields["id"], "method": fields["method"], "params": params}
+        elif "method" in fields:
+            params_json = fields.get("params", "null")
+            params = None if params_json == "null" else json.loads(params_json)
+            return {"method": fields["method"], "params": params}
+        else:
+            raise ValueError("Cannot determine BRPC message type from fields")
+
+
 class ElaraUiRpcError(RuntimeError):
     def __init__(self, code: str, message: str):
         super().__init__(f"{code}: {message}")
@@ -17,9 +169,10 @@ class ElaraUiRpcError(RuntimeError):
 
 
 class ElaraUiRpcClient:
-    def __init__(self, host: str = "127.0.0.1", port: int = 18777):
+    def __init__(self, host: str = "127.0.0.1", port: int = 18777, codec: str = "brpc"):
         self.host = host
         self.port = int(port)
+        self._codec = codec  # "brpc" or "json"
         self._socket: Optional[socket.socket] = None
         self._reader: Optional[threading.Thread] = None
         self._running = False
@@ -307,7 +460,10 @@ class ElaraUiRpcClient:
         return self.call("ui.performFocusedAction", {"action": action}, timeout=timeout)
 
     def _send_payload(self, payload: dict):
-        body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        if self._codec == "brpc":
+            body = _BRpcCodec.encode(payload)
+        else:
+            body = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         frame = struct.pack(">I", len(body)) + body
         with self._send_lock:
             if self._socket is None:
@@ -332,6 +488,8 @@ class ElaraUiRpcClient:
         body = self._recv_exact(length)
         if body is None:
             return None
+        if self._codec == "brpc":
+            return _BRpcCodec.decode(body)
         return json.loads(body.decode("utf-8"))
 
     def _recv_exact(self, size: int):

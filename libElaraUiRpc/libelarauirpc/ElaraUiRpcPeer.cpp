@@ -7,6 +7,7 @@
 #include <libelarasockets/Address.h>
 #include <libelarasockets/rpc/json/JsonRPCClient.h>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
+#include <libelarasockets/rpc/brpc/BRpcRpcCodec.h>
 
 namespace elara {
 namespace ui {
@@ -34,9 +35,14 @@ ElaraUiRpcPeer::ElaraUiRpcPeer()
     : fd(0),
       running(false),
       receiver_started(false),
+      use_brpc(true),
       next_request_id(1),
       send_lock("elara-ui-rpc-send"),
       pending_lock("elara-ui-rpc-pending") {
+}
+
+void ElaraUiRpcPeer::setUseBrpc(bool b) {
+    use_brpc = b;
 }
 
 ElaraUiRpcPeer::~ElaraUiRpcPeer() {
@@ -185,6 +191,11 @@ bool ElaraUiRpcPeer::sendPayload(const String& payload) {
     return sendAll((const char*)frame, frame.length());
 }
 
+bool ElaraUiRpcPeer::sendFramedBytes(const ByteArray& framed) {
+    Mutex::Lock lock(send_lock);
+    return sendAll((const char*)framed, framed.length());
+}
+
 bool ElaraUiRpcPeer::call(
     const String& method,
     const String& params_json,
@@ -207,9 +218,18 @@ bool ElaraUiRpcPeer::call(
         pending_calls.push(pending_call);
     }
 
-    String request = sockets::rpc::json::JsonRPCCodec::buildRequest(id, method, params_json);
+    bool send_ok;
+    if(use_brpc) {
+        using namespace sockets::rpc::brpc;
+        ByteArray msg    = BRpcRpcCodec::buildRequest(id, method, params_json);
+        ByteArray framed = BRpcRpcCodec::framePayload(msg);
+        send_ok = sendFramedBytes(framed);
+    } else {
+        String request = sockets::rpc::json::JsonRPCCodec::buildRequest(id, method, params_json);
+        send_ok = sendPayload(request);
+    }
 
-    if(!sendPayload(request)) {
+    if(!send_ok) {
         removePendingCall(id);
         error_code = "send_failed";
         error_message = "Failed to write request to the RPC peer";
@@ -310,34 +330,57 @@ void ElaraUiRpcPeer::removePendingCall(const String& id) {
     }
 }
 
-void ElaraUiRpcPeer::handleIncomingPayload(const String& payload) {
+void ElaraUiRpcPeer::handleIncomingPayload(const char* data, size_t len) {
     String id;
     bool ok = false;
     String result_json;
     String error_code;
     String error_message;
-    String parse_error_message;
+    String parse_error;
+
+    if(use_brpc) {
+        using namespace sockets::rpc::brpc;
+
+        if(BRpcRpcCodec::parseResponse(data, len, id, ok, result_json, error_code, error_message, parse_error)) {
+            completePendingCall(id, ok, result_json, error_code, error_message);
+            return;
+        }
+
+        String notif_method, notif_params;
+        if(BRpcRpcCodec::parseNotification(data, len, notif_method, notif_params, parse_error)) {
+            registry.dispatchNotificationParsed(notif_method, notif_params);
+            return;
+        }
+
+        String req_id, req_method, req_params;
+        if(BRpcRpcCodec::parseRequest(data, len, req_id, req_method, req_params, parse_error)) {
+            String res_json, err_code, err_msg;
+            if(registry.dispatchParsed(req_id, req_method, req_params, res_json, err_code, err_msg)) {
+                ByteArray resp   = BRpcRpcCodec::buildSuccessResponse(req_id, res_json);
+                ByteArray framed = BRpcRpcCodec::framePayload(resp);
+                sendFramedBytes(framed);
+            } else {
+                ByteArray resp   = BRpcRpcCodec::buildErrorResponse(req_id, err_code, err_msg);
+                ByteArray framed = BRpcRpcCodec::framePayload(resp);
+                sendFramedBytes(framed);
+            }
+        }
+        return;
+    }
+
+    // JSON path
+    String payload(data, (int)len);
 
     if(sockets::rpc::json::JsonRPCCodec::parseResponse(
-        payload,
-        id,
-        ok,
-        result_json,
-        error_code,
-        error_message,
-        parse_error_message
+        payload, id, ok, result_json, error_code, error_message, parse_error
     )) {
         completePendingCall(id, ok, result_json, error_code, error_message);
         return;
     }
 
-    String notif_method;
-    String notif_params;
+    String notif_method, notif_params;
     if(sockets::rpc::json::JsonRPCCodec::parseNotification(
-        payload,
-        notif_method,
-        notif_params,
-        parse_error_message
+        payload, notif_method, notif_params, parse_error
     )) {
         registry.dispatchNotification(payload);
         return;
@@ -368,7 +411,7 @@ void ElaraUiRpcPeer::receiverLoop() {
             break;
         }
 
-        handleIncomingPayload(String((char*)payload, payload.length()));
+        handleIncomingPayload((const char*)payload, (size_t)payload.length());
     }
 
     running = false;

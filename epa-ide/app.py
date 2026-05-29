@@ -247,6 +247,7 @@ def main():
     parser.add_argument("--no-worker", action="store_true", help="Do not start the optional multi-core worker template")
     parser.add_argument("--event-log", default=None, help="Write all received UI events to this JSONL file")
     parser.add_argument("--ai-rpc-port", default=18779, type=int, help="AI logic-side RPC port (0 to disable)")
+    parser.add_argument("--json-rpc", action="store_true", help="Use JSON RPC codec instead of the default binary BRPC codec")
     args = parser.parse_args()
 
     client_ref = {}
@@ -6348,7 +6349,8 @@ def main():
           # Rebuild the document each time so reconnects use current saved layout state.
           initial_ide_state = _current_layout_state()
           builder = build_document()
-          with ElaraUiRpcClient(args.host, args.port) as client:
+          _codec = "json" if args.json_rpc else "brpc"
+          with ElaraUiRpcClient(args.host, args.port, codec=_codec) as client:
             client_ref["client"] = client
             client.set_find_widget_artifact_root(str(artifact_root))
             if args.event_log:
