@@ -1,3 +1,4 @@
+import collections
 import concurrent.futures
 import json
 import socket
@@ -175,10 +176,13 @@ class ElaraUiRpcClient:
         self._codec = codec  # "brpc" or "json"
         self._socket: Optional[socket.socket] = None
         self._reader: Optional[threading.Thread] = None
+        self._consumer: Optional[threading.Thread] = None
         self._running = False
         self._send_lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self._id_lock = threading.Lock()
+        self._event_queue: collections.deque = collections.deque()
+        self._event_queue_lock = threading.Lock()
         self._next_request_id = 1
         self._pending: Dict[str, Tuple[threading.Event, dict]] = {}
         self._handlers: Dict[str, Callable[[dict], object]] = {}
@@ -203,6 +207,8 @@ class ElaraUiRpcClient:
         self._running = True
         self._reader = threading.Thread(target=self._reader_loop, daemon=True)
         self._reader.start()
+        self._consumer = threading.Thread(target=self._consumer_loop, daemon=True)
+        self._consumer.start()
         return self
 
     def set_event_log(self, path: str):
@@ -435,6 +441,15 @@ class ElaraUiRpcClient:
     def disable_event(self, action: str, timeout: float = 5.0):
         return self.call("ui.disableEvent", {"action": action}, timeout=timeout)
 
+    def set_event_response(self, event: str, prefix: str, enter: list, leave: list, timeout: float = 5.0):
+        return self.call("event.setResponse", {"event": event, "prefix": prefix, "enter": enter, "leave": leave}, timeout=timeout)
+
+    def set_event_notify(self, event: str, prefix: str, notify: bool, timeout: float = 5.0):
+        return self.call("event.setNotify", {"event": event, "prefix": prefix, "notify": notify}, timeout=timeout)
+
+    def clear_event_responses(self, timeout: float = 5.0):
+        return self.call("event.clearAll", {}, timeout=timeout)
+
     def dispatch_mouse_move(self, x: float, y: float, timeout: float = 5.0):
         return self.call("ui.dispatchMouseMove", {"x": x, "y": y}, timeout=timeout)
 
@@ -530,15 +545,24 @@ class ElaraUiRpcClient:
 
         handler = self._handlers.get(method)
 
-        def _dispatch():
+        with self._event_queue_lock:
+            self._event_queue.append((handler, params, payload_id))
+
+    def _consumer_loop(self):
+        while self._running:
+            item = None
+            with self._event_queue_lock:
+                if self._event_queue:
+                    item = self._event_queue.popleft()
+            if item is None:
+                time.sleep(0.02)
+                continue
+            handler, params, payload_id = item
             ok = True
             result = None
             error = None
             try:
-                if handler is not None:
-                    result = handler(params)
-                else:
-                    result = {"received": True}
+                result = handler(params) if handler is not None else {"received": True}
             except Exception as exc:
                 ok = False
                 error = {"code": "handler_error", "message": str(exc)}
@@ -549,8 +573,6 @@ class ElaraUiRpcClient:
                 else:
                     response["error"] = error
                 self._send_payload(response)
-
-        threading.Thread(target=_dispatch, daemon=True).start()
 
     def _record_ui_documents(self, method: str, params: dict, result) -> None:
         if not method.startswith("ui."):

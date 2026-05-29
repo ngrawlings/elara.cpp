@@ -64,6 +64,7 @@ protected:
     bool visible;
     bool hovered;
     bool mouse_down;
+    bool hover_only;
     int hovered_child_index;
 
     double x;
@@ -122,6 +123,8 @@ public:
 
     virtual void setVisible(bool is_visible);
     virtual bool isVisible() const;
+    virtual void setHoverOnly(bool hover_only_mode);
+    virtual bool isHoverOnly() const;
     virtual void setForegroundColorOverride(const ElaraColor& color);
     virtual void clearForegroundColorOverride();
 

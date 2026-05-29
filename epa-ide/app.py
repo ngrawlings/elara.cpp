@@ -4476,6 +4476,16 @@ def main():
         """Submit fn to the worker pool so on_ui_event returns before any RPC calls are made."""
         _deferred_pool.submit(fn)
 
+    def _register_event_responders(client):
+        """Register cached C++ event responses. Called at connect and after theme changes."""
+        try:
+            # Python does not handle hoverChanged events — suppress the notification
+            # entirely so no Python threads are created for every mouse movement.
+            # The server handles hover highlighting natively in the GTK draw loop.
+            client.set_event_notify("hoverChanged", "", False)
+        except Exception:
+            pass
+
     def on_ui_event(params):
         client = client_ref.get("client")
         action = params.get("action")
@@ -5283,7 +5293,7 @@ def main():
                 current_theme = app_state.get("theme", "dark")
                 next_theme = "light" if current_theme == "dark" else "dark"
                 app_state["theme"] = next_theme
-                _deferred(lambda t=next_theme: c.set_theme_mode(t))
+                _deferred(lambda t=next_theme: (c.set_theme_mode(t), _register_event_responders(c)))
                 return {"received": True}
 
             if item_action == "app.toggle_right_panel":
@@ -6450,6 +6460,7 @@ def main():
             if not args.no_events:
                 for action in ("clicked", "keysTyped", "textChanged", "valueChanged", "keyDown", "keyUp", "action"):
                     client.enable_event(action)
+                _register_event_responders(client)
 
             # Wire AI RPC callbacks now that all closures exist and client is live.
             # Only define and start once; across reconnects the callbacks stay valid

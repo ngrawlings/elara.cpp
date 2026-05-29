@@ -880,6 +880,10 @@ public:
                 : true
         );
 
+        if (jsonBool(spec, "properties.hover_only", false)) {
+            widget->setHoverOnly(true);
+        }
+
         ElaraButtonWidget* button = dynamic_cast<ElaraButtonWidget*>(widget);
         if(button) {
             String text = spec.getStringValue("properties.text");

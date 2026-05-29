@@ -58,7 +58,7 @@ class UiDocumentBuilder:
     def has_widget(self, widget_id):
         return widget_id in self._widgets
 
-    def create_widget(self, widget_id, widget_type):
+    def create_widget(self, widget_id, widget_type, hover_only=True):
         if not widget_id or not widget_type:
             raise ValueError("widget_id and widget_type are required")
         if self.has_widget(widget_id):
@@ -67,7 +67,7 @@ class UiDocumentBuilder:
         self._widgets[widget_id] = {
             "id": widget_id,
             "type": widget_type,
-            "properties": {},
+            "properties": {"hover_only": True} if hover_only else {},
             "sections": {},
             "children": [],
             "grid_children": [],
@@ -153,8 +153,8 @@ class UiDocumentBuilder:
         })
         return self
 
-    def create_list_view(self, widget_id):
-        return self.create_widget(widget_id, "elara.widgets.list_view")
+    def create_list_view(self, widget_id, hover_only=True):
+        return self.create_widget(widget_id, "elara.widgets.list_view", hover_only=hover_only)
 
     def create_combo_box(self, widget_id, items=None, selected_id=None):
         """items: list of {"id": ..., "label": ...} dicts"""
@@ -165,8 +165,8 @@ class UiDocumentBuilder:
             self.set_property_string(widget_id, "selected_id", selected_id)
         return self
 
-    def create_tree_view(self, widget_id):
-        return self.create_widget(widget_id, "elara.widgets.tree_view")
+    def create_tree_view(self, widget_id, hover_only=True):
+        return self.create_widget(widget_id, "elara.widgets.tree_view", hover_only=hover_only)
 
     def create_rich_text_edit(self, widget_id, text):
         self.create_widget(widget_id, "elara.widgets.rich_text_edit")

@@ -3,6 +3,7 @@
 #include <libelaracore/memory/Memory.h>
 #include <libelaraformat/json/types/JsonString.h>
 #include "ElaraEventResponder.h"
+#include "ElaraWidgetRegistry.h"
 
 namespace elara {
 
@@ -70,6 +71,8 @@ void ElaraOutboundEventFilter::onWidgetMouseMove(
     double x,
     double y
 ) {
+    Ref<ElaraWidget> widget = ElaraWidgetRegistry::getInstance()->getWidget(handle);
+    if (widget.getPtr() && widget->isHoverOnly()) return;
     queue(handle, "mouseMove", mousePayload(x, y));
 }
 

@@ -100,6 +100,7 @@ ElaraWidget::ElaraWidget() :
     visible(true),
     hovered(false),
     mouse_down(false),
+    hover_only(false),
     hovered_child_index(-1),
     x(0),
     y(0),
@@ -122,6 +123,7 @@ ElaraWidget::ElaraWidget(ElaraWidgetRegister* widget_register, ElaraWidgetHandle
       visible(true),
       hovered(false),
       mouse_down(false),
+      hover_only(false),
       hovered_child_index(-1),
       x(0),
       y(0),
@@ -288,6 +290,14 @@ void ElaraWidget::setVisible(bool is_visible) {
 
 bool ElaraWidget::isVisible() const {
     return visible;
+}
+
+void ElaraWidget::setHoverOnly(bool hover_only_mode) {
+    hover_only = hover_only_mode;
+}
+
+bool ElaraWidget::isHoverOnly() const {
+    return hover_only;
 }
 
 void ElaraWidget::setForegroundColorOverride(const ElaraColor& color) {
