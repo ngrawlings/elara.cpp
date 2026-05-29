@@ -2,6 +2,7 @@
 #define EPASIGNALLABAPP_H
 
 #include <mutex>
+#include <thread>
 #include <vector>
 
 #include <libelaracore/memory/Ref.h>
@@ -60,6 +61,8 @@ private:
     uint32_t next_seq;
     EpaSignalLabDebugSessionConfig debug_session;
     int host_debug_fd;
+    int ext_logic_server_fd;
+    std::thread ext_logic_thread;
 
     void buildDocument(ui::rpc::ElaraUiDocumentBuilder &ui);
     bool loadDocument(const String &document_json);
@@ -78,6 +81,8 @@ private:
     void sendHostDebugState(const String &status);
     bool connectHostDebugBridge();
     void closeHostDebugBridge();
+    void startExtLogicServer();
+    void extLogicServe();
 };
 
 }

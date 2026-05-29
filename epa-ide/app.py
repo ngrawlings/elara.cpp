@@ -321,6 +321,8 @@ def main():
         "client_connected": False,
         "client_pid": None,
         "external_logic_connected": False,
+        "cpp_ext_logic_port": 0,
+        "ext_logic_proxied": False,
     }
     external_logic_bridge = {
         "server": None,
@@ -944,11 +946,23 @@ def main():
                 _append_host_io_output(ui_c, f"[host-state] {state_text}\n")
             app_state["host_debug_state"] = state_text
             return
+        if kind == "ext_logic_listen":
+            port_val = payload.get("port", 0)
+            try:
+                port_val = int(port_val)
+            except Exception:
+                port_val = 0
+            host_debug_bridge["cpp_ext_logic_port"] = port_val
+            if ui_c:
+                _append_host_io_output(ui_c, f"[ext-logic] C++ host ext_logic server on port {port_val}\n")
+            return
 
     def _host_debug_bridge_mark_disconnected():
         host_debug_bridge["client_connected"] = False
         host_debug_bridge["client_pid"] = None
         host_debug_bridge["external_logic_connected"] = False
+        host_debug_bridge["cpp_ext_logic_port"] = 0
+        host_debug_bridge["ext_logic_proxied"] = False
         _refresh_status_panel(client_ref.get("client"))
 
     def _host_debug_launch_gui_sudo_kill(pid: int) -> bool:
@@ -1058,33 +1072,111 @@ def main():
                 return {"ok": True}
             raise RuntimeError(f"unknown method: {method}")
 
+        def _recv_frame(sock) -> bytes:
+            header = _recv_n(sock, 4)
+            length = struct.unpack(">I", header)[0]
+            if length > 16 * 1024 * 1024:
+                raise RuntimeError("frame too large")
+            return _recv_n(sock, length)
+
+        def _send_frame(sock, body: bytes) -> None:
+            sock.sendall(struct.pack(">I", len(body)) + body)
+
         class _ExtLogicHandler(socketserver.StreamRequestHandler):
             def handle(self):
                 host_debug_bridge["external_logic_connected"] = True
                 _refresh_status_panel(client_ref.get("client"))
+                cpp_port = host_debug_bridge.get("cpp_ext_logic_port", 0)
+                cpp_sock = None
                 try:
-                    while True:
-                        header = _recv_n(self.request, 4)
-                        length = struct.unpack(">I", header)[0]
-                        if length > 16 * 1024 * 1024:
-                            break
-                        body = _recv_n(self.request, length)
+                    if cpp_port:
                         try:
-                            msg = _BRpcCodec.decode(body)
-                        except Exception:
-                            break
-                        if "id" in msg:
-                            req_id = msg["id"]
+                            cpp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                            cpp_sock.settimeout(5.0)
+                            cpp_sock.connect(("127.0.0.1", cpp_port))
+                            cpp_sock.settimeout(None)
+                            host_debug_bridge["ext_logic_proxied"] = True
+                            _refresh_status_panel(client_ref.get("client"))
+                            ui_c = client_ref.get("client")
+                            if ui_c:
+                                _append_host_io_output(ui_c, "[ext-logic] proxy active — IDE bridging Python ↔ C++\n")
+                        except OSError:
+                            cpp_sock = None
+
+                    if cpp_sock:
+                        # Bidirectional proxy: Python ↔ C++ with IDE intercepting ext.ping/ext.register
+                        py_sock = self.request
+                        stop_event = threading.Event()
+
+                        def py_to_cpp():
                             try:
-                                result = _ext_dispatch(msg.get("method", ""), msg.get("params") or {})
-                                _send_brpc(self.request, {"id": req_id, "ok": True, "result": result})
-                            except Exception as exc:
-                                _send_brpc(self.request, {"id": req_id, "ok": False,
-                                           "error": {"code": "error", "message": str(exc)}})
+                                while not stop_event.is_set():
+                                    frame = _recv_frame(py_sock)
+                                    try:
+                                        msg = _BRpcCodec.decode(frame)
+                                    except Exception:
+                                        break
+                                    method = msg.get("method", "")
+                                    req_id = msg.get("id")
+                                    if req_id and method == "ext.ping":
+                                        resp = _BRpcCodec.encode({"id": req_id, "ok": True, "result": "pong"})
+                                        _send_frame(py_sock, resp)
+                                    elif req_id and method == "ext.register":
+                                        name = (msg.get("params") or {}).get("name", "") or "unnamed"
+                                        ui_c = client_ref.get("client")
+                                        if ui_c:
+                                            _append_host_io_output(ui_c, f"[ext-logic] registered: {name}\n")
+                                        resp = _BRpcCodec.encode({"id": req_id, "ok": True, "result": {"ok": True}})
+                                        _send_frame(py_sock, resp)
+                                    else:
+                                        _send_frame(cpp_sock, frame)
+                            except (EOFError, OSError):
+                                pass
+                            finally:
+                                stop_event.set()
+                                try: cpp_sock.shutdown(socket.SHUT_RDWR)
+                                except Exception: pass
+
+                        def cpp_to_py():
+                            try:
+                                while not stop_event.is_set():
+                                    frame = _recv_frame(cpp_sock)
+                                    _send_frame(py_sock, frame)
+                            except (EOFError, OSError):
+                                pass
+                            finally:
+                                stop_event.set()
+                                try: py_sock.shutdown(socket.SHUT_RDWR)
+                                except Exception: pass
+
+                        t1 = threading.Thread(target=py_to_cpp, daemon=True)
+                        t2 = threading.Thread(target=cpp_to_py, daemon=True)
+                        t1.start(); t2.start()
+                        t1.join(); t2.join()
+                    else:
+                        # No C++ side — handle locally
+                        while True:
+                            frame = _recv_frame(self.request)
+                            try:
+                                msg = _BRpcCodec.decode(frame)
+                            except Exception:
+                                break
+                            if "id" in msg:
+                                req_id = msg["id"]
+                                try:
+                                    result = _ext_dispatch(msg.get("method", ""), msg.get("params") or {})
+                                    _send_brpc(self.request, {"id": req_id, "ok": True, "result": result})
+                                except Exception as exc:
+                                    _send_brpc(self.request, {"id": req_id, "ok": False,
+                                               "error": {"code": "error", "message": str(exc)}})
                 except (EOFError, OSError):
                     pass
                 finally:
+                    if cpp_sock:
+                        try: cpp_sock.close()
+                        except Exception: pass
                     host_debug_bridge["external_logic_connected"] = False
+                    host_debug_bridge["ext_logic_proxied"] = False
                     _refresh_status_panel(client_ref.get("client"))
 
         class _ExtLogicServer(socketserver.ThreadingTCPServer):
@@ -4237,6 +4329,7 @@ def main():
         bridge_port = host_debug_bridge.get("port")
         bridge_connected = host_debug_bridge.get("client_connected", False)
         ext_logic_connected = host_debug_bridge.get("external_logic_connected", False)
+        ext_logic_proxied   = host_debug_bridge.get("ext_logic_proxied", False)
         if not bridge_server:
             host_dot1, host_lbl1 = _IND_RED,    "Offline"
             host_dot2, host_lbl2 = _IND_OFF,    "—"
@@ -4249,8 +4342,10 @@ def main():
                 host_dot1, host_lbl1 = _IND_ORANGE, "EPA-DBG"
             else:
                 host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
-            # dot2: External logic — grey until Python-side logic explicitly connects
-            if ext_logic_connected:
+            # dot2: External logic — grey → orange (Python only) → green (proxied to C++)
+            if ext_logic_proxied:
+                host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
+            elif ext_logic_connected:
                 host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
             else:
                 host_dot2, host_lbl2 = _IND_OFF,    "External logic"

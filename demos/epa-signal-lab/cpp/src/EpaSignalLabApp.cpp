@@ -10,6 +10,7 @@
 #include <unistd.h>
 
 #include <libelaraformat/json/types/JsonString.h>
+#include <libelarasockets/rpc/brpc/BRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelarauirpc/ElaraUiDocumentBuilder.h>
@@ -17,6 +18,11 @@
 namespace elara {
 using namespace elara::ui::rpc;
 using sockets::rpc::json::JsonRPCCodec;
+using sockets::rpc::brpc::BRpcWriter;
+using sockets::rpc::brpc::BRpcReader;
+using sockets::rpc::brpc::BRPC_NAMED_STRING;
+using sockets::rpc::brpc::BRPC_NAMED_BYTE;
+using sockets::rpc::brpc::BRPC_ARRAY;
 
 namespace {
 
@@ -113,7 +119,8 @@ EpaSignalLabApp::EpaSignalLabApp(const String &value_host, int value_port, const
       epa_started(false),
       next_seq(1u),
       debug_session(value_debug_session),
-      host_debug_fd(-1) {
+      host_debug_fd(-1),
+      ext_logic_server_fd(-1) {
     if (debug_session.enabled && debug_session.bundle_path.length()) {
         bundle_path = debug_session.bundle_path;
     }
@@ -531,6 +538,128 @@ void EpaSignalLabApp::handleKernelSignal(uint8_t wid, const char *msg, int msg_l
         + String(" len=") + String(msg_len));
 }
 
+static bool elg_read_exact(int fd, char *buf, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, buf + got, n - got);
+        if (r <= 0) return false;
+        got += (size_t)r;
+    }
+    return true;
+}
+
+static bool elg_read_frame(int fd, std::vector<char> &frame) {
+    unsigned char hdr[4];
+    if (!elg_read_exact(fd, (char *)hdr, 4)) return false;
+    uint32_t len = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16)
+                 | ((uint32_t)hdr[2] << 8)  | (uint32_t)hdr[3];
+    if (len > 4u * 1024u * 1024u) return false;
+    frame.resize(len);
+    return elg_read_exact(fd, frame.data(), len);
+}
+
+static bool elg_write_frame(int fd, const ByteArray &data) {
+    uint32_t len = (uint32_t)data.length();
+    unsigned char hdr[4] = {
+        (unsigned char)(len >> 24), (unsigned char)(len >> 16),
+        (unsigned char)(len >> 8),  (unsigned char)len
+    };
+    if (write(fd, hdr, 4) != 4) return false;
+    const char *raw = (const char *)data;
+    ssize_t written = write(fd, raw, (size_t)len);
+    return written == (ssize_t)len;
+}
+
+static void elg_dispatch_frame(int fd, const std::vector<char> &frame) {
+    BRpcReader reader(frame.data(), frame.size());
+    uint8_t type;
+    if (!reader.peekType(type) || type != BRPC_ARRAY) return;
+    uint32_t total, count;
+    if (!reader.readArrayHeader(total, count)) return;
+
+    String id, method, params;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!reader.peekType(type)) break;
+        if (type == BRPC_NAMED_STRING) {
+            String name, value;
+            if (!reader.readNamedString(name, value)) break;
+            if (name == String("id"))     id = value;
+            else if (name == String("method")) method = value;
+            else if (name == String("params")) params = value;
+        } else if (type == BRPC_NAMED_BYTE) {
+            String name; uint8_t bval;
+            if (!reader.readNamedByte(name, bval)) break;
+        } else {
+            reader.skipValue();
+        }
+    }
+
+    if (!id.length()) return;  // no id = notification, nothing to respond to
+
+    BRpcWriter fields;
+    fields.writeNamedString(String("id"), id);
+    if (method == String("ext.ping")) {
+        fields.writeNamedByte(String("ok"), 1);
+        fields.writeNamedString(String("result"), String("\"pong\""));
+        BRpcWriter resp;
+        resp.writeArray(fields, 3);
+        elg_write_frame(fd, resp.bytes());
+    } else if (method == String("ext.register")) {
+        fields.writeNamedByte(String("ok"), 1);
+        fields.writeNamedString(String("result"), String("{\"ok\":true}"));
+        BRpcWriter resp;
+        resp.writeArray(fields, 3);
+        elg_write_frame(fd, resp.bytes());
+    } else {
+        fields.writeNamedByte(String("ok"), 0);
+        fields.writeNamedString(String("code"), String("not_found"));
+        fields.writeNamedString(String("msg"), String("method not implemented on C++ host"));
+        BRpcWriter resp;
+        resp.writeArray(fields, 4);
+        elg_write_frame(fd, resp.bytes());
+    }
+}
+
+void EpaSignalLabApp::startExtLogicServer() {
+    struct sockaddr_in addr;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return;
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return;
+    }
+    socklen_t addrlen = sizeof(addr);
+    getsockname(fd, (struct sockaddr *)&addr, &addrlen);
+    int port_num = (int)ntohs(addr.sin_port);
+    if (::listen(fd, 1) != 0) {
+        close(fd);
+        return;
+    }
+    ext_logic_server_fd = fd;
+    sendHostDebugEvent(String("ext_logic_listen"),
+        String("\"port\":") + String(port_num));
+    ext_logic_thread = std::thread(&EpaSignalLabApp::extLogicServe, this);
+    ext_logic_thread.detach();
+}
+
+void EpaSignalLabApp::extLogicServe() {
+    while (ext_logic_server_fd >= 0) {
+        int client = accept(ext_logic_server_fd, NULL, NULL);
+        if (client < 0) break;
+        std::vector<char> frame;
+        while (elg_read_frame(client, frame)) {
+            elg_dispatch_frame(client, frame);
+        }
+        close(client);
+    }
+}
+
 int EpaSignalLabApp::run() {
     g_epa_signal_lab_app = this;
     peer->addService(Ref<sockets::rpc::json::JsonRPCService>(new UiEventSinkService(this)));
@@ -550,6 +679,7 @@ int EpaSignalLabApp::run() {
     } else {
         enableUiEvents();
     }
+    startExtLogicServer();
     sendHostDebugEvent(
         String("register"),
         String("\"pid\":") + String((int)getpid())
@@ -612,6 +742,10 @@ int EpaSignalLabApp::run() {
 
     epa.stopAllKernels();
     epa.destroy();
+    if (ext_logic_server_fd >= 0) {
+        close(ext_logic_server_fd);
+        ext_logic_server_fd = -1;
+    }
     closeHostDebugBridge();
     peer->close();
     g_epa_signal_lab_app = NULL;
