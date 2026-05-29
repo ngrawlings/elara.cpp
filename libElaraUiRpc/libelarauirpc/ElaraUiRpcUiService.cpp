@@ -273,6 +273,31 @@ bool ElaraUiRpcUiService::setText(
     return true;
 }
 
+bool ElaraUiRpcUiService::scrollToBottom(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+
+    if(!widget) {
+        return false;
+    }
+
+    ElaraRichTextEditWidget* rich = dynamic_cast<ElaraRichTextEditWidget*>(widget.getPtr());
+
+    if(rich) {
+        rich->scrollToBottom();
+        result_json = "{\"scrolled\":true}";
+        return true;
+    }
+
+    error_code = "unsupported_widget";
+    error_message = "The target widget does not support scrollToBottom";
+    return false;
+}
+
 bool ElaraUiRpcUiService::setVisible(
     const Json& params,
     String& result_json,
@@ -1460,6 +1485,10 @@ bool ElaraUiRpcUiService::call(
     String& error_message
 ) {
     Json params(params_json);
+
+    if(method == String("scrollToBottom")) {
+        return scrollToBottom(params, result_json, error_code, error_message);
+    }
 
     if(method == String("setText")) {
         return setText(params, result_json, error_code, error_message);

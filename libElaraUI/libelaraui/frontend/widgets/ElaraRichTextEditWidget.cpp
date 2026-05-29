@@ -597,6 +597,12 @@ void ElaraRichTextEditWidget::setText(const String& text_value) {
     updateScrollbars();
 }
 
+void ElaraRichTextEditWidget::scrollToBottom() {
+    scroll_y = lineCount();
+    clampScroll();
+    updateScrollbars();
+}
+
 String ElaraRichTextEditWidget::getText() const {
     return value;
 }

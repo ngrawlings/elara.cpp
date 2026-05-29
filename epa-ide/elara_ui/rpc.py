@@ -238,6 +238,9 @@ class ElaraUiRpcClient:
     def set_text(self, target: str, value: str, timeout: float = 5.0):
         return self.call("ui.setText", {"target": target, "value": value}, timeout=timeout)
 
+    def scroll_to_bottom(self, target: str, timeout: float = 5.0):
+        return self.call("ui.scrollToBottom", {"target": target}, timeout=timeout)
+
     def set_visible(self, target: str, visible: bool, timeout: float = 5.0):
         return self.call("ui.setVisible", {"target": target, "visible": bool(visible)}, timeout=timeout)
 

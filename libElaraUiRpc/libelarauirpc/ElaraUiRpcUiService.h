@@ -59,6 +59,12 @@ private:
         String& error_code,
         String& error_message
     );
+    bool scrollToBottom(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool setVisible(
         const Json& params,
         String& result_json,

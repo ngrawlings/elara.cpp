@@ -410,7 +410,8 @@ bool targetOwnedByRoot(ElaraRootWidget* root, const String& target) {
 }
 
 bool targetsSpecificWidget(const String& method) {
-    return method == String("setText") ||
+    return method == String("scrollToBottom") ||
+        method == String("setText") ||
         method == String("setVisible") ||
         method == String("setEnabled") ||
         method == String("setChecked") ||

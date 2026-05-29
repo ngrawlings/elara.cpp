@@ -1393,6 +1393,7 @@ def build_document():
     ui.set_property_number("bottom.toolbar", "item_spacing", 2)
     ui.add_toolbar_item("bottom.toolbar", "bottom.build", "Build Output")
     ui.add_toolbar_item("bottom.toolbar", "bottom.host_io", "Host IO")
+    ui.add_toolbar_item("bottom.toolbar", "bottom.console", "Console")
     ui.add_toolbar_item("bottom.toolbar", "bottom.terminal", "Terminal")
     ui.add_toolbar_item("bottom.toolbar", "bottom.status", "IDE Status")
     ui.add_toolbar_separator("bottom.toolbar")
@@ -1434,6 +1435,23 @@ def build_document():
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_output", 0, 0)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
+
+    # Console panel (AI RPC text interface)
+    ui.create_grid("bottom.console_panel")
+    ui.add_grid_column_fill("bottom.console_panel")
+    ui.add_grid_row_fill("bottom.console_panel")
+    ui.add_grid_row_exact("bottom.console_panel", 28)
+    ui.create_rich_text_edit(
+        "bottom.console_output",
+        "EPA-IDE Console — type 'help' for available commands.\n",
+    )
+    ui.set_property_number("bottom.console_output", "font_size", 12)
+    ui.set_property_bool("bottom.console_output", "read_only", True)
+    ui.create_text_input("bottom.console_input", "")
+    ui.set_property_string("bottom.console_input", "placeholder", "method [params]")
+    ui.set_property_number("bottom.console_input", "font_size", 12)
+    ui.place_grid_child("bottom.console_panel", "bottom.console_output", 0, 0)
+    ui.place_grid_child("bottom.console_panel", "bottom.console_input", 0, 1)
 
     # IDE Status panel (connection status display)
     ui.create_grid("bottom.status_panel")
@@ -1495,11 +1513,13 @@ def build_document():
         ui.place_grid_child("bottom.status_panel", _sid, _col_idx, 0)
 
     ui.set_property_bool("bottom.host_io_output", "visible", False)
+    ui.set_property_bool("bottom.console_panel", "visible", False)
     ui.set_property_bool("bottom.terminal_panel", "visible", False)
     ui.set_property_bool("bottom.status_panel", "visible", False)
     ui.place_grid_child("bottom.panel", "bottom.toolbar", 0, 0)
     ui.place_grid_child("bottom.panel", "bottom.build_output", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.host_io_output", 0, 1)
+    ui.place_grid_child("bottom.panel", "bottom.console_panel", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.terminal_panel", 0, 1)
     ui.place_grid_child("bottom.panel", "bottom.status_panel", 0, 1)
     ui.set_property_bool("bottom.panel", "visible", bottom_panel_visible)
@@ -2871,6 +2891,12 @@ def main():
         "input": "",
         "output": "Terminal ready. Open a project to set the working directory.",
     }
+    console_state = {
+        "output": "EPA-IDE Console — type 'help' for available commands.\n",
+        "input": "",
+        "history": [],
+        "history_pos": -1,
+    }
     app_state["bottom_view"] = "build"
     cpp_gdb_state = {
         "proc": None,
@@ -2915,7 +2941,8 @@ def main():
     _event_log: list = []
     _event_log_lock = threading.Lock()
     _event_log_max = 2000
-    _event_log_fh: list = [None]   # mutable ref so nested closures can reassign
+    _event_log_fh: list = [None]        # mutable ref so nested closures can reassign
+    _ai_rpc_server_ref: list = [None]   # same pattern for ai_rpc_server
 
     def _push_event(event_type: str, **details):
         entry = {"ts": time.time(), "type": event_type}
@@ -4618,6 +4645,7 @@ def main():
             _set_bottom_view(client, "build")
             client.set_text("bottom.build_output", text)
             client.set_visible("bottom.build_output", True)
+            client.scroll_to_bottom("bottom.build_output")
         except Exception:
             pass
 
@@ -4638,6 +4666,7 @@ def main():
             _set_bottom_view(client, "host_io")
             client.set_text("bottom.host_io_output", text)
             client.set_visible("bottom.host_io_output", True)
+            client.scroll_to_bottom("bottom.host_io_output")
         except Exception:
             pass
 
@@ -7030,13 +7059,17 @@ def main():
         _persist_editor_session_state()
         show_build = view == "build"
         show_host_io = view == "host_io"
+        show_console = view == "console"
         show_terminal = view == "terminal"
         show_status = view == "status"
         try:
             client.set_visible("bottom.build_output", show_build)
             client.set_visible("bottom.host_io_output", show_host_io)
+            client.set_visible("bottom.console_panel", show_console)
             client.set_visible("bottom.terminal_panel", show_terminal)
             client.set_visible("bottom.status_panel", show_status)
+            if show_console:
+                client.set_focus("bottom.console_input")
             if show_terminal:
                 client.set_focus("bottom.terminal_input")
             if show_status:
@@ -7058,6 +7091,7 @@ def main():
         terminal_state["output"] = (terminal_state.get("output", "") + text)[-24000:]
         try:
             client.set_text("bottom.terminal_output", terminal_state["output"])
+            client.scroll_to_bottom("bottom.terminal_output")
         except Exception:
             pass
 
@@ -7119,6 +7153,143 @@ def main():
             def _update():
                 _terminal_append(client, output + "$ ")
             _deferred(_update)
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    # -- Console helpers -------------------------------------------------------
+
+    def _console_append(client, text: str):
+        console_state["output"] = (console_state.get("output", "") + text)[-32000:]
+        try:
+            client.set_text("bottom.console_output", console_state["output"])
+            client.scroll_to_bottom("bottom.console_output")
+        except Exception:
+            pass
+
+    def _console_format_help(help_obj: dict) -> str:
+        lines = []
+        overview = help_obj.get("overview", "")
+        if overview:
+            lines.append(overview)
+            lines.append("")
+        conn = help_obj.get("connection", {})
+        if conn:
+            lines.append("Connection:")
+            for k, v in conn.items():
+                lines.append(f"  {k}: {v}")
+            lines.append("")
+        methods = help_obj.get("methods", {})
+        if methods:
+            lines.append("Methods:")
+            for name, info in methods.items():
+                desc = info.get("desc", "") if isinstance(info, dict) else str(info)
+                lines.append(f"  {name}")
+                if desc:
+                    lines.append(f"    {desc}")
+                params = info.get("params", {}) if isinstance(info, dict) else {}
+                if params:
+                    for pname, pdesc in params.items():
+                        lines.append(f"    param {pname}: {pdesc}")
+                result = info.get("result") if isinstance(info, dict) else None
+                if result is not None:
+                    result_str = json.dumps(result) if not isinstance(result, str) else result
+                    lines.append(f"    returns: {result_str}")
+        return "\n".join(lines)
+
+    def _console_parse_command(raw: str):
+        """Parse a console command line into (method, params_dict).
+
+        Accepted forms:
+          help
+          ping
+          get_file_content tab_id=tab.abc123
+          get_file_content {"tab_id": "tab.abc123"}
+          {"method": "ping", "params": {}}
+        """
+        raw = raw.strip()
+        if not raw:
+            return None, None
+        # Raw JSON object
+        if raw.startswith("{"):
+            try:
+                obj = json.loads(raw)
+                return obj.get("method", ""), obj.get("params") or {}
+            except json.JSONDecodeError as exc:
+                return None, f"JSON parse error: {exc}"
+        # method [args...]
+        parts = raw.split(None, 1)
+        method = parts[0]
+        rest = parts[1].strip() if len(parts) > 1 else ""
+        if not rest:
+            return method, {}
+        # JSON object argument
+        if rest.startswith("{"):
+            try:
+                return method, json.loads(rest)
+            except json.JSONDecodeError as exc:
+                return None, f"JSON parse error: {exc}"
+        # key=value pairs
+        params = {}
+        for token in rest.split():
+            if "=" in token:
+                k, _, v = token.partition("=")
+                # Try to parse value as JSON scalar, fall back to string
+                try:
+                    params[k] = json.loads(v)
+                except json.JSONDecodeError:
+                    params[k] = v
+            else:
+                params[token] = True
+        return method, params
+
+    def _run_console_command(client, raw: str):
+        raw = raw.strip()
+        if not raw:
+            return
+
+        hist = console_state.setdefault("history", [])
+        if not hist or hist[-1] != raw:
+            hist.append(raw)
+        console_state["history_pos"] = -1
+
+        _console_append(client, f"> {raw}\n")
+
+        if raw in ("clear", "cls"):
+            console_state["output"] = ""
+            try:
+                client.set_text("bottom.console_output", "")
+            except Exception:
+                pass
+            return
+
+        method, params = _console_parse_command(raw)
+        if method is None:
+            _console_append(client, f"Error: {params}\n\n")
+            return
+
+        srv = _ai_rpc_server_ref[0]
+        if srv is None:
+            _console_append(client, "Error: AI RPC server not yet started.\n\n")
+            return
+
+        def _worker(m=method, p=params):
+            try:
+                resp = srv._dispatch({"method": m, "params": p})
+            except Exception as exc:
+                resp = {"ok": False, "error": str(exc)}
+
+            if not resp.get("ok"):
+                text = f"Error: {resp.get('error', '?')}\n\n"
+            else:
+                result = resp.get("result")
+                if m == "help" and isinstance(result, dict):
+                    text = _console_format_help(result) + "\n\n"
+                elif isinstance(result, (dict, list)):
+                    text = json.dumps(result, indent=2, ensure_ascii=False) + "\n\n"
+                else:
+                    text = str(result) + "\n\n"
+
+            _deferred(lambda t=text: _console_append(client, t))
 
         threading.Thread(target=_worker, daemon=True).start()
 
@@ -7728,6 +7899,9 @@ def main():
             if btn == "bottom.host_io":
                 _deferred(lambda: _set_bottom_view(c, "host_io"))
                 return {"received": True}
+            if btn == "bottom.console":
+                _deferred(lambda: _set_bottom_view(c, "console"))
+                return {"received": True}
             if btn == "bottom.terminal":
                 _deferred(lambda: _set_bottom_view(c, "terminal"))
                 return {"received": True}
@@ -7741,6 +7915,9 @@ def main():
                         if view == "host_io":
                             app_state["bottom_host_io_output"] = ""
                             c.set_text("bottom.host_io_output", "")
+                        elif view == "console":
+                            console_state["output"] = ""
+                            c.set_text("bottom.console_output", "")
                         elif view == "terminal":
                             terminal_state["output"] = "$ "
                             c.set_text("bottom.terminal_output", terminal_state["output"])
@@ -7752,12 +7929,80 @@ def main():
                 _deferred(_clear_bottom)
                 return {"received": True}
 
+        if action == "keysTyped" and target == "bottom.console_input":
+            console_state["input"] = console_state.get("input", "") + payload.get("text", "")
+            return {"received": True}
+
+        if action == "textChanged" and target == "bottom.console_input":
+            console_state["input"] = payload.get("text", "")
+            return {"received": True}
+
+        if action == "keyDown" and target == "bottom.console_input" and client is not None:
+            keyval = payload.get("keyval", 0)
+            # Backspace: trim the tracked input manually (keysTyped doesn't fire for backspace)
+            if keyval in (0xff08, 65288, 8):
+                cur = console_state.get("input", "")
+                console_state["input"] = cur[:-1] if cur else ""
+                return {"received": True}
+            if keyval in (0xff0d, 0x0000ff0d, 65293, 13):
+                command = console_state.get("input", "")
+                console_state["input"] = ""
+                c = client
+                def _submit_console():
+                    try:
+                        c.set_text("bottom.console_input", "")
+                    except Exception:
+                        pass
+                    _run_console_command(c, command)
+                _deferred(_submit_console)
+                return {"received": True}
+            # Up arrow — history navigation
+            if keyval in (0xff52, 65362):
+                hist = console_state.get("history", [])
+                if hist:
+                    pos = console_state.get("history_pos", -1)
+                    if pos == -1:
+                        pos = len(hist) - 1
+                    elif pos > 0:
+                        pos -= 1
+                    console_state["history_pos"] = pos
+                    entry = hist[pos]
+                    console_state["input"] = entry
+                    c = client
+                    _deferred(lambda e=entry: c.set_text("bottom.console_input", e))
+                return {"received": True}
+            # Down arrow — history navigation
+            if keyval in (0xff54, 65364):
+                hist = console_state.get("history", [])
+                pos = console_state.get("history_pos", -1)
+                if pos >= 0 and pos < len(hist) - 1:
+                    pos += 1
+                    console_state["history_pos"] = pos
+                    entry = hist[pos]
+                    console_state["input"] = entry
+                    c = client
+                    _deferred(lambda e=entry: c.set_text("bottom.console_input", e))
+                else:
+                    console_state["history_pos"] = -1
+                    console_state["input"] = ""
+                    c = client
+                    _deferred(lambda: c.set_text("bottom.console_input", ""))
+                return {"received": True}
+
+        if action == "keysTyped" and target == "bottom.terminal_input":
+            terminal_state["input"] = terminal_state.get("input", "") + payload.get("text", "")
+            return {"received": True}
+
         if action == "textChanged" and target == "bottom.terminal_input":
             terminal_state["input"] = payload.get("text", "")
             return {"received": True}
 
         if action == "keyDown" and target == "bottom.terminal_input" and client is not None:
             keyval = payload.get("keyval", 0)
+            if keyval in (0xff08, 65288, 8):
+                cur = terminal_state.get("input", "")
+                terminal_state["input"] = cur[:-1] if cur else ""
+                return {"received": True}
             if keyval in (0xff0d, 0x0000ff0d, 65293, 13):
                 command = terminal_state.get("input", "")
                 terminal_state["input"] = ""
@@ -9889,6 +10134,7 @@ def main():
 
                 ai_rpc_server = AiRpcServer(port=args.ai_rpc_port, ide=ide_bindings)
                 ai_rpc_server.start()
+                _ai_rpc_server_ref[0] = ai_rpc_server
                 _first_connect = False
 
             if args.once:

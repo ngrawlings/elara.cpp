@@ -96,6 +96,7 @@ public:
     virtual ~ElaraRichTextEditWidget();
 
     void setText(const String& text_value);
+    void scrollToBottom();
     String getText() const;
 
     void setPlaceholder(const String& text_value);
