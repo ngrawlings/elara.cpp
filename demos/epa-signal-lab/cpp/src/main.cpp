@@ -65,6 +65,11 @@ int main(int argc, const char *argv[]) {
         : 18777;
     if (argc > 1) host = String(argv[1]);
     if (argc > 2) port = atoi(argv[2]);
+    if (argc > 3) {
+        debug_session.enabled = true;
+        debug_session.host_debug_port = atoi(argv[3]);
+        debug_session.host_debug_host = argc > 4 ? String(argv[4]) : String("127.0.0.1");
+    }
     if (debug_session.enabled) {
         printf("Loaded IDE debug session: %s\n", debug_session.session_path.operator char *());
     }

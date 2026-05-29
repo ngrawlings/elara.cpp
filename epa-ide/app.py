@@ -872,10 +872,7 @@ def main():
     def _host_debug_bridge_handle_message(raw_line: str):
         if not host_debug_bridge.get("client_connected"):
             host_debug_bridge["client_connected"] = True
-            _update_status_panel_dot(
-                client_ref.get("client"), "host",
-                _IND_GREEN, "EPA interconnect", _IND_GREEN, "External logic",
-            )
+            _refresh_status_panel(client_ref.get("client"))
         try:
             payload = json.loads(raw_line)
         except Exception:
@@ -1012,8 +1009,21 @@ def main():
         host_debug_bridge["server"] = server
         host_debug_bridge["thread"] = thread
         host_debug_bridge["port"] = port
+        try:
+            bridge_info = {
+                "host_debug_host": "127.0.0.1",
+                "host_debug_port": port,
+                "ui_rpc_host": args.host,
+                "ui_rpc_port": int(args.port),
+            }
+            _bridge_info_path().write_text(json.dumps(bridge_info, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         _refresh_status_panel(client_ref.get("client"))
         return port
+
+    def _bridge_info_path() -> Path:
+        return Path(tempfile.gettempdir()) / "elara-debug-bridge.json"
 
     def _debug_session_dir(project_root: Path | None = None) -> Path:
         if project_root:
@@ -1055,7 +1065,9 @@ def main():
         descriptor = _build_debug_session_descriptor()
         session_dir = _debug_session_dir(project_root)
         session_path = session_dir / f"{descriptor['session_id']}.json"
-        session_path.write_text(json.dumps(descriptor, indent=2), encoding="utf-8")
+        content = json.dumps(descriptor, indent=2)
+        session_path.write_text(content, encoding="utf-8")
+        (session_dir / "latest.json").write_text(content, encoding="utf-8")
         app_state["debug_session_path"] = str(session_path)
         return session_path
 
@@ -4138,17 +4150,24 @@ def main():
         bridge_server = host_debug_bridge.get("server")
         bridge_port = host_debug_bridge.get("port")
         bridge_connected = host_debug_bridge.get("client_connected", False)
+        epa_ready = bool(epa_client and epa_client.connected)
         if not bridge_server:
-            host_dot1, host_lbl1 = _IND_RED, "Offline"
-            host_dot2, host_lbl2 = _IND_OFF, "—"
+            host_dot1, host_lbl1 = _IND_RED,    "Offline"
+            host_dot2, host_lbl2 = _IND_OFF,    "—"
             host_port_text = "Port: —"
-        elif bridge_connected:
-            host_dot1, host_lbl1 = _IND_GREEN, "EPA interconnect"
-            host_dot2, host_lbl2 = _IND_GREEN, "External logic"
-            host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
         else:
-            host_dot1, host_lbl1 = _IND_ORANGE, "EPA interconnect"
-            host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
+            if not bridge_connected:
+                host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
+            elif epa_ready:
+                host_dot1, host_lbl1 = _IND_GREEN,  "EPA-DBG"
+            else:
+                host_dot1, host_lbl1 = _IND_ORANGE, "EPA-DBG"
+            if not bridge_connected:
+                host_dot2, host_lbl2 = _IND_RED,    "External logic"
+            elif epa_ready:
+                host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
+            else:
+                host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
             host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
 
         # ── C++ / GDB ────────────────────────────────────────────────────────
