@@ -4160,6 +4160,64 @@ def main():
         except Exception:
             pass
 
+    def _python_dbg_show_thread(client, thread_id_str: str):
+        """Switch inspector focus to the given thread (user clicked a thread list item)."""
+        dap: PythonDapClient | None = python_dbg_state.get("dap")
+        if dap is None or not python_dbg_state.get("stopped"):
+            return
+        try:
+            tid = int(thread_id_str)
+        except (ValueError, TypeError):
+            return
+        try:
+            stack_resp = dap.send("stackTrace",
+                                  {"threadId": tid, "startFrame": 0, "levels": 30},
+                                  timeout=3.0)
+            frames = (stack_resp.get("body") or {}).get("stackFrames", [])
+            if not frames:
+                return
+
+            top_frame = frames[0]
+            top_src_path = (top_frame.get("source") or {}).get("path", "")
+            top_line = top_frame.get("line", 0)
+            inspect_tab_id = None
+            if top_src_path and top_line > 0 and Path(top_src_path).is_file():
+                _open_file_tab(client, top_src_path, make_permanent=True)
+                inspect_tab_id = _tab_id_for_path(top_src_path)
+                ids = _editor_ids(inspect_tab_id)
+                try:
+                    client.set_eip_line(ids["source"], top_line - 1)
+                except Exception:
+                    pass
+
+            frame_items = [
+                {
+                    "id": f"python.frame.{f.get('id', i)}",
+                    "label": f"{f.get('name','?')}  ({Path((f.get('source') or {}).get('path','?')).name}:{f.get('line',0)})",
+                }
+                for i, f in enumerate(frames)
+            ]
+            _set_python_frame_items(client, frame_items, tab_id=inspect_tab_id)
+
+            top_frame_id = top_frame.get("id")
+            scopes_resp = dap.send("scopes", {"frameId": top_frame_id}, timeout=3.0)
+            scopes = (scopes_resp.get("body") or {}).get("scopes", [])
+            local_labels: list[str] = []
+            for scope in scopes:
+                if scope.get("name", "").lower() != "locals":
+                    continue
+                vars_resp = dap.send(
+                    "variables",
+                    {"variablesReference": scope["variablesReference"]},
+                    timeout=3.0,
+                )
+                for v in (vars_resp.get("body") or {}).get("variables", [])[:20]:
+                    local_labels.append(f"{v['name']} = {v['value']}")
+                break
+            _set_python_locals_text(client, local_labels, tab_id=inspect_tab_id)
+        except Exception as exc:
+            _append_build_output(client, f"[python-dbg] show_thread error: {exc}\n")
+
     def _python_dap_on_event(event: str, body: dict):
         """Called from the DAP receive thread.
 
@@ -4585,6 +4643,43 @@ def main():
             _set_cpp_vm_buttons(client, False)
             _set_cpp_vm_status(client, "error", str(exc))
             _set_cpp_status_text(client, f"GDB refresh failed: {exc}")
+
+    def _cpp_gdb_show_thread(client, thread_id_str: str):
+        """Switch inspector focus to the given thread (user clicked a thread list item)."""
+        if cpp_gdb_state.get("running"):
+            return
+        try:
+            tid = int(thread_id_str)
+        except (ValueError, TypeError):
+            return
+        try:
+            _cpp_gdb_send(f"-thread-select {tid}", timeout=3.0)
+            frame_lines = _cpp_gdb_send("-stack-list-frames", timeout=3.0)
+            _set_cpp_frame_items(client, _cpp_gdb_frames_from_lines(frame_lines))
+            local_lines = _cpp_gdb_send("-stack-list-variables --simple-values", timeout=3.0)
+            _set_cpp_locals_text(client, _cpp_gdb_locals_from_lines(local_lines))
+
+            # Navigate editor to top frame location if source is available
+            joined = "\n".join(frame_lines)
+            file_match = re.search(r'level="0"[^,]*,.*?file="([^"]+)".*?line="([^"]+)"', joined)
+            if file_match:
+                file_path = file_match.group(1)
+                line_no_str = file_match.group(2)
+                if Path(file_path).is_file():
+                    _open_file_tab(client, file_path, make_permanent=True)
+                    opened_tab_id = _tab_id_for_path(file_path)
+                    ext = Path(file_path).suffix.lower()
+                    eip_target = (
+                        _editor_ids(opened_tab_id)["source"]
+                        if ext in (".e", ".py")
+                        else opened_tab_id + ".container"
+                    )
+                    try:
+                        client.set_eip_line(eip_target, max(0, int(line_no_str) - 1))
+                    except Exception:
+                        pass
+        except Exception as exc:
+            _append_build_output(client, f"[cpp-dbg] show_thread error: {exc}\n")
 
     def _ensure_cpp_gdb_session(client):
         project_root_text = app_state.get("project_root", "")
@@ -8592,6 +8687,22 @@ def main():
                     else:
                         _open_project_navigate(c, fp)
                 _deferred(_handle_folder_dclick)
+            return {"received": True}
+
+        if action in ("action", "clicked") and target == "nav.debug.python_threads" and client is not None:
+            selected_id = payload.get("action") or payload.get("id", "")
+            if selected_id.startswith("python.thread."):
+                tid_str = selected_id[len("python.thread."):]
+                c = client
+                _deferred(lambda t=tid_str: _python_dbg_show_thread(c, t))
+            return {"received": True}
+
+        if action in ("action", "clicked") and target == "nav.debug.cpp_threads" and client is not None:
+            selected_id = payload.get("action") or payload.get("id", "")
+            if selected_id.startswith("cpp.thread."):
+                tid_str = selected_id[len("cpp.thread."):]
+                c = client
+                _deferred(lambda t=tid_str: _cpp_gdb_show_thread(c, t))
             return {"received": True}
 
         if action == "action" and client is not None:
