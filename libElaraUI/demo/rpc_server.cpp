@@ -20,6 +20,7 @@
 #include <libelaraui/ElaraGui.h>
 #include <libelaraui/ElaraJsonUiProtocol.h>
 #include <libelaraui/backends/gtk/GtkGuiBackend.h>
+#include <libelaraui/frontend/ElaraEventResponder.h>
 #include <libelaraui/frontend/listeners/WidgetListener.h>
 #include <libelaraui/frontend/theme/ElaraTheme.h>
 #include <libelaraui/frontend/widgets/ElaraButtonWidget.h>
@@ -1315,6 +1316,84 @@ public:
     }
 };
 
+class EventResponderService : public sockets::rpc::json::JsonRPCService {
+public:
+    EventResponderService()
+        : sockets::rpc::json::JsonRPCService("event") {
+    }
+
+    void notify(const String& method, const String& params_json) override {
+        String result, ec, em;
+        call(method, params_json, result, ec, em);
+    }
+
+    bool call(
+        const String& method,
+        const String& params_json,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    ) override {
+        ElaraEventResponderTable* table = ElaraEventResponderTable::getInstance();
+
+        if (method == String("setResponse")) {
+            Json params(params_json);
+            String event = params.getStringValue("event");
+            String prefix = params.getStringValue("prefix");
+            if (!event.length()) {
+                error_code = "missing_event";
+                error_message = "event.setResponse requires an event name";
+                return false;
+            }
+            table->setResponse(event, prefix, parseCmds(params, "enter"), parseCmds(params, "leave"));
+            result_json = "{\"ok\":true}";
+            return true;
+        }
+
+        if (method == String("setNotify")) {
+            Json params(params_json);
+            String event = params.getStringValue("event");
+            String prefix = params.getStringValue("prefix");
+            if (!event.length()) {
+                error_code = "missing_event";
+                error_message = "event.setNotify requires an event name";
+                return false;
+            }
+            String notify_str = params.getStringValue("notify");
+            bool notify = !(notify_str == String("false") || notify_str == String("0"));
+            table->setNotify(event, prefix, notify);
+            result_json = "{\"ok\":true}";
+            return true;
+        }
+
+        if (method == String("clearAll")) {
+            table->clearAll();
+            result_json = "{\"cleared\":true}";
+            return true;
+        }
+
+        error_code = "method_not_found";
+        error_message = "Unknown event service method";
+        return false;
+    }
+
+private:
+    static Array<ElaraResponderCmd> parseCmds(const Json& params, const String& field) {
+        Array<ElaraResponderCmd> cmds;
+        Array< Ref<JsonValue> > items = params.getArray(field);
+        for (int i = 0; i < (int)items.length(); i++) {
+            if (!items[i].getPtr()) continue;
+            Json item(items[i]->toString());
+            ElaraResponderCmd cmd;
+            cmd.op = item.getStringValue("op");
+            cmd.target = item.getStringValue("target");
+            cmd.value = item.getStringValue("value");
+            cmds.push(cmd);
+        }
+        return cmds;
+    }
+};
+
 class UiRpcHost {
 private:
     Ref<ElaraDrawSurface> root_surface;
@@ -1374,6 +1453,7 @@ public:
           accept_thread(0),
           deferred_listen_pending(false),
           deferred_listen_port(0) {
+        ElaraEventResponderTable::getInstance(); // prime singleton before accept thread starts
     }
 
     void setPersistent(bool value) {
@@ -1594,6 +1674,7 @@ private:
         peer = Ref<ElaraUiRpcPeer>(new ElaraUiRpcPeer());
         peer->setUseBrpc(use_brpc);
         peer->addService(rpc_ui_service_ref);
+        peer->addService(Ref<sockets::rpc::json::JsonRPCService>(new EventResponderService()));
 
         if(peer->attach(fd)) {
             client_connected_once = true;

@@ -2,6 +2,7 @@
 
 #include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonValue.h>
+#include <libelaraui/frontend/ElaraEventResponder.h>
 
 namespace elara {
 namespace ui {
@@ -1472,6 +1473,8 @@ bool ElaraUiRpcUiService::setThemeMode(
         error_message = "Unknown theme mode";
         return false;
     }
+
+    ElaraEventResponderTable::getInstance()->clearAll();
 
     result_json = "{\"updated\":true}";
     return true;

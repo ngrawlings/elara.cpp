@@ -1,8 +1,15 @@
 #include "ElaraOutboundEventFilter.h"
 
+#include <libelaracore/memory/Memory.h>
 #include <libelaraformat/json/types/JsonString.h>
+#include "ElaraEventResponder.h"
 
 namespace elara {
+
+static String handleWidgetId(ElaraWidgetHandle handle) {
+    Memory mem = handle.getHandle();
+    return String((const char*)mem.getPtr(), mem.length());
+}
 
 ElaraOutboundEventFilter::ElaraOutboundEventFilter() {}
 
@@ -97,7 +104,16 @@ void ElaraOutboundEventFilter::onWidgetHoverChanged(
     ElaraWidgetHandle handle,
     bool hovered
 ) {
-    queue(
+    if (!isEnabled("hoverChanged")) return;
+
+    String widget_id = handleWidgetId(handle);
+    ElaraEventResponderTable* table = ElaraEventResponderTable::getInstance();
+    if (hovered) table->applyEnter("hoverChanged", widget_id);
+    else          table->applyLeave("hoverChanged", widget_id);
+
+    if (!table->shouldNotify("hoverChanged", widget_id)) return;
+
+    ElaraOutboundEventQueue::getInstance()->push(
         handle,
         "hoverChanged",
         String("{\"hovered\":") + String(hovered ? "true" : "false") + String("}")
