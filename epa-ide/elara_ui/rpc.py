@@ -426,6 +426,12 @@ class ElaraUiRpcClient:
     def set_eip_line(self, target: str, line: int, timeout: float = 5.0):
         self.fire("ui.setEipLine", {"target": target, "line": int(line)})
 
+    def spawn_terminal_shell(self, target: str, cwd: str = "", timeout: float = 5.0):
+        return self.call("ui.spawnTerminalShell", {"target": target, "cwd": cwd}, timeout=timeout)
+
+    def send_terminal_input(self, target: str, data: str, timeout: float = 5.0):
+        return self.call("ui.sendTerminalInput", {"target": target, "data": data}, timeout=timeout)
+
     def set_focus(self, target: str, timeout: float = 5.0):
         self.fire("ui.setFocus", {"target": target})
 

@@ -17,6 +17,7 @@
 #include <libelaraui/frontend/widgets/ElaraRadioButtonWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
+#include <libelaraui/frontend/widgets/ElaraTerminalWidget.h>
 #include <libelaraui/frontend/widgets/ElaraCodeEditorWidget.h>
 #include <libelaraui/frontend/widgets/ElaraToolBarWidget.h>
 #include <libelaraui/frontend/widgets/ElaraSliderWidget.h>
@@ -779,6 +780,7 @@ public:
             type == String("elara.widgets.multi_axis_line_chart") ||
             type == String("elara.widgets.combo_box") ||
             type == String("elara.widgets.chat_dialog") ||
+            type == String("elara.widgets.terminal") ||
             type == String("demo.widgets.button") ||
             type == String("demo.widgets.label") ||
             type == String("demo.widgets.text_input") ||
@@ -863,6 +865,8 @@ public:
             widget = new ElaraComboBoxWidget(root, id);
         } else if(type == String("elara.widgets.chat_dialog")) {
             widget = new ElaraChatDialogWidget(root, id);
+        } else if(type == String("elara.widgets.terminal")) {
+            widget = new ElaraTerminalWidget(root, id);
         }
 
         applyProperties(widget, spec);

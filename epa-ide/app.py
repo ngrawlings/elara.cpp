@@ -3764,11 +3764,11 @@ def main():
             _clear_editor_tabs(client, persist_empty=False)
         terminal_state["cwd"] = str(project_path)
         terminal_state["output"] = f"Terminal ready.\nCWD: {terminal_state['cwd']}\n$ "
+        terminal_state.pop("spawned", None)
         try:
             client.fire("ui.setVisible", {"target": "nav.no_project", "visible": False})
             client.fire("ui.setVisible", {"target": "nav.file_tabs", "visible": True})
             client.fire("ui.setVisible", {"target": "app.toolbar", "visible": True})
-            client.set_text("bottom.terminal_output", terminal_state["output"])
             _set_project_toolbar_enabled(client, True)
         except Exception:
             pass
@@ -3922,11 +3922,21 @@ def main():
             if show_console:
                 client.set_focus("bottom.console_input")
             if show_terminal:
-                client.set_focus("bottom.terminal_input")
+                _ensure_terminal_spawned(client)
+                client.set_focus("bottom.terminal_widget")
             if show_status:
                 _refresh_status_panel(client)
         except Exception:
             pass
+
+    def _ensure_terminal_spawned(client):
+        if not terminal_state.get("spawned"):
+            try:
+                cwd = terminal_state.get("cwd") or app_state.get("project_root") or os.getcwd()
+                client.spawn_terminal_shell("bottom.terminal_widget", cwd)
+                terminal_state["spawned"] = True
+            except Exception:
+                pass
 
     def _terminal_cwd() -> str:
         cwd = terminal_state.get("cwd") or app_state.get("project_root") or os.getcwd()
@@ -4814,8 +4824,7 @@ def main():
                             console_state["output"] = ""
                             c.set_text("bottom.console_output", "")
                         elif view == "terminal":
-                            terminal_state["output"] = "$ "
-                            c.set_text("bottom.terminal_output", terminal_state["output"])
+                            pass  # terminal widget manages its own content
                         else:
                             app_state["bottom_build_output"] = ""
                             c.set_text("bottom.build_output", "")
@@ -4882,33 +4891,6 @@ def main():
                     console_state["input"] = ""
                     c = client
                     _deferred(lambda: c.set_text("bottom.console_input", ""))
-                return {"received": True}
-
-        if action == "keysTyped" and target == "bottom.terminal_input":
-            terminal_state["input"] = terminal_state.get("input", "") + payload.get("text", "")
-            return {"received": True}
-
-        if action == "textChanged" and target == "bottom.terminal_input":
-            terminal_state["input"] = payload.get("text", "")
-            return {"received": True}
-
-        if action == "keyDown" and target == "bottom.terminal_input" and client is not None:
-            keyval = payload.get("keyval", 0)
-            if keyval in (0xff08, 65288, 8):
-                cur = terminal_state.get("input", "")
-                terminal_state["input"] = cur[:-1] if cur else ""
-                return {"received": True}
-            if keyval in (0xff0d, 0x0000ff0d, 65293, 13):
-                command = terminal_state.get("input", "")
-                terminal_state["input"] = ""
-                c = client
-                def _submit_terminal():
-                    try:
-                        c.set_text("bottom.terminal_input", "")
-                    except Exception:
-                        pass
-                    _run_terminal_command(c, command)
-                _deferred(_submit_terminal)
                 return {"received": True}
 
         if action == "textChanged" and target == "nav.search.input" and client is not None:

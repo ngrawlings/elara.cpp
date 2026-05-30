@@ -12,6 +12,7 @@
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRichTextEditWidget.h>
 #include <libelaraui/frontend/widgets/ElaraChatDialogWidget.h>
+#include <libelaraui/frontend/widgets/ElaraTerminalWidget.h>
 #include <libelaraui/frontend/widgets/ElaraRootWidget.h>
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraMenuBarWidget.h>
@@ -300,6 +301,18 @@ private:
         String& error_message
     );
     bool setMouseCaptured(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool spawnTerminalShell(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
+    bool sendTerminalInput(
         const Json& params,
         String& result_json,
         String& error_code,

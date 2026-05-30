@@ -175,6 +175,9 @@ class UiDocumentBuilder:
     def create_chat_dialog(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.chat_dialog")
 
+    def create_terminal(self, widget_id):
+        return self.create_widget(widget_id, "elara.widgets.terminal")
+
     def create_toolbar(self, widget_id, orientation="vertical"):
         self.create_widget(widget_id, "elara.widgets.toolbar")
         self.set_property_string(widget_id, "orientation", orientation)

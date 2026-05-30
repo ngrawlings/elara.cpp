@@ -1499,6 +1499,50 @@ bool ElaraUiRpcUiService::setThemeMode(
     return true;
 }
 
+bool ElaraUiRpcUiService::spawnTerminalShell(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if (!widget) return false;
+
+    ElaraTerminalWidget* terminal = dynamic_cast<ElaraTerminalWidget*>(widget.getPtr());
+    if (!terminal) {
+        error_code = "unsupported_widget";
+        error_message = "Target widget is not a terminal widget";
+        return false;
+    }
+
+    String cwd = params.getStringValue("cwd");
+    terminal->spawn(cwd);
+    result_json = "{\"spawned\":true}";
+    return true;
+}
+
+bool ElaraUiRpcUiService::sendTerminalInput(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if (!widget) return false;
+
+    ElaraTerminalWidget* terminal = dynamic_cast<ElaraTerminalWidget*>(widget.getPtr());
+    if (!terminal) {
+        error_code = "unsupported_widget";
+        error_message = "Target widget is not a terminal widget";
+        return false;
+    }
+
+    String data = params.getStringValue("data");
+    terminal->sendInput((const char*)data, (int)data.length());
+    result_json = "{\"sent\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::call(
     const String& method,
     const String& params_json,
@@ -1678,6 +1722,14 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setMouseCaptured")) {
         return setMouseCaptured(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("spawnTerminalShell")) {
+        return spawnTerminalShell(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("sendTerminalInput")) {
+        return sendTerminalInput(params, result_json, error_code, error_message);
     }
 
     error_code = "method_not_found";
