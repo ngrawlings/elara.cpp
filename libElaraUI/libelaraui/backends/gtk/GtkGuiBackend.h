@@ -120,6 +120,7 @@ public:
     void destroyWindow(Ref<ElaraDrawSurface> surface);
     void setWindowTitle(const String& title);
     void setDefaultWindowSize(int w, int h);
+    void setWindowSize(int w, int h);
     void setMinimumSize(int w, int h);
     void setWindowDecorated(bool decorated);
     void minimizeWindow();

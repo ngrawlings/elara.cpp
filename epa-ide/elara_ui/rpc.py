@@ -365,6 +365,9 @@ class ElaraUiRpcClient:
     def get_window_state(self, timeout: float = 5.0):
         return self.call("ui.getWindowState", {}, timeout=timeout)
 
+    def set_window_size(self, width: int, height: int, timeout: float = 5.0):
+        self.call("ui.setWindowSize", {"width": int(width), "height": int(height)}, timeout=timeout)
+
     def set_window_maximized(self, maximized: bool, timeout: float = 5.0):
         self.fire("ui.setWindowMaximized", {"maximized": bool(maximized)})
 

@@ -821,6 +821,17 @@ void GtkGuiBackend::setDefaultWindowSize(int w, int h) {
     }
 }
 
+void GtkGuiBackend::setWindowSize(int w, int h) {
+    for(int i = 0; i < (int)windows.length(); i++) {
+        WindowState* state = windows[i];
+        if(state && state->window) {
+            gtk_window_set_default_size(state->window, w, h);
+            gtk_widget_queue_resize(GTK_WIDGET(state->window));
+            return;
+        }
+    }
+}
+
 void GtkGuiBackend::setMinimumSize(int w, int h) {
     for(int i = 0; i < (int)windows.length(); i++) {
         WindowState* state = windows[i];

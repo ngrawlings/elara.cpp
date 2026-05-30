@@ -160,19 +160,26 @@ def _bottom_panel_visible(ide_state: dict | None = None) -> bool:
 
 def _persist_runtime_layout_state(client):
     # Window size — saved independently so a layout query failure does not lose size.
+    # When maximized we only update the maximized flag, not the size, so the pre-maximized
+    # size is preserved for the next non-maximized restore.
     try:
         window_state = client.get_window_state() or {}
         win_w = _window_value(window_state.get("width"), 0, minimum=1)
         win_h = _window_value(window_state.get("height"), 0, minimum=1)
         maximized = bool(window_state.get("maximized", False))
-        if win_w > 0 and win_h > 0:
-            _save_ide_state({"window": {"width": win_w, "height": win_h, "maximized": maximized}})
-        elif not maximized:
+        if maximized:
+            _save_ide_state({"window": {"maximized": True}})
+        elif win_w > 0 and win_h > 0:
+            _save_ide_state({"window": {"width": win_w, "height": win_h, "maximized": False}})
+        else:
             _save_ide_state({"window": {"maximized": False}})
     except Exception:
         pass
 
     # Panel layout — column/row sizes saved independently.
+    # Use 'size' (not 'computed_size'): computed_size is 0 until the first draw()
+    # call, but size is set immediately from the document and updated by drag-resize.
+    # Saving computed_size=0 would overwrite the correct persisted values with fallbacks.
     try:
         shell = client.get_grid_layout_state("app.shell") or {}
         columns = shell.get("columns") or []
@@ -180,13 +187,20 @@ def _persist_runtime_layout_state(client):
         ai_width = None
         right_panel_visible = _right_panel_visible()
         if len(columns) > 1:
-            nav_width = _layout_value(columns[1].get("computed_size"), 220)
+            raw = float(columns[1].get("size") or 0)
+            if raw >= 120:
+                nav_width = int(round(raw))
         if len(columns) > 3 and right_panel_visible:
-            ai_width = _layout_value(columns[3].get("computed_size"), 320)
-        layout = {"nav_width": nav_width if nav_width is not None else 220}
+            raw = float(columns[3].get("size") or 0)
+            if raw >= 120:
+                ai_width = int(round(raw))
+        layout = {}
+        if nav_width is not None:
+            layout["nav_width"] = nav_width
         if ai_width is not None:
             layout["ai_width"] = ai_width
-        _save_ide_state({"layout": layout})
+        if layout:
+            _save_ide_state({"layout": layout})
     except Exception:
         pass
 
@@ -195,8 +209,9 @@ def _persist_runtime_layout_state(client):
         center_rows = center.get("rows") or []
         bottom_panel_visible = _bottom_panel_visible()
         if len(center_rows) > 1 and bottom_panel_visible:
-            bottom_height = _layout_value(center_rows[1].get("computed_size"), 220)
-            _save_ide_state({"layout": {"bottom_height": bottom_height}})
+            raw = float(center_rows[1].get("size") or 0)
+            if raw >= 120:
+                _save_ide_state({"layout": {"bottom_height": int(round(raw))}})
     except Exception:
         pass
 
@@ -3923,6 +3938,20 @@ def main():
             pass
         return os.getcwd()
 
+    def _open_full_terminal():
+        import shutil
+        cwd = _terminal_cwd()
+        import shlex
+        for cmd in [
+            ["lxterminal", f"--working-directory={cwd}"],
+            ["gnome-terminal", f"--working-directory={cwd}"],
+            ["xfce4-terminal", f"--default-working-directory={cwd}"],
+            ["xterm", "-e", "bash", "-c", "cd " + shlex.quote(cwd) + " && exec bash"],
+        ]:
+            if shutil.which(cmd[0]):
+                subprocess.Popen(cmd, close_fds=True)
+                return
+
     def _terminal_append(client, text: str):
         terminal_state["output"] = (terminal_state.get("output", "") + text)[-24000:]
         try:
@@ -4886,6 +4915,10 @@ def main():
             query = payload.get("text", "")
             c = client
             _deferred(lambda q=query: _run_search(c, q))
+            return {"received": True}
+
+        if action == "action" and payload.get("action") == "app.open_full_terminal":
+            _open_full_terminal()
             return {"received": True}
 
         if action == "action" and payload.get("action") == "repo.refresh" and client is not None:
@@ -6600,14 +6633,16 @@ def main():
             ctx["_allocate_epa_dbg_port"]         = _allocate_epa_dbg_port
 
             client.add_handler("ui.event", on_ui_event)
-            load_result = client.load_document(builder)
-            print(json.dumps(load_result, indent=2))
-            _restore_editor_session_state(client)
-            if bool((initial_ide_state.get("window", {}) if isinstance(initial_ide_state, dict) else {}).get("maximized", False)):
+            # Apply window state first — before the document is loaded (which shows the window).
+            _saved_win = (initial_ide_state.get("window", {}) if isinstance(initial_ide_state, dict) else {})
+            if bool(_saved_win.get("maximized", False)):
                 try:
                     client.set_window_maximized(True)
                 except Exception:
                     pass
+            load_result = client.load_document(builder)
+            print(json.dumps(load_result, indent=2))
+            _restore_editor_session_state(client)
             try:
                 client.set_visible_batch([
                     ("editor.tabs", bool(tab_list)),
@@ -7136,6 +7171,7 @@ def main():
                     _persist_runtime_layout_state(client)
         except Exception:
             pass
+        _flush_ide_state_to_disk()
         if worker is not None:
             try:
                 worker.stop()

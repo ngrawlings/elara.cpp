@@ -269,6 +269,12 @@ private:
         String& error_code,
         String& error_message
     );
+    bool setWindowSize(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool setWindowMaximized(
         const Json& params,
         String& result_json,

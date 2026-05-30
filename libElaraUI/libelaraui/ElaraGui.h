@@ -109,6 +109,7 @@ public:
     virtual void showSurface(Ref<ElaraDrawSurface> surface) { (void)surface; }
     virtual void setWindowTitle(const String& title) {}
     virtual void setDefaultWindowSize(int w, int h) { (void)w; (void)h; }
+    virtual void setWindowSize(int w, int h) { (void)w; (void)h; }
     virtual void setMinimumSize(int w, int h) { (void)w; (void)h; }
     virtual void setWindowDecorated(bool decorated) { (void)decorated; }
     virtual void minimizeWindow() {}

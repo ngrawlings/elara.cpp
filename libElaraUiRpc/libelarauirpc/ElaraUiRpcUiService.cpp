@@ -1374,6 +1374,25 @@ bool ElaraUiRpcUiService::getWindowState(
     return true;
 }
 
+bool ElaraUiRpcUiService::setWindowSize(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    (void)error_code;
+    (void)error_message;
+
+    int w = (int)jsonNumber(params, "width", 0.0);
+    int h = (int)jsonNumber(params, "height", 0.0);
+    if(w > 0 && h > 0 && root && root->getGuiBackend()) {
+        root->getGuiBackend()->setWindowSize(w, h);
+    }
+
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::setWindowMaximized(
     const Json& params,
     String& result_json,
@@ -1637,6 +1656,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("getWindowState")) {
         return getWindowState(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setWindowSize")) {
+        return setWindowSize(params, result_json, error_code, error_message);
     }
 
     if(method == String("setWindowMaximized")) {

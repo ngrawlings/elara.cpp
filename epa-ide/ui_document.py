@@ -1089,14 +1089,24 @@ def build_document():
     ui.create_text_input("bottom.terminal_input", "")
     ui.set_property_string("bottom.terminal_input", "placeholder", "command")
     ui.set_property_number("bottom.terminal_input", "font_size", 12)
+
+    # Right side panel: instances list + "Open in Terminal" button
+    ui.create_grid("bottom.terminal_side")
+    ui.add_grid_column_fill("bottom.terminal_side")
+    ui.add_grid_row_fill("bottom.terminal_side")
+    ui.add_grid_row_exact("bottom.terminal_side", 28)
     ui.create_list_view("bottom.terminal_instances")
     ui.set_property_number("bottom.terminal_instances", "font_size", 11)
     ui.set_section_json("bottom.terminal_instances", "items", [
         {"id": "terminal.1", "label": "Terminal 1"},
     ])
+    ui.create_button("bottom.terminal_open", "↗ Full Terminal", "app.open_full_terminal")
+    ui.place_grid_child("bottom.terminal_side", "bottom.terminal_instances", 0, 0)
+    ui.place_grid_child("bottom.terminal_side", "bottom.terminal_open", 0, 1)
+
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_output", 0, 0)
     ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_input", 0, 1)
-    ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_instances", 1, 0, 1, 2)
+    ui.place_grid_child("bottom.terminal_panel", "bottom.terminal_side", 1, 0, 1, 2)
 
     # Console panel (AI RPC text interface)
     ui.create_grid("bottom.console_panel")
