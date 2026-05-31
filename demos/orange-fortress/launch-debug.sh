@@ -63,8 +63,10 @@ echo "[orange-fortress] building EPA bundle -> ${BUILD_DIR}/epa.bin"
   "${EPA_DIR}/player_avatar.e" \
   "${EPA_DIR}/player_machinegun.e" \
   "${EPA_DIR}/scene.e" \
+  "${EPA_DIR}/scene_compiler.e" \
   "${EPA_DIR}/test.e" \
   "${EPA_DIR}/walls.e" \
+  "${EPA_DIR}/render_scene.e" \
   "${EPA_DIR}/render_ui.e" \
   "${EPA_DIR}/world_runtime.e"
 

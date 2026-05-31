@@ -59,6 +59,7 @@ private:
     int scene_lane;
     String latest_surface_commands;
     bool latest_surface_valid;
+    bool scene_received;
     unsigned long surface_revision;
     unsigned long pushed_surface_revision;
     String trace_path;

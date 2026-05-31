@@ -55,6 +55,9 @@ namespace elara {
     }
     
     JsonValue::TYPE Json::getType() const {
+        if (!value.getPtr()) {
+            return JsonValue::INVALID;
+        }
         return value.getPtr()->getType();
     }
     
@@ -70,8 +73,10 @@ namespace elara {
             
             if (len) {
                 for (int i=0; i<len; i++) {
+                    if (!val.getPtr() || val.getPtr()->getType() != JsonValue::OBJECT) {
+                        return Ref<JsonValue>(0);
+                    }
                     JsonObject *jo = (JsonObject*)val.getPtr();
-                    if (!jo) return Ref<JsonValue>(0);
                     val = jo->getValue(names[i]);
                 }
             }

@@ -8,6 +8,7 @@
     "epa/render_scene.e",
     "epa/render_ui.e",
     "epa/scene.e",
+    "epa/scene_compiler.e",
     "epa/test.e",
     "epa/walls.e",
     "epa/world_runtime.e"

@@ -71,6 +71,7 @@ public:
     bool ingressPushToKernel(size_t index, uint32_t wid, const void *data, uint32_t len);
     bool ingressPushTaggedToKernel(size_t index, uint32_t wid, uint32_t tag, const void *data, uint32_t len);
     bool run(uint32_t max_ticks, bool debug);
+    bool runKernelAt(size_t index, uint32_t max_ticks, bool debug);
     void requestInterrupt();
     const uint8_t *resultData(size_t *out_len) const;
     EpaKernel *rawKernel() const;

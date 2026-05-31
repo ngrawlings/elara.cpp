@@ -68,6 +68,10 @@ namespace json {
 
     bool JsonRPCCodec::parseRequest(const String &json, String &id, String &method, String &params_json, String &error_message) {
         Json root(json);
+        if (root.getType() != JsonValue::OBJECT) {
+            error_message = "Request payload is not a JSON object";
+            return false;
+        }
         Ref<JsonValue> id_value = root.getJsonValue("id");
         Ref<JsonValue> method_value = root.getJsonValue("method");
         Ref<JsonValue> params_value = root.getJsonValue("params");
@@ -93,6 +97,10 @@ namespace json {
 
     bool JsonRPCCodec::parseNotification(const String &json, String &method, String &params_json, String &error_message) {
         Json root(json);
+        if (root.getType() != JsonValue::OBJECT) {
+            error_message = "Notification payload is not a JSON object";
+            return false;
+        }
         Ref<JsonValue> id_value = root.getJsonValue("id");
         Ref<JsonValue> method_value = root.getJsonValue("method");
         Ref<JsonValue> params_value = root.getJsonValue("params");
@@ -117,6 +125,10 @@ namespace json {
 
     bool JsonRPCCodec::parseResponse(const String &json, String &id, bool &ok, String &result_json, String &error_code, String &error_message, String &parse_error_message) {
         Json root(json);
+        if (root.getType() != JsonValue::OBJECT) {
+            parse_error_message = "Response payload is not a JSON object";
+            return false;
+        }
         Ref<JsonValue> id_value = root.getJsonValue("id");
         Ref<JsonValue> ok_value = root.getJsonValue("ok");
 
@@ -174,6 +186,8 @@ namespace json {
 
     bool JsonRPCCodec::getStringField(const String &json, const String &field, String &value) {
         Json root(json);
+        if (root.getType() != JsonValue::OBJECT)
+            return false;
         Ref<JsonValue> field_value = root.getJsonValue(field);
         if (!field_value.getPtr() || field_value->getType() != JsonValue::STRING)
             return false;

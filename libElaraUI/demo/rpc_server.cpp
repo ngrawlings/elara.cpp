@@ -1792,6 +1792,7 @@ int main(int argc, char** argv) {
     const char* event_log_path = 0;
     bool persistent_mode = false;
     bool use_brpc = true;  // default: binary RPC
+    WindowConfig window_config;
 
     /* Parse and strip our custom args so GTK never sees them. */
     {
@@ -1805,6 +1806,8 @@ int main(int argc, char** argv) {
                 persistent_mode = true;
             } else if(strcmp(argv[i], "--json-rpc") == 0) {
                 use_brpc = false;
+            } else if(strcmp(argv[i], "--backend-id") == 0 && i + 1 < argc) {
+                window_config.backend_id = String(argv[++i]);
             } else if(i == 1 && argv[i][0] != '-') {
                 rpc_port = (unsigned short)atoi(argv[i]);
             } else {
@@ -1814,8 +1817,6 @@ int main(int argc, char** argv) {
         argc = out;
         argv[argc] = 0;
     }
-
-    WindowConfig window_config;
 
     Ref<ElaraDrawSurface> root_surface(new ElaraRootWidget("main"));
     ElaraRootWidget* root = (ElaraRootWidget*)root_surface.getPtr();

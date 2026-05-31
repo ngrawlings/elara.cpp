@@ -300,6 +300,7 @@ OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port)
       scene_depth(0),
       scene_lane(0),
       latest_surface_valid(false),
+      scene_received(false),
       surface_revision(0),
       pushed_surface_revision(0),
       trace_path(String("..") + String("/") + String("artifacts") + String("/") + String("live-epa-trace.jsonl")),
@@ -490,6 +491,7 @@ void OrangeFortressApp::refreshEpaState() {
         Mutex::Lock lock(render_lock);
         latest_surface_valid = false;
         latest_surface_commands = String();
+        scene_received = false;
         surface_revision = 0;
         pushed_surface_revision = 0;
     }
@@ -843,32 +845,40 @@ void OrangeFortressApp::drainKeyEvents() {
 }
 
 void OrangeFortressApp::installSurfaceCallback() {
-    int idx = epa.findKernelIndex(String("scene"));
-    if (idx >= 0) {
-        EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
-        if (kernel) {
-            g_orange_fortress_app = this;
-            epa_kernel_set_signal_callback(kernel, on_surface_host_signal);
-            printf("Installed surface callback on kernel scene idx=%d\n", idx);
-            traceLine(String("{\"event\":\"surface_callback_installed\",\"kernel\":\"scene\",\"index\":") + String(idx) + String("}"));
-        } else {
-            printf("Surface callback install failed: scene kernel pointer null\n");
-            traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"null_kernel\"}"));
+    const char *kernel_names[] = { "scene", "scene_compiler" };
+    bool installed = false;
+    g_orange_fortress_app = this;
+    for (size_t i = 0; i < sizeof(kernel_names) / sizeof(kernel_names[0]); i++) {
+        int idx = epa.findKernelIndex(String(kernel_names[i]));
+        if (idx >= 0) {
+            EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
+            if (kernel) {
+                epa_kernel_set_signal_callback(kernel, on_surface_host_signal);
+                installed = true;
+                printf("Installed surface callback on kernel %s idx=%d\n", kernel_names[i], idx);
+                traceLine(String("{\"event\":\"surface_callback_installed\",\"kernel\":")
+                    + JsonString(String(kernel_names[i]), true).toString()
+                    + String(",\"index\":") + String(idx) + String("}"));
+            }
         }
-    } else {
-        printf("Surface callback install failed: scene kernel not found\n");
-        traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"kernel_not_found\"}"));
+    }
+    if (!installed) {
+        printf("Surface callback install failed: scene/scene_compiler kernels not found\n");
+        traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"kernels_not_found\"}"));
     }
 }
 
 void OrangeFortressApp::shutdown() {
     g_orange_fortress_app = NULL;
 
-    int idx = epa.findKernelIndex(String("scene"));
-    if (idx >= 0) {
-        EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
-        if (kernel) {
-            epa_kernel_set_signal_callback(kernel, NULL);
+    const char *kernel_names[] = { "scene", "scene_compiler" };
+    for (size_t i = 0; i < sizeof(kernel_names) / sizeof(kernel_names[0]); i++) {
+        int idx = epa.findKernelIndex(String(kernel_names[i]));
+        if (idx >= 0) {
+            EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
+            if (kernel) {
+                epa_kernel_set_signal_callback(kernel, NULL);
+            }
         }
     }
 
@@ -891,7 +901,7 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     int rect_count = 0;
     printf("surface mailbox callback wid=%u len=%d\n", wid, msg_len);
     traceLine(String("{\"event\":\"mailbox_callback\",\"wid\":") + String((int)wid) + String(",\"len\":") + String(msg_len) + String("}"));
-    if (wid != 1u || !msg || msg_len < 28) {
+    if ((wid != 1u && wid != 2u) || !msg || msg_len < 28) {
         printf("surface mailbox ignored: invalid wid/msg/len\n");
         traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":\"invalid_wid_or_len\"}"));
         return;
@@ -957,6 +967,7 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
             latest_surface_commands = json;
             latest_surface_valid = emitted;
             if (emitted) {
+                scene_received = true;
                 surface_revision++;
             }
         }
@@ -1250,157 +1261,46 @@ int OrangeFortressApp::run() {
         + String(",\"port\":") + String(port) + String("}"));
 
     refreshEpaState();
-    stimulateEpa();
-    buildDocument(ui);
-    if (!loadDocument(ui.toJson())) {
+    if (!epa_started) {
+        String error_text(epa.lastError());
+        printf("EPA did not start: %s\n", error_text.operator char *());
         shutdown();
         return 1;
     }
-    armUiInputFocus();
-    armMouseCapture();
-
+    if (!sendScenePose()) {
+        String error_text(epa.lastError());
+        printf("Initial scene ingress failed: %s\n", error_text.operator char *());
+        shutdown();
+        return 1;
+    }
+    traceLine(String("{\"event\":\"initial_scene_ingress\"}"));
     int loop_count = 0;
-    while (true) {
-        fd_set readfds;
+    while (loop_count < 150) {
         struct timeval tv;
-        FD_ZERO(&readfds);
-        FD_SET(STDIN_FILENO, &readfds);
         tv.tv_sec = 0;
         tv.tv_usec = 33000;
+        select(0, NULL, NULL, NULL, &tv);
 
-        int rc = select(STDIN_FILENO + 1, &readfds, NULL, NULL, &tv);
-        if (rc > 0 && FD_ISSET(STDIN_FILENO, &readfds)) {
-            char line[256];
-            if (!fgets(line, sizeof(line), stdin)) {
-                break;
-            }
-            String command(line);
-            command = command.trim();
-            if (command == String("quit") || command == String("exit")) {
-                break;
-            }
-            if (command == String("reload")) {
-                refreshEpaState();
-                stimulateEpa();
-                if(!pushUiState()) {
-                    break;
-                }
-                traceLine(String("{\"event\":\"manual_reload\"}"));
-                continue;
-            }
-            if (command == String("snapshot")) {
-                printSnapshot();
-                traceLine(String("{\"event\":\"manual_snapshot\"}"));
-                continue;
-            }
-            if (command == String("step-forward")) {
-                scene_cam_z += 96;
-                scene_depth = 1;
-                scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"forward\"}"));
-                continue;
-            }
-            if (command == String("step-back")) {
-                scene_cam_z -= 96;
-                scene_depth = 0;
-                scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"back\"}"));
-                continue;
-            }
-            if (command == String("step-right")) {
-                scene_cam_x += 24;
-                scene_lane = clampInt(scene_lane + 24, -320, 320);
-                scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"right\"}"));
-                continue;
-            }
-            if (command == String("step-left")) {
-                scene_cam_x -= 24;
-                scene_lane = clampInt(scene_lane - 24, -320, 320);
-                scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"left\"}"));
-                continue;
-            }
-            if (command == String("yaw-left")) {
-                scene_cam_yaw = wrapDegrees360(scene_cam_yaw - 12);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-left\"}"));
-                continue;
-            }
-            if (command == String("yaw-right")) {
-                scene_cam_yaw = wrapDegrees360(scene_cam_yaw + 12);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-right\"}"));
-                continue;
-            }
-            if (command == String("pitch-up")) {
-                scene_cam_pitch = clampInt(scene_cam_pitch + 4, -89, 89);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-up\"}"));
-                continue;
-            }
-            if (command == String("pitch-down")) {
-                scene_cam_pitch = clampInt(scene_cam_pitch - 4, -89, 89);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-down\"}"));
-                continue;
-            }
-            if (command == String("pose-reset")) {
-                scene_cam_x = 0;
-                scene_cam_y = 0;
-                scene_cam_z = 0;
-                scene_cam_yaw = 0;
-                scene_cam_pitch = 0;
-                scene_depth = 0;
-                scene_lane = 0;
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pose-reset\"}"));
-                continue;
-            }
-            if (command.indexOf(String("yaw-set ")) == 0) {
-                String value = command.substr(8).trim();
-                scene_cam_yaw = wrapDegrees360((int)strtol(value.operator char *(), NULL, 10));
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"yaw-set\",\"value\":") + String(scene_cam_yaw) + String("}"));
-                continue;
-            }
-            if (command.indexOf(String("pitch-set ")) == 0) {
-                String value = command.substr(10).trim();
-                scene_cam_pitch = clampInt((int)strtol(value.operator char *(), NULL, 10), -89, 89);
-                sendScenePose();
-                pushUiState();
-                traceLine(String("{\"event\":\"manual_step\",\"dir\":\"pitch-set\",\"value\":") + String(scene_cam_pitch) + String("}"));
-                continue;
-            }
-            printf("Unhandled command: %s\n", command.operator char *());
-        }
-
-        drainKeyEvents();
         if(!pushUiState()) {
             break;
         }
-        loop_count++;
-        if ((loop_count % 15) == 0) {
-            traceKernelStateSnapshot("loop");
+        {
+            Mutex::Lock lock(render_lock);
+            if (scene_received) {
+                printf("Scene confirm received from EPA scene worker.\n");
+                traceLine(String("{\"event\":\"scene_confirm_received\"}"));
+                shutdown();
+                return 0;
+            }
         }
+        loop_count++;
     }
 
+    printf("Timed out waiting for EPA scene compiler confirmation.\n");
+    traceKernelStateSnapshot("scene_confirm_timeout");
+    traceLine(String("{\"event\":\"scene_confirm_timeout\"}"));
     shutdown();
-    return 0;
+    return 1;
 }
 
 }

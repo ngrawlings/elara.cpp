@@ -190,6 +190,22 @@ bool OrangeFortressEpaVmHost::run(uint32_t max_ticks, bool debug) {
     return true;
 }
 
+bool OrangeFortressEpaVmHost::runKernelAt(size_t index, uint32_t max_ticks, bool debug) {
+    char err[EPA_MAX_ERR];
+    EpaKernel *target = rawKernelAt(index);
+    if (!target) {
+        setError("epa_kernel_run failed", "kernel index out of range");
+        return false;
+    }
+    err[0] = 0;
+    if (!epa_kernel_run(target, max_ticks, debug ? 1 : 0, err)) {
+        setError("epa_kernel_run failed", err);
+        return false;
+    }
+    error_text = String();
+    return true;
+}
+
 void OrangeFortressEpaVmHost::requestInterrupt() {
     if (kernel) {
         epa_kernel_request_interrupt(kernel);
