@@ -1,4 +1,5 @@
 {
+    "Clean": "./tools/clean_all_builds.sh",
     "Build & Install": "./build.sh && sudo ./install.sh",
     "Install": "sudo ./install.sh",
     "UI Server": "/usr/local/bin/elaraui-server",

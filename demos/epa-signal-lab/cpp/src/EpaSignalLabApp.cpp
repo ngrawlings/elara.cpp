@@ -3,12 +3,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <string>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <unistd.h>
 
+#include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonString.h>
 #include <libelarasockets/rpc/brpc/BRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
@@ -163,6 +165,7 @@ bool EpaSignalLabApp::connectHostDebugBridge() {
     freeaddrinfo(result);
     if (host_debug_fd >= 0) {
         printf("[C++ Host] IDE bridge connected\n");
+        startHostDebugReader();
     } else {
         printf("[C++ Host] IDE bridge connect failed\n");
     }
@@ -188,6 +191,10 @@ void EpaSignalLabApp::sendHostDebugEvent(const String &kind, const String &paylo
         message += String(",") + payload_json;
     }
     message += String("}\n");
+    std::lock_guard<std::mutex> lock(host_debug_io_mutex);
+    if (host_debug_fd < 0) {
+        return;
+    }
     if (write(host_debug_fd, message.operator char *(), (size_t)message.length()) < 0) {
         closeHostDebugBridge();
     }
@@ -199,6 +206,59 @@ void EpaSignalLabApp::sendHostDebugLog(const String &message) {
 
 void EpaSignalLabApp::sendHostDebugState(const String &status) {
     sendHostDebugEvent(String("state"), String("\"status\":") + json_quote_simple(status));
+}
+
+void EpaSignalLabApp::startHostDebugReader() {
+    std::thread(&EpaSignalLabApp::hostDebugReadLoop, this).detach();
+}
+
+void EpaSignalLabApp::hostDebugReadLoop() {
+    std::string pending;
+    char buffer[512];
+
+    while (true) {
+        int fd_snapshot;
+        {
+            std::lock_guard<std::mutex> lock(host_debug_io_mutex);
+            fd_snapshot = host_debug_fd;
+        }
+        if (fd_snapshot < 0) {
+            break;
+        }
+
+        ssize_t n = read(fd_snapshot, buffer, sizeof(buffer));
+        if (n <= 0) {
+            closeHostDebugBridge();
+            break;
+        }
+        pending.append(buffer, (size_t)n);
+
+        while (true) {
+            std::string::size_type nl = pending.find('\n');
+            if (nl == std::string::npos) {
+                break;
+            }
+
+            std::string line = pending.substr(0, nl);
+            pending.erase(0, nl + 1u);
+            if (line.empty()) {
+                continue;
+            }
+
+            try {
+                Json payload(String(line.c_str()));
+                String kind = payload.getStringValue("kind");
+                if (kind == String("ping")) {
+                    String req_id = payload.getStringValue("id");
+                    sendHostDebugEvent(
+                        String("pong"),
+                        String("\"id\":") + json_quote_simple(req_id)
+                    );
+                }
+            } catch (...) {
+            }
+        }
+    }
 }
 
 void EpaSignalLabApp::buildDocument(ElaraUiDocumentBuilder &ui) {

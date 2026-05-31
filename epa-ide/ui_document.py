@@ -1118,9 +1118,9 @@ def build_document():
         ui.add_grid_column_exact(_sid, 6)    # col 2: gap
         ui.add_grid_column_fill(_sid)        # col 3: label text
         ui.add_grid_column_exact(_sid, 4)    # col 4: inner gap
-        ui.add_grid_column_exact(_sid, 44)   # col 5: kill button
+        ui.add_grid_column_exact(_sid, 56)   # col 5: ping dot or kill button
         ui.add_grid_column_exact(_sid, 8)    # col 6: right margin
-        ui.add_grid_row_exact(_sid, 26)      # row 0: section title + kill button
+        ui.add_grid_row_exact(_sid, 26)      # row 0: section title
         ui.add_grid_row_exact(_sid, 20)      # row 1: port
         ui.add_grid_row_exact(_sid, 22)      # row 2: primary status
         ui.add_grid_row_exact(_sid, 22)      # row 3: secondary status
@@ -1143,17 +1143,29 @@ def build_document():
         ui.create_label(f"bottom.status.{_sname}.label2", "—", 10)
         ui.set_property_bool(f"bottom.status.{_sname}.label2", "enabled", False)
 
-        ui.create_button(f"bottom.status.{_sname}.kill", "Kill",
-                         f"bottom.status.{_sname}.kill")
-        ui.set_property_number(f"bottom.status.{_sname}.kill", "font_size", 10)
+        if _sname == "host":
+            _ping1_id = f"bottom.status.{_sname}.ping"
+            _ping2_id = f"bottom.status.{_sname}.ping2"
+            ui.create_widget(_ping1_id, "demo.widgets.status_dot")
+            ui.set_property_string(_ping1_id, "foreground_color", "#666666")
+            ui.create_widget(_ping2_id, "demo.widgets.status_dot")
+            ui.set_property_string(_ping2_id, "foreground_color", "#666666")
+        else:
+            ui.create_button(f"bottom.status.{_sname}.kill", "Kill",
+                             f"bottom.status.{_sname}.kill")
+            ui.set_property_number(f"bottom.status.{_sname}.kill", "font_size", 10)
 
         ui.place_grid_child(_sid, f"bottom.status.{_sname}.title",  0, 0, 5, 1)
-        ui.place_grid_child(_sid, f"bottom.status.{_sname}.kill",   5, 0)
+        if _sname != "host":
+            ui.place_grid_child(_sid, f"bottom.status.{_sname}.kill",   5, 0)
         ui.place_grid_child(_sid, f"bottom.status.{_sname}.port",   1, 1, 5, 1)
         ui.place_grid_child(_sid, _dot_id,                           1, 2)
         ui.place_grid_child(_sid, f"bottom.status.{_sname}.label",  3, 2)
         ui.place_grid_child(_sid, _dot2_id,                          1, 3)
         ui.place_grid_child(_sid, f"bottom.status.{_sname}.label2", 3, 3)
+        if _sname == "host":
+            ui.place_grid_child(_sid, f"bottom.status.{_sname}.ping",  5, 2)
+            ui.place_grid_child(_sid, f"bottom.status.{_sname}.ping2", 5, 3)
         ui.place_grid_child("bottom.status_panel", _sid, _col_idx, 0)
 
     ui.set_property_bool("bottom.host_io_output", "visible", False)

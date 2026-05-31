@@ -61,6 +61,7 @@ private:
     uint32_t next_seq;
     EpaSignalLabDebugSessionConfig debug_session;
     int host_debug_fd;
+    std::mutex host_debug_io_mutex;
     int ext_logic_server_fd;
     std::thread ext_logic_thread;
 
@@ -81,6 +82,8 @@ private:
     void sendHostDebugState(const String &status);
     bool connectHostDebugBridge();
     void closeHostDebugBridge();
+    void startHostDebugReader();
+    void hostDebugReadLoop();
     void startExtLogicServer();
     void extLogicServe();
 };

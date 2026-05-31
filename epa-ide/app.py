@@ -334,10 +334,15 @@ def main():
         "thread": None,
         "port": None,
         "client_connected": False,
+        "client_socket": None,
+        "client_send_lock": threading.Lock(),
         "client_pid": None,
         "external_logic_connected": False,
         "cpp_ext_logic_port": 0,
         "ext_logic_proxied": False,
+        "last_host_pong": 0.0,
+        "last_ext_pong": 0.0,
+        "ping_thread_started": False,
     }
     external_logic_bridge = {
         "server": None,
@@ -891,7 +896,51 @@ def main():
         host_debug_bridge["thread"] = None
         host_debug_bridge["port"] = None
         host_debug_bridge["client_connected"] = False
+        host_debug_bridge["client_socket"] = None
         host_debug_bridge["client_pid"] = None
+        host_debug_bridge["last_host_pong"] = 0.0
+        host_debug_bridge["last_ext_pong"] = 0.0
+
+    def _host_debug_bridge_send_json(payload: dict) -> bool:
+        sock = host_debug_bridge.get("client_socket")
+        if not sock:
+            return False
+        try:
+            line = (json.dumps(payload) + "\n").encode("utf-8")
+            with host_debug_bridge["client_send_lock"]:
+                sock.sendall(line)
+            return True
+        except Exception:
+            return False
+
+    def _host_debug_bridge_ping_once() -> bool:
+        if not host_debug_bridge.get("client_connected"):
+            return False
+        payload = {
+            "kind": "ping",
+            "session_id": str(app_state.get("debug_session_id", "") or ""),
+            "id": f"host-ping-{int(time.time() * 1000)}",
+        }
+        return _host_debug_bridge_send_json(payload)
+
+    def _status_ping_loop():
+        while True:
+            try:
+                _host_debug_bridge_ping_once()
+                if host_debug_bridge.get("external_logic_connected"):
+                    host_debug_bridge["last_ext_pong"] = time.time()
+                ui_c = client_ref.get("client")
+                if ui_c:
+                    _refresh_status_panel(ui_c)
+            except Exception:
+                pass
+            time.sleep(1.5)
+
+    def _ensure_status_ping_loop():
+        if host_debug_bridge.get("ping_thread_started"):
+            return
+        host_debug_bridge["ping_thread_started"] = True
+        threading.Thread(target=_status_ping_loop, daemon=True).start()
 
     def _host_debug_bridge_handle_message(raw_line: str):
         if not host_debug_bridge.get("client_connected"):
@@ -913,9 +962,15 @@ def main():
                 host_debug_bridge["client_pid"] = int(payload.get("pid"))
             except Exception:
                 host_debug_bridge["client_pid"] = None
+            host_debug_bridge["last_host_pong"] = time.time()
             message = payload.get("message") or f"host registered pid={payload.get('pid', '?')}"
             if ui_c:
                 _append_host_io_output(ui_c, f"[host-debug] {message}\n")
+                _refresh_status_panel(ui_c)
+            return
+        if kind == "pong":
+            host_debug_bridge["last_host_pong"] = time.time()
+            if ui_c:
                 _refresh_status_panel(ui_c)
             return
         if kind == "log":
@@ -968,16 +1023,21 @@ def main():
             except Exception:
                 port_val = 0
             host_debug_bridge["cpp_ext_logic_port"] = port_val
+            if port_val > 0:
+                host_debug_bridge["last_ext_pong"] = 0.0
             if ui_c:
                 _append_host_io_output(ui_c, f"[ext-logic] C++ host ext_logic server on port {port_val}\n")
             return
 
     def _host_debug_bridge_mark_disconnected():
         host_debug_bridge["client_connected"] = False
+        host_debug_bridge["client_socket"] = None
         host_debug_bridge["client_pid"] = None
         host_debug_bridge["external_logic_connected"] = False
         host_debug_bridge["cpp_ext_logic_port"] = 0
         host_debug_bridge["ext_logic_proxied"] = False
+        host_debug_bridge["last_host_pong"] = 0.0
+        host_debug_bridge["last_ext_pong"] = 0.0
         _refresh_status_panel(client_ref.get("client"))
 
     def _host_debug_launch_gui_sudo_kill(pid: int) -> bool:
@@ -1026,6 +1086,7 @@ def main():
 
         class _HostDebugBridgeHandler(socketserver.StreamRequestHandler):
             def handle(self):
+                host_debug_bridge["client_socket"] = self.request
                 try:
                     while True:
                         line = self.rfile.readline()
@@ -4328,6 +4389,19 @@ def main():
         except Exception:
             pass
 
+    def _update_host_status_ping(client, ping1_state: str, ping2_state: str):
+        if not client:
+            return
+        color1 = _IND_COLORS.get(ping1_state, _IND_COLORS[_IND_OFF])
+        color2 = _IND_COLORS.get(ping2_state, _IND_COLORS[_IND_OFF])
+        try:
+            client.fire("ui.setForegroundColor",
+                        {"target": "bottom.status.host.ping", "color": color1})
+            client.fire("ui.setForegroundColor",
+                        {"target": "bottom.status.host.ping2", "color": color2})
+        except Exception:
+            pass
+
     def _refresh_status_panel(client):
         """Recompute and display current connection status for all three columns."""
         if not client:
@@ -4369,18 +4443,21 @@ def main():
         bridge_connected = host_debug_bridge.get("client_connected", False)
         ext_logic_connected = host_debug_bridge.get("external_logic_connected", False)
         ext_logic_proxied   = host_debug_bridge.get("ext_logic_proxied", False)
+        now_ts = time.time()
+        host_ping_fresh = (now_ts - float(host_debug_bridge.get("last_host_pong", 0.0) or 0.0)) < 3.5
+        ext_ping_fresh = (now_ts - float(host_debug_bridge.get("last_ext_pong", 0.0) or 0.0)) < 3.5
         if not bridge_server:
             host_dot1, host_lbl1 = _IND_RED,    "Offline"
             host_dot2, host_lbl2 = _IND_OFF,    "—"
             host_port_text = "Port: —"
         else:
-            # dot1: EPA-DBG interconnect — orange when IDE alone, green when C++ host also bridged
+            # dot1: EPA host bridge availability
             if ide_connected and bridge_connected:
-                host_dot1, host_lbl1 = _IND_GREEN,  "EPA-DBG"
+                host_dot1, host_lbl1 = _IND_GREEN,  "EPA host"
             elif ide_connected or bridge_connected:
-                host_dot1, host_lbl1 = _IND_ORANGE, "EPA-DBG"
+                host_dot1, host_lbl1 = _IND_ORANGE, "EPA host"
             else:
-                host_dot1, host_lbl1 = _IND_OFF,    "EPA-DBG"
+                host_dot1, host_lbl1 = _IND_OFF,    "EPA host"
             # dot2: External logic — grey → orange (Python only) → green (proxied to C++)
             if ext_logic_proxied:
                 host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
@@ -4389,6 +4466,8 @@ def main():
             else:
                 host_dot2, host_lbl2 = _IND_OFF,    "External logic"
             host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
+        host_ping1 = _IND_GREEN if host_ping_fresh and bridge_connected else (_IND_RED if bridge_connected else _IND_OFF)
+        host_ping2 = _IND_GREEN if (ext_logic_connected and ext_ping_fresh) else (_IND_RED if ext_logic_connected else _IND_OFF)
 
         # ── C++ / GDB ────────────────────────────────────────────────────────
         gdb_proc = cpp_gdb_state.get("proc")
@@ -4431,6 +4510,7 @@ def main():
 
         _update_status_panel_dot(client, "epa",    epa_dot1,  epa_lbl1,  epa_dot2,  epa_lbl2)
         _update_status_panel_dot(client, "host",   host_dot1, host_lbl1, host_dot2, host_lbl2)
+        _update_host_status_ping(client, host_ping1, host_ping2)
         _update_status_panel_dot(client, "cpp",    cpp_dot1,  cpp_lbl1,  cpp_dot2,  cpp_lbl2)
         _update_status_panel_dot(client, "python", py_dot1,   py_lbl1,   py_dot2,   py_lbl2)
 
@@ -4751,16 +4831,25 @@ def main():
             if action == "textChanged" and target == ids["source"]:
                 app_state["active_editor_tab"] = tab_id
                 prev_text = state.get("source_text", "")
-                prev_caret = state.get("caret_index", 0)
                 new_text = payload.get("text", "")
-                new_caret = payload.get("caret", 0)
                 if prev_text != new_text:
-                    state.setdefault("undo_stack", []).append({"text": prev_text, "caret": prev_caret})
+                    # Find edit position via suffix match between old and new text.
+                    # This correctly places cursor at the edit point for any edit location.
+                    new_caret = payload.get("caret", 0)
+                    if new_caret > 0:
+                        delta = len(new_text) - len(prev_text)
+                        undo_caret = max(0, min(new_caret - delta, len(prev_text)))
+                    else:
+                        j = 0
+                        min_len = min(len(prev_text), len(new_text))
+                        while j < min_len and prev_text[-(j + 1)] == new_text[-(j + 1)]:
+                            j += 1
+                        undo_caret = max(0, len(prev_text) - j)
+                    state.setdefault("undo_stack", []).append({"text": prev_text, "caret": undo_caret})
                     if len(state["undo_stack"]) > 100:
                         state["undo_stack"] = state["undo_stack"][-100:]
                     state["redo_stack"] = []
                 state["source_text"] = new_text
-                state["caret_index"] = new_caret
                 state["compile_seq"] = int(state.get("compile_seq", 0)) + 1
                 if client is not None:
                     c = client
@@ -5395,11 +5484,6 @@ def main():
                     _refresh_status_panel(c)
                 _deferred(_kill_epa)
                 return {"received": True}
-            if item_action == "bottom.status.host.kill":
-                def _kill_host():
-                    _host_debug_kill_connected(c)
-                _deferred(_kill_host)
-                return {"received": True}
             if item_action == "bottom.status.cpp.kill":
                 def _kill_cpp():
                     _cpp_gdb_stop_session()
@@ -5450,19 +5534,29 @@ def main():
                     undo_stack = state.setdefault("undo_stack", [])
                     redo_stack = state.setdefault("redo_stack", [])
                     current_text = state.get("source_text", "")
-                    current_caret = state.get("caret_index", 0)
                     if ua == "edit.undo":
                         if not undo_stack:
                             return
                         entry = undo_stack.pop()
-                        redo_stack.append({"text": current_text, "caret": current_caret})
+                        # For redo, compute caret in current_text using same suffix heuristic
+                        j = 0
+                        min_len = min(len(current_text), len(entry["text"]))
+                        while j < min_len and current_text[-(j + 1)] == entry["text"][-(j + 1)]:
+                            j += 1
+                        redo_caret = max(0, len(current_text) - j)
+                        redo_stack.append({"text": current_text, "caret": redo_caret})
                         restored = entry["text"]
                         restored_caret = entry.get("caret", 0)
                     else:
                         if not redo_stack:
                             return
                         entry = redo_stack.pop()
-                        undo_stack.append({"text": current_text, "caret": current_caret})
+                        j = 0
+                        min_len = min(len(current_text), len(entry["text"]))
+                        while j < min_len and current_text[-(j + 1)] == entry["text"][-(j + 1)]:
+                            j += 1
+                        undo_caret = max(0, len(current_text) - j)
+                        undo_stack.append({"text": current_text, "caret": undo_caret})
                         restored = entry["text"]
                         restored_caret = entry.get("caret", 0)
                     state["source_text"] = restored
@@ -6571,6 +6665,7 @@ def main():
           _codec = "json" if args.json_rpc else "brpc"
           with ElaraUiRpcClient(args.host, args.port, codec=_codec) as client:
             client_ref["client"] = client
+            _ensure_status_ping_loop()
             client.set_find_widget_artifact_root(str(artifact_root))
             if args.event_log:
                 client.set_event_log(args.event_log)
