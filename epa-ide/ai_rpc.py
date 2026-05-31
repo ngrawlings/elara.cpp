@@ -3,6 +3,7 @@ ai_rpc.py — AI-dedicated logic-side RPC server for the EPA-IDE.
 
 Listens on a separate TCP port (default 18779). Accepts one client at a time.
 Protocol: newline-delimited JSON over TCP.
+Connections are long-lived and may carry many requests/responses.
 
   Request:  {"method": "method_name", "params": {...}}
   Response: {"ok": true,  "result": <value>}
@@ -25,6 +26,29 @@ import time
 from pathlib import Path
 
 
+_AI_RPC_PROTOCOL_VERSION = 2
+_AI_RPC_KEEPALIVE_SECONDS = 15
+
+
+def _enable_socket_keepalive(sock: socket.socket) -> None:
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+    except OSError:
+        return
+    for opt_name, value in (
+        ("TCP_KEEPIDLE", 30),
+        ("TCP_KEEPINTVL", 10),
+        ("TCP_KEEPCNT", 3),
+    ):
+        opt = getattr(socket, opt_name, None)
+        if opt is None:
+            continue
+        try:
+            sock.setsockopt(socket.IPPROTO_TCP, opt, value)
+        except OSError:
+            pass
+
+
 # ---------------------------------------------------------------------------
 # Help text — the canonical reference for any AI connecting to this server.
 # Updated here whenever the API changes.
@@ -42,16 +66,28 @@ HELP = {
         "encoding": "UTF-8",
         "framing": "newline-delimited JSON (\\n after each object)",
         "concurrency": "one active client at a time; new connections are queued",
+        "session_model": "keep one TCP connection open and send multiple requests over it",
+        "recommended_keepalive_seconds": _AI_RPC_KEEPALIVE_SECONDS,
     },
     "methods": {
         # ---- Query --------------------------------------------------------
+        "hello": {
+            "desc": "Return protocol/session capabilities for a long-lived AI RPC connection.",
+            "params": {},
+            "result": {
+                "protocol_version": _AI_RPC_PROTOCOL_VERSION,
+                "keepalive_seconds": _AI_RPC_KEEPALIVE_SECONDS,
+                "multi_request_connection": True,
+                "server_time": "float — unix timestamp",
+            },
+        },
         "help": {
             "desc": "Return this help document.",
             "params": {},
             "result": "This object.",
         },
         "ping": {
-            "desc": "Liveness check.",
+            "desc": "Liveness check for keepalive sessions.",
             "params": {},
             "result": {"pong": True},
         },
@@ -449,6 +485,26 @@ HELP = {
             },
             "result": {"pid": "int", "cmd": "list[str]", "use_gdb": "bool"},
         },
+        "reload_ui_document": {
+            "desc": (
+                "Reload the current IDE UI document into the connected UI head. "
+                "Useful after restart_ui when the IDE is running in --repl mode."
+            ),
+            "params": {},
+            "result": {"loaded": True},
+        },
+        "trigger_action": {
+            "desc": (
+                "Invoke an IDE action directly without synthesizing a UI click. "
+                "Use this for AI-driven debug testing when ui.clickWidget would be reentrant."
+            ),
+            "params": {
+                "action": "str — e.g. debug.cpp.pause",
+                "target": "str optional — widget id, defaults to action",
+                "payload": "dict optional — extra event payload",
+            },
+            "result": {"received": True},
+        },
         # ---- Event log ------------------------------------------------------
         "get_event_log": {
             "desc": (
@@ -544,6 +600,7 @@ class AiRpcServer:
     def start(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        _enable_socket_keepalive(sock)
         sock.bind(("127.0.0.1", self._port))
         sock.listen(4)
         sock.settimeout(1.0)
@@ -578,6 +635,7 @@ class AiRpcServer:
             t.start()
 
     def _handle_client(self, conn: socket.socket, addr):
+        _enable_socket_keepalive(conn)
         conn.settimeout(None)
         buf = b""
         try:
@@ -638,6 +696,14 @@ class AiRpcServer:
     # -----------------------------------------------------------------------
     # Method implementations
     # -----------------------------------------------------------------------
+
+    def _m_hello(self, _params):
+        return {
+            "protocol_version": _AI_RPC_PROTOCOL_VERSION,
+            "keepalive_seconds": _AI_RPC_KEEPALIVE_SECONDS,
+            "multi_request_connection": True,
+            "server_time": time.time(),
+        }
 
     def _m_help(self, _params):
         return HELP
@@ -1107,6 +1173,21 @@ class AiRpcServer:
         use_gdb = bool(params.get("use_gdb", False))
         return self._ide.restart_ui(use_gdb)
 
+    def _m_reload_ui_document(self, _params):
+        return self._ide.reload_ui_document()
+
+    def _m_trigger_action(self, params):
+        action = params.get("action", "")
+        if not action:
+            raise _RpcError("missing_param: action")
+        target = params.get("target", "") or action
+        payload = params.get("payload") or {}
+        if not isinstance(payload, dict):
+            raise _RpcError("missing_param: payload must be an object")
+        payload = dict(payload)
+        payload.setdefault("action", action)
+        return self._ide.trigger_action(action, target, payload)
+
     def _m_get_event_log(self, params):
         limit = int(params.get("limit", 100))
         type_filter = str(params.get("type_filter", ""))
@@ -1220,6 +1301,8 @@ class IdeBindings:
         self._clear_exceptions = None       # () -> dict
         self._get_ui_status = None          # () -> dict
         self._restart_ui = None             # (use_gdb: bool) -> dict
+        self._reload_ui_document = None     # () -> dict
+        self._trigger_action = None         # (action, target, payload) -> dict
         self._get_event_log = None          # (limit: int, type_filter: str) -> list
         self._clear_event_log = None        # () -> dict
         self._log_event = None              # (event_type: str, **details) -> None
@@ -1308,6 +1391,16 @@ class IdeBindings:
         if not self._restart_ui:
             raise _RpcError("ui_unavailable: restart_ui callback not set")
         return self._restart_ui(use_gdb)
+
+    def reload_ui_document(self) -> dict:
+        if not self._reload_ui_document:
+            raise _RpcError("ui_unavailable: reload_ui_document callback not set")
+        return self._reload_ui_document()
+
+    def trigger_action(self, action: str, target: str, payload: dict) -> dict:
+        if not self._trigger_action:
+            raise _RpcError("ui_unavailable: trigger_action callback not set")
+        return self._trigger_action(action, target, payload)
 
     def get_event_log(self, limit: int = 100, type_filter: str = "") -> list:
         if not self._get_event_log:

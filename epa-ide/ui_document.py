@@ -2,7 +2,7 @@ from elara_ui.builder import UiDocumentBuilder
 
 from editor_tabs import (
     _editor_ids, _project_toolbar_items, _build_kernel_row_widgets,
-    _create_e_tab, _create_python_tab
+    _create_e_tab, _create_python_tab, _create_cpp_tab
 )
 from constants import INITIAL_E_TABS, AI_MODELS
 

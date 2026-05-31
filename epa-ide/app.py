@@ -42,7 +42,7 @@ from dap_client import PythonDapClient
 from editor_tabs import (
     _editor_ids, _editor_language_for_path, _focus_editor_widget,
     _project_toolbar_items, _set_project_toolbar_enabled,
-    _create_e_tab, _create_python_tab, _build_kernel_row_widgets,
+    _create_e_tab, _create_python_tab, _create_cpp_tab, _build_kernel_row_widgets,
     _PROJECT_TOOLBAR_ITEMS,
 )
 from ui_document import build_document
@@ -319,6 +319,7 @@ def main():
         "args": [],
         "status": "No GDB session attached.",
         "read_buffer": "",
+        "breakpoints_by_path": {},
     }
     python_dbg_state = {
         "started": False,
@@ -508,6 +509,7 @@ def main():
     _cpp_gdb_log                 = ctx["_cpp_gdb_log"]
     _cpp_gdb_execute             = ctx["_cpp_gdb_execute"]
     _cpp_gdb_handle_action       = ctx["_cpp_gdb_handle_action"]
+    _cpp_gdb_set_breakpoint      = ctx["_cpp_gdb_set_breakpoint"]
     _set_python_thread_items     = ctx["_set_python_thread_items"]
     _set_python_status_text      = ctx["_set_python_status_text"]
     _set_python_vm_status        = ctx["_set_python_vm_status"]
@@ -2956,6 +2958,13 @@ def main():
                 return tab_id, "source"
             if target == ids["epa"]:
                 return tab_id, "epa"
+        for entry in tab_list:
+            tab_id = entry.get("tab_id", "")
+            if not tab_id:
+                continue
+            ids = _editor_ids(tab_id)
+            if target == ids["source"]:
+                return tab_id, "source"
         return "", ""
 
     def _set_editor_breakpoint_line(tab_id: str, kind: str, line: int, enabled: bool):
@@ -3593,6 +3602,11 @@ def main():
                     "active_path": active_path,
                     "nav_view": app_state.get("nav_view", "files"),
                     "bottom_view": app_state.get("bottom_view", "build"),
+                    "cpp_breakpoints": {
+                        path: sorted(int(line) for line in line_map.keys())
+                        for path, line_map in (cpp_gdb_state.get("breakpoints_by_path", {}) or {}).items()
+                        if line_map
+                    },
                 }
             },
             "last_project": project_root,
@@ -3744,6 +3758,23 @@ def main():
         session = session if isinstance(session, dict) else _project_session_state(project_path)
         if not session:
             return
+        cpp_breakpoints = session.get("cpp_breakpoints", {})
+        if isinstance(cpp_breakpoints, dict):
+            restored_breakpoints = {}
+            for path, lines in cpp_breakpoints.items():
+                if not isinstance(lines, list):
+                    continue
+                restored_lines = {}
+                for line in lines:
+                    try:
+                        line0 = int(line)
+                    except Exception:
+                        continue
+                    if line0 >= 0:
+                        restored_lines[line0] = ""
+                if restored_lines:
+                    restored_breakpoints[str(path)] = restored_lines
+            cpp_gdb_state["breakpoints_by_path"] = restored_breakpoints
         app_state["_restoring_session"] = True
         try:
             open_tabs = session.get("open_tabs", [])
@@ -4595,7 +4626,12 @@ def main():
         is_preview = not make_permanent
         close_action = f"tab.close.{tab_id}"
 
-        if ext == ".py":
+        if _editor_language_for_path(file_path) == "cpp":
+            tab_ui = UiDocumentBuilder()
+            tab_ui.create_tabs("editor.tabs")
+            _create_cpp_tab(tab_ui, tab_id, title, source_text)
+            child_json = tab_ui.widget_json(tab_id + ".container", indent=None)
+        elif ext == ".py":
             tab_ui = UiDocumentBuilder()
             tab_ui.create_tabs("editor.tabs")
             _create_python_tab(tab_ui, tab_id, title, source_text)
@@ -5437,7 +5473,14 @@ def main():
                     tab_id, kind = _editor_widget_tab_and_kind(target)
                     if tab_id and kind:
                         try:
-                            _set_editor_breakpoint_line(tab_id, kind, int(parts[2]), bool(int(parts[3])))
+                            line0 = int(parts[2])
+                            enabled = bool(int(parts[3]))
+                            tab_entry = next((t for t in tab_list if t.get("tab_id") == tab_id), None)
+                            path = str(tab_entry.get("path", "") or "") if tab_entry else ""
+                            if kind == "source" and _editor_language_for_path(path) == "cpp":
+                                _cpp_gdb_set_breakpoint(c, path, line0, enabled)
+                            else:
+                                _set_editor_breakpoint_line(tab_id, kind, line0, enabled)
                         except Exception:
                             pass
                 return {"received": True}
@@ -6702,6 +6745,7 @@ def main():
             ctx["_append_host_io_output"]         = _append_host_io_output
             ctx["_open_file_tab"]                 = _open_file_tab
             ctx["_tab_id_for_path"]               = _tab_id_for_path
+            ctx["_persist_editor_session_state"]  = _persist_editor_session_state
             ctx["_write_debug_session_descriptor"] = _write_debug_session_descriptor
             ctx["_project_cpp_binary"]            = _project_cpp_binary
             ctx["_project_cpp_gdb_args"]          = _project_cpp_gdb_args
@@ -7037,6 +7081,41 @@ def main():
                     app_state["_ui_reconnect_requested"] = True
                     return {"pid": new_proc.pid, "cmd": cmd, "use_gdb": use_gdb}
 
+                def _ai_rpc_reload_ui_document() -> dict:
+                    c = client_ref.get("client")
+                    if c is None or not getattr(c, "_running", False):
+                        raise RuntimeError("UI client is not connected")
+                    builder = build_document()
+                    c.load_document(builder)
+                    _restore_editor_session_state(c)
+                    try:
+                        c.set_visible_batch([
+                            ("editor.tabs", bool(tab_list)),
+                            ("editor.welcome", not bool(tab_list)),
+                        ])
+                    except Exception:
+                        pass
+                    if app_state.get("project_root"):
+                        _set_project_toolbar_enabled(c, True)
+                        _switch_nav_view(c, app_state.get("nav_view", "files"))
+                    else:
+                        _set_project_toolbar_enabled(c, False)
+                    for tab_id in editor_state:
+                        _refresh_e_tab(c, tab_id)
+                    if app_state.get("active_editor_tab"):
+                        _refresh_debug_sidebars(c, app_state["active_editor_tab"])
+                    _refresh_status_panel(c)
+                    return {"loaded": True}
+
+                def _ai_rpc_trigger_action(action_id: str, target: str, payload: dict) -> dict:
+                    params = {
+                        "action": "action",
+                        "target": target or action_id,
+                        "payload": dict(payload or {}),
+                    }
+                    params["payload"].setdefault("action", action_id)
+                    return on_ui_event(params)
+
                 def _ai_rpc_get_event_log(limit: int = 100, type_filter: str = "") -> list:
                     with _event_log_lock:
                         entries = list(_event_log)
@@ -7137,6 +7216,8 @@ def main():
                 ide_bindings._clear_exceptions = _ai_rpc_clear_exceptions
                 ide_bindings._get_ui_status = _ai_rpc_get_ui_status
                 ide_bindings._restart_ui = _ai_rpc_restart_ui
+                ide_bindings._reload_ui_document = _ai_rpc_reload_ui_document
+                ide_bindings._trigger_action = _ai_rpc_trigger_action
                 ide_bindings._get_event_log = _ai_rpc_get_event_log
                 ide_bindings._clear_event_log = _ai_rpc_clear_event_log
                 ide_bindings._log_event = _push_event

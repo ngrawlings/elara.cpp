@@ -49,6 +49,22 @@ double widgetEventY(Ref<ElaraWidget> widget) {
     return height > 0 ? height / 2.0 : 0;
 }
 
+double widgetAbsoluteEventX(Ref<ElaraWidget> widget) {
+    if(!widget) {
+        return 0;
+    }
+
+    return widget->getAbsoluteX() + widgetEventX(widget);
+}
+
+double widgetAbsoluteEventY(Ref<ElaraWidget> widget) {
+    if(!widget) {
+        return 0;
+    }
+
+    return widget->getAbsoluteY() + widgetEventY(widget);
+}
+
 }
 
 namespace {
@@ -1066,28 +1082,17 @@ bool ElaraUiRpcUiService::clickWidget(
         return false;
     }
 
-    int button = params.getIntValue("button");
+    int button = (int)jsonNumber(params, "button", 1);
     if(button <= 0) {
         button = 1;
     }
 
-    ElaraUiEvent move_event;
-    move_event.root_widget = root;
-    move_event.type = ELARA_UI_MOUSE_MOVE;
-    move_event.x = widgetEventX(widget);
-    move_event.y = widgetEventY(widget);
+    double x = widgetAbsoluteEventX(widget);
+    double y = widgetAbsoluteEventY(widget);
 
-    ElaraUiEvent down_event = move_event;
-    down_event.type = ELARA_UI_MOUSE_DOWN;
-    down_event.button = button;
-
-    ElaraUiEvent up_event = move_event;
-    up_event.type = ELARA_UI_MOUSE_UP;
-    up_event.button = button;
-
-    widget->handleEvent(move_event);
-    widget->handleEvent(down_event);
-    widget->handleEvent(up_event);
+    root->dispatchMouseMove(x, y);
+    root->dispatchMouseDown(button, x, y);
+    root->dispatchMouseUp(button, x, y);
 
     result_json = "{\"dispatched\":true}";
     return true;

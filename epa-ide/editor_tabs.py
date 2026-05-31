@@ -171,6 +171,43 @@ def _create_python_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_te
                button_glyph="×", button_action=f"tab.close.{tab_id}")
 
 
+def _create_cpp_tab(ui: UiDocumentBuilder, tab_id: str, title: str, source_text: str):
+    ids = _editor_ids(tab_id)
+    ui.create_grid(ids["container"])
+    ui.add_grid_column_fill(ids["container"])
+    ui.add_grid_row_fill(ids["container"])
+
+    ui.create_grid(ids["debug_panel"])
+    ui.add_grid_column_weighted_fill(ids["debug_panel"], 2)
+    ui.add_grid_column_exact(ids["debug_panel"], 300)
+    ui.set_grid_column_border_resizable(ids["debug_panel"], 0, True)
+    ui.add_grid_row_fill(ids["debug_panel"])
+
+    ui.create_code_editor(ids["source"], source_text)
+    ui.set_property_string(ids["source"], "language", "cpp")
+    ui.set_property_number(ids["source"], "font_size", 13)
+
+    ui.create_tabs(ids["debug_tabs"])
+    ui.create_list_view(ids["debug_stack"])
+    ui.create_list_view(ids["debug_local"])
+    ui.create_list_view(ids["debug_dynamic"])
+    ui.set_property_number(ids["debug_stack"], "font_size", 11)
+    ui.set_property_number(ids["debug_local"], "font_size", 11)
+    ui.set_property_number(ids["debug_dynamic"], "font_size", 11)
+    ui.set_section_json(ids["debug_stack"], "items", [{"id": "cpp.stack.empty", "label": "No frame data"}])
+    ui.set_section_json(ids["debug_local"], "items", [{"id": "cpp.locals.empty", "label": "No local data"}])
+    ui.set_section_json(ids["debug_dynamic"], "items", [{"id": "cpp.registers.empty", "label": "No register data"}])
+    ui.add_tab(ids["debug_tabs"], "Stack", ids["debug_stack"])
+    ui.add_tab(ids["debug_tabs"], "Locals", ids["debug_local"])
+    ui.add_tab(ids["debug_tabs"], "Registers", ids["debug_dynamic"])
+
+    ui.place_grid_child(ids["debug_panel"], ids["source"], 0, 0)
+    ui.place_grid_child(ids["debug_panel"], ids["debug_tabs"], 1, 0)
+    ui.place_grid_child(ids["container"], ids["debug_panel"], 0, 0)
+    ui.add_tab("editor.tabs", title, ids["container"],
+               button_glyph="×", button_action=f"tab.close.{tab_id}")
+
+
 def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: str):
     row_id = f"nav.debug.kernel.{tab_id}"
     ui.create_grid(row_id)
