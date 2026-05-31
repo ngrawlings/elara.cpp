@@ -292,6 +292,154 @@ struct VkSurfaceKernelCommand {
 };
 static_assert(sizeof(VkSurfaceKernelCommand) == 40, "command struct size mismatch");
 
+struct VkSceneCameraState {
+    double x;
+    double y;
+    double z;
+    double yaw_deg;
+    double pitch_deg;
+    double roll_deg;
+    double fov_deg;
+    double near_z;
+    double far_z;
+};
+
+struct VkSceneMaterialState {
+    double r;
+    double g;
+    double b;
+};
+
+struct VkSceneInstanceState {
+    int id;
+    int mesh_id;
+    int material_id;
+    double x;
+    double y;
+    double z;
+    double yaw_deg;
+    double pitch_deg;
+    double roll_deg;
+    double sx;
+    double sy;
+    double sz;
+    double r;
+    double g;
+    double b;
+};
+
+struct VkScenePoint2D {
+    bool visible;
+    double x;
+    double y;
+    double z;
+};
+
+static double vkSceneMilli(double value) {
+    return value / 1000.0;
+}
+
+static double vkSceneMilliDeg(double value) {
+    return value / 1000.0;
+}
+
+static int vkSceneClampInt(int value, int min_value, int max_value) {
+    if(value < min_value) return min_value;
+    if(value > max_value) return max_value;
+    return value;
+}
+
+static VkSurfaceKernelCommand vkLineCommand(double x0, double y0, double x1, double y1,
+                                            double line_width, double r, double g, double b) {
+    VkSurfaceKernelCommand kc;
+    kc.op = 2u;
+    kc.x0 = (float)x0;
+    kc.y0 = (float)y0;
+    kc.x1 = (float)x1;
+    kc.y1 = (float)y1;
+    kc.value0 = (float)line_width;
+    kc.value1 = 0.0f;
+    kc.r = (float)r;
+    kc.g = (float)g;
+    kc.b = (float)b;
+    return kc;
+}
+
+static VkScenePoint2D vkProjectScenePoint(const VkSceneCameraState& cam,
+                                          double wx, double wy, double wz,
+                                          int width, int height) {
+    double dx = wx - cam.x;
+    double dy = wy - cam.y;
+    double dz = wz - cam.z;
+    double yaw = -cam.yaw_deg * 3.14159265358979323846 / 180.0;
+    double pitch = -cam.pitch_deg * 3.14159265358979323846 / 180.0;
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double cp = cos(pitch);
+    double sp = sin(pitch);
+
+    double vx = (dx * cy) - (dz * sy);
+    double vz = (dx * sy) + (dz * cy);
+    double vy = (dy * cp) - (vz * sp);
+    vz = (dy * sp) + (vz * cp);
+
+    VkScenePoint2D out;
+    out.visible = false;
+    out.x = 0.0;
+    out.y = 0.0;
+    out.z = vz;
+    if(vz <= cam.near_z || vz >= cam.far_z) {
+        return out;
+    }
+
+    double fov = cam.fov_deg > 1.0 ? cam.fov_deg : 60.0;
+    double focal = ((double)height * 0.5) / tan((fov * 3.14159265358979323846 / 180.0) * 0.5);
+    out.x = ((double)width * 0.5) + ((vx / vz) * focal);
+    out.y = ((double)height * 0.5) - ((vy / vz) * focal);
+    out.visible = true;
+    return out;
+}
+
+static void vkAppendSceneInstanceWireframe(std::vector<VkSurfaceKernelCommand>& out,
+                                           const VkSceneCameraState& cam,
+                                           const VkSceneInstanceState& inst,
+                                           int width,
+                                           int height) {
+    double hx = inst.sx * 0.5;
+    double hy = inst.sy * 0.5;
+    double hz = inst.sz * 0.5;
+    double yaw = inst.yaw_deg * 3.14159265358979323846 / 180.0;
+    double cy = cos(yaw);
+    double sy = sin(yaw);
+    double corners[8][3] = {
+        {-hx, -hy, -hz}, { hx, -hy, -hz}, { hx,  hy, -hz}, {-hx,  hy, -hz},
+        {-hx, -hy,  hz}, { hx, -hy,  hz}, { hx,  hy,  hz}, {-hx,  hy,  hz},
+    };
+    VkScenePoint2D pts[8];
+    for(int i = 0; i < 8; i++) {
+        double lx = corners[i][0];
+        double ly = corners[i][1];
+        double lz = corners[i][2];
+        double wx = inst.x + (lx * cy) - (lz * sy);
+        double wz = inst.z + (lx * sy) + (lz * cy);
+        double wy = inst.y + ly;
+        pts[i] = vkProjectScenePoint(cam, wx, wy, wz, width, height);
+    }
+    const int edges[12][2] = {
+        {0,1}, {1,2}, {2,3}, {3,0},
+        {4,5}, {5,6}, {6,7}, {7,4},
+        {0,4}, {1,5}, {2,6}, {3,7},
+    };
+    for(int i = 0; i < 12; i++) {
+        const VkScenePoint2D& a = pts[edges[i][0]];
+        const VkScenePoint2D& b = pts[edges[i][1]];
+        if(!a.visible || !b.visible) {
+            continue;
+        }
+        out.push_back(vkLineCommand(a.x, a.y, b.x, b.y, 2.0, inst.r, inst.g, inst.b));
+    }
+}
+
 // Push constants (20 bytes)
 // 5-word header prepended to the command buffer (replaces push constants)
 struct VkSurfaceCmdHeader {
@@ -1152,6 +1300,22 @@ void ElaraVulkanSurfaceWidget::addText(double x, double y, const String& value, 
     command_revision++;
 }
 
+void ElaraVulkanSurfaceWidget::addSceneCommand(int scene_op, double a0, double a1, double a2, double a3, double a4, double a5, double a6) {
+    Mutex::Lock lock(commands_mutex);
+    Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand((ElaraVulkanSurfaceCommand::Type)scene_op));
+    cmd->x0 = a0;
+    cmd->y0 = a1;
+    cmd->x1 = a2;
+    cmd->y1 = a3;
+    cmd->value0 = a4;
+    cmd->value1 = a5;
+    cmd->r = a6;
+    cmd->g = 0.0;
+    cmd->b = 0.0;
+    commands.push(cmd);
+    command_revision++;
+}
+
 void ElaraVulkanSurfaceWidget::setBackendId(const String& value) { backend_id = value; }
 String ElaraVulkanSurfaceWidget::getBackendId() const            { return backend_id; }
 
@@ -1213,10 +1377,90 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
     // Copy commands under lock — RPC thread can clear/add commands concurrently.
     std::vector<VkSurfaceKernelCommand> kernel_cmds;
     {
+        VkSceneCameraState scene_camera;
+        scene_camera.x = 0.0;
+        scene_camera.y = 0.62;
+        scene_camera.z = -0.90;
+        scene_camera.yaw_deg = 0.0;
+        scene_camera.pitch_deg = 0.0;
+        scene_camera.roll_deg = 0.0;
+        scene_camera.fov_deg = 60.0;
+        scene_camera.near_z = 0.08;
+        scene_camera.far_z = 12.0;
+        VkSceneMaterialState scene_materials[16];
+        std::vector<VkSceneInstanceState> scene_instances;
+        bool has_scene_commands = false;
+        for(int i = 0; i < 16; i++) {
+            scene_materials[i].r = 1.0;
+            scene_materials[i].g = 0.52;
+            scene_materials[i].b = 0.08;
+        }
+
         Mutex::Lock lock(commands_mutex);
         for(int i = 0; i < (int)commands.length(); i++) {
             Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
             if(!cmd || cmd->type == ElaraVulkanSurfaceCommand::TEXT) continue;
+
+            if((int)cmd->type >= 10) {
+                has_scene_commands = true;
+                if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_CAMERA_VIEW) {
+                    scene_camera.x = vkSceneMilli(cmd->x0);
+                    scene_camera.y = vkSceneMilli(cmd->y0);
+                    scene_camera.z = vkSceneMilli(cmd->x1);
+                    scene_camera.yaw_deg = vkSceneMilliDeg(cmd->y1);
+                    scene_camera.pitch_deg = vkSceneMilliDeg(cmd->value0);
+                    scene_camera.roll_deg = vkSceneMilliDeg(cmd->value1);
+                    scene_camera.fov_deg = vkSceneMilliDeg(cmd->r);
+                } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_CAMERA_CLIP) {
+                    scene_camera.near_z = vkSceneMilli(cmd->x0);
+                    scene_camera.far_z = vkSceneMilli(cmd->y0);
+                    if(scene_camera.near_z < 0.01) scene_camera.near_z = 0.01;
+                    if(scene_camera.far_z <= scene_camera.near_z) scene_camera.far_z = scene_camera.near_z + 10.0;
+                } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_ENVIRONMENT) {
+                    VkSurfaceKernelCommand kc;
+                    kc.op = 0u;
+                    kc.x0 = kc.y0 = kc.x1 = kc.y1 = kc.value0 = kc.value1 = 0.0f;
+                    kc.r = (float)(((double)vkSceneClampInt((int)cmd->x0, 0, 255)) / 255.0);
+                    kc.g = (float)(((double)vkSceneClampInt((int)cmd->y0, 0, 255)) / 255.0);
+                    kc.b = (float)(((double)vkSceneClampInt((int)cmd->x1, 0, 255)) / 255.0);
+                    kernel_cmds.push_back(kc);
+                } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_MATERIAL_PBR) {
+                    int mat = vkSceneClampInt((int)cmd->x0, 0, 15);
+                    scene_materials[mat].r = ((double)vkSceneClampInt((int)cmd->y0, 0, 255)) / 255.0;
+                    scene_materials[mat].g = ((double)vkSceneClampInt((int)cmd->x1, 0, 255)) / 255.0;
+                    scene_materials[mat].b = ((double)vkSceneClampInt((int)cmd->y1, 0, 255)) / 255.0;
+                } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_INSTANCE) {
+                    VkSceneInstanceState inst;
+                    inst.id = (int)cmd->x0;
+                    inst.mesh_id = (int)cmd->y0;
+                    inst.material_id = vkSceneClampInt((int)cmd->x1, 0, 15);
+                    inst.x = vkSceneMilli(cmd->y1);
+                    inst.y = vkSceneMilli(cmd->value0);
+                    inst.z = vkSceneMilli(cmd->value1);
+                    inst.yaw_deg = 0.0;
+                    inst.pitch_deg = 0.0;
+                    inst.roll_deg = 0.0;
+                    inst.sx = 0.35;
+                    inst.sy = 0.35;
+                    inst.sz = 0.35;
+                    inst.r = scene_materials[inst.material_id].r;
+                    inst.g = scene_materials[inst.material_id].g;
+                    inst.b = scene_materials[inst.material_id].b;
+                    scene_instances.push_back(inst);
+                } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_INSTANCE_XFORM) {
+                    for(size_t j = 0; j < scene_instances.size(); j++) {
+                        if(scene_instances[j].id == (int)cmd->x0) {
+                            scene_instances[j].yaw_deg = vkSceneMilliDeg(cmd->y0);
+                            scene_instances[j].pitch_deg = vkSceneMilliDeg(cmd->x1);
+                            scene_instances[j].roll_deg = vkSceneMilliDeg(cmd->y1);
+                            scene_instances[j].sx = vkSceneMilli(cmd->value0);
+                            scene_instances[j].sy = vkSceneMilli(cmd->value1);
+                            scene_instances[j].sz = vkSceneMilli(cmd->r);
+                        }
+                    }
+                }
+                continue;
+            }
 
             VkSurfaceKernelCommand kc;
             kc.op     = (uint32_t)cmd->type;
@@ -1230,6 +1474,11 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
             kc.g      = (float)cmd->g;
             kc.b      = (float)cmd->b;
             kernel_cmds.push_back(kc);
+        }
+        if(has_scene_commands) {
+            for(size_t i = 0; i < scene_instances.size(); i++) {
+                vkAppendSceneInstanceWireframe(kernel_cmds, scene_camera, scene_instances[i], pixel_width, pixel_height);
+            }
         }
     }
 

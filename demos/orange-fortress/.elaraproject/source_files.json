@@ -1,0 +1,35 @@
+{
+  "epa": [
+    "epa/entry.e",
+    "epa/gameplay_rules.e",
+    "epa/input_dispatch.e",
+    "epa/player_avatar.e",
+    "epa/player_machinegun.e",
+    "epa/render_scene.e",
+    "epa/render_ui.e",
+    "epa/scene.e",
+    "epa/test.e",
+    "epa/walls.e",
+    "epa/world_runtime.e"
+  ],
+  "cpp": [
+    "cpp/src/OrangeFortressApp.cpp",
+    "cpp/src/OrangeFortressApp.h",
+    "cpp/src/OrangeFortressEpaDebugServer.cpp",
+    "cpp/src/OrangeFortressEpaDebugServer.h",
+    "cpp/src/OrangeFortressEpaDebugService.cpp",
+    "cpp/src/OrangeFortressEpaDebugService.h",
+    "cpp/src/OrangeFortressEpaDebugShim.c",
+    "cpp/src/OrangeFortressEpaDebugShim.h",
+    "cpp/src/OrangeFortressEpaVmHost.cpp",
+    "cpp/src/OrangeFortressEpaVmHost.h",
+    "cpp/src/epa_debug_main.cpp",
+    "cpp/src/main.cpp"
+  ],
+  "python": [
+    "python/app.py",
+    "python/elara_ui/__init__.py",
+    "python/elara_ui/builder.py",
+    "python/elara_ui/rpc.py"
+  ]
+}

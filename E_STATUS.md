@@ -25,16 +25,16 @@ now have real GHS field reads. No "pending lowering" or ident comments remain.
 
 | E source | Output | Notes |
 |---|---|---|
-| `demos/orange-exterminator/epa/scene.e` | `build/epaasm/scene.epaasm` | Full kernel loop + 2 workers + type accessors with GHS reads |
-| `demos/orange-exterminator/epa/player_avatar.e` | `build/epaasm/player_avatar.epaasm` | Player state machine; GHS reads, conditional branching |
-| `demos/orange-exterminator/epa/render_scene.e` | `build/epaasm/render_scene.epaasm` | `.SSTR` string table; kernel + workers |
-| `demos/orange-exterminator/epa/entry.e` | `build/epaasm/entry.epaasm` | Kernel: REQUEST_THREADS + WAIT_ON_SYNC loop |
-| `demos/orange-exterminator/epa/gameplay_rules.e` | `build/epaasm/gameplay_rules.epaasm` | Same structure as entry |
-| `demos/orange-exterminator/epa/render_ui.e` | `build/epaasm/render_ui.epaasm` | Kernel + 3 workers |
-| `demos/orange-exterminator/epa/world_runtime.e` | `build/epaasm/world_runtime.epaasm` | Kernel + 2 workers |
-| `demos/orange-exterminator/epa/walls.e` | `build/epaasm/walls.epaasm` | Kernel + 2 workers |
-| `demos/orange-exterminator/epa/input_dispatch.e` | `build/epaasm/input_dispatch.epaasm` | Kernel + 2 workers |
-| `demos/orange-exterminator/epa/player_machinegun.e` | `build/epaasm/player_machinegun.epaasm` | Kernel + 2 workers |
+| `demos/orange-fortress/epa/scene.e` | `build/epaasm/scene.epaasm` | Full kernel loop + 2 workers + type accessors with GHS reads |
+| `demos/orange-fortress/epa/player_avatar.e` | `build/epaasm/player_avatar.epaasm` | Player state machine; GHS reads, conditional branching |
+| `demos/orange-fortress/epa/render_scene.e` | `build/epaasm/render_scene.epaasm` | `.SSTR` string table; kernel + workers |
+| `demos/orange-fortress/epa/entry.e` | `build/epaasm/entry.epaasm` | Kernel: REQUEST_THREADS + WAIT_ON_SYNC loop |
+| `demos/orange-fortress/epa/gameplay_rules.e` | `build/epaasm/gameplay_rules.epaasm` | Same structure as entry |
+| `demos/orange-fortress/epa/render_ui.e` | `build/epaasm/render_ui.epaasm` | Kernel + 3 workers |
+| `demos/orange-fortress/epa/world_runtime.e` | `build/epaasm/world_runtime.epaasm` | Kernel + 2 workers |
+| `demos/orange-fortress/epa/walls.e` | `build/epaasm/walls.epaasm` | Kernel + 2 workers |
+| `demos/orange-fortress/epa/input_dispatch.e` | `build/epaasm/input_dispatch.epaasm` | Kernel + 2 workers |
+| `demos/orange-fortress/epa/player_machinegun.e` | `build/epaasm/player_machinegun.epaasm` | Kernel + 2 workers |
 | `libElaraParallelAssembly/e/examples/ingress_hello.e` | `epa_build/ingress_hello.epaasm` | Type accessor, worker field reads, function call with CALL + STORE_L arg passing |
 
 ---
@@ -59,7 +59,7 @@ Output: `epa_build/seed.epaasm`
 
 | E source | Reason |
 |---|---|
-| `demos/orange-exterminator/epa/test.e` | No `.epaasm` in `build/epaasm/`. File content is **identical** to `dynamic_memory.e` — appears to be a scratch copy. |
+| `demos/orange-fortress/epa/test.e` | No `.epaasm` in `build/epaasm/`. File content is **identical** to `dynamic_memory.e` — appears to be a scratch copy. |
 | `libElaraParallelAssembly/unittests/tests/dynamic_memory.e` | No `.epaasm` output found anywhere. Exercises `DYN_ALLOC`, `DYN_SWAP`, `DYN_ITER_HEAD/NEXT`, `DYN_FREE`, `dynamic_iterator`, `dynamic_next`, `static {}` initialiser blocks — recently added features. Not yet run through the compiler. |
 
 ---

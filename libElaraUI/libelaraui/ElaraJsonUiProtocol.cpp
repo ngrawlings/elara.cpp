@@ -1311,6 +1311,17 @@ public:
                         jsonValueDouble(command_json.getJsonValue("g"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("b"), 1.0)
                     );
+                } else if(op == String("scene")) {
+                    vulkan_surface->addSceneCommand(
+                        jsonInt(command_json, "scene_op", 0),
+                        jsonValueDouble(command_json.getJsonValue("a0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a2"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a3"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a4"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a5"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("a6"), 0.0)
+                    );
                 }
             }
         }

@@ -98,6 +98,7 @@ public:
     void addRect(double x, double y, double w, double h, double r, double g, double b);
     void addLine(double x0, double y0, double x1, double y1, double r, double g, double b);
     void addText(double x, double y, const String& text, double size, double r, double g, double b);
+    void addSceneCommand(int scene_op, double a0, double a1, double a2, double a3, double a4, double a5, double a6);
 
     void setBackendId(const String& value);
     String getBackendId() const;

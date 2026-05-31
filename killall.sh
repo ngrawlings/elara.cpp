@@ -28,9 +28,9 @@ kill_matching "epa-ide workers"       "$PROJECT_DIR/epa-ide/workers/"
 # Any python process running from within the project directory
 kill_matching "python (project)"      "$PROJECT_DIR/epa-ide"
 
-# Orange exterminator demo (C++ binary + EPA debug server)
-kill_matching "orange-exterminator"           "$PROJECT_DIR/demos/orange-exterminator/cpp/build/orange-exterminator"
-kill_matching "orange-exterminator-epa-debug" "$PROJECT_DIR/demos/orange-exterminator/cpp/build/orange-exterminator-epa-debug"
+# Orange Fortress demo (C++ binary + EPA debug server)
+kill_matching "orange-fortress"           "$PROJECT_DIR/demos/orange-fortress/cpp/build/orange-fortress"
+kill_matching "orange-fortress-epa-debug" "$PROJECT_DIR/demos/orange-fortress/cpp/build/orange-fortress-epa-debug"
 
 # Build tools that might be stuck
 kill_matching "elara-project-builder" "elara-project-builder"
