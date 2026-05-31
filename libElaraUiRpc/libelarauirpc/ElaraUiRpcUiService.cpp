@@ -274,6 +274,28 @@ bool ElaraUiRpcUiService::setText(
     return true;
 }
 
+bool ElaraUiRpcUiService::setCaretIndex(
+    const Json& params,
+    String& result_json,
+    String& error_code,
+    String& error_message
+) {
+    Ref<ElaraWidget> widget = requireWidget(params, error_code, error_message);
+    if(!widget) return false;
+
+    ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget.getPtr());
+    if(!code_editor) {
+        error_code = "unsupported_widget";
+        error_message = "setCaretIndex is only supported on code editor widgets";
+        return false;
+    }
+
+    int idx = params.getIntValue("index");
+    code_editor->setCaretIndex(idx);
+    result_json = "{\"updated\":true}";
+    return true;
+}
+
 bool ElaraUiRpcUiService::scrollToBottom(
     const Json& params,
     String& result_json,
@@ -1558,6 +1580,10 @@ bool ElaraUiRpcUiService::call(
 
     if(method == String("setText")) {
         return setText(params, result_json, error_code, error_message);
+    }
+
+    if(method == String("setCaretIndex")) {
+        return setCaretIndex(params, result_json, error_code, error_message);
     }
 
     if(method == String("setVisible")) {

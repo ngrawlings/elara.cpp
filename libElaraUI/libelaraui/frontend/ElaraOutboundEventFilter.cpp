@@ -151,6 +151,16 @@ void ElaraOutboundEventFilter::onWidgetTextChanged(
     queue(handle, "textChanged", stringPayload("text", text));
 }
 
+void ElaraOutboundEventFilter::onWidgetTextChangedWithCaret(
+    ElaraWidgetHandle handle,
+    const String& text,
+    int caret
+) {
+    String payload = String("{\"text\":\"") + JsonString::encode(text)
+                   + String("\",\"caret\":") + String(caret) + String("}");
+    queue(handle, "textChanged", payload);
+}
+
 void ElaraOutboundEventFilter::onWidgetValueChanged(
     ElaraWidgetHandle handle,
     double value

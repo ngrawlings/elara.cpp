@@ -60,6 +60,12 @@ private:
         String& error_code,
         String& error_message
     );
+    bool setCaretIndex(
+        const Json& params,
+        String& result_json,
+        String& error_code,
+        String& error_message
+    );
     bool scrollToBottom(
         const Json& params,
         String& result_json,

@@ -1266,6 +1266,21 @@ String ElaraCodeEditorWidget::getText() const {
     return value;
 }
 
+void ElaraCodeEditorWidget::setCaretIndex(int idx) {
+    caret_index = idx;
+    if (caret_index < 0) caret_index = 0;
+    if (caret_index > (int)value.length()) caret_index = (int)value.length();
+    clearSelection();
+    scrollToCaret();
+    ElaraRootWidget* root = rootWidget();
+    ElaraGuiBackend* backend = root ? root->getGuiBackend() : 0;
+    if (backend) backend->invalidate();
+}
+
+int ElaraCodeEditorWidget::getCaretIndex() const {
+    return caret_index;
+}
+
 void ElaraCodeEditorWidget::setEnabled(bool v) {
     enabled = v;
     vertical_slider->setEnabled(v);
@@ -1726,7 +1741,7 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
                         root->setClipboardText(selectedText());
                     }
                     if (deleteSelection()) {
-                        emitTextChanged(value);
+                        emitTextChangedWithCaret(value, caret_index);
                     }
                     scrollToCaret();
                     updateScrollbars();
@@ -1741,20 +1756,28 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
                 String clipboard = root ? root->getClipboardText() : String();
                 if ((int)clipboard.length() > 0) {
                     if (replaceSelection(clipboard)) {
-                        emitTextChanged(value);
+                        emitTextChangedWithCaret(value, caret_index);
                     }
                     emitKeysTyped(clipboard);
                     scrollToCaret();
                     updateScrollbars();
                 } else if (hasSelection()) {
                     if (deleteSelection()) {
-                        emitTextChanged(value);
+                        emitTextChangedWithCaret(value, caret_index);
                     }
                     scrollToCaret();
                     updateScrollbars();
                 }
                 return;
             }
+
+            case 'z':
+                emitAction(String("edit.undo"));
+                return;
+
+            case 'y':
+                emitAction(String("edit.redo"));
+                return;
         }
     }
 
@@ -1869,7 +1892,7 @@ void ElaraCodeEditorWidget::onKeyDown(unsigned int keyval, unsigned int modifier
     }
 
     if (text_changed) {
-        emitTextChanged(value);
+        emitTextChangedWithCaret(value, caret_index);
     }
     clampCaret();
     scrollToCaret();
@@ -1929,7 +1952,7 @@ bool ElaraCodeEditorWidget::performAction(const String& action) {
                 root->setClipboardText(selectedText());
             }
             if (deleteSelection()) {
-                emitTextChanged(value);
+                emitTextChangedWithCaret(value, caret_index);
             }
             scrollToCaret();
             updateScrollbars();
@@ -1945,14 +1968,14 @@ bool ElaraCodeEditorWidget::performAction(const String& action) {
         String clipboard = root ? root->getClipboardText() : String();
         if ((int)clipboard.length() > 0) {
             if (replaceSelection(clipboard)) {
-                emitTextChanged(value);
+                emitTextChangedWithCaret(value, caret_index);
             }
             emitKeysTyped(clipboard);
             scrollToCaret();
             updateScrollbars();
         } else if (hasSelection()) {
             if (deleteSelection()) {
-                emitTextChanged(value);
+                emitTextChangedWithCaret(value, caret_index);
             }
             scrollToCaret();
             updateScrollbars();

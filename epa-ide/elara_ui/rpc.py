@@ -400,6 +400,9 @@ class ElaraUiRpcClient:
     def set_text(self, target: str, value: str, timeout: float = 5.0):
         self.fire("ui.setText", {"target": target, "value": value})
 
+    def set_caret_index(self, target: str, index: int, timeout: float = 5.0):
+        self.fire("ui.setCaretIndex", {"target": target, "index": index})
+
     def scroll_to_bottom(self, target: str, timeout: float = 5.0):
         self.fire("ui.scrollToBottom", {"target": target})
 

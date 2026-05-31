@@ -61,6 +61,12 @@ public:
         const String& text
     ) {}
 
+    virtual void onWidgetTextChangedWithCaret(
+        ElaraWidgetHandle handle,
+        const String& text,
+        int caret
+    ) {}
+
     virtual void onWidgetValueChanged(
         ElaraWidgetHandle handle,
         double value

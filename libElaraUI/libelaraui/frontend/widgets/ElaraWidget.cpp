@@ -244,6 +244,14 @@ void ElaraWidget::emitTextChanged(const String& text) {
     }
 }
 
+void ElaraWidget::emitTextChangedWithCaret(const String& text, int caret) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetTextChangedWithCaret(widget_handle, text, caret);
+        }
+    }
+}
+
 void ElaraWidget::emitValueChanged(double value) {
     for(int i = 0; i < (int)listeners.length(); i++) {
         if(listeners[i]) {

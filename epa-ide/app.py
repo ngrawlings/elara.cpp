@@ -4751,19 +4751,16 @@ def main():
             if action == "textChanged" and target == ids["source"]:
                 app_state["active_editor_tab"] = tab_id
                 prev_text = state.get("source_text", "")
+                prev_caret = state.get("caret_index", 0)
                 new_text = payload.get("text", "")
-                if state.get("in_undo_redo"):
-                    state["in_undo_redo"] = False
-                elif prev_text != new_text:
-                    now = time.time()
-                    last_time = state.get("last_undo_time", 0.0)
-                    if now - last_time > 2.0 or not state.get("undo_stack"):
-                        state.setdefault("undo_stack", []).append({"text": prev_text})
-                        if len(state["undo_stack"]) > 100:
-                            state["undo_stack"] = state["undo_stack"][-100:]
+                new_caret = payload.get("caret", 0)
+                if prev_text != new_text:
+                    state.setdefault("undo_stack", []).append({"text": prev_text, "caret": prev_caret})
+                    if len(state["undo_stack"]) > 100:
+                        state["undo_stack"] = state["undo_stack"][-100:]
                     state["redo_stack"] = []
-                    state["last_undo_time"] = now
                 state["source_text"] = new_text
+                state["caret_index"] = new_caret
                 state["compile_seq"] = int(state.get("compile_seq", 0)) + 1
                 if client is not None:
                     c = client
@@ -5442,9 +5439,7 @@ def main():
                     _deferred(_do_close_tab)
                 return {"received": True}
 
-            if target == "app.menu" and item_action in (
-                "edit.undo", "edit.redo"
-            ):
+            if item_action in ("edit.undo", "edit.redo"):
                 _undo_action = item_action
                 def _do_undo_redo(ua=_undo_action):
                     tab_id = app_state.get("active_editor_tab", "")
@@ -5455,23 +5450,28 @@ def main():
                     undo_stack = state.setdefault("undo_stack", [])
                     redo_stack = state.setdefault("redo_stack", [])
                     current_text = state.get("source_text", "")
+                    current_caret = state.get("caret_index", 0)
                     if ua == "edit.undo":
                         if not undo_stack:
                             return
                         entry = undo_stack.pop()
-                        redo_stack.append({"text": current_text})
+                        redo_stack.append({"text": current_text, "caret": current_caret})
                         restored = entry["text"]
+                        restored_caret = entry.get("caret", 0)
                     else:
                         if not redo_stack:
                             return
                         entry = redo_stack.pop()
-                        undo_stack.append({"text": current_text})
+                        undo_stack.append({"text": current_text, "caret": current_caret})
                         restored = entry["text"]
-                    state["in_undo_redo"] = True
+                        restored_caret = entry.get("caret", 0)
+                    state["source_text"] = restored
+                    state["caret_index"] = restored_caret
                     try:
                         c.set_text(ids["source"], restored)
+                        c.set_caret_index(ids["source"], restored_caret)
                     except Exception:
-                        state["in_undo_redo"] = False
+                        pass
                 _deferred(_do_undo_redo)
                 return {"received": True}
 

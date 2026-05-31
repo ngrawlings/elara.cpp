@@ -170,6 +170,8 @@ public:
 
     void setText(const String& text);
     String getText() const;
+    void setCaretIndex(int idx);
+    int getCaretIndex() const;
 
     void setEnabled(bool v);
     bool isEnabled() const;

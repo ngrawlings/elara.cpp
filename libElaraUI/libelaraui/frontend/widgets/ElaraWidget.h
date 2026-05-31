@@ -100,6 +100,7 @@ protected:
     virtual void emitKeyUp(unsigned int keyval);
     virtual void emitKeysTyped(const String& text);
     virtual void emitTextChanged(const String& text);
+    virtual void emitTextChangedWithCaret(const String& text, int caret);
     virtual void emitValueChanged(double value);
     virtual void emitAction(const String& action);
 

@@ -483,7 +483,7 @@ void ElaraTerminalWidget::onKeyDown(unsigned int keyval, unsigned int modifiers)
         return;
     }
 
-    // Ctrl+letter → control character (Ctrl+C = 0x03, Ctrl+Z = 0x1A, etc.)
+    // Ctrl+letter → control character (Ctrl+C = 0x03, Ctrl+\ = 0x1C, etc.)
     if ((modifiers & ELARA_KEY_MOD_CTRL) && keyval >= 0x40 && keyval <= 0x7F) {
         char ctrl = (char)(keyval & 0x1F);
         write(master_fd, &ctrl, 1);
