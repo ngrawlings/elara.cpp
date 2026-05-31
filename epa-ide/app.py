@@ -5,6 +5,7 @@ import os
 import re
 import select
 import signal
+import shlex
 import shutil
 import socket
 import socketserver
@@ -132,6 +133,18 @@ def _window_value(value, fallback: int, minimum: int = 640) -> int:
 
 def _current_layout_state() -> dict:
     return _load_ide_state()
+
+
+def _default_codex_cli_path() -> str:
+    candidates = sorted(
+        Path.home().glob(".vscode/extensions/openai.chatgpt-*/bin/*/codex"),
+        key=lambda p: str(p),
+        reverse=True,
+    )
+    for candidate in candidates:
+        if candidate.is_file() and os.access(str(candidate), os.X_OK):
+            return str(candidate)
+    return "codex"
 
 
 def _use_system_window_header(ide_state: dict | None = None) -> bool:
@@ -288,15 +301,26 @@ def main():
     app_state["bottom_panel_height"] = _layout_value(initial_layout.get("bottom_height"), 220)
     tab_list = []                # [{"tab_id", "path", "index", "preview"}]
     tab_click_state = {}         # double-click detection: {"path", "time"}
+    initial_ai_config = initial_state.get("ai", {}) if isinstance(initial_state, dict) else {}
+    if not isinstance(initial_ai_config, dict):
+        initial_ai_config = {}
+    default_codex_cli = _default_codex_cli_path()
+    default_codex_args = "exec --skip-git-repo-check --cd {cwd} --model {model} -"
+    saved_codex_args = str(initial_ai_config.get("codex_args", default_codex_args) or default_codex_args)
+    if saved_codex_args == "exec --skip-git-repo-check --cd {cwd} --model {model} {prompt}":
+        saved_codex_args = default_codex_args
     ai_state = {
         "messages":     [],      # [{"role": "user"|"assistant", "content": str}]
-        "model":        "claude-sonnet-4-6",
+        "model":        str(initial_ai_config.get("model", "codex:gpt-5") or "codex:gpt-5"),
         "ctx_file":     True,
         "ctx_project":  False,
         "ctx_selection": False,
         "input_text":   "",
         "generating":   False,
         "cancel_event": None,
+        "process":      None,
+        "codex_cli":    str(initial_ai_config.get("codex_cli", default_codex_cli) or default_codex_cli),
+        "codex_args":   saved_codex_args,
     }
     terminal_state = {
         "cwd": "",
@@ -4754,8 +4778,129 @@ def main():
                 sections.append(f"Project: **{name}**\nPath: `{root}`")
         return "\n\n".join(sections)
 
+    def _ai_model_provider(model_id: str) -> str:
+        return "codex" if str(model_id or "").startswith("codex:") else "claude"
+
+    def _ai_model_name(model_id: str) -> str:
+        model_id = str(model_id or "")
+        return model_id.split(":", 1)[1] if model_id.startswith("codex:") else model_id
+
+    def _persist_ai_config():
+        _save_ide_state({
+            "ai": {
+                "model": ai_state.get("model", "codex:gpt-5"),
+                "codex_cli": ai_state.get("codex_cli", "codex"),
+                "codex_args": ai_state.get("codex_args", ""),
+            }
+        })
+
+    def _apply_ai_config_ui(client):
+        try:
+            client.set_text("ai.model", ai_state.get("model", "codex:gpt-5"))
+            client.set_text("ai.codex_cli", ai_state.get("codex_cli", "codex"))
+            client.set_text("ai.codex_args", ai_state.get("codex_args", ""))
+        except Exception:
+            pass
+
+    def _ai_codex_argv(prompt: str) -> tuple[list[str], str, bool]:
+        cli_text = str(ai_state.get("codex_cli", "codex") or "codex").strip()
+        arg_template = str(ai_state.get("codex_args", "") or "").strip()
+        base = shlex.split(cli_text) if cli_text else ["codex"]
+        cwd = str(app_state.get("project_root", "") or Path.cwd())
+        model_name = _ai_model_name(ai_state.get("model", "codex:gpt-5"))
+        replacements = {
+            "{cwd}": cwd,
+            "{model}": model_name,
+            "{prompt}": prompt,
+        }
+        args = []
+        prompt_inserted = False
+        for part in shlex.split(arg_template):
+            value = part
+            for key, replacement in replacements.items():
+                if key in value:
+                    value = value.replace(key, replacement)
+            if "{prompt}" in part:
+                prompt_inserted = True
+            args.append(value)
+        if not prompt_inserted:
+            use_stdin = "-" in args
+            if not use_stdin:
+                args.append(prompt)
+        else:
+            use_stdin = False
+        return base + args, cwd, use_stdin
+
+    def _ai_codex_prompt(api_content: str) -> str:
+        history = []
+        for msg in ai_state["messages"]:
+            role = "User" if msg["role"] == "user" else "Assistant"
+            history.append(f"{role}:\n{msg['content']}")
+        return (
+            f"{ANTHROPIC_SYSTEM_PROMPT}\n\n"
+            "You are running from the EPA-IDE right sidebar via the Codex CLI. "
+            "Answer the latest user request directly and concisely.\n\n"
+            + "\n\n".join(history)
+        )
+
+    def _ai_stream_codex(prompt: str, cancel_event: threading.Event, update_response) -> str:
+        argv, cwd, use_stdin = _ai_codex_argv(prompt)
+        response_text = ""
+        try:
+            proc = subprocess.Popen(
+                argv,
+                cwd=cwd if Path(cwd).is_dir() else None,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.PIPE if use_stdin else subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+            ai_state["process"] = proc
+            if use_stdin and proc.stdin is not None:
+                proc.stdin.write(prompt)
+                proc.stdin.close()
+        except FileNotFoundError:
+            return (
+                f"Codex CLI was not found: `{argv[0]}`\n\n"
+                "Set the Codex path in the sidebar, for example an absolute path to the `codex` binary."
+            )
+        except Exception as exc:
+            return f"Failed to launch Codex CLI: {exc}"
+
+        last_update = time.monotonic()
+        try:
+            assert proc.stdout is not None
+            while True:
+                if cancel_event.is_set():
+                    response_text += "\n\n[stopped]"
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    break
+                chunk = proc.stdout.readline()
+                if chunk:
+                    response_text += chunk
+                    now = time.monotonic()
+                    if now - last_update >= 0.08:
+                        update_response(response_text)
+                        last_update = now
+                    continue
+                if proc.poll() is not None:
+                    break
+                time.sleep(0.03)
+            rc = proc.wait(timeout=2.0)
+            if rc != 0 and "[stopped]" not in response_text:
+                response_text += f"\n\n[codex exited with status {rc}]"
+        except Exception as exc:
+            response_text += f"\n\nCodex CLI stream failed: {exc}"
+        finally:
+            ai_state["process"] = None
+        return response_text.strip() or "(Codex returned no output.)"
+
     def _ai_send():
-        """Background thread: send user message to the Anthropic API and stream response."""
+        """Background thread: send user message to the selected AI provider and stream response."""
         message_text = ai_state.get("input_text", "").strip()
         if not message_text:
             return
@@ -4782,29 +4927,34 @@ def main():
 
         response_text = ""
         try:
-            import anthropic as _ant
-            aclient = _ant.Anthropic()
-            last_update = time.monotonic()
-            with aclient.messages.stream(
-                model=ai_state.get("model", "claude-sonnet-4-6"),
-                max_tokens=4096,
-                system=ANTHROPIC_SYSTEM_PROMPT,
-                messages=[{"role": m["role"], "content": m["content"]}
-                          for m in ai_state["messages"]],
-            ) as stream:
-                for chunk in stream.text_stream:
-                    if cancel_event.is_set():
-                        response_text += "\n\n[stopped]"
-                        break
-                    response_text += chunk
-                    now = time.monotonic()
-                    if now - last_update >= 0.08:
-                        try:
-                            c.set_text("ai.history",
-                                       _ai_format_history(extra_assistant_text=response_text))
-                        except Exception:
+            def _update_response(text: str):
+                try:
+                    c.set_text("ai.history", _ai_format_history(extra_assistant_text=text))
+                except Exception:
+                    pass
+
+            if _ai_model_provider(ai_state.get("model", "")) == "codex":
+                response_text = _ai_stream_codex(_ai_codex_prompt(api_content), cancel_event, _update_response)
+            else:
+                import anthropic as _ant
+                aclient = _ant.Anthropic()
+                last_update = time.monotonic()
+                with aclient.messages.stream(
+                    model=ai_state.get("model", "claude-sonnet-4-6"),
+                    max_tokens=4096,
+                    system=ANTHROPIC_SYSTEM_PROMPT,
+                    messages=[{"role": m["role"], "content": m["content"]}
+                              for m in ai_state["messages"]],
+                ) as stream:
+                    for chunk in stream.text_stream:
+                        if cancel_event.is_set():
+                            response_text += "\n\n[stopped]"
                             break
-                        last_update = now
+                        response_text += chunk
+                        now = time.monotonic()
+                        if now - last_update >= 0.08:
+                            _update_response(response_text)
+                            last_update = now
         except ImportError:
             response_text = (
                 "The `anthropic` library is not installed.\n\n"
@@ -6274,6 +6424,12 @@ def main():
                 ev = ai_state.get("cancel_event")
                 if ev:
                     ev.set()
+                proc = ai_state.get("process")
+                if proc is not None:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
                 return {"received": True}
 
             elif item_action == "ai.new_chat":
@@ -6671,6 +6827,17 @@ def main():
             model_id = payload.get("action") or payload.get("id") or payload.get("text")
             if model_id and any(m["id"] == model_id for m in AI_MODELS):
                 ai_state["model"] = model_id
+                _persist_ai_config()
+            return {"received": True}
+
+        if action == "textChanged" and target == "ai.codex_cli":
+            ai_state["codex_cli"] = payload.get("text", "") or "codex"
+            _persist_ai_config()
+            return {"received": True}
+
+        if action == "textChanged" and target == "ai.codex_args":
+            ai_state["codex_args"] = payload.get("text", "")
+            _persist_ai_config()
             return {"received": True}
 
         # Track AI input text
@@ -6803,6 +6970,7 @@ def main():
                 _refresh_debug_sidebars(client, app_state["active_editor_tab"])
             _epa_dbg_set_vm_button(_epa_dbg_running())
             try:
+                _apply_ai_config_ui(client)
                 client.set_text("ai.history", _ai_format_history())
             except Exception:
                 pass
@@ -7104,6 +7272,7 @@ def main():
                         _refresh_e_tab(c, tab_id)
                     if app_state.get("active_editor_tab"):
                         _refresh_debug_sidebars(c, app_state["active_editor_tab"])
+                    _apply_ai_config_ui(c)
                     _refresh_status_panel(c)
                     return {"loaded": True}
 

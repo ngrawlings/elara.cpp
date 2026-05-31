@@ -1,6 +1,8 @@
 INITIAL_E_TABS = []
 
 AI_MODELS = [
+    {"id": "codex:gpt-5",                 "label": "Codex GPT-5"},
+    {"id": "codex:gpt-5-codex",           "label": "Codex GPT-5 Codex"},
     {"id": "claude-sonnet-4-6",       "label": "Claude Sonnet 4.6"},
     {"id": "claude-haiku-4-5-20251001","label": "Claude Haiku 4.5"},
     {"id": "claude-opus-4-7",          "label": "Claude Opus 4.7"},

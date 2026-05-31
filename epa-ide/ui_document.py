@@ -217,11 +217,12 @@ def build_document():
     ui.create_grid("ai.panel")
     ui.add_grid_column_fill("ai.panel")
     ui.add_grid_row_exact("ai.panel", 34)            # 0  header bar
-    ui.add_grid_row_weighted_fill("ai.panel", 1)     # 1  history  (resizable)
-    ui.add_grid_row_exact("ai.panel", 26)            # 2  context toggles
-    ui.add_grid_row_exact("ai.panel", 82)            # 3  message input
-    ui.add_grid_row_exact("ai.panel", 34)            # 4  action buttons
-    ui.set_grid_row_border_resizable("ai.panel", 1, True)
+    ui.add_grid_row_exact("ai.panel", 58)            # 1  Codex CLI config
+    ui.add_grid_row_weighted_fill("ai.panel", 1)     # 2  history  (resizable)
+    ui.add_grid_row_exact("ai.panel", 26)            # 3  context toggles
+    ui.add_grid_row_exact("ai.panel", 82)            # 4  message input
+    ui.add_grid_row_exact("ai.panel", 34)            # 5  action buttons
+    ui.set_grid_row_border_resizable("ai.panel", 2, True)
 
     # Header: "Elara Core" label + model combo
     ui.create_grid("ai.header")
@@ -231,10 +232,35 @@ def build_document():
     ui.add_grid_column_exact("ai.header", 4)         # right pad
     ui.add_grid_row_fill("ai.header")
     ui.create_label("ai.title", "Elara Core", 13)
-    ui.create_combo_box("ai.model", AI_MODELS, selected_id="claude-sonnet-4-6")
+    ui.create_combo_box("ai.model", AI_MODELS, selected_id="codex:gpt-5")
     ui.set_property_number("ai.model", "font_size", 12)
     ui.place_grid_child("ai.header", "ai.title", 1, 0)
     ui.place_grid_child("ai.header", "ai.model", 2, 0)
+
+    # Codex CLI configuration
+    ui.create_grid("ai.codex_config")
+    ui.add_grid_column_exact("ai.codex_config", 8)
+    ui.add_grid_column_exact("ai.codex_config", 54)
+    ui.add_grid_column_fill("ai.codex_config")
+    ui.add_grid_column_exact("ai.codex_config", 4)
+    ui.add_grid_row_exact("ai.codex_config", 25)
+    ui.add_grid_row_exact("ai.codex_config", 25)
+    ui.create_label("ai.codex_cli_label", "Codex:", 11)
+    ui.create_text_input("ai.codex_cli", "codex", "codex")
+    ui.create_label("ai.codex_args_label", "Args:", 11)
+    ui.create_text_input(
+        "ai.codex_args",
+        "exec --skip-git-repo-check --cd {cwd} --model {model} -",
+        "exec --skip-git-repo-check --cd {cwd} --model {model} -",
+    )
+    ui.set_property_number("ai.codex_cli_label", "font_size", 11)
+    ui.set_property_number("ai.codex_args_label", "font_size", 11)
+    ui.set_property_number("ai.codex_cli", "font_size", 11)
+    ui.set_property_number("ai.codex_args", "font_size", 11)
+    ui.place_grid_child("ai.codex_config", "ai.codex_cli_label", 1, 0)
+    ui.place_grid_child("ai.codex_config", "ai.codex_cli", 2, 0)
+    ui.place_grid_child("ai.codex_config", "ai.codex_args_label", 1, 1)
+    ui.place_grid_child("ai.codex_config", "ai.codex_args", 2, 1)
 
     # History area
     ui.create_chat_dialog("ai.history")
@@ -287,10 +313,11 @@ def build_document():
 
     # Assemble panel
     ui.place_grid_child("ai.panel", "ai.header",  0, 0)
-    ui.place_grid_child("ai.panel", "ai.history", 0, 1)
-    ui.place_grid_child("ai.panel", "ai.ctx_row", 0, 2)
-    ui.place_grid_child("ai.panel", "ai.input",   0, 3)
-    ui.place_grid_child("ai.panel", "ai.actions", 0, 4)
+    ui.place_grid_child("ai.panel", "ai.codex_config", 0, 1)
+    ui.place_grid_child("ai.panel", "ai.history", 0, 2)
+    ui.place_grid_child("ai.panel", "ai.ctx_row", 0, 3)
+    ui.place_grid_child("ai.panel", "ai.input",   0, 4)
+    ui.place_grid_child("ai.panel", "ai.actions", 0, 5)
 
     ui.create_toolbar("app.toolbar", orientation="vertical")
     ui.set_property_number("app.toolbar", "font_size", 11)
