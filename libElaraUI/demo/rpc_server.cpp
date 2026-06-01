@@ -1176,146 +1176,6 @@ public:
     }
 };
 
-class GridDemoLogicListener : public WidgetListener {
-private:
-    ElaraRootWidget* root;
-    ElaraGuiBackend* backend;
-    EventArtifactLogger* logger;
-
-    String handleToString(ElaraWidgetHandle handle) const {
-        Memory memory = handle.getHandle();
-        return String((const char*)memory.getPtr(), memory.length());
-    }
-
-public:
-    GridDemoLogicListener(ElaraRootWidget* root_widget, ElaraGuiBackend* gui_backend, EventArtifactLogger* event_logger)
-        : root(root_widget),
-          backend(gui_backend),
-          logger(event_logger) {
-    }
-
-    void onWidgetClicked(
-        ElaraWidgetHandle handle,
-        int button,
-        double x,
-        double y
-    ) {
-        (void)button;
-        (void)x;
-        (void)y;
-
-        const String button_handle("demo.widgets.button");
-        const String input_handle("demo.widgets.input");
-        String clicked_handle = handleToString(handle);
-
-        if(logger) {
-            logger->log("backend.logic", String("clicked handle=") + clicked_handle);
-        }
-
-        if(!(clicked_handle == button_handle)) {
-            return;
-        }
-
-        if(logger) {
-            logger->log("backend.logic", "button matched");
-        }
-
-        ElaraWidgetState input_state;
-        bool has_input_state = root->probeWidgetState(ElaraWidgetHandle(input_handle), input_state);
-
-        if(logger) {
-            logger->log(
-                "backend.logic",
-                String("input.state.lookup=") + String(has_input_state ? "ok" : "missing")
-            );
-            if(has_input_state) {
-                logger->log(
-                    "backend.logic",
-                    String("input.state.before.text=") + input_state.text
-                );
-            }
-        }
-
-        Ref<ElaraWidget> widget = root->getWidget(ElaraWidgetHandle(input_handle));
-
-        if(logger) {
-            logger->log(
-                "backend.logic",
-                String("input lookup widget=") + String(widget ? "found" : "missing")
-            );
-        }
-
-        ElaraTextInputWidget* input = widget
-            ? dynamic_cast<ElaraTextInputWidget*>(widget.getPtr())
-            : 0;
-
-        if(logger) {
-            logger->log(
-                "backend.logic",
-                String("input cast=") + String(input ? "ok" : "failed")
-            );
-        }
-
-        if(!input) {
-            if(logger) {
-                logger->log("backend.logic", "input lookup failed");
-            }
-            return;
-        }
-
-        String text = has_input_state && input_state.has_text
-            ? input_state.text.trim()
-            : input->getText().trim();
-        String before_text = text;
-
-        if(logger) {
-            logger->log("backend.logic", String("input text=") + before_text);
-        }
-
-        char* end = 0;
-        long value = strtol((const char*)text, &end, 10);
-
-        if(logger) {
-            logger->log(
-                "backend.logic",
-                String("parse status end=") + String(end ? "set" : "null")
-            );
-        }
-
-        if(!text.length() || !end || *end != 0) {
-            value = 1;
-        } else {
-            value += 1;
-        }
-
-        input->setText(String((int)value));
-
-        if(logger) {
-            logger->log(
-                "backend.logic",
-                String("demo.widgets.button action=increment-input before=") +
-                before_text +
-                String(" after=") +
-                String((int)value)
-            );
-            ElaraWidgetState after_state;
-            if(root->probeWidgetState(ElaraWidgetHandle(input_handle), after_state) && after_state.has_text) {
-                logger->log(
-                    "backend.logic",
-                    String("input.state.after.text=") + after_state.text
-                );
-            }
-        }
-
-        if(backend) {
-            backend->invalidate();
-            if(logger) {
-                logger->log("backend.logic", "invalidate requested");
-            }
-        }
-    }
-};
-
 class EventResponderService : public sockets::rpc::json::JsonRPCService {
 public:
     EventResponderService()
@@ -1408,7 +1268,6 @@ private:
     MainThreadUiService* ui_service;
     Ref<ElaraUiRpcPeer> peer;
     Ref<ElaraUiRpcUiBridge> ui_bridge;
-    Ref<WidgetListener> demo_logic_listener;
     Ref<WidgetListener> trace_listener;
     bool layout_attached;
     bool persistent;
@@ -1489,16 +1348,6 @@ public:
         }
     }
 
-    void installDemoLogic() {
-        if(demo_logic_listener) {
-            return;
-        }
-
-        demo_logic_listener = Ref<WidgetListener>(new GridDemoLogicListener(root, backend.getPtr(), &logger));
-        attachDemoLogicRecursive(root);
-        logger.log("backend.logic", "listener attached");
-    }
-
     void installEventTracing() {
         if(trace_listener) {
             return;
@@ -1515,7 +1364,6 @@ public:
         }
 
         installEventTracing();
-        installDemoLogic();
 
         layout_attached = true;
 
@@ -1711,19 +1559,6 @@ private:
         for(int i = 0; i < widget->childCount(); i++) {
             Ref<ElaraWidget> child = widget->getChild(i);
             attachTraceRecursive(child.getPtr());
-        }
-    }
-
-    void attachDemoLogicRecursive(ElaraWidget* widget) {
-        if(!widget || !demo_logic_listener) {
-            return;
-        }
-
-        widget->addListener(demo_logic_listener);
-
-        for(int i = 0; i < widget->childCount(); i++) {
-            Ref<ElaraWidget> child = widget->getChild(i);
-            attachDemoLogicRecursive(child.getPtr());
         }
     }
 

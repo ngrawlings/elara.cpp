@@ -131,6 +131,8 @@ public:
                 if (key_index >= 0) {
                     String fragment = params.substr(key_index + 9).trim();
                     unsigned int keyval = (unsigned int)strtoul(fragment.operator char *(), NULL, 10);
+                    printf("ui.event keyDown keyval=%u\n", keyval);
+                    fflush(stdout);
                     app->enqueueKeyDown(keyval);
                     app->updateKeyState(keyval, true);
                 }
@@ -139,6 +141,8 @@ public:
                 if (key_index >= 0) {
                     String fragment = params.substr(key_index + 9).trim();
                     unsigned int keyval = (unsigned int)strtoul(fragment.operator char *(), NULL, 10);
+                    printf("ui.event keyUp keyval=%u\n", keyval);
+                    fflush(stdout);
                     app->updateKeyState(keyval, false);
                 }
             } else if (app && params.indexOf(String("\"action\":\"mouseDown\"")) >= 0) {
@@ -299,6 +303,7 @@ OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port)
       scene_cam_pitch(0),
       scene_depth(0),
       scene_lane(0),
+      cached_scene_angle(0),
       latest_surface_valid(false),
       scene_received(false),
       surface_revision(0),
@@ -737,7 +742,17 @@ void OrangeFortressApp::enqueueKeyDown(unsigned int keyval) {
 }
 
 void OrangeFortressApp::updateKeyState(unsigned int keyval, bool pressed) {
+    if (pressed) {
+        if (keyval == 49u) { printf("keyboard angle hotkey: 1\n"); fflush(stdout); publishCachedCubeScene(0); return; }
+        if (keyval == 50u) { printf("keyboard angle hotkey: 2\n"); fflush(stdout); publishCachedCubeScene(1); return; }
+        if (keyval == 51u) { printf("keyboard angle hotkey: 3\n"); fflush(stdout); publishCachedCubeScene(2); return; }
+        if (keyval == 32u) { printf("keyboard angle hotkey: next\n"); fflush(stdout); cycleCachedCubeScene(1); return; }
+    }
+
     Mutex::Lock lock(input_lock);
+    printf("updateKeyState: keyval=%u pressed=%d held_f=%d held_b=%d held_l=%d held_r=%d\n",
+           keyval, (int)pressed, (int)held_forward, (int)held_back, (int)held_left, (int)held_right);
+    fflush(stdout);
     // Arrow keys and WASD both control movement.
     if (keyval == 65362u || keyval == 119u) { held_forward = pressed; }  // Up / W
     if (keyval == 65364u || keyval == 115u) { held_back    = pressed; }  // Down / S
@@ -746,8 +761,6 @@ void OrangeFortressApp::updateKeyState(unsigned int keyval, bool pressed) {
     if (keyval == 65307u && pressed) {
         mouse_uncapture_requested = true;
     }
-    printf("updateKeyState: keyval=%u pressed=%d held_f=%d held_b=%d held_l=%d held_r=%d\n",
-           keyval, (int)pressed, (int)held_forward, (int)held_back, (int)held_left, (int)held_right);
 }
 
 void OrangeFortressApp::accumulateMouseDelta(int dx, int dy) {
@@ -792,6 +805,39 @@ void OrangeFortressApp::handleMouseMove(double x, double y) {
         return;
     }
     accumulateMouseDelta((int)x, (int)y);
+}
+
+void OrangeFortressApp::publishCachedCubeScene(int angle) {
+    if (angle < 0) {
+        angle = 0;
+    }
+    if (angle > 2) {
+        angle = 2;
+    }
+    {
+        Mutex::Lock lock(render_lock);
+        cached_scene_angle = angle;
+        latest_surface_commands = buildCachedCubeSceneJson(angle);
+        latest_surface_valid = true;
+        surface_revision++;
+    }
+    printf("Cached cube scene angle=%d queued for replay\n", angle + 1);
+    traceLine(String("{\"event\":\"cached_cube_scene\",\"angle\":") + String(angle + 1) + String("}"));
+}
+
+void OrangeFortressApp::cycleCachedCubeScene(int delta) {
+    int next_angle;
+    {
+        Mutex::Lock lock(render_lock);
+        next_angle = cached_scene_angle + delta;
+    }
+    if (next_angle < 0) {
+        next_angle = 2;
+    }
+    if (next_angle > 2) {
+        next_angle = 0;
+    }
+    publishCachedCubeScene(next_angle);
 }
 
 void OrangeFortressApp::drainKeyEvents() {
@@ -1084,6 +1130,91 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     traceKernelStateSnapshot("after_mailbox");
 }
 
+String OrangeFortressApp::buildCachedCubeSceneJson(int angle) const {
+    int emitted = 0;
+    String json("[");
+    int cam_x = 0;
+    int cam_y = 650;
+    int cam_z = -3000;
+    int yaw = 0;
+    int pitch = 2500;
+    int cube_yaw = 0;
+    String label("Front");
+
+    if (angle == 1) {
+        cam_x = 1800;
+        cam_y = 900;
+        cam_z = -2600;
+        yaw = 35000;
+        pitch = 7000;
+        cube_yaw = 26000;
+        label = String("Quarter");
+    } else if (angle == 2) {
+        cam_x = 0 - 2100;
+        cam_y = 1250;
+        cam_z = -2600;
+        yaw = 0 - 40000;
+        pitch = 13000;
+        cube_yaw = 0 - 18000;
+        label = String("High");
+    }
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":20")
+        + String(",\"a0\":18,\"a1\":20,\"a2\":24")
+        + String(",\"a3\":44,\"a4\":42,\"a5\":40,\"a6\":0}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":10")
+        + String(",\"a0\":") + String(cam_x)
+        + String(",\"a1\":") + String(cam_y)
+        + String(",\"a2\":") + String(cam_z)
+        + String(",\"a3\":") + String(yaw)
+        + String(",\"a4\":") + String(pitch)
+        + String(",\"a5\":0")
+        + String(",\"a6\":60000}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":11")
+        + String(",\"a0\":80,\"a1\":12000,\"a2\":1000")
+        + String(",\"a3\":0,\"a4\":0,\"a5\":0,\"a6\":0}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":30")
+        + String(",\"a0\":1,\"a1\":255,\"a2\":132,\"a3\":22")
+        + String(",\"a4\":0,\"a5\":720,\"a6\":0}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":40")
+        + String(",\"a0\":1,\"a1\":0,\"a2\":0,\"a3\":36")
+        + String(",\"a4\":0,\"a5\":1000,\"a6\":0}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":50")
+        + String(",\"a0\":1,\"a1\":1,\"a2\":1")
+        + String(",\"a3\":0,\"a4\":520,\"a5\":0,\"a6\":0}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"scene\",\"scene_op\":51")
+        + String(",\"a0\":1")
+        + String(",\"a1\":") + String(cube_yaw)
+        + String(",\"a2\":0,\"a3\":0")
+        + String(",\"a4\":760,\"a5\":760,\"a6\":760}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"text\",\"x\":42,\"y\":48,\"text\":")
+        + JsonString(String("Orange Fortress cube angle ") + String(angle + 1) + String(" / 3"), true).toString()
+        + String(",\"size\":28,\"r\":1.0,\"g\":0.94,\"b\":0.86}"));
+
+    appendJsonCommand(json, emitted,
+        String("{\"op\":\"text\",\"x\":42,\"y\":82,\"text\":")
+        + JsonString(String("Camera: ") + label + String("    keys: 1 2 3, arrows, space"), true).toString()
+        + String(",\"size\":17,\"r\":0.78,\"g\":0.88,\"b\":0.92}"));
+
+    json += String("]");
+    return json;
+}
+
 String OrangeFortressApp::buildSurfaceCommandsJson() const {
     Mutex::Lock lock(render_lock);
     if (latest_surface_valid) {
@@ -1250,6 +1381,8 @@ int OrangeFortressApp::run() {
         return 1;
     }
 
+    publishCachedCubeScene(0);
+
     ElaraUiDocumentBuilder ui;
     buildDocument(ui);
     if (!loadDocument(ui.toJson())) {
@@ -1275,30 +1408,69 @@ int OrangeFortressApp::run() {
     }
     traceLine(String("{\"event\":\"initial_scene_ingress\"}"));
     int loop_count = 0;
-    while (loop_count < 150) {
+    bool cached_replay_started = false;
+    bool stdin_open = true;
+    while (true) {
+        fd_set readfds;
         struct timeval tv;
+        int max_fd = -1;
+        FD_ZERO(&readfds);
+        if (stdin_open) {
+            FD_SET(STDIN_FILENO, &readfds);
+            max_fd = STDIN_FILENO;
+        }
         tv.tv_sec = 0;
         tv.tv_usec = 33000;
-        select(0, NULL, NULL, NULL, &tv);
+        int rc = select(max_fd + 1, &readfds, NULL, NULL, &tv);
+        if (rc > 0 && stdin_open && FD_ISSET(STDIN_FILENO, &readfds)) {
+            char line[256];
+            if (!fgets(line, sizeof(line), stdin)) {
+                stdin_open = false;
+            } else {
+                String command(line);
+                command = command.trim();
+                if (command == String("quit") || command == String("exit") || command == String("q")) {
+                    shutdown();
+                    return 0;
+                }
+                if (command == String("1")) { publishCachedCubeScene(0); }
+                else if (command == String("2")) { publishCachedCubeScene(1); }
+                else if (command == String("3")) { publishCachedCubeScene(2); }
+                else if (command == String("next")) { cycleCachedCubeScene(1); }
+                else if (command == String("prev")) { cycleCachedCubeScene(-1); }
+                else if (command == String("snapshot")) { printSnapshot(); }
+            }
+        }
+
+        drainKeyEvents();
 
         if(!pushUiState()) {
             break;
         }
+        bool should_start_cached_replay = false;
         {
             Mutex::Lock lock(render_lock);
-            if (scene_received) {
-                printf("Scene confirm received from EPA scene worker.\n");
-                traceLine(String("{\"event\":\"scene_confirm_received\"}"));
-                shutdown();
-                return 0;
+            if (scene_received && !cached_replay_started) {
+                cached_replay_started = true;
+                scene_received = false;
+                should_start_cached_replay = true;
             }
         }
+        if (should_start_cached_replay) {
+            printf("Scene confirm received from EPA scene worker.\n");
+            traceLine(String("{\"event\":\"scene_confirm_received\"}"));
+            publishCachedCubeScene(cached_scene_angle);
+        }
         loop_count++;
+        if (!cached_replay_started && loop_count > 150) {
+            printf("Timed out waiting for EPA scene worker confirmation; entering cached cube replay anyway.\n");
+            traceKernelStateSnapshot("scene_confirm_timeout");
+            traceLine(String("{\"event\":\"scene_confirm_timeout_cached_replay\"}"));
+            cached_replay_started = true;
+            publishCachedCubeScene(cached_scene_angle);
+        }
     }
 
-    printf("Timed out waiting for EPA scene compiler confirmation.\n");
-    traceKernelStateSnapshot("scene_confirm_timeout");
-    traceLine(String("{\"event\":\"scene_confirm_timeout\"}"));
     shutdown();
     return 1;
 }

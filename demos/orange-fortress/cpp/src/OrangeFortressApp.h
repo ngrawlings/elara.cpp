@@ -57,6 +57,7 @@ private:
     int scene_cam_pitch;
     int scene_depth;
     int scene_lane;
+    int cached_scene_angle;
     String latest_surface_commands;
     bool latest_surface_valid;
     bool scene_received;
@@ -81,6 +82,9 @@ private:
     bool sendScenePose();
     void drainKeyEvents();
     void installSurfaceCallback();
+    void publishCachedCubeScene(int angle);
+    void cycleCachedCubeScene(int delta);
+    String buildCachedCubeSceneJson(int angle) const;
     String buildSurfaceCommandsJson() const;
     String buildStatusItemsJson() const;
     void openTraceArtifact();
