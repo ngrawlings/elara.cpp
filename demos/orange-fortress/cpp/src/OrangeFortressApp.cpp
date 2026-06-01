@@ -22,6 +22,7 @@
 #include <libelarasockets/rpc/brpc/BRpcRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelarauirpc/ElaraUiDocumentBuilder.h>
+#include "OrangeFortressEpaFrame.h"
 
 namespace elara {
 using namespace elara::ui::rpc;
@@ -33,17 +34,6 @@ using sockets::rpc::brpc::BRPC_NAMED_BYTE;
 using sockets::rpc::brpc::BRPC_NAMED_STRING;
 
 namespace {
-
-static uint32_t read_le_u32(const unsigned char *p) {
-    return ((uint32_t)p[0])
-         | ((uint32_t)p[1] << 8)
-         | ((uint32_t)p[2] << 16)
-         | ((uint32_t)p[3] << 24);
-}
-
-static int32_t read_le_i32(const unsigned char *p) {
-    return (int32_t)read_le_u32(p);
-}
 
 static double parse_json_number_after(const String& text, const String& needle, double fallback) {
     String text_copy(text);
@@ -185,14 +175,14 @@ static bool elg_write_frame(int fd, const ByteArray &data) {
     return written == (ssize_t)len;
 }
 
-static void elg_dispatch_frame(int fd, const std::vector<char> &frame) {
+static void elg_dispatch_frame(OrangeFortressApp *app, int fd, const std::vector<char> &frame) {
     BRpcReader reader(frame.data(), frame.size());
     uint8_t type;
     if (!reader.peekType(type) || type != BRPC_ARRAY) return;
     uint32_t total, count;
     if (!reader.readArrayHeader(total, count)) return;
 
-    String id, method;
+    String id, method, params_json;
     for (uint32_t i = 0; i < count; i++) {
         if (!reader.peekType(type)) break;
         if (type == BRPC_NAMED_STRING) {
@@ -200,6 +190,7 @@ static void elg_dispatch_frame(int fd, const std::vector<char> &frame) {
             if (!reader.readNamedString(name, value)) break;
             if (name == String("id")) id = value;
             else if (name == String("method")) method = value;
+            else if (name == String("params")) params_json = value;
         } else if (type == BRPC_NAMED_BYTE) {
             String name; uint8_t bval;
             if (!reader.readNamedByte(name, bval)) break;
@@ -224,6 +215,22 @@ static void elg_dispatch_frame(int fd, const std::vector<char> &frame) {
         BRpcWriter resp;
         resp.writeArray(fields, 3);
         elg_write_frame(fd, resp.bytes());
+    } else if (app) {
+        String result_json, error_code, error_message;
+        if (app->handleExtLogicRequest(method, params_json, result_json, error_code, error_message)) {
+            fields.writeNamedByte(String("ok"), 1);
+            fields.writeNamedString(String("result"), result_json.length() ? result_json : String("{}"));
+            BRpcWriter resp;
+            resp.writeArray(fields, 3);
+            elg_write_frame(fd, resp.bytes());
+        } else {
+            fields.writeNamedByte(String("ok"), 0);
+            fields.writeNamedString(String("code"), error_code.length() ? error_code : String("not_found"));
+            fields.writeNamedString(String("msg"), error_message.length() ? error_message : String("method not implemented on C++ host"));
+            BRpcWriter resp;
+            resp.writeArray(fields, 4);
+            elg_write_frame(fd, resp.bytes());
+        }
     } else {
         fields.writeNamedByte(String("ok"), 0);
         fields.writeNamedString(String("code"), String("not_found"));
@@ -804,7 +811,7 @@ void OrangeFortressApp::extLogicServe() {
         if (client < 0) break;
         std::vector<char> frame;
         while (elg_read_frame(client, frame)) {
-            elg_dispatch_frame(client, frame);
+            elg_dispatch_frame(this, client, frame);
         }
         close(client);
     }
@@ -984,6 +991,29 @@ bool OrangeFortressApp::epaDbgCall(const String &method, const String &params_js
     return true;
 }
 
+void OrangeFortressApp::drainEpaDebugEvents() {
+    String events_json;
+    if (!epaDbgCall(String("epa.debug.events"), String("{\"clear\":true}"), events_json)) {
+        return;
+    }
+    try {
+        Json json(events_json);
+        Array< Ref<JsonValue> > events = json.getArray(String("events"));
+        for (unsigned int i = 0; i < events.length(); i++) {
+            Json event(events[i]->toString());
+            String kind = event.getStringValue(String("kind"));
+            String message = event.getStringValue(String("message"));
+            if (kind == String("log") && message.length()) {
+                sendHostDebugLog(message);
+            }
+        }
+    } catch (...) {
+        if (events_json.length()) {
+            sendHostDebugLog(String("[epa vm] failed to parse debug events: ") + events_json);
+        }
+    }
+}
+
 bool OrangeFortressApp::epaDbgLoadBundle() {
     refreshProjectState();
     epa_loaded = false;
@@ -1058,11 +1088,13 @@ bool OrangeFortressApp::sendScenePose() {
         snprintf(tmp, sizeof(tmp), "%02x", (unsigned)raw[i]);
         hex += String(tmp);
     }
-    String ingress_params = String("{\"path_id\":\"orange.fortress.scene\",\"wid\":1,\"payload_hex\":\"")
+    String epa_scene_path_id("scene");
+    String ingress_params = String("{\"path_id\":") + json_quote_simple(epa_scene_path_id)
+                          + String(",\"wid\":1,\"payload_hex\":\"")
                           + hex + String("\"}");
     String result_json;
     String clear_mailbox_result;
-    String scene_kernel_params = String("{\"path_id\":\"orange.fortress.scene\"}");
+    String scene_kernel_params = String("{\"path_id\":") + json_quote_simple(epa_scene_path_id) + String("}");
     if (!epaDbgCall(String("epa.debug.clearMailbox"), scene_kernel_params, clear_mailbox_result)) {
         printf("sendScenePose: clearMailbox failed\n");
         return false;
@@ -1073,11 +1105,24 @@ bool OrangeFortressApp::sendScenePose() {
         return false;
     }
     printf("sendScenePose: ingressPushHex queued=%s\n", result_json.operator char *());
+    String ingress_frame_json = orangeFortressIngressFrameHeaderJson(
+        String("orange-fortress.epa.frame.v1"),
+        String("ScenePoseInputPayload"),
+        (uint32_t)pose.depth,
+        (uint32_t)sizeof(pose)
+    );
+    sendHostDebugEvent(
+        String("ingress_frame"),
+        String("\"kernel\":\"orange.fortress.scene\",")
+            + String("\"worker\":\"wid=1\",")
+            + String("\"frame\":") + ingress_frame_json
+    );
     sendHostDebugEvent(
         String("ingress"),
         String("\"kernel\":\"orange.fortress.scene\",")
             + String("\"worker\":\"wid=1\",")
             + String("\"type\":\"ScenePoseInputPayload\",")
+            + String("\"frame\":") + ingress_frame_json + String(",")
             + String("\"details\":")
             + json_quote_simple(
                 String("cam_x=") + String(pose.cam_x)
@@ -1090,11 +1135,13 @@ bool OrangeFortressApp::sendScenePose() {
     // Run the scene kernel until signal (E3SB frame commit) or max ticks.
     String run_result;
     if (!epaDbgCall(String("epa.debug.run"),
-                    String("{\"path_id\":\"orange.fortress.scene\",\"max_ticks\":200000}"),
+                    String("{\"path_id\":") + json_quote_simple(epa_scene_path_id) + String(",\"max_ticks\":200000}"),
                     run_result)) {
+        drainEpaDebugEvents();
         printf("sendScenePose: run failed\n");
         return false;
     }
+    drainEpaDebugEvents();
     printf("sendScenePose: run result=%s\n", run_result.operator char *());
 
     // Retrieve the mailbox bytes produced by frame_commit.
@@ -1116,14 +1163,6 @@ bool OrangeFortressApp::sendScenePose() {
             sendHostDebugState(String("Status: mailbox empty after scene run"));
             return false;
         }
-        sendHostDebugEvent(
-            String("egress"),
-            String("\"kernel\":\"orange.fortress.scene\",")
-                + String("\"worker\":\"wid=") + String(wid_val) + String("\",")
-                + String("\"signal\":\"SceneFrameMailbox\",")
-                + String("\"details\":")
-                + json_quote_simple(String("len=") + String(len_val))
-        );
         std::vector<char> bytes(len_val);
         String hex_copy(hex_str);
         const char *p = hex_copy.operator char *();
@@ -1131,9 +1170,22 @@ bool OrangeFortressApp::sendScenePose() {
             char chunk[3] = { p[0], p[1], 0 };
             bytes[i] = (char)strtoul(chunk, NULL, 16);
         }
+        sendHostDebugEvent(
+            String("egress"),
+            String("\"kernel\":\"orange.fortress.scene\",")
+                + String("\"worker\":\"wid=") + String(wid_val) + String("\",")
+                + String("\"signal\":\"SceneFrameMailbox\",")
+                + String("\"frame\":") + orangeFortressFrameHeaderJson(
+                    orangeFortressParseEgressFrameHeader((const unsigned char *)bytes.data(), (size_t)len_val),
+                    String("egress"),
+                    String("orange-fortress.epa.frame.v1")
+                ) + String(",")
+                + String("\"details\":")
+                + json_quote_simple(String("len=") + String(len_val))
+        );
         if (len_val >= 4) {
             printf("sendScenePose: mailbox wid=%d len=%d magic=0x%08x\n",
-                   wid_val, len_val, (unsigned)read_le_u32((const unsigned char *)bytes.data()));
+                   wid_val, len_val, (unsigned)orangeFortressReadLeU32((const unsigned char *)bytes.data()));
         } else {
             printf("sendScenePose: mailbox wid=%d len=%d\n", wid_val, len_val);
         }
@@ -1253,6 +1305,61 @@ void OrangeFortressApp::cycleCachedCubeScene(int delta) {
     publishCachedCubeScene(next_angle);
 }
 
+String OrangeFortressApp::buildHostDebugSurfaceTestJson() const {
+    return String("[")
+        + String("{\"op\":\"clear\",\"r\":0.02,\"g\":0.025,\"b\":0.035},")
+        + String("{\"op\":\"rect\",\"x\":120,\"y\":110,\"w\":360,\"h\":220,\"r\":1.0,\"g\":0.05,\"b\":0.05},")
+        + String("{\"op\":\"line\",\"x0\":60,\"y0\":60,\"x1\":1220,\"y1\":660,\"r\":0.05,\"g\":1.0,\"b\":0.05},")
+        + String("{\"op\":\"line\",\"x0\":1220,\"y0\":60,\"x1\":60,\"y1\":660,\"r\":0.05,\"g\":0.45,\"b\":1.0},")
+        + String("{\"op\":\"text\",\"x\":56,\"y\":52,\"text\":\"Host debug surface test\",\"size\":30,\"r\":1.0,\"g\":0.95,\"b\":0.85},")
+        + String("{\"op\":\"text\",\"x\":56,\"y\":88,\"text\":\"clear + rect + two lines from C++ host\",\"size\":17,\"r\":0.82,\"g\":0.90,\"b\":0.78}")
+        + String("]");
+}
+
+bool OrangeFortressApp::handleExtLogicRequest(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {
+    if (method == String("ext.debug.status")) {
+        Mutex::Lock lock(render_lock);
+        result_json = String("{\"epa_started\":") + String(epa_started ? "true" : "false")
+            + String(",\"latest_surface_valid\":") + String(latest_surface_valid ? "true" : "false")
+            + String(",\"surface_revision\":") + String((int)surface_revision)
+            + String(",\"pushed_surface_revision\":") + String((int)pushed_surface_revision)
+            + String(",\"cached_scene_angle\":") + String(cached_scene_angle + 1)
+            + String("}");
+        return true;
+    }
+    if (method == String("ext.debug.surfaceTest")) {
+        {
+            Mutex::Lock lock(render_lock);
+            latest_surface_commands = buildHostDebugSurfaceTestJson();
+            latest_surface_valid = true;
+            surface_revision++;
+        }
+        sendHostDebugLog(String("host debug surface test queued"));
+        result_json = String("{\"queued\":true,\"mode\":\"surfaceTest\"}");
+        return true;
+    }
+    if (method == String("ext.debug.cachedCube")) {
+        int angle = 0;
+        try {
+            Json params(params_json.length() ? params_json : String("{}"));
+            angle = (int)params.getIntValue(String("angle")) - 1;
+        } catch (...) {
+            angle = 0;
+        }
+        publishCachedCubeScene(angle);
+        result_json = String("{\"queued\":true,\"mode\":\"cachedCube\",\"angle\":") + String(angle + 1) + String("}");
+        return true;
+    }
+    if (method == String("ext.debug.epaScene")) {
+        bool ok = sendScenePose();
+        result_json = String("{\"queued\":") + String(ok ? "true" : "false") + String(",\"mode\":\"epaScene\"}");
+        return ok;
+    }
+    error_code = String("not_found");
+    error_message = String("method not implemented on C++ host");
+    return false;
+}
+
 void OrangeFortressApp::drainKeyEvents() {
     if (!epa_started) {
         return;
@@ -1330,36 +1437,40 @@ bool OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     int rect_count = 0;
     printf("surface mailbox callback wid=%u len=%d\n", wid, msg_len);
     traceLine(String("{\"event\":\"mailbox_callback\",\"wid\":") + String((int)wid) + String(",\"len\":") + String(msg_len) + String("}"));
-    if ((wid != 1u && wid != 2u) || !msg || msg_len < 28) {
+    if ((wid != 1u && wid != 2u) || !msg) {
         printf("surface mailbox ignored: invalid wid/msg/len\n");
         traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":\"invalid_wid_or_len\"}"));
         sendHostDebugLog(String("mailbox failure: invalid worker or payload length len=") + String(msg_len));
         sendHostDebugState(String("Status: mailbox size failure"));
         return false;
     }
-    if (read_le_u32(bytes) != 0x45465231u) {
-        printf("surface mailbox ignored: bad magic 0x%08x\n", (unsigned)read_le_u32(bytes));
-        traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":\"bad_magic\",\"magic\":") + String((int)read_le_u32(bytes)) + String("}"));
-        sendHostDebugLog(String("mailbox failure: bad magic 0x") + String((int)read_le_u32(bytes)));
-        sendHostDebugState(String("Status: mailbox format failure"));
+    OrangeFortressEpaFrameHeader frame_header = orangeFortressParseEgressFrameHeader(bytes, (size_t)msg_len);
+    sendHostDebugEvent(
+        String("egress_frame"),
+        String("\"kernel\":\"orange.fortress.scene\",")
+            + String("\"worker\":\"wid=") + String((int)wid) + String("\",")
+            + String("\"frame\":") + orangeFortressFrameHeaderJson(frame_header, String("egress"), String("orange-fortress.epa.frame.v1"))
+    );
+    if (!frame_header.valid) {
+        printf("surface mailbox ignored: frame header error=%s magic=0x%08x len=%d\n",
+               frame_header.error.operator char *(), (unsigned)frame_header.magic, msg_len);
+        traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":")
+            + JsonString(frame_header.error, true).toString()
+            + String(",\"magic\":") + String((int)frame_header.magic) + String("}"));
+        sendHostDebugLog(String("mailbox failure: ") + frame_header.error + String(" len=") + String(msg_len));
+        sendHostDebugState(String("Status: mailbox frame failure"));
         return false;
     }
-    offset += 4; /* magic */
-    offset += 4; /* version */
-    if ((size_t)msg_len < offset + 20u) {
-        sendHostDebugLog(String("mailbox failure: truncated header len=") + String(msg_len));
-        sendHostDebugState(String("Status: mailbox size failure"));
-        return false;
-    }
-    uint32_t width = read_le_u32(bytes + offset); offset += 4;
-    uint32_t height = read_le_u32(bytes + offset); offset += 4;
-    uint32_t frame_type = read_le_u32(bytes + offset); offset += 4;
-    uint32_t frame_id = read_le_u32(bytes + offset); offset += 4;
-    uint32_t record_count = read_le_u32(bytes + offset); offset += 4;
+    offset = frame_header.header_bytes;
+    uint32_t width = frame_header.width;
+    uint32_t height = frame_header.height;
+    uint32_t frame_type = frame_header.frame_type;
+    uint32_t frame_id = frame_header.frame_id;
+    uint32_t record_count = frame_header.record_count;
 
     if (frame_type == 3u) {
         while (offset + 4u <= (size_t)msg_len) {
-            uint32_t record_opcode = read_le_u32(bytes + offset);
+            uint32_t record_opcode = orangeFortressReadLeU32(bytes + offset);
             offset += 4;
             if (record_opcode == 255u) {
                 break;
@@ -1367,14 +1478,14 @@ bool OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
             if (record_opcode != 2u || offset + 32u > (size_t)msg_len) {
                 break;
             }
-            int32_t op = read_le_i32(bytes + offset); offset += 4;
-            int32_t a0 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a1 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a2 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a3 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a4 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a5 = read_le_i32(bytes + offset); offset += 4;
-            int32_t a6 = read_le_i32(bytes + offset); offset += 4;
+            int32_t op = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a0 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a1 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a2 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a3 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a4 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a5 = orangeFortressReadLeI32(bytes + offset); offset += 4;
+            int32_t a6 = orangeFortressReadLeI32(bytes + offset); offset += 4;
 
             appendJsonCommand(json, emitted,
                 String("{\"op\":\"scene\",\"scene_op\":") + String(op)
@@ -1424,20 +1535,20 @@ bool OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     emitted = 1;
 
     while (offset + 4u <= (size_t)msg_len) {
-        uint32_t opcode = read_le_u32(bytes + offset);
+        uint32_t opcode = orangeFortressReadLeU32(bytes + offset);
         offset += 4;
         if (opcode == 255u) {
             break;
         }
         if (opcode == 1u) {
             if (offset + 28u > (size_t)msg_len) break;
-            uint32_t x = read_le_u32(bytes + offset); offset += 4;
-            uint32_t y = read_le_u32(bytes + offset); offset += 4;
-            uint32_t w = read_le_u32(bytes + offset); offset += 4;
-            uint32_t h = read_le_u32(bytes + offset); offset += 4;
-            uint32_t r = read_le_u32(bytes + offset); offset += 4;
-            uint32_t g = read_le_u32(bytes + offset); offset += 4;
-            uint32_t b = read_le_u32(bytes + offset); offset += 4;
+            uint32_t x = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t y = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t w = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t h = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t r = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t g = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t b = orangeFortressReadLeU32(bytes + offset); offset += 4;
             if (emitted) json += String(",");
             json += String("{\"op\":\"rect\",\"x\":") + String((int)x)
                  + String(",\"y\":") + String((int)y)
@@ -1462,14 +1573,14 @@ bool OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
         }
         if (opcode == 2u) {
             if (offset + 32u > (size_t)msg_len) break;
-            uint32_t x0 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t y0 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t x1 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t y1 = read_le_u32(bytes + offset); offset += 4;
-            uint32_t line_width = read_le_u32(bytes + offset); offset += 4;
-            uint32_t r = read_le_u32(bytes + offset); offset += 4;
-            uint32_t g = read_le_u32(bytes + offset); offset += 4;
-            uint32_t b = read_le_u32(bytes + offset); offset += 4;
+            uint32_t x0 = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t y0 = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t x1 = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t y1 = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t line_width = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t r = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t g = orangeFortressReadLeU32(bytes + offset); offset += 4;
+            uint32_t b = orangeFortressReadLeU32(bytes + offset); offset += 4;
             if (emitted) json += String(",");
             json += String("{\"op\":\"line\",\"x0\":") + String((int)x0)
                  + String(",\"y0\":") + String((int)y0)
@@ -1875,7 +1986,6 @@ int OrangeFortressApp::run() {
         if (should_start_cached_replay) {
             printf("Scene confirm received from EPA scene worker.\n");
             traceLine(String("{\"event\":\"scene_confirm_received\"}"));
-            publishCachedCubeScene(cached_scene_angle);
         }
         loop_count++;
         if (!cached_replay_started && loop_count > 150) {

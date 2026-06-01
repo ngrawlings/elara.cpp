@@ -22,9 +22,11 @@ worker scene_camera_update(ScenePoseInput input) {
   int pitch_milli;
   int cam_z;
 
+  log("[scene] ingress cam_x={d} cam_z={d} yaw={d} pitch={d}\n", input.cam_x, input.cam_z, input.yaw, input.pitch);
+
   yaw_milli = input.yaw * 1000;
   pitch_milli = input.pitch * 1000;
-  cam_z = input.cam_z - 3000;
+  cam_z = input.cam_z - 6500;
 
   scene.frame_id = input.depth;
   scene.width = 1280;
@@ -35,16 +37,16 @@ worker scene_camera_update(ScenePoseInput input) {
   // Camera records. Positions are milliunits; angles are millidegrees.
   scene.p0_op = 10;
   scene.p0_a0 = input.cam_x;
-  scene.p0_a1 = 620;
+  scene.p0_a1 = 1450;
   scene.p0_a2 = cam_z;
   scene.p0_a3 = yaw_milli;
   scene.p0_a4 = pitch_milli;
   scene.p0_a5 = 0;
-  scene.p0_a6 = 60000;
+  scene.p0_a6 = 76000;
 
   scene.p1_op = 11;
   scene.p1_a0 = 80;
-  scene.p1_a1 = 12000;
+  scene.p1_a1 = 24000;
   scene.p1_a2 = 1000;
   scene.p1_a3 = 0;
   scene.p1_a4 = 0;
@@ -104,8 +106,8 @@ worker scene_camera_update(ScenePoseInput input) {
   scene.p7_a1 = 1;
   scene.p7_a2 = 1;
   scene.p7_a3 = 260;
-  scene.p7_a4 = 700;
-  scene.p7_a5 = 900;
+  scene.p7_a4 = 950;
+  scene.p7_a5 = 1200;
   scene.p7_a6 = 0;
 
   scene.p8_op = 51;
@@ -113,17 +115,17 @@ worker scene_camera_update(ScenePoseInput input) {
   scene.p8_a1 = 0;
   scene.p8_a2 = 0;
   scene.p8_a3 = 0;
-  scene.p8_a4 = 260;
-  scene.p8_a5 = 260;
-  scene.p8_a6 = 260;
+  scene.p8_a4 = 1100;
+  scene.p8_a5 = 1100;
+  scene.p8_a6 = 1100;
 
   scene.p9_op = 50;
   scene.p9_a0 = 2;
   scene.p9_a1 = 1;
   scene.p9_a2 = 1;
   scene.p9_a3 = 0;
-  scene.p9_a4 = 520;
-  scene.p9_a5 = 1700;
+  scene.p9_a4 = 820;
+  scene.p9_a5 = 2600;
   scene.p9_a6 = 0;
 
   scene.p10_op = 51;
@@ -131,9 +133,9 @@ worker scene_camera_update(ScenePoseInput input) {
   scene.p10_a1 = 22000;
   scene.p10_a2 = 0;
   scene.p10_a3 = 0;
-  scene.p10_a4 = 420;
-  scene.p10_a5 = 420;
-  scene.p10_a6 = 420;
+  scene.p10_a4 = 900;
+  scene.p10_a5 = 900;
+  scene.p10_a6 = 900;
 
   scene.p11_op = 50;
   scene.p11_a0 = 3;
@@ -153,7 +155,8 @@ worker scene_camera_update(ScenePoseInput input) {
   scene.p12_a5 = 60;
   scene.p12_a6 = 2200;
 
-  frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.command_count);
+  log("[scene] frame_begin width={d} height={d} frame_id={d} records={d}\n", scene.width, scene.height, scene.frame_id, scene.command_count);
+  frame_begin(scene.width, scene.height, 3, input.depth, scene.command_count);
   frame_line(scene.p0_op, scene.p0_a0, scene.p0_a1, scene.p0_a2, scene.p0_a3, scene.p0_a4, scene.p0_a5, scene.p0_a6);
   frame_line(scene.p1_op, scene.p1_a0, scene.p1_a1, scene.p1_a2, scene.p1_a3, scene.p1_a4, scene.p1_a5, scene.p1_a6);
   frame_line(scene.p2_op, scene.p2_a0, scene.p2_a1, scene.p2_a2, scene.p2_a3, scene.p2_a4, scene.p2_a5, scene.p2_a6);
@@ -167,5 +170,6 @@ worker scene_camera_update(ScenePoseInput input) {
   frame_line(scene.p10_op, scene.p10_a0, scene.p10_a1, scene.p10_a2, scene.p10_a3, scene.p10_a4, scene.p10_a5, scene.p10_a6);
   frame_line(scene.p11_op, scene.p11_a0, scene.p11_a1, scene.p11_a2, scene.p11_a3, scene.p11_a4, scene.p11_a5, scene.p11_a6);
   frame_line(scene.p12_op, scene.p12_a0, scene.p12_a1, scene.p12_a2, scene.p12_a3, scene.p12_a4, scene.p12_a5, scene.p12_a6);
+  log("[scene] frame_commit records={d}\n", scene.command_count);
   frame_commit();
 }

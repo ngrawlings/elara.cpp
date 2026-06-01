@@ -74,6 +74,7 @@ acl {
 @attributes signal_mail_box_size:16384
 worker scene_compile(VkSceneCompile scene) {
   // Frame header: E3SB type = 3, carries frame_id and object count.
+  log("[scene_compiler] scene_compile frame_id={d} objects={d} width={d} height={d}\n", scene.frame_id, scene.obj_count, scene.width, scene.height);
   frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.obj_count);
 
   // Camera block part 1: position + orientation + fov + near plane.
@@ -120,6 +121,7 @@ worker scene_compile(VkSceneCompile scene) {
     );
   }
 
+  log("[scene_compiler] scene_compile commit frame_id={d} objects={d}\n", scene.frame_id, scene.obj_count);
   frame_commit();
   kernel_signal();
 }
@@ -127,6 +129,7 @@ worker scene_compile(VkSceneCompile scene) {
 @attributes signal_mail_box_size:16384
 worker scene_compile_full(VkSceneCompileV2 scene) {
   // E3SB V2: command_count counts the primitive records below.
+  log("[scene_compiler] scene_compile_full frame_id={d} commands={d} width={d} height={d}\n", scene.frame_id, scene.command_count, scene.width, scene.height);
   frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.command_count);
 
   if (scene.command_count > 0) {
@@ -178,6 +181,7 @@ worker scene_compile_full(VkSceneCompileV2 scene) {
     frame_line(scene.p15_op, scene.p15_a0, scene.p15_a1, scene.p15_a2, scene.p15_a3, scene.p15_a4, scene.p15_a5, scene.p15_a6);
   }
 
+  log("[scene_compiler] scene_compile_full commit frame_id={d} commands={d}\n", scene.frame_id, scene.command_count);
   frame_commit();
   kernel_signal();
 }

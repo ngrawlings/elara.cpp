@@ -4,6 +4,7 @@
 #include <dlfcn.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <vector>
 
@@ -1235,6 +1236,7 @@ ElaraVulkanSurfaceWidget::ElaraVulkanSurfaceWidget(
     virtual_width(1000.0),
     virtual_height(1000.0),
     execution_status("Vulkan pending"),
+    logged_execution_status(""),
     command_revision(0),
     drawn_revision(0),
     vulkan_runtime(0) {
@@ -1390,6 +1392,8 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
         VkSceneMaterialState scene_materials[16];
         std::vector<VkSceneInstanceState> scene_instances;
         bool has_scene_commands = false;
+        int scene_command_count = 0;
+        int wire_line_count = 0;
         for(int i = 0; i < 16; i++) {
             scene_materials[i].r = 1.0;
             scene_materials[i].g = 0.52;
@@ -1403,6 +1407,7 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
 
             if((int)cmd->type >= 10) {
                 has_scene_commands = true;
+                scene_command_count++;
                 if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_CAMERA_VIEW) {
                     scene_camera.x = vkSceneMilli(cmd->x0);
                     scene_camera.y = vkSceneMilli(cmd->y0);
@@ -1477,18 +1482,34 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
         }
         if(has_scene_commands) {
             for(size_t i = 0; i < scene_instances.size(); i++) {
+                size_t before = kernel_cmds.size();
                 vkAppendSceneInstanceWireframe(kernel_cmds, scene_camera, scene_instances[i], pixel_width, pixel_height);
+                wire_line_count += (int)(kernel_cmds.size() - before);
             }
+        }
+
+        if(has_scene_commands) {
+            execution_status = String("scene cmds=") + String(scene_command_count)
+                + String(" instances=") + String((int)scene_instances.size())
+                + String(" wire_lines=") + String(wire_line_count)
+                + String(" gpu_cmds=") + String((int)kernel_cmds.size());
         }
     }
 
-    return vulkan_runtime->render(
+    String render_status;
+    bool rendered = vulkan_runtime->render(
         kernel_cmds,
         pixel_width, pixel_height,
         (float)virtual_width, (float)virtual_height,
         &pixel_buffer,
-        &execution_status
+        &render_status
     );
+    if(rendered && render_status.length() && execution_status.indexOf("scene cmds=") < 0) {
+        execution_status = render_status;
+    } else if(!rendered && render_status.length()) {
+        execution_status = render_status;
+    }
+    return rendered;
 }
 
 void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
@@ -1546,6 +1567,11 @@ void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
         ctx->drawBitmapRgba(0, 0, (int)width, (int)height, &pixel_buffer[0], (int)width * 4);
     } else {
         pixel_buffer.clear();
+    }
+    if(execution_status.length() > 0 && execution_status != logged_execution_status) {
+        printf("[vulkan-surface] status: %s\n", execution_status.operator char *());
+        fflush(stdout);
+        logged_execution_status = execution_status;
     }
 
     Mutex::Lock lock(commands_mutex);

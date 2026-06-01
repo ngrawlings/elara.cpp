@@ -57,6 +57,7 @@ public:
     void handleMouseDown(int button, double x, double y);
     void handleMouseUp(int button, double x, double y);
     void handleMouseMove(double x, double y);
+    bool handleExtLogicRequest(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);
 
     std::atomic<bool> ui_quit_requested;
 
@@ -120,6 +121,7 @@ private:
     bool connectEpaDbg();
     void closeEpaDbg();
     bool epaDbgCall(const String &method, const String &params_json, String &result_json);
+    void drainEpaDebugEvents();
     bool epaDbgLoadBundle();
     bool sendScenePose();
     void drainKeyEvents();
@@ -147,6 +149,7 @@ private:
     void hostDebugReadLoop();
     void startExtLogicServer();
     void extLogicServe();
+    String buildHostDebugSurfaceTestJson() const;
     void shutdown();
 };
 

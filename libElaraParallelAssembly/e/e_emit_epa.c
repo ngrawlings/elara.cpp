@@ -938,6 +938,8 @@ static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dept
   }
   string_id = find_string_const_id(ctx, expr->as.call.args[0]->as.string_lit);
   emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
   fprintf(out, "LOAD_CONST %u\n", string_id);
   for (i = 1; i < expr->as.call.arg_count; i++) {
     emit_expr(out, expr->as.call.args[i], ctx, depth);
@@ -946,6 +948,8 @@ static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dept
   fprintf(out, "FMT %zu\n", expr->as.call.arg_count - 1u);
   emit_indent(out, depth);
   fputs("LOG\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
   return 1;
 }
 

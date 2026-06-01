@@ -22,6 +22,8 @@
     "cpp/src/OrangeFortressEpaDebugService.h",
     "cpp/src/OrangeFortressEpaDebugShim.c",
     "cpp/src/OrangeFortressEpaDebugShim.h",
+    "cpp/src/OrangeFortressEpaFrame.cpp",
+    "cpp/src/OrangeFortressEpaFrame.h",
     "cpp/src/OrangeFortressEpaVmHost.cpp",
     "cpp/src/OrangeFortressEpaVmHost.h",
     "cpp/src/epa_debug_main.cpp",

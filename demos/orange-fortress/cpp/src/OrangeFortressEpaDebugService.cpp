@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <vector>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
+#include "OrangeFortressEpaFrame.h"
 
 extern "C" {
 typedef struct EpaKernel EpaKernel;
@@ -121,7 +122,7 @@ EpaKernel *OrangeFortressEpaDebugService::kernelForPathId(const String &path_id)
     }
     int idx = host.findKernelIndex(path_id);
     if (idx >= 0) return host.rawKernelAt((size_t)idx);
-    return host.rawKernel();
+    return NULL;
 }
 
 std::string OrangeFortressEpaDebugService::workerDebugKey(const String &path_id, uint32_t wid) const {
@@ -154,7 +155,13 @@ void OrangeFortressEpaDebugService::pushEvent(const String &kind, uint32_t wid, 
 
 void OrangeFortressEpaDebugService::pushLogEvent(const String &message) {
     if (!message.length()) return;
-    pushEvent(String("log"), 0, 0, NULL, message);
+    String text(message);
+    if (!startsWith(text, "[epa vm]")) {
+        text = String("[epa vm] ") + text;
+    }
+    printf("%s\n", text.operator char *());
+    fflush(stdout);
+    pushEvent(String("log"), 0, 0, NULL, text);
 }
 
 bool OrangeFortressEpaDebugService::parseStringField(const String &json, const String &field, String &out_value) const {
@@ -368,7 +375,14 @@ bool OrangeFortressEpaDebugService::call(const String &method, const String &par
             ? host.ingressPushTaggedToKernel((size_t)idx, wid, tag, bytes.data(), (uint32_t)bytes.size())
             : host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size());
         if (!ok) { error_code = String("ingress_push_failed"); error_message = host.lastError(); return false; }
-        result_json = String("{\"queued\":true}"); return true;
+        result_json = String("{\"queued\":true")
+                    + String(",\"path_id\":") + jsonQuote(path_id)
+                    + String(",\"kernel_index\":") + String(idx)
+                    + String(",\"wid\":") + String((int)wid)
+                    + String(",\"tag\":") + String((int)tag)
+                    + String(",\"payload_bytes\":") + String((int)bytes.size())
+                    + String("}");
+        return true;
     }
     if (method == String("epa.debug.step")) {
         String path_id; uint32_t ticks = 1, ticks_ran = 0; String stop_reason;
@@ -403,9 +417,24 @@ bool OrangeFortressEpaDebugService::call(const String &method, const String &par
             snprintf(tmp, sizeof(tmp), "%02x", (unsigned)last_mailbox_bytes[i]);
             hex += String(tmp);
         }
+        OrangeFortressEpaFrameHeader frame_header = orangeFortressParseEgressFrameHeader(
+            last_mailbox_bytes.empty() ? NULL : &last_mailbox_bytes[0],
+            last_mailbox_bytes.size()
+        );
         result_json = String("{\"wid\":") + String((int)last_mailbox_wid)
                     + String(",\"len\":") + String((int)last_mailbox_bytes.size())
+                    + String(",\"frame\":") + orangeFortressFrameHeaderJson(
+                        frame_header,
+                        String("egress"),
+                        String("orange-fortress.epa.frame.v1")
+                    )
                     + String(",\"hex\":\"") + hex + String("\"}");
+        return true;
+    }
+    if (method == String("epa.debug.clearMailbox")) {
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        result_json = String("{\"cleared\":true}");
         return true;
     }
     if (method == String("epa.debug.events")) { bool clear_after = true; parseBoolField(params_json, String("clear"), true, &clear_after); result_json = buildEventsJson(clear_after); return true; }

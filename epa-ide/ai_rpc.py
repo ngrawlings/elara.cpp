@@ -505,6 +505,19 @@ HELP = {
             },
             "result": {"received": True},
         },
+        "ext_call": {
+            "desc": (
+                "Call the IDE external-logic bridge and, when a C++ host is attached, "
+                "proxy the request to that host. Use this for host-owned demo debug "
+                "commands without connecting directly to the UI server."
+            ),
+            "params": {
+                "method": "str — external host method, e.g. ext.debug.status",
+                "params": "dict optional — forwarded to the host",
+                "timeout": "float optional — response timeout seconds (default 10)",
+            },
+            "result": "whatever the external host returns",
+        },
         # ---- Event log ------------------------------------------------------
         "get_event_log": {
             "desc": (
@@ -1188,6 +1201,16 @@ class AiRpcServer:
         payload.setdefault("action", action)
         return self._ide.trigger_action(action, target, payload)
 
+    def _m_ext_call(self, params):
+        method = params.get("method", "")
+        if not method:
+            raise _RpcError("missing_param: method")
+        ext_params = params.get("params") or {}
+        if not isinstance(ext_params, dict):
+            raise _RpcError("missing_param: params must be an object")
+        timeout = float(params.get("timeout", 10.0))
+        return self._ide.ext_call(method, ext_params, timeout)
+
     def _m_get_event_log(self, params):
         limit = int(params.get("limit", 100))
         type_filter = str(params.get("type_filter", ""))
@@ -1303,6 +1326,7 @@ class IdeBindings:
         self._restart_ui = None             # (use_gdb: bool) -> dict
         self._reload_ui_document = None     # () -> dict
         self._trigger_action = None         # (action, target, payload) -> dict
+        self._ext_call = None               # (method: str, params: dict, timeout: float) -> any
         self._get_event_log = None          # (limit: int, type_filter: str) -> list
         self._clear_event_log = None        # () -> dict
         self._log_event = None              # (event_type: str, **details) -> None
@@ -1401,6 +1425,11 @@ class IdeBindings:
         if not self._trigger_action:
             raise _RpcError("ui_unavailable: trigger_action callback not set")
         return self._trigger_action(action, target, payload)
+
+    def ext_call(self, method: str, params: dict, timeout: float = 10.0):
+        if not self._ext_call:
+            raise _RpcError("ui_unavailable: ext_call callback not set")
+        return self._ext_call(method, params, timeout)
 
     def get_event_log(self, limit: int = 100, type_filter: str = "") -> list:
         if not self._get_event_log:

@@ -7652,6 +7652,46 @@ def main():
                     params["payload"].setdefault("action", action_id)
                     return on_ui_event(params)
 
+                def _ai_rpc_ext_call(method: str, params: dict, timeout: float = 10.0):
+                    if not method:
+                        raise RuntimeError("missing_param: method")
+                    port = _external_logic_bridge_ensure()
+                    if not port:
+                        raise RuntimeError("ext_logic_unavailable: bridge did not start")
+
+                    def _recv_n(sock: socket.socket, n: int) -> bytes:
+                        buf = bytearray()
+                        while len(buf) < n:
+                            chunk = sock.recv(n - len(buf))
+                            if not chunk:
+                                raise EOFError("connection closed")
+                            buf.extend(chunk)
+                        return bytes(buf)
+
+                    req_id = str(uuid.uuid4())
+                    body = _BRpcCodec.encode({
+                        "id": req_id,
+                        "method": method,
+                        "params": dict(params or {}),
+                    })
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                        sock.settimeout(float(timeout))
+                        sock.connect(("127.0.0.1", int(port)))
+                        sock.sendall(struct.pack(">I", len(body)) + body)
+                        header = _recv_n(sock, 4)
+                        length = struct.unpack(">I", header)[0]
+                        if length > 16 * 1024 * 1024:
+                            raise RuntimeError(f"ext_logic_frame_too_large: {length}")
+                        resp = _BRpcCodec.decode(_recv_n(sock, length))
+                    if str(resp.get("id", "")) != req_id:
+                        raise RuntimeError(f"ext_logic_response_id_mismatch: {resp.get('id')} != {req_id}")
+                    if not resp.get("ok", False):
+                        err = resp.get("error", {})
+                        code = err.get("code", "error")
+                        message = err.get("message", "")
+                        raise RuntimeError(f"{code}: {message}")
+                    return resp.get("result")
+
                 def _ai_rpc_get_event_log(limit: int = 100, type_filter: str = "") -> list:
                     with _event_log_lock:
                         entries = list(_event_log)
@@ -7754,6 +7794,7 @@ def main():
                 ide_bindings._restart_ui = _ai_rpc_restart_ui
                 ide_bindings._reload_ui_document = _ai_rpc_reload_ui_document
                 ide_bindings._trigger_action = _ai_rpc_trigger_action
+                ide_bindings._ext_call = _ai_rpc_ext_call
                 ide_bindings._get_event_log = _ai_rpc_get_event_log
                 ide_bindings._clear_event_log = _ai_rpc_clear_event_log
                 ide_bindings._log_event = _push_event

@@ -76,6 +76,7 @@ private:
     double virtual_width;
     double virtual_height;
     String execution_status;
+    String logged_execution_status;
     VulkanRuntime* vulkan_runtime;
     std::vector<unsigned char> pixel_buffer;
 
