@@ -62,11 +62,15 @@ int main(int argc, const char *argv[]) {
         int fd = atoi(stdout_fd_str);
         if (fd > 0) {
             dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
             close(fd);
             setvbuf(stdout, NULL, _IONBF, 0);
+            setvbuf(stderr, NULL, _IONBF, 0);
         }
     }
     OrangeFortressDebugSessionConfig debug_session = load_debug_session_from_env();
+    bool explicit_ui_endpoint = argc > 1;
+    bool prefer_owned_ui_server = debug_session.enabled || !explicit_ui_endpoint;
     String host(debug_session.enabled && debug_session.ui_rpc_host.length()
         ? debug_session.ui_rpc_host
         : String("127.0.0.1"));
@@ -83,6 +87,6 @@ int main(int argc, const char *argv[]) {
     if (debug_session.enabled) {
         printf("Loaded IDE debug session: %s\n", debug_session.session_path.operator char *());
     }
-    OrangeFortressApp app(host, port, debug_session);
+    OrangeFortressApp app(host, port, debug_session, prefer_owned_ui_server);
     return app.run();
 }

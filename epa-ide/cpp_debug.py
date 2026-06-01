@@ -319,6 +319,19 @@ def setup(ctx: dict) -> None:
             items.append({"id": f"cpp.thread.{tid}", "label": label})
         return items, current_id
 
+    def _cpp_running_thread_items() -> list:
+        cached = list(cpp_gdb_state.get("last_thread_items") or [])
+        if not cached:
+            return [{"id": "cpp.threads.running", "label": "Target running"}]
+        items = []
+        for item in cached:
+            label = str(item.get("label", "") or "")
+            label = re.sub(r"\b(stopped|paused)\b", "running", label)
+            if "running" not in label:
+                label = f"{label}  running".strip()
+            items.append({"id": item.get("id", "cpp.thread.running"), "label": label})
+        return items
+
     def _cpp_gdb_status_from_lines(lines: list) -> str:
         joined = "\n".join(lines)
         if "*stopped" in joined:
@@ -491,11 +504,16 @@ def setup(ctx: dict) -> None:
             _set_cpp_status_text(client, "running")
             _set_cpp_vm_buttons(client, True)
             _set_cpp_vm_status(client, "running")
+            _set_cpp_thread_items(client, _cpp_running_thread_items())
+            _set_cpp_stack_items(client, ["Target running; pause to inspect frames."])
+            _set_cpp_registers_text(client, ["Target running; pause to inspect registers."])
             _set_cpp_memory_text(client, ["Process running; pause to inspect memory scopes."])
             return
         try:
             thread_lines = _cpp_gdb_send("-thread-info", timeout=3.0)
             thread_items, current_tid = _cpp_gdb_threads_from_lines(thread_lines)
+            cpp_gdb_state["last_thread_items"] = list(thread_items)
+            cpp_gdb_state["last_thread_id"] = current_tid
             _set_cpp_vm_buttons(client, True)
             _set_cpp_thread_items(client, thread_items)
             _cpp_gdb_refresh_inspector(client)
@@ -556,7 +574,7 @@ def setup(ctx: dict) -> None:
                         if text:
                             ui_c = client_ref.get("client")
                             if ui_c:
-                                ctx["_append_host_io_output"](ui_c, f"[C++ Host] {text}\n")
+                                ctx["_append_host_io_output"](ui_c, f"[c++ host] {text}\n")
             except Exception:
                 pass
 
@@ -679,6 +697,9 @@ def setup(ctx: dict) -> None:
         _set_cpp_vm_status(client, "running" if cpp_gdb_state.get("running") else "stopped", status)
         _cpp_gdb_log(client, f"[gdb] {label}: {status}")
         if cpp_gdb_state.get("running"):
+            _set_cpp_thread_items(client, _cpp_running_thread_items())
+            _set_cpp_stack_items(client, ["Target running; pause to inspect frames."])
+            _set_cpp_registers_text(client, ["Target running; pause to inspect registers."])
             _set_cpp_memory_text(client, ["Process running; pause to inspect memory scopes."])
         else:
             _cpp_gdb_refresh_ui(client)

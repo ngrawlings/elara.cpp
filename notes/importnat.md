@@ -42,3 +42,13 @@ Do not try to fix or redesign this yet. Use the confirmed launch order:
 When started in that order, all project lights should go green.
 
 This was confirmed against the lab test demo.
+
+## C++ Host UI Fallback
+
+For the C++ host, if it cannot connect to the configured UI port, it must
+launch `elaraui-server` itself on a random port and then connect to that port.
+
+This means we will not manually launch `elaraui-server` for this flow. The
+C++ host should bring up the UI server automatically when needed.
+
+Assume `elaraui-server` is always available on the system `PATH`.

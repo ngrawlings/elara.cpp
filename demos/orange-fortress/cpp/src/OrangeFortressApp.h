@@ -6,6 +6,7 @@
 #include <libelarathreads/Mutex.h>
 #include <libelarauirpc/ElaraUiRpcPeer.h>
 #include <stdio.h>
+#include <sys/types.h>
 #include <mutex>
 #include <thread>
 #include "OrangeFortressEpaVmHost.h"
@@ -39,7 +40,12 @@ struct OrangeFortressDebugSessionConfig {
 
 class OrangeFortressApp {
 public:
-    OrangeFortressApp(const String &host, int port, const OrangeFortressDebugSessionConfig &debug_session = OrangeFortressDebugSessionConfig());
+    OrangeFortressApp(
+        const String &host,
+        int port,
+        const OrangeFortressDebugSessionConfig &debug_session = OrangeFortressDebugSessionConfig(),
+        bool prefer_owned_ui_server = false
+    );
     ~OrangeFortressApp();
     int run();
     void enqueueKeyDown(unsigned int keyval);
@@ -94,6 +100,8 @@ private:
     std::mutex host_debug_io_mutex;
     int ext_logic_server_fd;
     std::thread ext_logic_thread;
+    pid_t owned_ui_server_pid;
+    bool prefer_owned_ui_server;
 
     void buildDocument(ui::rpc::ElaraUiDocumentBuilder &ui);
     bool loadDocument(const String &document_json);
@@ -118,9 +126,15 @@ private:
     void closeTraceArtifact();
     void traceLine(const String &json_line);
     void traceKernelStateSnapshot(const char *phase);
+    bool failIfUiDisconnected(const char *context);
     void sendHostDebugEvent(const String &kind, const String &payload_json);
     void sendHostDebugLog(const String &message);
     void sendHostDebugState(const String &status);
+    bool connectUiPeer();
+    bool launchUiServerFallback();
+    int chooseUiFallbackPort() const;
+    void recordLaunchedPid(const char *label, pid_t pid) const;
+    void stopOwnedUiServer();
     bool connectHostDebugBridge();
     void closeHostDebugBridge();
     void startHostDebugReader();

@@ -62,8 +62,10 @@ int main(int argc, const char *argv[]) {
         int fd = atoi(stdout_fd_str);
         if (fd > 0) {
             dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
             close(fd);
             setvbuf(stdout, NULL, _IONBF, 0);
+            setvbuf(stderr, NULL, _IONBF, 0);
         }
     }
     EpaSignalLabDebugSessionConfig debug_session = load_debug_session_from_env();

@@ -7,11 +7,14 @@
 #include <vector>
 #include <mutex>
 #include <unistd.h>
+#include <errno.h>
+#include <signal.h>
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonString.h>
@@ -399,7 +402,12 @@ int on_surface_host_signal(uint8_t wid, const char *msg, const int msg_len) {
 
 }
 
-OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port, const OrangeFortressDebugSessionConfig &value_debug_session)
+OrangeFortressApp::OrangeFortressApp(
+    const String &value_host,
+    int value_port,
+    const OrangeFortressDebugSessionConfig &value_debug_session,
+    bool value_prefer_owned_ui_server
+)
     : host(value_host),
       port(value_port),
       bundle_path(String("..") + String("/") + String("build") + String("/") + String("epa.bin")),
@@ -437,7 +445,9 @@ OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port, c
       peer(new ElaraUiRpcPeer()),
       debug_session(value_debug_session),
       host_debug_fd(-1),
-      ext_logic_server_fd(-1) {
+      ext_logic_server_fd(-1),
+      owned_ui_server_pid(-1),
+      prefer_owned_ui_server(value_prefer_owned_ui_server) {
     if (debug_session.enabled && debug_session.bundle_path.length()) {
         bundle_path = debug_session.bundle_path;
     }
@@ -470,6 +480,19 @@ void OrangeFortressApp::closeTraceArtifact() {
     traceLine(String("{\"event\":\"trace_close\"}"));
     fclose(trace_file);
     trace_file = NULL;
+}
+
+bool OrangeFortressApp::failIfUiDisconnected(const char *context) {
+    if (peer && peer->isConnected()) {
+        return false;
+    }
+    const char *where = context ? context : "unknown";
+    printf("UI connection lost during %s. C++ host exiting.\n", where);
+    traceLine(String("{\"event\":\"ui_connection_lost\",\"context\":")
+        + json_quote_simple(String(where))
+        + String(",\"action\":\"host_exit\"}"));
+    sendHostDebugLog(String("UI connection lost during ") + String(where) + String("; host exiting"));
+    return true;
 }
 
 bool OrangeFortressApp::connectHostDebugBridge() {
@@ -600,6 +623,138 @@ void OrangeFortressApp::hostDebugReadLoop() {
             }
         }
     }
+}
+
+int OrangeFortressApp::chooseUiFallbackPort() const {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        return 0;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(0);
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return 0;
+    }
+    socklen_t addrlen = sizeof(addr);
+    if (getsockname(fd, (struct sockaddr *)&addr, &addrlen) != 0) {
+        close(fd);
+        return 0;
+    }
+    int chosen_port = (int)ntohs(addr.sin_port);
+    close(fd);
+    return chosen_port;
+}
+
+void OrangeFortressApp::recordLaunchedPid(const char *label, pid_t pid) const {
+    const char *pid_file = getenv("ELARA_PID_FILE");
+    if (!pid_file || !pid_file[0] || pid <= 0) {
+        return;
+    }
+    FILE *out = fopen(pid_file, "a");
+    if (!out) {
+        return;
+    }
+    fprintf(out, "%d\t%s\n", (int)pid, label ? label : "orange-fortress-ui-head");
+    fclose(out);
+}
+
+void OrangeFortressApp::stopOwnedUiServer() {
+    if (owned_ui_server_pid <= 0) {
+        return;
+    }
+    pid_t pid = owned_ui_server_pid;
+    owned_ui_server_pid = -1;
+    kill(pid, SIGTERM);
+    for (int attempt = 0; attempt < 20; ++attempt) {
+        int status = 0;
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            return;
+        }
+        usleep(100000);
+    }
+    kill(pid, SIGKILL);
+    waitpid(pid, NULL, 0);
+}
+
+bool OrangeFortressApp::launchUiServerFallback() {
+    if (owned_ui_server_pid > 0) {
+        return true;
+    }
+    int fallback_port = chooseUiFallbackPort();
+    if (fallback_port <= 0) {
+        printf("Failed to choose a fallback UI port\n");
+        return false;
+    }
+
+    char port_text[32];
+    snprintf(port_text, sizeof(port_text), "%d", fallback_port);
+    const char *display_env = getenv("DISPLAY");
+    const char *wayland_env = getenv("WAYLAND_DISPLAY");
+    const char *xauth_env = getenv("XAUTHORITY");
+    const char *dbus_env = getenv("DBUS_SESSION_BUS_ADDRESS");
+    printf("Fallback UI env: DISPLAY=%s WAYLAND_DISPLAY=%s XAUTHORITY=%s DBUS_SESSION_BUS_ADDRESS=%s\n",
+           display_env && display_env[0] ? display_env : "(unset)",
+           wayland_env && wayland_env[0] ? wayland_env : "(unset)",
+           xauth_env && xauth_env[0] ? xauth_env : "(unset)",
+           dbus_env && dbus_env[0] ? dbus_env : "(unset)");
+
+    pid_t pid = fork();
+    if (pid < 0) {
+        printf("Failed to fork elaraui-server launcher: %s\n", strerror(errno));
+        return false;
+    }
+    if (pid == 0) {
+        execlp("elaraui-server", "elaraui-server", "--port", port_text, (char *)NULL);
+        fprintf(stderr, "Failed to exec elaraui-server: %s\n", strerror(errno));
+        _exit(127);
+    }
+
+    owned_ui_server_pid = pid;
+    recordLaunchedPid("orange-fortress-ui-head", pid);
+    host = String("127.0.0.1");
+    port = fallback_port;
+    printf("Spawned elaraui-server pid=%d on fallback port %d\n", (int)pid, port);
+
+    for (int attempt = 0; attempt < 40; ++attempt) {
+        int status = 0;
+        pid_t waited = waitpid(pid, &status, WNOHANG);
+        if (waited == pid) {
+            owned_ui_server_pid = -1;
+            if (WIFEXITED(status)) {
+                printf("elaraui-server exited before accepting connections with code %d\n", WEXITSTATUS(status));
+            } else if (WIFSIGNALED(status)) {
+                printf("elaraui-server exited before accepting connections from signal %d\n", WTERMSIG(status));
+            } else {
+                printf("elaraui-server exited before accepting connections with status 0x%x\n", status);
+            }
+            return false;
+        }
+        usleep(100000);
+        if (peer->connect(host, (unsigned short)port)) {
+            return true;
+        }
+    }
+
+    printf("Timed out waiting for fallback elaraui-server on %s:%d\n", host.operator char *(), port);
+    stopOwnedUiServer();
+    return false;
+}
+
+bool OrangeFortressApp::connectUiPeer() {
+    if (prefer_owned_ui_server) {
+        printf("Launching dedicated elaraui-server for Orange Fortress\n");
+        return launchUiServerFallback();
+    }
+    if (peer->connect(host, (unsigned short)port)) {
+        return true;
+    }
+    printf("Failed to connect to %s:%d\n", host.operator char *(), port);
+    return launchUiServerFallback();
 }
 
 void OrangeFortressApp::startExtLogicServer() {
@@ -1235,6 +1390,8 @@ void OrangeFortressApp::shutdown() {
         peer = Ref<ui::rpc::ElaraUiRpcPeer>(0);
     }
 
+    stopOwnedUiServer();
+
     if (ext_logic_server_fd >= 0) {
         close(ext_logic_server_fd);
         ext_logic_server_fd = -1;
@@ -1596,6 +1753,7 @@ bool OrangeFortressApp::loadDocument(const String &document_json) {
     String error_message;
     if (!peer->call(String("ui.loadDocument"), params, result_json, error_code, error_message, 5000)) {
         printf("ui.loadDocument failed [%s]: %s\n", error_code.operator char *(), error_message.operator char *());
+        failIfUiDisconnected("ui.loadDocument");
         return false;
     }
     printf("Document loaded: %s\n", result_json.operator char *());
@@ -1622,6 +1780,7 @@ bool OrangeFortressApp::setSectionJson(const String &target, const String &secti
                target_copy.operator char *(),
                section_copy.operator char *(),
                error_message.operator char *());
+        failIfUiDisconnected("ui.setSectionJson");
         if (error_code == String("timeout")) {
             last_section_update_timed_out = true;
         }
@@ -1675,6 +1834,7 @@ bool OrangeFortressApp::printSnapshot() {
         return true;
     }
     printf("ui.snapshot failed [%s]: %s\n", error_code.operator char *(), error_message.operator char *());
+    failIfUiDisconnected("ui.snapshot");
     return false;
 }
 
@@ -1683,8 +1843,7 @@ int OrangeFortressApp::run() {
 
     peer->addService(Ref<sockets::rpc::json::JsonRPCService>(new UiEventSinkService(this)));
 
-    if (!peer->connect(host, (unsigned short)port)) {
-        printf("Failed to connect to %s:%d\n", host.operator char *(), port);
+    if (!connectUiPeer()) {
         shutdown();
         return 1;
     }
@@ -1695,7 +1854,23 @@ int OrangeFortressApp::run() {
         String("\"pid\":") + String((int)getpid())
             + String(",\"message\":") + json_quote_simple(String("host connected to IDE debug bridge"))
     );
-    sendHostDebugLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
+    sendHostDebugState(String("Status: waiting for bundle load"));
+
+    ElaraUiDocumentBuilder ui;
+    buildDocument(ui);
+    bool ui_connected = loadDocument(ui.toJson());
+    if (!ui_connected) {
+        printf("[C++ Host] UI not available - running in headless debug mode\n");
+        peer->close();
+    } else {
+        armUiInputFocus();
+        traceLine(String("{\"event\":\"ui_connected\",\"host\":") + JsonString(host, true).toString()
+            + String(",\"port\":") + String(port) + String("}"));
+    }
+
+    if (ui_connected) {
+        sendHostDebugLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
+    }
     sendHostDebugLog(String("bundle path: ") + bundle_path);
     if (debug_session.enabled) {
         sendHostDebugLog(String("debug session id: ") + debug_session.session_id);
@@ -1705,18 +1880,7 @@ int OrangeFortressApp::run() {
             + String(":")
             + String(debug_session.epa_dbg_port));
     }
-
     publishCachedCubeScene(0);
-
-    ElaraUiDocumentBuilder ui;
-    buildDocument(ui);
-    if (!loadDocument(ui.toJson())) {
-        shutdown();
-        return 1;
-    }
-    armUiInputFocus();
-    traceLine(String("{\"event\":\"ui_connected\",\"host\":") + JsonString(host, true).toString()
-        + String(",\"port\":") + String(port) + String("}"));
 
     refreshEpaState();
     if (!epa_started) {
@@ -1736,6 +1900,9 @@ int OrangeFortressApp::run() {
     bool cached_replay_started = false;
     bool stdin_open = true;
     while (true) {
+        if (ui_connected && failIfUiDisconnected("main_loop")) {
+            break;
+        }
         fd_set readfds;
         struct timeval tv;
         int max_fd = -1;
@@ -1769,7 +1936,7 @@ int OrangeFortressApp::run() {
 
         drainKeyEvents();
 
-        if(!pushUiState()) {
+        if(ui_connected && !pushUiState()) {
             break;
         }
         bool should_start_cached_replay = false;

@@ -713,6 +713,7 @@ def main():
                 [str(binary), str(port), "127.0.0.1"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                start_new_session=True,
             )
         except OSError as exc:
             _epa_dbg_set_vm_button(False)
@@ -759,6 +760,33 @@ def main():
             _epa_dbg["port"] = None
             _refresh_status_panel(client_ref.get("client"))
 
+    def _epa_dbg_terminate_process(proc) -> None:
+        if not proc or proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=4)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(proc.pid, signal.SIGKILL)
+        except Exception:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+        try:
+            proc.wait(timeout=4)
+        except Exception:
+            pass
+
     def _epa_dbg_stop():
         """Terminate epa-dbg process and close client."""
         _epa_dbg_set_vm_status("stopping")
@@ -772,12 +800,7 @@ def main():
 
         proc = _epa_dbg.get("proc")
         if proc and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=4)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            _epa_dbg_terminate_process(proc)
         _epa_dbg["proc"] = None
         _epa_dbg["port"] = None
         _host_debug_bridge_stop()
@@ -1727,6 +1750,9 @@ def main():
         build_steps = []
         _clear_build_output(client)
         _append_build_output(client, f"Build started: {project_root}\n")
+        if _epa_dbg_running():
+            _append_build_output(client, "[build] stopping epa-dbg before build\n")
+            _epa_dbg_stop()
 
         try:
             if "epa" in technologies:
@@ -1811,6 +1837,7 @@ def main():
         project_root = Path(project_root_text)
         removed = []
         _cpp_gdb_stop_session()
+        _epa_dbg_stop()
         build_dir = project_root / "build"
         if build_dir.exists():
             shutil.rmtree(build_dir)
