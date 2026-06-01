@@ -38,6 +38,8 @@ ElaraRichTextEditWidget::ElaraRichTextEditWidget(
     enabled(true),
     focused(false),
     selecting(false),
+    read_only(false),
+    markdown_mode(false),
     font_size(14),
     line_height(20),
     padding_x(10),
@@ -514,6 +516,7 @@ void ElaraRichTextEditWidget::deleteSelection() {
 }
 
 void ElaraRichTextEditWidget::replaceSelection(const String& text) {
+    if(read_only) return;
     deleteSelection();
 
     if(text.length() <= 0) {
@@ -527,10 +530,12 @@ void ElaraRichTextEditWidget::replaceSelection(const String& text) {
 }
 
 void ElaraRichTextEditWidget::insertChar(char c) {
+    if(read_only) return;
     replaceSelection(String(c));
 }
 
 void ElaraRichTextEditWidget::backspace() {
+    if(read_only) return;
     if(hasSelection()) {
         deleteSelection();
         return;
@@ -547,6 +552,7 @@ void ElaraRichTextEditWidget::backspace() {
 }
 
 void ElaraRichTextEditWidget::deleteForward() {
+    if(read_only) return;
     if(hasSelection()) {
         deleteSelection();
         return;
@@ -630,6 +636,31 @@ bool ElaraRichTextEditWidget::isEnabled() const {
     return enabled;
 }
 
+void ElaraRichTextEditWidget::setReadOnly(bool v) {
+    read_only = v;
+
+    if(read_only) {
+        selecting = false;
+        clearSelection();
+    }
+}
+
+bool ElaraRichTextEditWidget::isReadOnly() const {
+    return read_only;
+}
+
+void ElaraRichTextEditWidget::parseMarkDown(const String& markdown) {
+    value = markdown;
+    markdown_mode = true;
+    caret_index = 0;
+    clearSelection();
+    updateScrollbars();
+}
+
+bool ElaraRichTextEditWidget::isMarkdownMode() const {
+    return markdown_mode;
+}
+
 void ElaraRichTextEditWidget::setFocused(bool value_state) {
     focused = enabled && value_state;
 
@@ -662,6 +693,243 @@ int ElaraRichTextEditWidget::getScrollY() const {
 
 ElaraMouseCursor ElaraRichTextEditWidget::cursor() const {
     return enabled ? ELARA_CURSOR_TEXT : ELARA_CURSOR_DEFAULT;
+}
+
+Array<ElaraRichTextEditWidget::MarkdownSpan>
+ElaraRichTextEditWidget::parseMarkdownSpans(const String& text) const {
+    Array<MarkdownSpan> spans;
+    int len = (int)text.length();
+
+    if(len == 0) {
+        return spans;
+    }
+
+    int i = 0;
+    int seg_start = 0;
+    MarkdownSpanType seg_type = MD_SPAN_NORMAL;
+
+    auto flush = [&](int end) {
+        if(end > seg_start) {
+            spans.push(MarkdownSpan(seg_start, end, seg_type));
+        }
+        seg_start = end;
+        seg_type = MD_SPAN_NORMAL;
+    };
+
+    while(i < len) {
+        // bold: **...**
+        if(i + 1 < len && text.byteAt(i) == '*' && text.byteAt(i + 1) == '*') {
+            flush(i);
+            int start = i + 2;
+            int end = start;
+            while(end + 1 < len && !(text.byteAt(end) == '*' && text.byteAt(end + 1) == '*')) {
+                end++;
+            }
+            if(end + 1 < len) {
+                spans.push(MarkdownSpan(start, end, MD_SPAN_BOLD));
+                i = end + 2;
+                seg_start = i;
+            } else {
+                seg_type = MD_SPAN_NORMAL;
+                i++;
+            }
+            continue;
+        }
+
+        // italic: *...*  (single asterisk not followed by another)
+        if(text.byteAt(i) == '*' && (i + 1 >= len || text.byteAt(i + 1) != '*')) {
+            flush(i);
+            int start = i + 1;
+            int end = start;
+            while(end < len && text.byteAt(end) != '*') {
+                end++;
+            }
+            if(end < len) {
+                spans.push(MarkdownSpan(start, end, MD_SPAN_ITALIC));
+                i = end + 1;
+                seg_start = i;
+            } else {
+                seg_type = MD_SPAN_NORMAL;
+                i++;
+            }
+            continue;
+        }
+
+        // inline code: `...`
+        if(text.byteAt(i) == '`') {
+            flush(i);
+            int start = i + 1;
+            int end = start;
+            while(end < len && text.byteAt(end) != '`') {
+                end++;
+            }
+            if(end < len) {
+                spans.push(MarkdownSpan(start, end, MD_SPAN_CODE));
+                i = end + 1;
+                seg_start = i;
+            } else {
+                seg_type = MD_SPAN_NORMAL;
+                i++;
+            }
+            continue;
+        }
+
+        i++;
+    }
+
+    flush(len);
+    return spans;
+}
+
+void ElaraRichTextEditWidget::drawMarkdownLine(
+    ElaraDrawContext* ctx,
+    double x,
+    double y,
+    const String& raw_line,
+    double size
+) const {
+    ElaraPaletteTriplet c = colors(palette_master, enabled ? String("default") : String("disabled"));
+
+    String line(raw_line);
+
+    // horizontal rule
+    if(line == String("---") || line == String("***") || line == String("___")) {
+        ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
+        ctx->line(x, y - size * 0.5, x + textViewportWidth(), y - size * 0.5, 1);
+        return;
+    }
+
+    // blockquote: > text  — dimmed, indented
+    double indent = 0.0;
+    bool is_blockquote = false;
+    if(line.length() >= 2 && line.byteAt(0) == '>' && line.byteAt(1) == ' ') {
+        line = line.substr(2);
+        is_blockquote = true;
+        indent = size;
+        ctx->setColor(c.text.r * 0.55, c.text.g * 0.55, c.text.b * 0.55);
+        ctx->line(x + indent * 0.3, y - size + 2, x + indent * 0.3, y + 4, 2);
+    }
+
+    // bullet: "- " or "* " at start
+    bool is_bullet = false;
+    if(!is_blockquote && line.length() >= 2 &&
+       (line.byteAt(0) == '-' || line.byteAt(0) == '*') &&
+       line.byteAt(1) == ' ') {
+        line = line.substr(2);
+        is_bullet = true;
+        indent = size;
+        ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
+        ctx->fillCircle(x + size * 0.35, y - size * 0.35, size * 0.18);
+    }
+
+    // headings
+    bool is_heading = false;
+    double heading_size = size;
+    if(line.length() >= 3 && line.byteAt(0) == '#' && line.byteAt(1) == '#' && line.byteAt(2) == '#' &&
+       (line.length() == 3 || line.byteAt(3) == ' ')) {
+        line = line.length() > 4 ? line.substr(4) : String("");
+        heading_size = size + 1;
+        is_heading = true;
+    } else if(line.length() >= 2 && line.byteAt(0) == '#' && line.byteAt(1) == '#' &&
+              (line.length() == 2 || line.byteAt(2) == ' ')) {
+        line = line.length() > 3 ? line.substr(3) : String("");
+        heading_size = size + 2;
+        is_heading = true;
+    } else if(line.length() >= 1 && line.byteAt(0) == '#' &&
+              (line.length() == 1 || line.byteAt(1) == ' ')) {
+        line = line.length() > 2 ? line.substr(2) : String("");
+        heading_size = size + 4;
+        is_heading = true;
+    }
+
+    // code block: 4-space or tab indent
+    bool is_code_block = false;
+    if(!is_heading && !is_bullet && !is_blockquote) {
+        if(line.length() >= 4 &&
+           line.byteAt(0) == ' ' && line.byteAt(1) == ' ' &&
+           line.byteAt(2) == ' ' && line.byteAt(3) == ' ') {
+            line = line.substr(4);
+            is_code_block = true;
+        } else if(line.length() >= 1 && line.byteAt(0) == '\t') {
+            line = line.substr(1);
+            is_code_block = true;
+        }
+    }
+
+    if(is_code_block) {
+        ctx->setColor(c.text.r * 0.75, c.text.g * 0.90, c.text.b * 0.75);
+        ctx->drawText(x + indent, y, line, heading_size);
+        return;
+    }
+
+    if(is_heading) {
+        ctx->setColor(c.accent.r, c.accent.g, c.accent.b);
+        ctx->drawText(x + indent, y, line, heading_size);
+        return;
+    }
+
+    // draw inline spans
+    Array<MarkdownSpan> spans = parseMarkdownSpans(line);
+    double cursor_x = x + indent;
+
+    if(spans.length() == 0) {
+        ctx->setColor(
+            is_blockquote ? c.text.r * 0.55 : c.text.r,
+            is_blockquote ? c.text.g * 0.55 : c.text.g,
+            is_blockquote ? c.text.b * 0.55 : c.text.b
+        );
+        ctx->drawText(cursor_x, y, line, heading_size);
+        return;
+    }
+
+    for(int s = 0; s < (int)spans.length(); s++) {
+        const MarkdownSpan& span = spans[s];
+        int start = span.start;
+        int end = span.end;
+        if(end <= start || start >= (int)line.length()) continue;
+        if(end > (int)line.length()) end = (int)line.length();
+
+        String segment = line.substr(start, end - start);
+
+        switch(span.type) {
+            case MD_SPAN_BOLD:
+                ctx->setColor(
+                    c.accent.r * 0.85 + c.text.r * 0.15,
+                    c.accent.g * 0.85 + c.text.g * 0.15,
+                    c.accent.b * 0.85 + c.text.b * 0.15
+                );
+                break;
+
+            case MD_SPAN_ITALIC:
+                ctx->setColor(
+                    c.text.r * 0.75 + 0.20,
+                    c.text.g * 0.75 + 0.12,
+                    c.text.b * 0.75 + 0.20
+                );
+                break;
+
+            case MD_SPAN_CODE:
+                ctx->setColor(c.text.r * 0.70, c.text.g * 0.90, c.text.b * 0.70);
+                ctx->fillRect(cursor_x - 1, y - heading_size, ctx->measureTextWidth(segment, heading_size) + 2, heading_size + 2);
+                ctx->setColor(c.text.r * 0.70, c.text.g * 0.90, c.text.b * 0.70);
+                break;
+
+            case MD_SPAN_DIMMED:
+                ctx->setColor(c.text.r * 0.50, c.text.g * 0.50, c.text.b * 0.50);
+                break;
+
+            default:
+                ctx->setColor(
+                    is_blockquote ? c.text.r * 0.55 : c.text.r,
+                    is_blockquote ? c.text.g * 0.55 : c.text.g,
+                    is_blockquote ? c.text.b * 0.55 : c.text.b
+                );
+                break;
+        }
+
+        ctx->drawText(cursor_x, y, segment, heading_size);
+        cursor_x += ctx->measureTextWidth(segment, heading_size);
+    }
 }
 
 void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
@@ -706,7 +974,7 @@ void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
             double y = padding_y + ((double)i * line_height);
             double size = lineFontSize(line);
 
-            if(hasSelection()) {
+            if(!markdown_mode && hasSelection()) {
                 int line_start = caretIndexForLineColumn(line_index, 0);
                 int line_end = line_start + (int)line.length();
                 int draw_start = selectionStart() > line_start ? selectionStart() : line_start;
@@ -727,11 +995,15 @@ void ElaraRichTextEditWidget::draw(ElaraDrawContext* ctx) {
                 }
             }
 
-            ctx->drawText(padding_x, y + size, visible, size);
+            if(markdown_mode) {
+                drawMarkdownLine(ctx, padding_x, y + size, line, size);
+            } else {
+                ctx->drawText(padding_x, y + size, visible, size);
+            }
         }
     }
 
-    if(focused) {
+    if(focused && !read_only) {
         int caret_line = lineIndexForCaret(caret_index);
         int caret_column = columnForCaret(caret_index);
 
@@ -886,7 +1158,7 @@ void ElaraRichTextEditWidget::onKeyDown(unsigned int keyval, unsigned int modifi
                 return;
 
             case 'x':
-                if(hasSelection()) {
+                if(!read_only && hasSelection()) {
                     ElaraRootWidget* root = rootWidget();
                     if(root) {
                         root->setClipboardText(selectedText());
@@ -897,15 +1169,17 @@ void ElaraRichTextEditWidget::onKeyDown(unsigned int keyval, unsigned int modifi
                 return;
 
             case 'v': {
-                ElaraRootWidget* root = rootWidget();
-                String clipboard = root ? root->getClipboardText() : String();
-                if(clipboard.length() > 0) {
-                    replaceSelection(clipboard);
-                    emitKeysTyped(clipboard);
-                    updateScrollbars();
-                } else if(hasSelection()) {
-                    deleteSelection();
-                    updateScrollbars();
+                if(!read_only) {
+                    ElaraRootWidget* root = rootWidget();
+                    String clipboard = root ? root->getClipboardText() : String();
+                    if(clipboard.length() > 0) {
+                        replaceSelection(clipboard);
+                        emitKeysTyped(clipboard);
+                        updateScrollbars();
+                    } else if(hasSelection()) {
+                        deleteSelection();
+                        updateScrollbars();
+                    }
                 }
                 return;
             }
@@ -1027,7 +1301,7 @@ bool ElaraRichTextEditWidget::performAction(const String& action) {
     }
 
     if(action == String("edit.cut")) {
-        if(hasSelection()) {
+        if(!read_only && hasSelection()) {
             ElaraRootWidget* root = rootWidget();
             if(root) {
                 root->setClipboardText(selectedText());
@@ -1039,15 +1313,17 @@ bool ElaraRichTextEditWidget::performAction(const String& action) {
     }
 
     if(action == String("edit.paste")) {
-        ElaraRootWidget* root = rootWidget();
-        String clipboard = root ? root->getClipboardText() : String();
-        if(clipboard.length() > 0) {
-            replaceSelection(clipboard);
-            emitKeysTyped(clipboard);
-            updateScrollbars();
-        } else if(hasSelection()) {
-            deleteSelection();
-            updateScrollbars();
+        if(!read_only) {
+            ElaraRootWidget* root = rootWidget();
+            String clipboard = root ? root->getClipboardText() : String();
+            if(clipboard.length() > 0) {
+                replaceSelection(clipboard);
+                emitKeysTyped(clipboard);
+                updateScrollbars();
+            } else if(hasSelection()) {
+                deleteSelection();
+                updateScrollbars();
+            }
         }
         return true;
     }

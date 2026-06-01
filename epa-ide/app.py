@@ -57,6 +57,7 @@ from dialogs import (
     _cpp_header_content, _cpp_source_content,
     E_FILE_TEMPLATES,
 )
+from help_window import build_help_window, load_doc as _help_load_doc
 
 def _ide_state_path() -> Path:
     return Path.home() / ".config" / "epa-ide" / "state.json"
@@ -6771,6 +6772,32 @@ def main():
                 _reset_all_kernel_debug_state(c)
                 _epa_dbg_stop()
             _deferred(_do_vm_stop)
+            return {"received": True}
+
+        # Help window — open from Help menu
+        if item_action in ("help.docs", "help.about", "help.samples"):
+            c = client
+            _deferred(lambda: c.open_window("help", "EPA-IDE Help", 960, 680, build_help_window()))
+            return {"received": True}
+
+        # Help window — nav tree selection loads a document
+        if target == "help.nav_tree" and action == "action" and client is not None:
+            node_id = payload.get("action") or ""
+            if node_id:
+                content = _help_load_doc(node_id)
+                c = client
+                def _update_help_content(text=content):
+                    try:
+                        c.set_text("help.content", text)
+                    except Exception:
+                        pass
+                _deferred(_update_help_content)
+            return {"received": True}
+
+        # Help window — close button
+        if item_action == "help.close":
+            c = client
+            _deferred(lambda: c.close_window("help") if c else None)
             return {"received": True}
 
         # Error dialog close button

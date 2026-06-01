@@ -29,6 +29,8 @@ private:
     bool enabled;
     bool focused;
     bool selecting;
+    bool read_only;
+    bool markdown_mode;
     double font_size;
     double line_height;
     double padding_x;
@@ -87,6 +89,30 @@ private:
     void moveCaretHorizontal(int delta);
     void moveCaretVertical(int delta);
 
+    enum MarkdownSpanType {
+        MD_SPAN_NORMAL,
+        MD_SPAN_BOLD,
+        MD_SPAN_ITALIC,
+        MD_SPAN_CODE,
+        MD_SPAN_DIMMED
+    };
+
+    struct MarkdownSpan {
+        int start;
+        int end;
+        MarkdownSpanType type;
+        MarkdownSpan() : start(0), end(0), type(MD_SPAN_NORMAL) {}
+        MarkdownSpan(int s, int e, MarkdownSpanType t) : start(s), end(e), type(t) {}
+    };
+
+    Array<MarkdownSpan> parseMarkdownSpans(const String& text) const;
+    void drawMarkdownLine(
+        ElaraDrawContext* ctx,
+        double x, double y,
+        const String& raw_line,
+        double size
+    ) const;
+
 public:
     ElaraRichTextEditWidget(
         ElaraWidgetRegister* root_widget,
@@ -104,6 +130,12 @@ public:
 
     void setEnabled(bool value);
     bool isEnabled() const;
+
+    void setReadOnly(bool value);
+    bool isReadOnly() const;
+
+    void parseMarkDown(const String& markdown);
+    bool isMarkdownMode() const;
 
     virtual void setFocused(bool value) override;
     bool isFocused() const;

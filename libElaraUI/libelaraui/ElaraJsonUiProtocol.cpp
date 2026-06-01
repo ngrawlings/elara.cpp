@@ -1077,8 +1077,14 @@ public:
             String text = spec.getStringValue("properties.text");
             String placeholder = spec.getStringValue("properties.placeholder");
             int font_size = jsonInt(spec, "properties.font_size", 14);
+            bool is_read_only =
+                jsonString(spec, "properties.read_only", String("false")) == String("true");
+            bool is_markdown =
+                jsonString(spec, "properties.markdown", String("false")) == String("true");
 
-            if(text.length() > 0) {
+            if(is_markdown && text.length() > 0) {
+                rich->parseMarkDown(text);
+            } else if(text.length() > 0) {
                 rich->setText(text);
             }
 
@@ -1087,6 +1093,7 @@ public:
             }
 
             rich->setFontSize((double)font_size);
+            rich->setReadOnly(is_read_only);
         }
 
         ElaraCodeEditorWidget* code_editor = dynamic_cast<ElaraCodeEditorWidget*>(widget);
