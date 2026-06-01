@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
+PID_FILE="${ELARA_PID_FILE:-${ROOT_DIR}/.pids}"
 LOCAL_FRAMEWORK_SERVER="${WORKSPACE_ROOT}/build/bin/elaraui-server"
 DEFAULT_SERVER="/usr/local/bin/elaraui-server"
 if [[ -x "${LOCAL_FRAMEWORK_SERVER}" ]]; then
@@ -16,6 +17,11 @@ ELARA_UI_SERVER="${ELARA_UI_SERVER:-${RESOLVED_SERVER}}"
 if [[ ! -x "${ELARA_UI_SERVER}" ]]; then
   echo "Missing Elara UI server at ${ELARA_UI_SERVER}. Install the framework server or set ELARA_UI_SERVER to the correct path."
   exit 1
+fi
+
+if [[ -n "${PID_FILE}" ]]; then
+  mkdir -p "$(dirname "${PID_FILE}")"
+  printf "%s\t%s\n" "$$" "epa-ide-ui-head" >> "${PID_FILE}"
 fi
 
 exec "${ELARA_UI_SERVER}" "$@"

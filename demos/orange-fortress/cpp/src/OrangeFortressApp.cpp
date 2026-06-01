@@ -3,17 +3,30 @@
 #include <stdio.h>
 #include <string.h>
 #include <math.h>
+#include <string>
+#include <vector>
+#include <mutex>
 #include <unistd.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <sys/socket.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonString.h>
+#include <libelarasockets/rpc/brpc/BRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelarauirpc/ElaraUiDocumentBuilder.h>
 #include "OrangeFortressEpaDebugShim.h"
 
 namespace elara {
 using namespace elara::ui::rpc;
+using sockets::rpc::brpc::BRpcReader;
+using sockets::rpc::brpc::BRpcWriter;
+using sockets::rpc::brpc::BRPC_ARRAY;
+using sockets::rpc::brpc::BRPC_NAMED_BYTE;
+using sockets::rpc::brpc::BRPC_NAMED_STRING;
 
 namespace {
 
@@ -107,6 +120,116 @@ static void appendJsonCommand(String &json, int &emitted, const String &command)
     }
     json += command;
     emitted = 1;
+}
+
+static String json_quote_simple(const String &value) {
+    String result("\"");
+    String value_copy(value);
+    const char *raw = value_copy.operator char *();
+    if (!raw) {
+        result += String("\"");
+        return result;
+    }
+    for (const char *p = raw; *p; ++p) {
+        char ch = *p;
+        if (ch == '\\' || ch == '"') {
+            result += String("\\");
+            char tmp[2] = { ch, 0 };
+            result += String(tmp);
+        } else if (ch == '\n') {
+            result += String("\\n");
+        } else if (ch == '\r') {
+            result += String("\\r");
+        } else if (ch == '\t') {
+            result += String("\\t");
+        } else {
+            char tmp[2] = { ch, 0 };
+            result += String(tmp);
+        }
+    }
+    result += String("\"");
+    return result;
+}
+
+static bool elg_read_exact(int fd, char *buf, size_t n) {
+    size_t got = 0;
+    while (got < n) {
+        ssize_t r = read(fd, buf + got, n - got);
+        if (r <= 0) return false;
+        got += (size_t)r;
+    }
+    return true;
+}
+
+static bool elg_read_frame(int fd, std::vector<char> &frame) {
+    unsigned char hdr[4];
+    if (!elg_read_exact(fd, (char *)hdr, 4)) return false;
+    uint32_t len = ((uint32_t)hdr[0] << 24) | ((uint32_t)hdr[1] << 16)
+                 | ((uint32_t)hdr[2] << 8)  | (uint32_t)hdr[3];
+    if (len > 4u * 1024u * 1024u) return false;
+    frame.resize(len);
+    return elg_read_exact(fd, frame.data(), len);
+}
+
+static bool elg_write_frame(int fd, const ByteArray &data) {
+    uint32_t len = (uint32_t)data.length();
+    unsigned char hdr[4] = {
+        (unsigned char)(len >> 24), (unsigned char)(len >> 16),
+        (unsigned char)(len >> 8),  (unsigned char)len
+    };
+    if (write(fd, hdr, 4) != 4) return false;
+    const char *raw = (const char *)data;
+    ssize_t written = write(fd, raw, (size_t)len);
+    return written == (ssize_t)len;
+}
+
+static void elg_dispatch_frame(int fd, const std::vector<char> &frame) {
+    BRpcReader reader(frame.data(), frame.size());
+    uint8_t type;
+    if (!reader.peekType(type) || type != BRPC_ARRAY) return;
+    uint32_t total, count;
+    if (!reader.readArrayHeader(total, count)) return;
+
+    String id, method;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!reader.peekType(type)) break;
+        if (type == BRPC_NAMED_STRING) {
+            String name, value;
+            if (!reader.readNamedString(name, value)) break;
+            if (name == String("id")) id = value;
+            else if (name == String("method")) method = value;
+        } else if (type == BRPC_NAMED_BYTE) {
+            String name; uint8_t bval;
+            if (!reader.readNamedByte(name, bval)) break;
+        } else {
+            reader.skipValue();
+        }
+    }
+
+    if (!id.length()) return;
+
+    BRpcWriter fields;
+    fields.writeNamedString(String("id"), id);
+    if (method == String("ext.ping")) {
+        fields.writeNamedByte(String("ok"), 1);
+        fields.writeNamedString(String("result"), String("\"pong\""));
+        BRpcWriter resp;
+        resp.writeArray(fields, 3);
+        elg_write_frame(fd, resp.bytes());
+    } else if (method == String("ext.register")) {
+        fields.writeNamedByte(String("ok"), 1);
+        fields.writeNamedString(String("result"), String("{\"ok\":true}"));
+        BRpcWriter resp;
+        resp.writeArray(fields, 3);
+        elg_write_frame(fd, resp.bytes());
+    } else {
+        fields.writeNamedByte(String("ok"), 0);
+        fields.writeNamedString(String("code"), String("not_found"));
+        fields.writeNamedString(String("msg"), String("method not implemented on C++ host"));
+        BRpcWriter resp;
+        resp.writeArray(fields, 4);
+        elg_write_frame(fd, resp.bytes());
+    }
 }
 
 class UiEventSinkService : public sockets::rpc::json::JsonRPCService {
@@ -276,7 +399,7 @@ int on_surface_host_signal(uint8_t wid, const char *msg, const int msg_len) {
 
 }
 
-OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port)
+OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port, const OrangeFortressDebugSessionConfig &value_debug_session)
     : host(value_host),
       port(value_port),
       bundle_path(String("..") + String("/") + String("build") + String("/") + String("epa.bin")),
@@ -311,7 +434,13 @@ OrangeFortressApp::OrangeFortressApp(const String &value_host, int value_port)
       trace_path(String("..") + String("/") + String("artifacts") + String("/") + String("live-epa-trace.jsonl")),
       trace_file(NULL),
       trace_sequence(0),
-      peer(new ElaraUiRpcPeer()) {
+      peer(new ElaraUiRpcPeer()),
+      debug_session(value_debug_session),
+      host_debug_fd(-1),
+      ext_logic_server_fd(-1) {
+    if (debug_session.enabled && debug_session.bundle_path.length()) {
+        bundle_path = debug_session.bundle_path;
+    }
 }
 
 OrangeFortressApp::~OrangeFortressApp() {
@@ -341,6 +470,175 @@ void OrangeFortressApp::closeTraceArtifact() {
     traceLine(String("{\"event\":\"trace_close\"}"));
     fclose(trace_file);
     trace_file = NULL;
+}
+
+bool OrangeFortressApp::connectHostDebugBridge() {
+    struct addrinfo hints;
+    struct addrinfo *result = NULL;
+    struct addrinfo *rp = NULL;
+    char port_text[32];
+
+    if (!debug_session.enabled || !debug_session.host_debug_host.length() || debug_session.host_debug_port <= 0) {
+        return false;
+    }
+    if (host_debug_fd >= 0) {
+        return true;
+    }
+
+    printf("[C++ Host] connecting to IDE bridge %s:%d\n",
+           debug_session.host_debug_host.operator char *(),
+           debug_session.host_debug_port);
+
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(port_text, sizeof(port_text), "%d", debug_session.host_debug_port);
+    if (getaddrinfo(debug_session.host_debug_host.operator char *(), port_text, &hints, &result) != 0) {
+        printf("[C++ Host] IDE bridge connect failed: getaddrinfo error\n");
+        return false;
+    }
+    for (rp = result; rp != NULL; rp = rp->ai_next) {
+        int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) {
+            host_debug_fd = fd;
+            break;
+        }
+        close(fd);
+    }
+    freeaddrinfo(result);
+    if (host_debug_fd >= 0) {
+        printf("[C++ Host] IDE bridge connected\n");
+        startHostDebugReader();
+    } else {
+        printf("[C++ Host] IDE bridge connect failed\n");
+    }
+    return host_debug_fd >= 0;
+}
+
+void OrangeFortressApp::closeHostDebugBridge() {
+    if (host_debug_fd >= 0) {
+        close(host_debug_fd);
+        host_debug_fd = -1;
+    }
+}
+
+void OrangeFortressApp::sendHostDebugEvent(const String &kind, const String &payload_json) {
+    String message;
+    if (!connectHostDebugBridge()) {
+        return;
+    }
+    message = String("{\"kind\":") + json_quote_simple(kind)
+        + String(",\"session_id\":") + json_quote_simple(debug_session.session_id)
+        + String(",\"project\":") + json_quote_simple(String("orange-fortress"));
+    if (payload_json.length()) {
+        message += String(",") + payload_json;
+    }
+    message += String("}\n");
+    std::lock_guard<std::mutex> lock(host_debug_io_mutex);
+    if (host_debug_fd < 0) {
+        return;
+    }
+    if (write(host_debug_fd, message.operator char *(), (size_t)message.length()) < 0) {
+        closeHostDebugBridge();
+    }
+}
+
+void OrangeFortressApp::sendHostDebugLog(const String &message) {
+    sendHostDebugEvent(String("log"), String("\"message\":") + json_quote_simple(message));
+}
+
+void OrangeFortressApp::sendHostDebugState(const String &status) {
+    sendHostDebugEvent(String("state"), String("\"status\":") + json_quote_simple(status));
+}
+
+void OrangeFortressApp::startHostDebugReader() {
+    std::thread(&OrangeFortressApp::hostDebugReadLoop, this).detach();
+}
+
+void OrangeFortressApp::hostDebugReadLoop() {
+    std::string pending;
+    char buffer[512];
+
+    while (true) {
+        int fd_snapshot;
+        {
+            std::lock_guard<std::mutex> lock(host_debug_io_mutex);
+            fd_snapshot = host_debug_fd;
+        }
+        if (fd_snapshot < 0) {
+            break;
+        }
+
+        ssize_t n = read(fd_snapshot, buffer, sizeof(buffer));
+        if (n <= 0) {
+            closeHostDebugBridge();
+            break;
+        }
+        pending.append(buffer, (size_t)n);
+
+        while (true) {
+            std::string::size_type nl = pending.find('\n');
+            if (nl == std::string::npos) {
+                break;
+            }
+
+            std::string line = pending.substr(0, nl);
+            pending.erase(0, nl + 1u);
+            if (line.empty()) {
+                continue;
+            }
+
+            try {
+                Json payload(String(line.c_str()));
+                String kind = payload.getStringValue("kind");
+                if (kind == String("ping")) {
+                    String req_id = payload.getStringValue("id");
+                    sendHostDebugEvent(String("pong"), String("\"id\":") + json_quote_simple(req_id));
+                }
+            } catch (...) {
+            }
+        }
+    }
+}
+
+void OrangeFortressApp::startExtLogicServer() {
+    struct sockaddr_in addr;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return;
+    int one = 1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return;
+    }
+    socklen_t addrlen = sizeof(addr);
+    getsockname(fd, (struct sockaddr *)&addr, &addrlen);
+    int port_num = (int)ntohs(addr.sin_port);
+    if (::listen(fd, 1) != 0) {
+        close(fd);
+        return;
+    }
+    ext_logic_server_fd = fd;
+    sendHostDebugEvent(String("ext_logic_listen"), String("\"port\":") + String(port_num));
+    ext_logic_thread = std::thread(&OrangeFortressApp::extLogicServe, this);
+    ext_logic_thread.detach();
+}
+
+void OrangeFortressApp::extLogicServe() {
+    while (ext_logic_server_fd >= 0) {
+        int client = accept(ext_logic_server_fd, NULL, NULL);
+        if (client < 0) break;
+        std::vector<char> frame;
+        while (elg_read_frame(client, frame)) {
+            elg_dispatch_frame(client, frame);
+        }
+        close(client);
+    }
 }
 
 void OrangeFortressApp::armUiInputFocus() {
@@ -502,10 +800,12 @@ void OrangeFortressApp::refreshEpaState() {
     }
     traceLine(String("{\"event\":\"refresh_epa_state\",\"bundle_exists\":") + String(bundle_exists ? "true" : "false") + String("}"));
     if (!bundle_exists) {
+        sendHostDebugState(String("Status: bundle missing"));
         return;
     }
     if (!epa.loadBundlePath(bundle_path)) {
         traceLine(String("{\"event\":\"bundle_load_failed\",\"error\":") + JsonString(epa.lastError(), true).toString() + String("}"));
+        sendHostDebugState(String("Status: bundle load failed"));
         return;
     }
     epa_loaded = true;
@@ -513,9 +813,11 @@ void OrangeFortressApp::refreshEpaState() {
     installSurfaceCallback();
     if (!epa.startAllKernels()) {
         traceLine(String("{\"event\":\"start_all_failed\",\"error\":") + JsonString(epa.lastError(), true).toString() + String("}"));
+        sendHostDebugState(String("Status: kernel start failed"));
         return;
     }
     epa_started = true;
+    sendHostDebugState(String("Status: bundle loaded and kernels running"));
     printf("EPA module started: kernel_count=%d\n", (int)epa.kernelCount());
     for (i = 0; i < epa.kernelCount(); i++) {
         printf("  kernel[%d] id=%s status=%s threads=%u err=%s\n",
@@ -932,6 +1234,12 @@ void OrangeFortressApp::shutdown() {
         peer->close();
         peer = Ref<ui::rpc::ElaraUiRpcPeer>(0);
     }
+
+    if (ext_logic_server_fd >= 0) {
+        close(ext_logic_server_fd);
+        ext_logic_server_fd = -1;
+    }
+    closeHostDebugBridge();
 
     epa.stopAllKernels();
     epa.destroy();
@@ -1379,6 +1687,23 @@ int OrangeFortressApp::run() {
         printf("Failed to connect to %s:%d\n", host.operator char *(), port);
         shutdown();
         return 1;
+    }
+
+    startExtLogicServer();
+    sendHostDebugEvent(
+        String("register"),
+        String("\"pid\":") + String((int)getpid())
+            + String(",\"message\":") + json_quote_simple(String("host connected to IDE debug bridge"))
+    );
+    sendHostDebugLog(String("connected to UI RPC head at ") + host + String(":") + String(port));
+    sendHostDebugLog(String("bundle path: ") + bundle_path);
+    if (debug_session.enabled) {
+        sendHostDebugLog(String("debug session id: ") + debug_session.session_id);
+        sendHostDebugLog(String("debug session file: ") + debug_session.session_path);
+        sendHostDebugLog(String("epa-dbg endpoint: ")
+            + debug_session.epa_dbg_host
+            + String(":")
+            + String(debug_session.epa_dbg_port));
     }
 
     publishCachedCubeScene(0);

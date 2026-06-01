@@ -6,6 +6,8 @@
 #include <libelarathreads/Mutex.h>
 #include <libelarauirpc/ElaraUiRpcPeer.h>
 #include <stdio.h>
+#include <mutex>
+#include <thread>
 #include "OrangeFortressEpaVmHost.h"
 
 namespace elara {
@@ -15,9 +17,29 @@ namespace rpc {
 }
 }
 
+struct OrangeFortressDebugSessionConfig {
+    bool enabled;
+    String session_path;
+    String session_id;
+    String ui_rpc_host;
+    int ui_rpc_port;
+    String bundle_path;
+    String epa_dbg_host;
+    int epa_dbg_port;
+    String host_debug_host;
+    int host_debug_port;
+
+    OrangeFortressDebugSessionConfig()
+        : enabled(false),
+          ui_rpc_port(18777),
+          epa_dbg_port(0),
+          host_debug_port(0) {
+    }
+};
+
 class OrangeFortressApp {
 public:
-    OrangeFortressApp(const String &host, int port);
+    OrangeFortressApp(const String &host, int port, const OrangeFortressDebugSessionConfig &debug_session = OrangeFortressDebugSessionConfig());
     ~OrangeFortressApp();
     int run();
     void enqueueKeyDown(unsigned int keyval);
@@ -67,6 +89,11 @@ private:
     FILE *trace_file;
     unsigned long trace_sequence;
     Ref<ui::rpc::ElaraUiRpcPeer> peer;
+    OrangeFortressDebugSessionConfig debug_session;
+    int host_debug_fd;
+    std::mutex host_debug_io_mutex;
+    int ext_logic_server_fd;
+    std::thread ext_logic_thread;
 
     void buildDocument(ui::rpc::ElaraUiDocumentBuilder &ui);
     bool loadDocument(const String &document_json);
@@ -91,6 +118,15 @@ private:
     void closeTraceArtifact();
     void traceLine(const String &json_line);
     void traceKernelStateSnapshot(const char *phase);
+    void sendHostDebugEvent(const String &kind, const String &payload_json);
+    void sendHostDebugLog(const String &message);
+    void sendHostDebugState(const String &status);
+    bool connectHostDebugBridge();
+    void closeHostDebugBridge();
+    void startHostDebugReader();
+    void hostDebugReadLoop();
+    void startExtLogicServer();
+    void extLogicServe();
     void shutdown();
 };
 

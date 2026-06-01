@@ -8,6 +8,7 @@ CPP_DIR="${ROOT_DIR}/cpp"
 EPA_DIR="${ROOT_DIR}/epa"
 BUILD_DIR="${ROOT_DIR}/build"
 ARTIFACT_DIR="${ROOT_DIR}/artifacts"
+PID_FILE="${ROOT_DIR}/.pids"
 
 UI_PORT="${UI_PORT:-18798}"
 EPA_DEBUG_PORT="${EPA_DEBUG_PORT:-18878}"
@@ -41,6 +42,9 @@ if [[ -x "${ROOT_DIR}/kill-all.sh" ]]; then
   echo "[orange-fortress] clearing existing related processes"
   "${ROOT_DIR}/kill-all.sh" >/dev/null 2>&1 || true
 fi
+
+: > "${PID_FILE}"
+export ELARA_PID_FILE="${PID_FILE}"
 
 echo "[orange-fortress] rebuilding EPA runtime"
 make -C "${FRAMEWORK_ROOT}/libElaraParallelAssembly" -j2 >/dev/null
@@ -98,6 +102,7 @@ echo "  UI head:   ${UI_LOG}"
 echo "  EPA debug: ${EPA_DEBUG_LOG}"
 echo "  App:       ${APP_LOG}"
 echo "  Trace:     ${ARTIFACT_DIR}/live-epa-trace.jsonl"
+echo "  PID file:  ${PID_FILE}"
 echo "  UI RPC:    ${UI_HOST}:${UI_PORT}"
 if [[ "${EPA_DEBUG_OK}" -eq 1 ]]; then
   echo "  EPA RPC:   ${EPA_DEBUG_HOST}:${EPA_DEBUG_PORT}"
@@ -107,4 +112,4 @@ fi
 
 echo "[orange-fortress] launching client"
 cd "${CPP_DIR}"
-./build/orange-fortress "${UI_HOST}" "${UI_PORT}" 2>&1 | tee "${APP_LOG}"
+./run-client.sh "${UI_HOST}" "${UI_PORT}" 2>&1 | tee "${APP_LOG}"
