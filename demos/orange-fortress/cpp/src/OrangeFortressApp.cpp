@@ -709,7 +709,11 @@ bool OrangeFortressApp::launchUiServerFallback() {
         return false;
     }
     if (pid == 0) {
-        execlp("elaraui-server", "elaraui-server", "--port", port_text, (char *)NULL);
+        execlp("elaraui-server", "elaraui-server",
+               "--port", port_text,
+               "--backend-id", "org.elara.ui.orange-fortress",
+               "--persistent",
+               (char *)NULL);
         fprintf(stderr, "Failed to exec elaraui-server: %s\n", strerror(errno));
         _exit(127);
     }
