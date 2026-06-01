@@ -1450,6 +1450,10 @@ public:
             accept_thread = 0;
         }
 
+        if(peer && peer->isConnected()) {
+            String result, ec, em;
+            peer->call(String("ui.quit"), String("{}"), result, ec, em, 200);
+        }
         if(peer) {
             peer->close();
             peer = Ref<ElaraUiRpcPeer>(0);

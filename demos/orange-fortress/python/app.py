@@ -53,6 +53,14 @@ def _run_as_external_logic(session_path: str) -> None:
     print("[ext-logic] Registered with IDE", flush=True)
     try:
         while True:
+            try:
+                pong = client.ping()
+            except Exception as exc:
+                print(f"[ext-logic] Frontend shutdown or bridge disconnect detected; exiting cleanly: {exc}", flush=True)
+                return
+            if pong != "pong":
+                print(f"[ext-logic] Unexpected bridge ping response {pong!r}; exiting cleanly", flush=True)
+                return
             time.sleep(1.0)
     except KeyboardInterrupt:
         pass

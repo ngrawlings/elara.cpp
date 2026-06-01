@@ -216,11 +216,10 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.add_grid_column_exact(row_id, 20)   # col 2: load indicator
     ui.add_grid_column_exact(row_id, 20)   # col 3: run indicator
     ui.add_grid_column_exact(row_id, 12)   # col 4: spacer before queue
-    ui.add_grid_column_exact(row_id, 72)   # col 5: queue badge "total / worker"
-    ui.add_grid_column_exact(row_id, 48)   # col 6: debug checkbox (row 0)
-    ui.add_grid_column_exact(row_id, 32)   # col 7: ▶  (row 1)
-    ui.add_grid_column_exact(row_id, 32)   # col 8: ▶| (row 1)
-    ui.add_grid_column_exact(row_id, 4)    # col 9: right margin
+    ui.add_grid_column_exact(row_id, 140)  # col 5: queue badge "live / worker (total_in, total_out)"
+    ui.add_grid_column_exact(row_id, 52)   # col 6: Dbg / worker action 1
+    ui.add_grid_column_exact(row_id, 64)   # col 7: All / worker action 2
+    ui.add_grid_column_exact(row_id, 4)    # col 8: right margin
     ui.add_grid_row_exact(row_id, 26)      # row 0: name + queue badge
     ui.add_grid_row_exact(row_id, 26)      # row 1: worker combo + buttons
     for dot_name in ("load_ind", "run_ind"):
@@ -233,6 +232,8 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.create_combo_box(f"{row_id}.worker", items=[], selected_id="")
     ui.create_checkbox(f"{row_id}.debug", "Dbg", True)
     ui.set_property_number(f"{row_id}.debug", "font_size", 10)
+    ui.create_button(f"{row_id}.all_workers", "All", f"debug.kernel.all_workers.{tab_id}")
+    ui.set_property_number(f"{row_id}.all_workers", "font_size", 10)
     ui.create_button(f"{row_id}.run",  "▶",  f"debug.kernel.run.{tab_id}")
     ui.set_property_number(f"{row_id}.run",  "font_size", 11)
     ui.create_button(f"{row_id}.step", "▶|", f"debug.kernel.step.{tab_id}")
@@ -243,7 +244,8 @@ def _build_kernel_row_widgets(ui: UiDocumentBuilder, tab_id: str, kernel_name: s
     ui.place_grid_child(row_id, f"{row_id}.name",   1, 0)
     ui.place_grid_child(row_id, f"{row_id}.queue",  5, 0)
     ui.place_grid_child(row_id, f"{row_id}.debug",  6, 0)
-    # row 1: worker combo + buttons
-    ui.place_grid_child(row_id, f"{row_id}.worker", 1, 1, 3, 1)
-    ui.place_grid_child(row_id, f"{row_id}.run",    7, 1)
-    ui.place_grid_child(row_id, f"{row_id}.step",   8, 1)
+    ui.place_grid_child(row_id, f"{row_id}.all_workers", 7, 0)
+    # row 1: worker combo + buttons aligned under the same action columns
+    ui.place_grid_child(row_id, f"{row_id}.worker", 1, 1, 5, 1)
+    ui.place_grid_child(row_id, f"{row_id}.run",    6, 1)
+    ui.place_grid_child(row_id, f"{row_id}.step",   7, 1)

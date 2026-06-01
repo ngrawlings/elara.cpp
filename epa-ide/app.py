@@ -373,6 +373,8 @@ def main():
         "server": None,
         "thread": None,
         "port": None,
+        "client_sockets": set(),
+        "client_lock": threading.Lock(),
     }
 
     # AI RPC bindings — callbacks are set later, once the inner closures exist.
@@ -613,10 +615,8 @@ def main():
         try:
             ui_c = client_ref.get("client")
             if ui_c:
-                ui_c.set_text("bottom.build_output", buf)
-                ui_c.set_visible("bottom.panel", True)
-                ui_c.set_visible("bottom.build_output", True)
-                ui_c.set_visible("bottom.terminal_panel", False)
+                app_state["bottom_build_output"] = buf
+                _set_build_output(ui_c, buf)
         except Exception:
             pass
 
@@ -950,6 +950,39 @@ def main():
         host_debug_bridge["last_host_pong"] = 0.0
         host_debug_bridge["last_ext_pong"] = 0.0
 
+    def _external_logic_bridge_stop():
+        server = external_logic_bridge.get("server")
+        if server:
+            try:
+                server.shutdown()
+            except Exception:
+                pass
+            try:
+                server.server_close()
+            except Exception:
+                pass
+        with external_logic_bridge["client_lock"]:
+            sockets_to_close = list(external_logic_bridge.get("client_sockets", set()))
+            external_logic_bridge["client_sockets"].clear()
+        for sock in sockets_to_close:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except Exception:
+                pass
+            try:
+                sock.close()
+            except Exception:
+                pass
+        thread = external_logic_bridge.get("thread")
+        if thread and thread.is_alive():
+            thread.join(timeout=1.0)
+        external_logic_bridge["server"] = None
+        external_logic_bridge["thread"] = None
+        external_logic_bridge["port"] = None
+        host_debug_bridge["external_logic_connected"] = False
+        host_debug_bridge["ext_logic_proxied"] = False
+        host_debug_bridge["last_ext_pong"] = 0.0
+
     def _host_debug_bridge_send_json(payload: dict) -> bool:
         sock = host_debug_bridge.get("client_socket")
         if not sock:
@@ -1209,6 +1242,8 @@ def main():
 
         class _ExtLogicHandler(socketserver.StreamRequestHandler):
             def handle(self):
+                with external_logic_bridge["client_lock"]:
+                    external_logic_bridge["client_sockets"].add(self.request)
                 host_debug_bridge["external_logic_connected"] = True
                 _refresh_status_panel(client_ref.get("client"))
                 cpp_port = host_debug_bridge.get("cpp_ext_logic_port", 0)
@@ -1297,6 +1332,8 @@ def main():
                 except (EOFError, OSError):
                     pass
                 finally:
+                    with external_logic_bridge["client_lock"]:
+                        external_logic_bridge["client_sockets"].discard(self.request)
                     if cpp_sock:
                         try: cpp_sock.close()
                         except Exception: pass
@@ -2391,7 +2428,7 @@ def main():
         except Exception:
             pass
 
-    def _worker_combo_items_for_kernel(kernel_tab_id: str, snapshot: dict | None = None) -> list[dict]:
+    def _kernel_worker_entries_for_kernel(kernel_tab_id: str, snapshot: dict | None = None) -> list[dict]:
         workers = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", []) or []
         snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
         snapshot_workers = {
@@ -2416,7 +2453,7 @@ def main():
                 tags.append("wait")
             return tags
 
-        items: list[dict] = []
+        entries: list[dict] = []
         for idx, worker in enumerate(workers, start=1):
             label = worker.get("name", f"worker_{idx}")
             state = dict(snapshot_workers.get(idx) or {})
@@ -2427,7 +2464,7 @@ def main():
             tags = _state_tags(state)
             if tags:
                 label += " [" + " ".join(tags) + "]"
-            items.append({"id": worker.get("name", label), "label": label})
+            entries.append({"id": worker.get("name", label), "label": label, "wid": idx})
         kernel_label = "kernel (wid=0)"
         kernel_state = dict(snapshot_workers.get(0) or {})
         kernel_state.setdefault(
@@ -2437,24 +2474,56 @@ def main():
         kernel_tags = _state_tags(kernel_state)
         if kernel_tags:
             kernel_label += " [" + " ".join(kernel_tags) + "]"
-        items.append({"id": KERNEL_WORKER_ID, "label": kernel_label})
+        entries.append({"id": KERNEL_WORKER_ID, "label": kernel_label, "wid": 0})
+        return entries
+
+    def _worker_combo_items_for_kernel(kernel_tab_id: str, snapshot: dict | None = None) -> list[dict]:
+        entries = _kernel_worker_entries_for_kernel(kernel_tab_id, snapshot)
+        items: list[dict] = []
+        for entry in entries:
+            items.append({"id": entry.get("id", ""), "label": entry.get("label", "")})
         return items
 
     def _refresh_kernel_worker_combo(client, kernel_tab_id: str, snapshot: dict | None = None):
         if not client or not kernel_tab_id:
             return
-        items = _worker_combo_items_for_kernel(kernel_tab_id, snapshot)
+        entries = _kernel_worker_entries_for_kernel(kernel_tab_id, snapshot)
+        items = [{"id": entry.get("id", ""), "label": entry.get("label", "")} for entry in entries]
         selected_id = str(app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "") or "")
         valid_ids = [str(it.get("id", "")) for it in items if isinstance(it, dict)]
         if valid_ids and selected_id not in valid_ids:
             selected_id = valid_ids[0]
             app_state[f"debug_kernel_worker_{kernel_tab_id}"] = selected_id
+        selected_wid = None
+        for entry in entries:
+            if str(entry.get("id", "")) == selected_id:
+                try:
+                    selected_wid = int(entry.get("wid", 0) or 0)
+                except Exception:
+                    selected_wid = 0
+                break
+        if selected_wid is not None:
+            app_state[f"debug_kernel_worker_wid_{kernel_tab_id}"] = selected_wid
         _apply_combo_items(
             client,
             f"nav.debug.kernel.{kernel_tab_id}.worker",
             items,
             selected_id,
         )
+
+    def _kernel_worker_combo_selected(kernel_tab_id: str, payload: dict, snapshot: dict | None = None) -> tuple[str, int | None]:
+        entries = _kernel_worker_entries_for_kernel(kernel_tab_id, snapshot)
+        worker_id = str(payload.get("action") or payload.get("id") or "")
+        if worker_id:
+            worker_id = KERNEL_WORKER_ID if worker_id == "kernel (wid=0)" else worker_id
+            for entry in entries:
+                if str(entry.get("id", "")) == worker_id:
+                    try:
+                        return worker_id, int(entry.get("wid", 0) or 0)
+                    except Exception:
+                        return worker_id, 0
+            return worker_id, None
+        return "", None
 
     def _apply_ingress_types_combo(client, items):
         _apply_combo_items(client, "nav.debug.ingress_type", items)
@@ -2689,15 +2758,24 @@ def main():
         return str(candidates[0])
 
     def _selected_worker_wid_for_kernel(kernel_tab_id: str) -> int | None:
-        workers_list = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", [])
         sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
         if sel_worker_name == KERNEL_WORKER_ID:
             return 0
-        if not workers_list:
+        stored_wid = app_state.get(f"debug_kernel_worker_wid_{kernel_tab_id}")
+        if stored_wid is not None:
+            try:
+                return int(stored_wid)
+            except Exception:
+                pass
+        entries = _kernel_worker_entries_for_kernel(kernel_tab_id)
+        if not entries:
             return 0
-        for wi, w in enumerate(workers_list):
-            if w.get("name") == sel_worker_name:
-                return wi + 1
+        for entry in entries:
+            if str(entry.get("id", "")) == str(sel_worker_name):
+                try:
+                    return int(entry.get("wid", 0) or 0)
+                except Exception:
+                    return 0
         return 1
 
     def _worker_debug_cache_key(kernel_tab_id: str, wid: int | None) -> str:
@@ -2708,14 +2786,18 @@ def main():
         if wid is None:
             return True
         snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
-        for worker in snapshot.get("workers", []) or []:
-            if int(worker.get("wid", -1)) == int(wid) and "debug_enabled" in worker:
-                enabled = bool(worker.get("debug_enabled"))
-                app_state.setdefault("debug_worker_debug_state", {})[_worker_debug_cache_key(kernel_tab_id, wid)] = enabled
-                return enabled
-        return bool(app_state.setdefault("debug_worker_debug_state", {}).get(_worker_debug_cache_key(kernel_tab_id, wid), True))
+        for worker in (snapshot.get("workers", []) or []):
+            try:
+                if int(worker.get("wid", -1)) == int(wid) and "debug_enabled" in worker:
+                    return bool(worker.get("debug_enabled"))
+            except Exception:
+                continue
+        if _epa_dbg_running():
+            return True
+        cache = app_state.setdefault("debug_worker_debug_state", {})
+        return bool(cache.get(_worker_debug_cache_key(kernel_tab_id, wid), True))
 
-    def _set_kernel_worker_debug_checkbox(client, kernel_tab_id: str, snapshot: dict | None = None):
+    def _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id: str, snapshot: dict | None = None):
         if not client or not kernel_tab_id:
             return
         try:
@@ -2725,6 +2807,49 @@ def main():
             )
         except Exception:
             pass
+
+    def _set_kernel_worker_debug_checkbox(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        if _epa_dbg_running():
+            _refresh_selected_worker_debug_from_backend(client, kernel_tab_id, snapshot)
+            return
+        _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id, snapshot)
+
+    def _refresh_selected_worker_debug_from_backend(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        dbg_c = _epa_dbg_client()
+        if not dbg_c or not _epa_dbg_running():
+            _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id, snapshot)
+            return
+        wid = _selected_worker_wid_for_kernel(kernel_tab_id)
+        if wid is None:
+            wid = 0
+        worker_name = str(app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "") or "")
+        try:
+            resp = dbg_c.get_worker_debug(wid, path_id=kernel_tab_id)
+            enabled = bool((resp or {}).get("debug_enabled", True))
+            _epa_dbg_log(
+                f"[debug-state-read] kernel={kernel_tab_id} worker={worker_name or '<unset>'} "
+                f"wid={wid} -> {enabled} resp={resp}"
+            )
+            app_state.setdefault("debug_worker_debug_state", {})[
+                _worker_debug_cache_key(kernel_tab_id, wid)
+            ] = enabled
+            snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id)
+            if snapshot:
+                for worker in (snapshot.get("workers", []) or []):
+                    try:
+                        if int(worker.get("wid", -1)) == int(wid):
+                            worker["debug_enabled"] = enabled
+                            break
+                    except Exception:
+                        continue
+            client.set_checked(f"nav.debug.kernel.{kernel_tab_id}.debug", enabled)
+        except Exception as exc:
+            _epa_dbg_log(f"[debug-state-read-error] {kernel_tab_id} wid={wid}: {exc}")
+            _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id, snapshot)
 
     def _sync_cached_worker_debug_states(dbg_c):
         if not dbg_c:
@@ -2736,9 +2861,29 @@ def main():
             except Exception:
                 pass
 
+    def _kernel_worker_wids(kernel_tab_id: str, snapshot: dict | None = None) -> list[int]:
+        snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
+        worker_wids: list[int] = []
+        for worker in (snapshot.get("workers", []) or []):
+            try:
+                wid = int(worker.get("wid", -1))
+            except Exception:
+                continue
+            if wid >= 0 and wid not in worker_wids:
+                worker_wids.append(wid)
+        if not worker_wids:
+            workers = app_state.get(f"debug_kernel_workers_{kernel_tab_id}", []) or []
+            worker_wids = list(range(1, len(workers) + 1))
+            worker_wids.append(0)
+        return worker_wids
+
     def _set_kernel_queue_badge(client, kernel_tab_id: str, total_inq: int, sel_inq: int):
         try:
-            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue", f"{total_inq} / {sel_inq}")
+            qs = app_state.get("debug_kernel_queue_state", {}).get(kernel_tab_id, {})
+            lt_in  = int(qs.get("lifetime_ingress", 0))
+            lt_out = int(qs.get("lifetime_egress",  0))
+            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.queue",
+                            f"{total_inq} / {sel_inq} ({lt_in}, {lt_out})")
         except Exception:
             pass
 
@@ -2746,7 +2891,9 @@ def main():
         if not kernel_tab_id:
             return
         queue_state = app_state.setdefault("debug_kernel_queue_state", {})
-        queue_state[kernel_tab_id] = {"total_packets": 0, "worker_packets": {}}
+        queue_state[kernel_tab_id] = {"total_packets": 0, "worker_packets": {},
+                                       "lifetime_ingress": 0, "lifetime_egress": 0,
+                                       "prev_worker_inq": {}}
         if client:
             _set_kernel_queue_badge(client, kernel_tab_id, 0, 0)
 
@@ -2764,27 +2911,44 @@ def main():
         if not kernel_tab_id:
             return
         app_state.setdefault("debug_kernel_snapshot_state", {})[kernel_tab_id] = snapshot
+        debug_state_cache = app_state.setdefault("debug_worker_debug_state", {})
         workers = snapshot.get("workers", [])
         kernel = snapshot.get("kernel", {}) or {}
         total_queued = sum(int(w.get("inq_count", 0) or 0) for w in workers)
         total_packets = total_queued + int(kernel.get("ghs_live_count", 0) or 0)
         worker_packets = {}
+        prev_state = app_state.get("debug_kernel_queue_state", {}).get(kernel_tab_id, {})
+        prev_worker_inq = prev_state.get("prev_worker_inq", {})
+        lifetime_ingress = int(prev_state.get("lifetime_ingress", 0))
+        lifetime_egress  = int(prev_state.get("lifetime_egress",  0))
+        new_worker_inq = {}
         for w in workers:
             if "debug_enabled" in w:
-                app_state.setdefault("debug_worker_debug_state", {})[
-                    _worker_debug_cache_key(kernel_tab_id, int(w.get("wid", 0) or 0))
-                ] = bool(w.get("debug_enabled"))
-            worker_packets[w.get("wid")] = int(w.get("inq_count", 0) or 0) + int(w.get("owned_ghs_count", 0) or 0)
+                try:
+                    debug_state_cache[_worker_debug_cache_key(kernel_tab_id, int(w.get("wid", 0) or 0))] = bool(w.get("debug_enabled"))
+                except Exception:
+                    pass
+            wid = w.get("wid")
+            cur_inq = int(w.get("inq_count", 0) or 0)
+            worker_packets[wid] = cur_inq + int(w.get("owned_ghs_count", 0) or 0)
+            if wid in prev_worker_inq:
+                delta = cur_inq - int(prev_worker_inq[wid])
+                if delta > 0:
+                    lifetime_ingress += delta
+            new_worker_inq[wid] = cur_inq
         app_state.setdefault("debug_kernel_queue_state", {})[kernel_tab_id] = {
             "total_packets": total_packets,
             "worker_packets": worker_packets,
+            "lifetime_ingress": lifetime_ingress,
+            "lifetime_egress":  lifetime_egress,
+            "prev_worker_inq":  new_worker_inq,
         }
         if client:
             sel_wid = _selected_worker_wid_for_kernel(kernel_tab_id)
             sel_packets = worker_packets.get(sel_wid, 0) if sel_wid is not None else 0
             _set_kernel_queue_badge(client, kernel_tab_id, total_packets, sel_packets)
             _refresh_kernel_worker_combo(client, kernel_tab_id, snapshot)
-            _set_kernel_worker_debug_checkbox(client, kernel_tab_id, snapshot)
+            _refresh_selected_worker_debug_from_backend(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
         """Set health and blocked indicators from the selected worker snapshot."""
@@ -3337,6 +3501,8 @@ def main():
             if kind == "egress":
                 details = f" {message}" if message else ""
                 _append_host_io_output(client, f"[egress] {kernel_tab_id} wid={wid}{details}{loc}\n")
+                qs = app_state.setdefault("debug_kernel_queue_state", {}).setdefault(kernel_tab_id, {})
+                qs["lifetime_egress"] = int(qs.get("lifetime_egress", 0)) + 1
             elif kind == "signal":
                 details = f" {message}" if message else ""
                 _append_host_io_output(client, f"[host_signal] {kernel_tab_id} wid={wid}{details}{loc}\n")
@@ -3869,6 +4035,7 @@ def main():
             _persist_editor_session_state()
         _cpp_gdb_stop_session()
         _host_debug_bridge_stop()
+        _external_logic_bridge_stop()
         _save_ide_state({"last_project": str(project_path)})
         meta_path = project_path / ".elaraproject" / "project.json"
         try:
@@ -5023,9 +5190,17 @@ def main():
         action = params.get("action")
         payload = params.get("payload") or {}
         payload_action = payload.get("action", "") if isinstance(payload, dict) else ""
+        item_action = payload_action if isinstance(payload_action, str) else ""
         target = params.get("target")
         _push_event("ui_event", action=action, target=target,
                     payload=_trim_for_log(payload) if isinstance(payload, dict) else payload)
+        if (
+            action == "valueChanged"
+            and isinstance(target, str)
+            and target.startswith("nav.debug.kernel.")
+            and target.endswith(".debug")
+        ):
+            _epa_dbg_log(f"[raw-valueChanged] target={target} payload={payload}")
 
         if action == "valueChanged" and target == "editor.tabs" and client is not None:
             new_index = int(payload.get("value", -1))
@@ -6308,15 +6483,18 @@ def main():
                 print(json.dumps({"tab_closed": tab_widget_id}, indent=2), flush=True)
 
             elif item_action and (
-                item_action.startswith("debug.kernel.run.")
+                item_action.startswith("debug.kernel.all_workers.")
+                or item_action.startswith("debug.kernel.run.")
                 or item_action.startswith("debug.kernel.step.")
             ):
+                is_bulk_debug = item_action.startswith("debug.kernel.all_workers.")
                 is_run = item_action.startswith("debug.kernel.run.")
-                kernel_id_str = (
-                    item_action[len("debug.kernel.run."):]
-                    if is_run
-                    else item_action[len("debug.kernel.step."):]
-                )
+                if is_bulk_debug:
+                    kernel_id_str = item_action[len("debug.kernel.all_workers."):]
+                elif is_run:
+                    kernel_id_str = item_action[len("debug.kernel.run."):]
+                else:
+                    kernel_id_str = item_action[len("debug.kernel.step."):]
                 project_root_str = app_state.get("project_root", "")
                 if project_root_str:
                     rel = kernel_id_str.replace(".", "/") + ".e"
@@ -6371,6 +6549,26 @@ def main():
                         if not dbg_c:
                             return
                         _sync_cached_worker_debug_states(dbg_c)
+                        if is_bulk_debug:
+                            enabled = _selected_worker_debug_enabled(ktid)
+                            worker_wids = _kernel_worker_wids(ktid)
+                            try:
+                                latest_snap = {}
+                                for target_wid in worker_wids:
+                                    resp = dbg_c.set_worker_debug(target_wid, enabled, path_id=ktid)
+                                    if isinstance(resp, dict):
+                                        latest_snap = resp.get("snapshot", latest_snap) or latest_snap
+                                    app_state.setdefault("debug_worker_debug_state", {})[
+                                    _worker_debug_cache_key(ktid, target_wid)
+                                    ] = enabled
+                                if latest_snap and uc:
+                                    _schedule_all_kernel_debug_state_refresh(uc, dbg_c, ktid, latest_snap)
+                                elif uc:
+                                    _schedule_all_kernel_debug_state_refresh(uc, dbg_c, ktid, dbg_c.snapshot(k, path_id=ktid))
+                            except Exception as exc:
+                                _epa_dbg_log(f"[error] bulk_set_worker_debug: {exc}")
+                                _push_exception(exc, "bulk_set_worker_debug")
+                            return
                         if r:
                             _sync_editor_breakpoints_for_run(dbg_c, k, ktid)
                         # Mark selected worker as healthy and not blocked while the RPC is in flight.
@@ -6552,15 +6750,20 @@ def main():
             suffix = ".worker"
             if target.startswith(prefix) and target.endswith(suffix):
                 kernel_id_str = target[len(prefix):-len(suffix)]
-                worker_name = payload.get("action") or payload.get("id") or ""
-                if worker_name == "kernel (wid=0)":
-                    worker_name = KERNEL_WORKER_ID
+                snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
+                worker_name, worker_wid = _kernel_worker_combo_selected(kernel_id_str, payload, snapshot)
+                if not worker_name:
+                    return {"received": True}
                 app_state[f"debug_kernel_worker_{kernel_id_str}"] = worker_name
+                app_state[f"debug_kernel_worker_wid_{kernel_id_str}"] = 0 if worker_wid is None else int(worker_wid)
+                _epa_dbg_log(
+                    f"[debug-worker-select] kernel={kernel_id_str} worker={worker_name} "
+                    f"wid={0 if worker_wid is None else int(worker_wid)} payload={payload}"
+                )
                 if client:
-                    _refresh_kernel_worker_combo(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
+                    _refresh_kernel_worker_combo(client, kernel_id_str, snapshot)
                     _apply_cached_kernel_queue_state(client, kernel_id_str)
-                    _set_kernel_worker_debug_checkbox(client, kernel_id_str, app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str))
-                    snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
+                    _refresh_selected_worker_debug_from_backend(client, kernel_id_str, snapshot)
                     if snapshot:
                         _update_kernel_indicator_from_snapshot(client, kernel_id_str, snapshot)
                         _refresh_runtime_debug_sidebars(client, kernel_id_str, snapshot)
@@ -6595,32 +6798,45 @@ def main():
                 elif "value" in payload:
                     enabled = float(payload.get("value", 0) or 0) > 0.5
                 else:
-                    enabled = not bool(app_state.setdefault("debug_worker_debug_state", {}).get(
-                        _worker_debug_cache_key(kernel_id_str, wid), True
-                    ))
+                    return {"received": True}
+                _push_event(
+                    "debug_toggle_branch",
+                    kernel=kernel_id_str,
+                    wid=wid,
+                    action=action,
+                    payload=_trim_for_log(payload) if isinstance(payload, dict) else payload,
+                    enabled=enabled,
+                )
                 app_state.setdefault("debug_worker_debug_state", {})[
                     _worker_debug_cache_key(kernel_id_str, wid)
                 ] = enabled
+                current_worker_name = str(app_state.get(f"debug_kernel_worker_{kernel_id_str}", "") or "")
+                _epa_dbg_log(
+                    f"[debug-toggle-event] kernel={kernel_id_str} worker={current_worker_name or '<unset>'} "
+                    f"wid={wid} action={action} payload={payload} resolved={enabled}"
+                )
                 dbg_c = _epa_dbg_client()
                 if dbg_c and _epa_dbg_running():
-                    def _set_debug_state(ktid=kernel_id_str, worker_id=wid, is_enabled=enabled):
-                        try:
-                            resp = dbg_c.set_worker_debug(worker_id, is_enabled, path_id=ktid)
-                            snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
-                            if snap and client:
-                                _apply_kernel_debug_snapshot(client, ktid, snap, refresh_sidebars=False)
-                        except Exception as exc:
-                            _epa_dbg_log(f"[debug-state-error] {ktid} wid={worker_id}: {exc}")
-                    _deferred(_set_debug_state)
-                snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(kernel_id_str)
-                if snapshot:
-                    for worker in snapshot.get("workers", []) or []:
-                        if int(worker.get("wid", -1)) == int(wid):
-                            worker["debug_enabled"] = enabled
-                            break
+                    try:
+                        _epa_dbg_log(
+                            f"[debug-state-write] kernel={kernel_id_str} worker={current_worker_name or '<unset>'} "
+                            f"wid={wid} set={enabled}"
+                        )
+                        resp = dbg_c.set_worker_debug(wid, enabled, path_id=kernel_id_str)
+                        _epa_dbg_log(
+                            f"[debug-state-write-result] kernel={kernel_id_str} wid={wid} "
+                            f"set={enabled} resp={resp}"
+                        )
+                        snap = resp.get("snapshot", {}) if isinstance(resp, dict) else {}
+                        if snap and client:
+                            _apply_kernel_debug_snapshot(client, kernel_id_str, snap, refresh_sidebars=False)
+                        if client:
+                            _refresh_selected_worker_debug_from_backend(client, kernel_id_str, snap if snap else None)
+                    except Exception as exc:
+                        _epa_dbg_log(f"[debug-state-error] {kernel_id_str} wid={wid}: {exc}")
+                else:
                     if client:
-                        _refresh_kernel_worker_combo(client, kernel_id_str, snapshot)
-                        _set_kernel_worker_debug_checkbox(client, kernel_id_str, snapshot)
+                        _set_kernel_worker_debug_checkbox_local(client, kernel_id_str)
                 return {"received": True}
 
         # Ingress designer — profile selected in list
@@ -7468,6 +7684,24 @@ def main():
             else:
                 _push_event("ui_disconnect", reason="requested")
 
+            if not app_state.get("_ui_reconnect_requested"):
+                try:
+                    _python_dbg_stop(client)
+                except Exception:
+                    pass
+                try:
+                    _cpp_gdb_stop_session()
+                except Exception:
+                    pass
+                try:
+                    _host_debug_bridge_stop()
+                except Exception:
+                    pass
+                try:
+                    _external_logic_bridge_stop()
+                except Exception:
+                    pass
+
         except (OSError, ElaraUiRpcError) as _conn_exc:
             _push_exception(_conn_exc, "ui_connect")
             if _ui_server.get("proc") is None:
@@ -7519,6 +7753,13 @@ def main():
 
     finally:
         try:
+            _host_debug_bridge_send_json({
+                "kind": "quit",
+                "session_id": str(app_state.get("debug_session_id", "") or ""),
+            })
+        except Exception:
+            pass
+        try:
             if "client_ref" in locals():
                 client = client_ref.get("client")
                 if client is not None:
@@ -7537,6 +7778,22 @@ def main():
                 ai_rpc_server.stop()
             except Exception:
                 pass
+        try:
+            _python_dbg_stop()
+        except Exception:
+            pass
+        try:
+            _cpp_gdb_stop_session()
+        except Exception:
+            pass
+        try:
+            _host_debug_bridge_stop()
+        except Exception:
+            pass
+        try:
+            _external_logic_bridge_stop()
+        except Exception:
+            pass
         try:
             _epa_dbg_stop()
         except Exception:

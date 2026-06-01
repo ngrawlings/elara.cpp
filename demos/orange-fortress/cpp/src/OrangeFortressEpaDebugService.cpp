@@ -13,9 +13,10 @@ typedef struct EpaKernel EpaKernel;
 #ifndef EPA_MAX_ERR
 #define EPA_MAX_ERR 256
 #endif
-int epa_kernel_run(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
+int  epa_kernel_run(EpaKernel *k, uint32_t max_ticks, int debug, char err[EPA_MAX_ERR]);
 void epa_kernel_request_interrupt(EpaKernel *k);
 void epa_kernel_set_debug_callback(EpaKernel *k, OrangeFortressKernelDbgCallback cb, void *cb_user);
+void epa_kernel_set_signal_callback(EpaKernel *k, int (*cb)(uint8_t wid, const char *msg, const int msg_len));
 }
 
 namespace elara {
@@ -64,7 +65,10 @@ namespace {
     };
 }
 
-OrangeFortressEpaDebugService::OrangeFortressEpaDebugService() : JsonRPCService("epa"), next_event_id(1) {}
+static OrangeFortressEpaDebugService *g_debug_service = NULL;
+
+OrangeFortressEpaDebugService::OrangeFortressEpaDebugService()
+    : JsonRPCService("epa"), next_event_id(1), last_mailbox_wid(0) {}
 
 OrangeFortressEpaDebugService::~OrangeFortressEpaDebugService() {}
 
@@ -79,10 +83,60 @@ void OrangeFortressEpaDebugService::onKernelDebug(void *cb_user, int kind, uint8
     self->pushEvent(String(label), wid, code, at, msg ? String(msg) : String());
 }
 
+int OrangeFortressEpaDebugService::onSignalMailbox(uint8_t wid, const char *data, const int len) {
+    if (g_debug_service && data && len > 0) {
+        g_debug_service->last_mailbox_wid = wid;
+        g_debug_service->last_mailbox_bytes.assign(
+            (const uint8_t *)data, (const uint8_t *)data + (size_t)len);
+    }
+    return 1;
+}
+
 void OrangeFortressEpaDebugService::ensureDebugCallbackInstalled() {
     if (host.rawKernel()) {
         epa_kernel_set_debug_callback(host.rawKernel(), (OrangeFortressKernelDbgCallback)onKernelDebug, this);
     }
+    size_t count = host.kernelCount();
+    for (size_t i = 0; i < count; i++) {
+        EpaKernel *k = host.rawKernelAt(i);
+        if (k) epa_kernel_set_debug_callback(k, (OrangeFortressKernelDbgCallback)onKernelDebug, this);
+    }
+}
+
+void OrangeFortressEpaDebugService::ensureSignalCallbackInstalled() {
+    g_debug_service = this;
+    if (host.rawKernel()) {
+        epa_kernel_set_signal_callback(host.rawKernel(), onSignalMailbox);
+    }
+    size_t count = host.kernelCount();
+    for (size_t i = 0; i < count; i++) {
+        EpaKernel *k = host.rawKernelAt(i);
+        if (k) epa_kernel_set_signal_callback(k, onSignalMailbox);
+    }
+}
+
+EpaKernel *OrangeFortressEpaDebugService::kernelForPathId(const String &path_id) const {
+    if (!path_id.length()) {
+        return host.rawKernel();
+    }
+    int idx = host.findKernelIndex(path_id);
+    if (idx >= 0) return host.rawKernelAt((size_t)idx);
+    return host.rawKernel();
+}
+
+std::string OrangeFortressEpaDebugService::workerDebugKey(const String &path_id, uint32_t wid) const {
+    String pid(path_id);
+    return std::string(pid.operator char *()) + ":" + std::to_string((unsigned int)wid);
+}
+
+bool OrangeFortressEpaDebugService::workerDebugIsEnabled(const String &path_id, uint32_t wid) const {
+    std::map<std::string, bool>::const_iterator it = worker_debug_enabled.find(workerDebugKey(path_id, wid));
+    if (it == worker_debug_enabled.end()) return true;
+    return it->second;
+}
+
+void OrangeFortressEpaDebugService::setWorkerDebugEnabled(const String &path_id, uint32_t wid, bool enabled) {
+    worker_debug_enabled[workerDebugKey(path_id, wid)] = enabled;
 }
 
 void OrangeFortressEpaDebugService::pushEvent(const String &kind, uint32_t wid, uint32_t code, const OrangeFortressDbgEip *at, const String &message) {
@@ -154,8 +208,7 @@ bool OrangeFortressEpaDebugService::parseHexBytes(const String &hex, std::vector
     return true;
 }
 
-bool OrangeFortressEpaDebugService::hasBreakpointHit(uint32_t *out_wid, Breakpoint *out_breakpoint) const {
-    EpaKernel *kernel = host.rawKernel();
+bool OrangeFortressEpaDebugService::hasBreakpointHit(EpaKernel *kernel, uint32_t *out_wid, Breakpoint *out_breakpoint) const {
     size_t i;
     if (!kernel) return false;
     for (i = 0; i < breakpoints.size(); i++) {
@@ -170,8 +223,7 @@ bool OrangeFortressEpaDebugService::hasBreakpointHit(uint32_t *out_wid, Breakpoi
     return false;
 }
 
-bool OrangeFortressEpaDebugService::runTicks(uint32_t tick_count, bool stop_on_breakpoint, String &stop_reason, uint32_t &ticks_ran, String &error_message) {
-    EpaKernel *kernel = host.rawKernel();
+bool OrangeFortressEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bool stop_on_breakpoint, String &stop_reason, uint32_t &ticks_ran, String &error_message) {
     char err[EPA_MAX_ERR];
     if (!kernel) { error_message = "kernel not created"; return false; }
     ensureDebugCallbackInstalled();
@@ -196,7 +248,7 @@ bool OrangeFortressEpaDebugService::runTicks(uint32_t tick_count, bool stop_on_b
         if (!events.empty()) { stop_reason = events.back().kind; return true; }
         if (stop_on_breakpoint) {
             uint32_t wid = 0; Breakpoint bp;
-            if (hasBreakpointHit(&wid, &bp)) {
+            if (hasBreakpointHit(kernel, &wid, &bp)) {
                 OrangeFortressDbgEip at; at.block_type = bp.block_type; at.block_id = bp.block_id; at.rel_pc = bp.rel_pc;
                 pushEvent(String("breakpoint"), wid, 0, &at, String("software breakpoint hit"));
                 stop_reason = "breakpoint";
@@ -207,16 +259,17 @@ bool OrangeFortressEpaDebugService::runTicks(uint32_t tick_count, bool stop_on_b
     }
 }
 
-String OrangeFortressEpaDebugService::buildSnapshotJson() const {
+String OrangeFortressEpaDebugService::buildSnapshotJson(EpaKernel *kernel, const String &path_id) const {
+    String kernel_snapshot_path_id(path_id);
     String result("{");
     OrangeFortressEpaDebugKernelSnapshot kernel_snapshot;
     OrangeFortressEpaDebugWorkerSnapshot workers[ORANGEFORTRESS_EPA_DEBUG_MAX_WORKERS];
     size_t worker_count = 0;
     memset(&kernel_snapshot, 0, sizeof(kernel_snapshot));
     memset(workers, 0, sizeof(workers));
-    if (host.rawKernel()) {
-        OrangeFortress_epa_debug_capture_kernel(host.rawKernel(), &kernel_snapshot);
-        worker_count = OrangeFortress_epa_debug_capture_workers(host.rawKernel(), workers, ORANGEFORTRESS_EPA_DEBUG_MAX_WORKERS);
+    if (kernel) {
+        OrangeFortress_epa_debug_capture_kernel(kernel, &kernel_snapshot);
+        worker_count = OrangeFortress_epa_debug_capture_workers(kernel, workers, ORANGEFORTRESS_EPA_DEBUG_MAX_WORKERS);
     }
     result += String("\"kernel\":{");
     result += String("\"prog_loaded\":") + String((int)kernel_snapshot.prog_loaded);
@@ -246,6 +299,7 @@ String OrangeFortressEpaDebugService::buildSnapshotJson() const {
         for (uint32_t j = 0; j < ORANGEFORTRESS_EPA_DEBUG_LOCALS; j++) { if (j) result += String(","); result += String((int)workers[i].locals[j]); }
         result += String("]");
         result += String(",\"local_arena\":{\"top\":") + String((int)workers[i].lbytes_top) + String(",\"cap\":") + String((int)workers[i].lbytes_cap) + String(",\"scope_depth\":") + String((int)workers[i].lscope_depth) + String("}");
+        result += String(",\"debug_enabled\":") + String(workerDebugIsEnabled(kernel_snapshot_path_id, workers[i].wid) ? "true" : "false");
         result += String("}");
     }
     result += String("]}");
@@ -285,18 +339,101 @@ bool OrangeFortressEpaDebugService::call(const String &method, const String &par
     if (method == String("epa.debug.create")) {
         if (!host.create()) { error_code = String("create_failed"); error_message = host.lastError(); return false; }
         ensureDebugCallbackInstalled(); result_json = String("{\"created\":true}"); return true; }
-    if (method == String("epa.debug.destroy")) { host.destroy(); events.clear(); result_json = String("{\"destroyed\":true}"); return true; }
+    if (method == String("epa.debug.destroy")) { host.destroy(); events.clear(); last_mailbox_bytes.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true; }
     if (method == String("epa.debug.setKernelId")) { String kernel_id; if (!parseStringField(params_json, String("kernel_id"), kernel_id)) kernel_id = String("epa.debug.kernel"); if (!host.setKernelId(kernel_id)) { error_code = String("set_kernel_id_failed"); error_message = host.lastError(); return false; } result_json = String("{\"ok\":true}"); return true; }
-    if (method == String("epa.debug.loadAsm")) { String asm_path; if (!parseStringField(params_json, String("asm_path"), asm_path) || !asm_path.length()) { error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false; } if (!host.loadAsmPath(asm_path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; } ensureDebugCallbackInstalled(); result_json = String("{\"loaded\":true}"); return true; }
-    if (method == String("epa.debug.ingressPushHex")) { uint32_t wid = 1, tag = 0; String payload_hex; std::vector<unsigned char> bytes; parseUintField(params_json, String("wid"), 1, &wid); parseUintField(params_json, String("tag"), 0, &tag); if (!parseStringField(params_json, String("payload_hex"), payload_hex) || !parseHexBytes(payload_hex, bytes)) { error_code = String("invalid_payload_hex"); error_message = String("payload_hex must be an even-length hex string"); return false; } if (!host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size())) { error_code = String("ingress_push_failed"); error_message = host.lastError(); return false; } result_json = String("{\"queued\":true}"); return true; }
-    if (method == String("epa.debug.step")) { uint32_t ticks = 1, ticks_ran = 0; String stop_reason; parseUintField(params_json, String("ticks"), 1, &ticks); if (!runTicks(ticks, false, stop_reason, ticks_ran, error_message)) { error_code = String("step_failed"); return false; } result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson() + String("}"); return true; }
-    if (method == String("epa.debug.run")) { uint32_t max_ticks = 1000, ticks_ran = 0; String stop_reason; parseUintField(params_json, String("max_ticks"), 1000, &max_ticks); if (!runTicks(max_ticks, true, stop_reason, ticks_ran, error_message)) { error_code = String("run_failed"); return false; } result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson() + String("}"); return true; }
-    if (method == String("epa.debug.interrupt")) { if (host.rawKernel()) epa_kernel_request_interrupt(host.rawKernel()); result_json = String("{\"interrupt_requested\":true}"); return true; }
-    if (method == String("epa.debug.snapshot")) { result_json = buildSnapshotJson(); return true; }
+    if (method == String("epa.debug.loadAsm")) { String asm_path; if (!parseStringField(params_json, String("asm_path"), asm_path) || !asm_path.length()) { error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false; } if (!host.loadAsmPath(asm_path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; } ensureDebugCallbackInstalled(); ensureSignalCallbackInstalled(); result_json = String("{\"loaded\":true}"); return true; }
+    if (method == String("epa.debug.loadBundle")) {
+        String bundle_path;
+        if (!parseStringField(params_json, String("bundle_path"), bundle_path) || !bundle_path.length()) {
+            error_code = String("missing_bundle_path"); error_message = String("bundle_path is required"); return false;
+        }
+        if (!host.loadBundlePath(bundle_path)) { error_code = String("load_bundle_failed"); error_message = host.lastError(); return false; }
+        ensureDebugCallbackInstalled();
+        ensureSignalCallbackInstalled();
+        result_json = String("{\"loaded\":true,\"kernel_count\":") + String((int)host.kernelCount()) + String("}");
+        return true;
+    }
+    if (method == String("epa.debug.ingressPushHex")) {
+        uint32_t wid = 1, tag = 0; String payload_hex, path_id; std::vector<unsigned char> bytes;
+        parseStringField(params_json, String("path_id"), path_id);
+        parseUintField(params_json, String("wid"), 1, &wid);
+        parseUintField(params_json, String("tag"), 0, &tag);
+        if (!parseStringField(params_json, String("payload_hex"), payload_hex) || !parseHexBytes(payload_hex, bytes)) {
+            error_code = String("invalid_payload_hex"); error_message = String("payload_hex must be an even-length hex string"); return false;
+        }
+        EpaKernel *target = kernelForPathId(path_id);
+        if (!target) { error_code = String("kernel_not_found"); error_message = String("no kernel matches path_id"); return false; }
+        int idx = path_id.length() ? host.findKernelIndex(path_id) : -1;
+        bool ok = (idx >= 0)
+            ? host.ingressPushTaggedToKernel((size_t)idx, wid, tag, bytes.data(), (uint32_t)bytes.size())
+            : host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size());
+        if (!ok) { error_code = String("ingress_push_failed"); error_message = host.lastError(); return false; }
+        result_json = String("{\"queued\":true}"); return true;
+    }
+    if (method == String("epa.debug.step")) {
+        String path_id; uint32_t ticks = 1, ticks_ran = 0; String stop_reason;
+        parseStringField(params_json, String("path_id"), path_id);
+        parseUintField(params_json, String("ticks"), 1, &ticks);
+        EpaKernel *kernel = kernelForPathId(path_id);
+        if (!runTicks(kernel, ticks, false, stop_reason, ticks_ran, error_message)) { error_code = String("step_failed"); return false; }
+        result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
+    }
+    if (method == String("epa.debug.run")) {
+        String path_id; uint32_t max_ticks = 1000, ticks_ran = 0; String stop_reason;
+        parseStringField(params_json, String("path_id"), path_id);
+        parseUintField(params_json, String("max_ticks"), 1000, &max_ticks);
+        EpaKernel *kernel = kernelForPathId(path_id);
+        if (!runTicks(kernel, max_ticks, true, stop_reason, ticks_ran, error_message)) { error_code = String("run_failed"); return false; }
+        result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
+    }
+    if (method == String("epa.debug.interrupt")) {
+        String path_id; parseStringField(params_json, String("path_id"), path_id);
+        EpaKernel *kernel = kernelForPathId(path_id);
+        if (kernel) epa_kernel_request_interrupt(kernel);
+        result_json = String("{\"interrupt_requested\":true}"); return true;
+    }
+    if (method == String("epa.debug.snapshot")) {
+        String path_id; parseStringField(params_json, String("path_id"), path_id);
+        result_json = buildSnapshotJson(kernelForPathId(path_id), path_id); return true;
+    }
+    if (method == String("epa.debug.getMailbox")) {
+        String hex;
+        char tmp[3];
+        for (size_t i = 0; i < last_mailbox_bytes.size(); i++) {
+            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)last_mailbox_bytes[i]);
+            hex += String(tmp);
+        }
+        result_json = String("{\"wid\":") + String((int)last_mailbox_wid)
+                    + String(",\"len\":") + String((int)last_mailbox_bytes.size())
+                    + String(",\"hex\":\"") + hex + String("\"}");
+        return true;
+    }
     if (method == String("epa.debug.events")) { bool clear_after = true; parseBoolField(params_json, String("clear"), true, &clear_after); result_json = buildEventsJson(clear_after); return true; }
     if (method == String("epa.debug.breakpointAdd")) { Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0; parseUintField(params_json, String("block_type"), 0, (uint32_t*)&bp.block_type); parseUintField(params_json, String("block_id"), 0, (uint32_t*)&bp.block_id); parseUintField(params_json, String("rel_pc"), 0, &bp.rel_pc); breakpoints.push_back(bp); result_json = buildBreakpointJson(); return true; }
     if (method == String("epa.debug.breakpointClear")) { uint32_t block_type = 0, block_id = 0, rel_pc = 0; parseUintField(params_json, String("block_type"), 0, &block_type); parseUintField(params_json, String("block_id"), 0, &block_id); parseUintField(params_json, String("rel_pc"), 0, &rel_pc); for (std::vector<Breakpoint>::iterator it = breakpoints.begin(); it != breakpoints.end();) { if (it->block_type == block_type && it->block_id == block_id && it->rel_pc == rel_pc) it = breakpoints.erase(it); else ++it; } result_json = buildBreakpointJson(); return true; }
     if (method == String("epa.debug.breakpointList")) { result_json = buildBreakpointJson(); return true; }
+    if (method == String("epa.debug.setWorkerDebug")) {
+        uint32_t wid = 1; bool enabled = true; String path_id;
+        parseUintField(params_json, String("wid"), 1, &wid);
+        parseBoolField(params_json, String("enabled"), true, &enabled);
+        parseStringField(params_json, String("path_id"), path_id);
+        setWorkerDebugEnabled(path_id, wid, enabled);
+        result_json = String("{\"wid\":") + String((int)wid)
+                    + String(",\"debug_enabled\":") + String(enabled ? "true" : "false")
+                    + String(",\"snapshot\":") + buildSnapshotJson(kernelForPathId(path_id), path_id)
+                    + String("}");
+        return true;
+    }
+    if (method == String("epa.debug.getWorkerDebug")) {
+        uint32_t wid = 1; String path_id;
+        parseUintField(params_json, String("wid"), 1, &wid);
+        parseStringField(params_json, String("path_id"), path_id);
+        bool enabled = workerDebugIsEnabled(path_id, wid);
+        result_json = String("{\"wid\":") + String((int)wid)
+                    + String(",\"debug_enabled\":") + String(enabled ? "true" : "false")
+                    + String("}");
+        return true;
+    }
     error_code = String("unknown_method"); error_message = String("Unsupported EPA debug RPC method"); return false; }
 
 }

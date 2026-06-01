@@ -9,7 +9,9 @@
 #include <sys/types.h>
 #include <mutex>
 #include <thread>
-#include "OrangeFortressEpaVmHost.h"
+#include <atomic>
+#include <queue>
+#include <vector>
 
 namespace elara {
 namespace ui {
@@ -56,6 +58,8 @@ public:
     void handleMouseUp(int button, double x, double y);
     void handleMouseMove(double x, double y);
 
+    std::atomic<bool> ui_quit_requested;
+
 private:
     String host;
     int port;
@@ -65,7 +69,8 @@ private:
     bool epa_started;
     bool incremental_ui_supported;
     bool last_section_update_timed_out;
-    OrangeFortressEpaVmHost epa;
+    int epa_dbg_fd;
+    std::mutex epa_dbg_mutex;
     Mutex input_lock;
     mutable Mutex render_lock;
     Array<unsigned int> pending_keydowns;
@@ -112,11 +117,12 @@ private:
     void armMouseCapture();
     void setMouseCaptured(bool captured);
     void refreshProjectState();
-    void refreshEpaState();
-    void stimulateEpa();
+    bool connectEpaDbg();
+    void closeEpaDbg();
+    bool epaDbgCall(const String &method, const String &params_json, String &result_json);
+    bool epaDbgLoadBundle();
     bool sendScenePose();
     void drainKeyEvents();
-    void installSurfaceCallback();
     void publishCachedCubeScene(int angle);
     void cycleCachedCubeScene(int delta);
     String buildCachedCubeSceneJson(int angle) const;

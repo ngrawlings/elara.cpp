@@ -21,7 +21,6 @@
 #include <libelarasockets/rpc/brpc/BRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelarauirpc/ElaraUiDocumentBuilder.h>
-#include "OrangeFortressEpaDebugShim.h"
 
 namespace elara {
 using namespace elara::ui::rpc;
@@ -32,8 +31,6 @@ using sockets::rpc::brpc::BRPC_NAMED_BYTE;
 using sockets::rpc::brpc::BRPC_NAMED_STRING;
 
 namespace {
-
-static OrangeFortressApp *g_orange_fortress_app = NULL;
 
 static uint32_t read_le_u32(const unsigned char *p) {
     return ((uint32_t)p[0])
@@ -291,6 +288,14 @@ public:
             return true;
         }
 
+        if (method == String("quit")) {
+            if (app) {
+                app->ui_quit_requested.store(true);
+            }
+            result_json = "{\"ok\":true}";
+            return true;
+        }
+
         error_code = "method_not_found";
         error_message = "No client-side ui event handler matched the request";
         return false;
@@ -393,13 +398,6 @@ static CalibrationProjectionState projectCalibrationScene(const SceneViewState &
     return projection;
 }
 
-int on_surface_host_signal(uint8_t wid, const char *msg, const int msg_len) {
-    if (g_orange_fortress_app) {
-        g_orange_fortress_app->updateSurfaceCommandsFromMailbox((unsigned int)wid, msg, msg_len);
-    }
-    return 1;
-}
-
 }
 
 OrangeFortressApp::OrangeFortressApp(
@@ -414,6 +412,8 @@ OrangeFortressApp::OrangeFortressApp(
       bundle_exists(false),
       epa_loaded(false),
       epa_started(false),
+      epa_dbg_fd(-1),
+      ui_quit_requested(false),
       incremental_ui_supported(true),
       last_section_update_timed_out(false),
       input_lock("orange-fortress-input"),
@@ -618,6 +618,10 @@ void OrangeFortressApp::hostDebugReadLoop() {
                 if (kind == String("ping")) {
                     String req_id = payload.getStringValue("id");
                     sendHostDebugEvent(String("pong"), String("\"id\":") + json_quote_simple(req_id));
+                } else if (kind == String("quit")) {
+                    printf("[C++ Host] IDE sent quit — shutting down cleanly.\n");
+                    fflush(stdout);
+                    ui_quit_requested.store(true);
                 }
             } catch (...) {
             }
@@ -875,60 +879,10 @@ void OrangeFortressApp::traceLine(const String &json_line) {
 }
 
 void OrangeFortressApp::traceKernelStateSnapshot(const char *phase) {
-    size_t i;
     if (!epa_loaded) {
         traceLine(String("{\"event\":\"kernel_snapshot\",\"phase\":")
             + JsonString(String(phase ? phase : "unknown"), true).toString()
             + String(",\"ready\":false}"));
-        return;
-    }
-    for (i = 0; i < epa.kernelCount(); i++) {
-        EpaKernel *kernel = epa.rawKernelAt(i);
-        OrangeFortressEpaDebugKernelSnapshot kernel_snapshot;
-        OrangeFortressEpaDebugWorkerSnapshot workers[ORANGEFORTRESS_EPA_DEBUG_MAX_WORKERS];
-        size_t worker_count = 0;
-        String line;
-        if (!kernel) {
-            continue;
-        }
-        memset(&kernel_snapshot, 0, sizeof(kernel_snapshot));
-        OrangeFortress_epa_debug_capture_kernel(kernel, &kernel_snapshot);
-        worker_count = OrangeFortress_epa_debug_capture_workers(kernel, workers, ORANGEFORTRESS_EPA_DEBUG_MAX_WORKERS);
-        line = String("{\"event\":\"kernel_snapshot\",\"phase\":")
-             + JsonString(String(phase ? phase : "unknown"), true).toString()
-             + String(",\"kernel_index\":") + String((int)i)
-             + String(",\"kernel_id\":") + JsonString(epa.kernelPathId(i), true).toString()
-             + String(",\"status\":") + JsonString(epa.kernelStatus(i), true).toString()
-             + String(",\"thread_count\":") + String((int)epa.kernelThreadCount(i))
-             + String(",\"rr_cursor\":") + String((int)kernel_snapshot.rr_cursor)
-             + String(",\"current_wid\":") + String((int)kernel_snapshot.current_wid)
-             + String(",\"interrupt_requested\":") + String((int)kernel_snapshot.interrupt_requested)
-             + String(",\"workers\":[");
-        for (size_t w = 0; w < worker_count; w++) {
-            if (w > 0) {
-                line += String(",");
-            }
-            line += String("{\"wid\":") + String((int)workers[w].wid)
-                 + String(",\"halted\":") + String((int)workers[w].halted)
-                 + String(",\"blocked\":") + String((int)workers[w].blocked)
-                 + String(",\"faulted\":") + String((int)workers[w].faulted)
-                 + String(",\"waiting_for_data\":") + String((int)workers[w].waiting_for_data)
-                 + String(",\"has_current_ghs\":") + String((int)workers[w].has_current_ghs)
-                 + String(",\"inq_count\":") + String((int)workers[w].inq_count)
-                 + String(",\"outq_count\":") + String((int)workers[w].outq_count)
-                 + String(",\"stack_depth\":") + String((int)workers[w].stack_depth)
-                 + String(",\"lbytes_top\":") + String((int)workers[w].lbytes_top)
-                 + String(",\"eip\":{\"block_type\":") + String((int)workers[w].eip.block_type)
-                 + String(",\"block_id\":") + String((int)workers[w].eip.block_id)
-                 + String(",\"rel_pc\":") + String((int)workers[w].eip.rel_pc)
-                 + String("},\"locals\":[")
-                 + String((int)workers[w].locals[0]) + String(",")
-                 + String((int)workers[w].locals[1]) + String(",")
-                 + String((int)workers[w].locals[2]) + String(",")
-                 + String((int)workers[w].locals[3]) + String("]}");
-        }
-        line += String("]}");
-        traceLine(line);
     }
 }
 
@@ -936,19 +890,77 @@ void OrangeFortressApp::refreshProjectState() {
     bundle_exists = access(bundle_path.operator char *(), F_OK) == 0;
 }
 
-void OrangeFortressApp::refreshEpaState() {
-    size_t i;
+bool OrangeFortressApp::connectEpaDbg() {
+    struct addrinfo hints, *result = NULL, *rp = NULL;
+    char port_text[32];
+    if (epa_dbg_fd >= 0) return true;
+    if (!debug_session.enabled || !debug_session.epa_dbg_host.length() || debug_session.epa_dbg_port <= 0)
+        return false;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    snprintf(port_text, sizeof(port_text), "%d", debug_session.epa_dbg_port);
+    if (getaddrinfo(debug_session.epa_dbg_host.operator char *(), port_text, &hints, &result) != 0)
+        return false;
+    for (rp = result; rp; rp = rp->ai_next) {
+        int fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+        if (fd < 0) continue;
+        if (connect(fd, rp->ai_addr, rp->ai_addrlen) == 0) { epa_dbg_fd = fd; break; }
+        close(fd);
+    }
+    freeaddrinfo(result);
+    if (epa_dbg_fd >= 0)
+        printf("[C++ Host] connected to EPA debug VM at %s:%d\n",
+               debug_session.epa_dbg_host.operator char *(), debug_session.epa_dbg_port);
+    else
+        printf("[C++ Host] failed to connect to EPA debug VM at %s:%d\n",
+               debug_session.epa_dbg_host.operator char *(), debug_session.epa_dbg_port);
+    return epa_dbg_fd >= 0;
+}
+
+void OrangeFortressApp::closeEpaDbg() {
+    if (epa_dbg_fd >= 0) { close(epa_dbg_fd); epa_dbg_fd = -1; }
+}
+
+bool OrangeFortressApp::epaDbgCall(const String &method, const String &params_json, String &result_json) {
+    std::lock_guard<std::mutex> lock(epa_dbg_mutex);
+    if (epa_dbg_fd < 0) return false;
+
+    // Build JSON-RPC request.
+    String req = String("{\"id\":\"1\",\"method\":") + json_quote_simple(method)
+               + String(",\"params\":") + (params_json.length() ? params_json : String("{}"))
+               + String("}");
+    String req_copy(req);
+    uint32_t len = (uint32_t)req_copy.length();
+    unsigned char hdr[4] = {
+        (unsigned char)(len >> 24), (unsigned char)(len >> 16),
+        (unsigned char)(len >> 8),  (unsigned char)len
+    };
+    if (write(epa_dbg_fd, hdr, 4) != 4) { closeEpaDbg(); return false; }
+    if (write(epa_dbg_fd, req_copy.operator char *(), len) != (ssize_t)len) { closeEpaDbg(); return false; }
+
+    // Read length-prefixed response.
+    unsigned char rhdr[4];
+    if (!elg_read_exact(epa_dbg_fd, (char *)rhdr, 4)) { closeEpaDbg(); return false; }
+    uint32_t rlen = ((uint32_t)rhdr[0] << 24) | ((uint32_t)rhdr[1] << 16)
+                  | ((uint32_t)rhdr[2] << 8)  |  (uint32_t)rhdr[3];
+    if (rlen > 4u * 1024u * 1024u) { closeEpaDbg(); return false; }
+    std::vector<char> rbuf(rlen + 1, 0);
+    if (!elg_read_exact(epa_dbg_fd, rbuf.data(), rlen)) { closeEpaDbg(); return false; }
+
+    try {
+        Json resp(String(rbuf.data()));
+        int ok_val = (int)resp.getIntValue("ok");
+        if (!ok_val) return false;
+        result_json = String(rbuf.data());
+        return true;
+    } catch (...) { return false; }
+}
+
+bool OrangeFortressApp::epaDbgLoadBundle() {
     refreshProjectState();
     epa_loaded = false;
     epa_started = false;
-    scene_cam_x = 0;
-    scene_cam_y = 0;
-    scene_cam_z = 0;
-    scene_cam_yaw = 0;
-    scene_cam_pitch = 0;
-    scene_depth = 0;
-    scene_lane = 0;
-    epa.destroy();
     {
         Mutex::Lock lock(render_lock);
         latest_surface_valid = false;
@@ -957,244 +969,106 @@ void OrangeFortressApp::refreshEpaState() {
         surface_revision = 0;
         pushed_surface_revision = 0;
     }
-    traceLine(String("{\"event\":\"refresh_epa_state\",\"bundle_exists\":") + String(bundle_exists ? "true" : "false") + String("}"));
+    traceLine(String("{\"event\":\"epa_dbg_load_bundle\",\"bundle_exists\":") + String(bundle_exists ? "true" : "false") + String("}"));
     if (!bundle_exists) {
         sendHostDebugState(String("Status: bundle missing"));
-        return;
+        return false;
     }
-    if (!epa.loadBundlePath(bundle_path)) {
-        traceLine(String("{\"event\":\"bundle_load_failed\",\"error\":") + JsonString(epa.lastError(), true).toString() + String("}"));
-        sendHostDebugState(String("Status: bundle load failed"));
-        return;
+    if (!connectEpaDbg()) {
+        sendHostDebugState(String("Status: EPA debug VM not reachable"));
+        return false;
+    }
+    String result_json;
+    String params = String("{\"bundle_path\":") + json_quote_simple(bundle_path) + String("}");
+    if (!epaDbgCall(String("epa.debug.loadBundle"), params, result_json)) {
+        printf("[C++ Host] EPA debug VM: loadBundle failed for %s\n", bundle_path.operator char *());
+        sendHostDebugState(String("Status: bundle load failed in EPA VM"));
+        return false;
     }
     epa_loaded = true;
-    traceLine(String("{\"event\":\"bundle_loaded\",\"kernel_count\":") + String((int)epa.kernelCount()) + String("}"));
-    installSurfaceCallback();
-    if (!epa.startAllKernels()) {
-        traceLine(String("{\"event\":\"start_all_failed\",\"error\":") + JsonString(epa.lastError(), true).toString() + String("}"));
-        sendHostDebugState(String("Status: kernel start failed"));
-        return;
-    }
     epa_started = true;
-    sendHostDebugState(String("Status: bundle loaded and kernels running"));
-    printf("EPA module started: kernel_count=%d\n", (int)epa.kernelCount());
-    for (i = 0; i < epa.kernelCount(); i++) {
-        printf("  kernel[%d] id=%s status=%s threads=%u err=%s\n",
-               (int)i,
-               epa.kernelPathId(i).operator char *(),
-               epa.kernelStatus(i).operator char *(),
-               (unsigned)epa.kernelThreadCount(i),
-               epa.kernelError(i).operator char *());
-    }
-    traceKernelStateSnapshot("after_start_all");
-}
-
-void OrangeFortressApp::stimulateEpa() {
-    struct FrameTickPayload {
-        uint32_t frame_id;
-        uint32_t phase;
-        uint32_t mode;
-    };
-    struct KeyInputPayload {
-        uint32_t key_code;
-        uint32_t pressed;
-        uint32_t modifiers;
-    };
-    struct PlayerIntentPayload {
-        uint32_t move_x;
-        uint32_t move_y;
-        uint32_t fire_mode;
-        uint32_t look_dx;
-    };
-    struct WeaponCommandPayload {
-        uint32_t mode;
-        uint32_t trigger;
-        uint32_t ammo_hint;
-    };
-    struct ActorStatePayload {
-        uint32_t actor_id;
-        uint32_t posture;
-        uint32_t flags;
-    };
-    struct WorldStatePayload {
-        uint32_t zone_id;
-        uint32_t dirty_flags;
-        uint32_t threat_level;
-    };
-
-    if (!epa_started) {
-        return;
-    }
-    traceLine(String("{\"event\":\"stimulate_begin\"}"));
-
-    FrameTickPayload tick = { 1u, 0u, 0u };
-    KeyInputPayload input = { 0u, 0u, 0u };
-    PlayerIntentPayload intent = { 1u, 0u, 1u, 2u };
-    WeaponCommandPayload weapon = { 1u, 1u, 30u };
-    ActorStatePayload actor = { 7u, 0u, 1u };
-    WorldStatePayload world = { 1u, 0u, 2u };
-
-    int idx;
-
-    idx = epa.findKernelIndex(String("entry"));
-    if (idx >= 0) {
-        traceLine(String("{\"event\":\"ingress_push\",\"kernel\":\"entry\",\"wid\":1,\"ok\":")
-            + String(epa.ingressPushToKernel((size_t)idx, 1u, &tick, sizeof(tick)) ? "true" : "false") + String("}"));
-    }
-
-    idx = epa.findKernelIndex(String("gameplay_rules"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &tick, sizeof(tick));
-        epa.ingressPushToKernel((size_t)idx, 2u, &intent, sizeof(intent));
-        epa.ingressPushToKernel((size_t)idx, 3u, &actor, sizeof(actor));
-    }
-
-    idx = epa.findKernelIndex(String("input_dispatch"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input));
-        epa.ingressPushToKernel((size_t)idx, 2u, &tick, sizeof(tick));
-    }
-
-    idx = epa.findKernelIndex(String("player_avatar"));
-    if (idx >= 0) {
-        int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input)) ? 1 : 0;
-        printf("stimulate player_avatar worker1=%d\n", ok1);
-        traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"player_avatar\",\"wid1\":")
-            + String(ok1) + String(",\"wid2\":0,\"wid3\":0}"));
-    }
-
-    idx = epa.findKernelIndex(String("scene"));
-    if (idx >= 0) {
-        struct ScenePoseInputPayload {
-            int32_t cam_x; int32_t cam_z; int32_t depth; int32_t lane; int32_t yaw; int32_t pitch;
-            int32_t end_wall_x; int32_t end_wall_y; int32_t end_wall_w; int32_t end_wall_h; int32_t end_wall_visible;
-            int32_t side_wall_x; int32_t side_wall_y; int32_t side_wall_w; int32_t side_wall_h; int32_t side_wall_visible;
-            int32_t marker0_x; int32_t marker0_y; int32_t marker0_visible;
-            int32_t marker1_x; int32_t marker1_y; int32_t marker1_visible;
-            int32_t marker2_x; int32_t marker2_y; int32_t marker2_visible;
-        };
-        CalibrationProjectionState projection = projectCalibrationScene(
-            SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
-        );
-        ScenePoseInputPayload pose_init = {
-            scene_cam_x, scene_cam_z, scene_depth, scene_lane, wrapDegrees360(scene_cam_yaw), clampInt(scene_cam_pitch, -89, 89),
-            projection.end_wall.x, projection.end_wall.y, projection.end_wall.w, projection.end_wall.h, projection.end_wall.visible ? 1 : 0,
-            projection.side_wall.x, projection.side_wall.y, projection.side_wall.w, projection.side_wall.h, projection.side_wall.visible ? 1 : 0,
-            projection.marker0.x, projection.marker0.y, projection.marker0.visible ? 1 : 0,
-            projection.marker1.x, projection.marker1.y, projection.marker1.visible ? 1 : 0,
-            projection.marker2.x, projection.marker2.y, projection.marker2.visible ? 1 : 0
-        };
-        int ok1 = epa.ingressPushToKernel((size_t)idx, 1u, &pose_init, sizeof(pose_init)) ? 1 : 0;
-        printf("stimulate scene worker1=%d\n", ok1);
-        traceLine(String("{\"event\":\"ingress_push_batch\",\"kernel\":\"scene\",\"wid1\":")
-            + String(ok1) + String(",\"wid2\":0,\"wid3\":0}"));
-    }
-
-    idx = epa.findKernelIndex(String("player_machinegun"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &weapon, sizeof(weapon));
-        epa.ingressPushToKernel((size_t)idx, 2u, &tick, sizeof(tick));
-    }
-
-    idx = epa.findKernelIndex(String("world_runtime"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &tick, sizeof(tick));
-        epa.ingressPushToKernel((size_t)idx, 2u, &actor, sizeof(actor));
-    }
-
-    idx = epa.findKernelIndex(String("render_scene"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &tick, sizeof(tick));
-        epa.ingressPushToKernel((size_t)idx, 2u, &actor, sizeof(actor));
-        epa.ingressPushToKernel((size_t)idx, 3u, &world, sizeof(world));
-    }
-
-    idx = epa.findKernelIndex(String("render_ui"));
-    if (idx >= 0) {
-        epa.ingressPushToKernel((size_t)idx, 1u, &input, sizeof(input));
-        epa.ingressPushToKernel((size_t)idx, 2u, &weapon, sizeof(weapon));
-        epa.ingressPushToKernel((size_t)idx, 3u, &tick, sizeof(tick));
-    }
-    traceKernelStateSnapshot("after_stimulate");
+    printf("[C++ Host] EPA debug VM: bundle loaded %s\n", bundle_path.operator char *());
+    sendHostDebugState(String("Status: bundle loaded in EPA VM"));
+    traceLine(String("{\"event\":\"epa_dbg_bundle_loaded\"}"));
+    return true;
 }
 
 bool OrangeFortressApp::sendScenePose() {
     struct ScenePoseInputPayload {
-        int32_t cam_x;
-        int32_t cam_z;
-        int32_t depth;
-        int32_t lane;
-        int32_t yaw;
-        int32_t pitch;
-        int32_t end_wall_x;
-        int32_t end_wall_y;
-        int32_t end_wall_w;
-        int32_t end_wall_h;
-        int32_t end_wall_visible;
-        int32_t side_wall_x;
-        int32_t side_wall_y;
-        int32_t side_wall_w;
-        int32_t side_wall_h;
-        int32_t side_wall_visible;
-        int32_t marker0_x;
-        int32_t marker0_y;
-        int32_t marker0_visible;
-        int32_t marker1_x;
-        int32_t marker1_y;
-        int32_t marker1_visible;
-        int32_t marker2_x;
-        int32_t marker2_y;
-        int32_t marker2_visible;
+        int32_t cam_x, cam_z, depth, lane, yaw, pitch;
+        int32_t end_wall_x, end_wall_y, end_wall_w, end_wall_h, end_wall_visible;
+        int32_t side_wall_x, side_wall_y, side_wall_w, side_wall_h, side_wall_visible;
+        int32_t marker0_x, marker0_y, marker0_visible;
+        int32_t marker1_x, marker1_y, marker1_visible;
+        int32_t marker2_x, marker2_y, marker2_visible;
     };
 
-    if (!epa_started) {
-        return false;
-    }
-
-    int idx = epa.findKernelIndex(String("scene"));
-    if (idx < 0) {
-        return false;
-    }
+    if (!epa_started) return false;
 
     CalibrationProjectionState projection = projectCalibrationScene(
         SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
     );
     ScenePoseInputPayload pose = {
-        scene_cam_x,
-        scene_cam_z,
-        scene_depth,
-        scene_lane,
-        wrapDegrees360(scene_cam_yaw),
-        clampInt(scene_cam_pitch, -89, 89),
-        projection.end_wall.x,
-        projection.end_wall.y,
-        projection.end_wall.w,
-        projection.end_wall.h,
-        projection.end_wall.visible ? 1 : 0,
-        projection.side_wall.x,
-        projection.side_wall.y,
-        projection.side_wall.w,
-        projection.side_wall.h,
-        projection.side_wall.visible ? 1 : 0,
-        projection.marker0.x,
-        projection.marker0.y,
-        projection.marker0.visible ? 1 : 0,
-        projection.marker1.x,
-        projection.marker1.y,
-        projection.marker1.visible ? 1 : 0,
-        projection.marker2.x,
-        projection.marker2.y,
-        projection.marker2.visible ? 1 : 0
+        scene_cam_x, scene_cam_z, scene_depth, scene_lane,
+        wrapDegrees360(scene_cam_yaw), clampInt(scene_cam_pitch, -89, 89),
+        projection.end_wall.x, projection.end_wall.y, projection.end_wall.w, projection.end_wall.h, projection.end_wall.visible ? 1 : 0,
+        projection.side_wall.x, projection.side_wall.y, projection.side_wall.w, projection.side_wall.h, projection.side_wall.visible ? 1 : 0,
+        projection.marker0.x, projection.marker0.y, projection.marker0.visible ? 1 : 0,
+        projection.marker1.x, projection.marker1.y, projection.marker1.visible ? 1 : 0,
+        projection.marker2.x, projection.marker2.y, projection.marker2.visible ? 1 : 0
     };
-    printf("sendScenePose: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d "
-           "m0=(%d,%d,%d) m1=(%d,%d,%d) m2=(%d,%d,%d) end=(%d,%d,%d,%d,%d)\n",
-           pose.cam_x, pose.cam_z, pose.depth, pose.lane, pose.yaw, pose.pitch,
-           pose.marker0_x, pose.marker0_y, pose.marker0_visible,
-           pose.marker1_x, pose.marker1_y, pose.marker1_visible,
-           pose.marker2_x, pose.marker2_y, pose.marker2_visible,
-           pose.end_wall_x, pose.end_wall_y, pose.end_wall_w, pose.end_wall_h, pose.end_wall_visible);
+    printf("sendScenePose: cam_x=%d cam_z=%d yaw=%d pitch=%d\n",
+           pose.cam_x, pose.cam_z, pose.yaw, pose.pitch);
     fflush(stdout);
-    return epa.ingressPushToKernel((size_t)idx, 1u, &pose, sizeof(pose));
+    traceLine(String("{\"event\":\"send_scene_pose\",\"cam_x\":") + String(pose.cam_x)
+        + String(",\"cam_z\":") + String(pose.cam_z) + String("}"));
+
+    // Encode payload bytes as hex and push via EPA debug VM.
+    const unsigned char *raw = (const unsigned char *)&pose;
+    String hex;
+    char tmp[3];
+    for (size_t i = 0; i < sizeof(pose); i++) {
+        snprintf(tmp, sizeof(tmp), "%02x", (unsigned)raw[i]);
+        hex += String(tmp);
+    }
+    String ingress_params = String("{\"path_id\":\"orange.fortress.scene\",\"wid\":1,\"payload_hex\":\"")
+                          + hex + String("\"}");
+    String result_json;
+    if (!epaDbgCall(String("epa.debug.ingressPushHex"), ingress_params, result_json)) {
+        printf("sendScenePose: ingressPushHex failed\n");
+        return false;
+    }
+
+    // Run the scene kernel until signal (E3SB frame commit) or max ticks.
+    String run_result;
+    if (!epaDbgCall(String("epa.debug.run"),
+                    String("{\"path_id\":\"orange.fortress.scene\",\"max_ticks\":200000}"),
+                    run_result)) {
+        printf("sendScenePose: run failed\n");
+        return false;
+    }
+
+    // Retrieve the mailbox bytes produced by frame_commit.
+    String mailbox_result;
+    if (!epaDbgCall(String("epa.debug.getMailbox"), String("{}"), mailbox_result)) {
+        return false;
+    }
+    try {
+        Json mb(mailbox_result);
+        String hex_str = mb.getStringValue("hex");
+        int wid_val = (int)mb.getIntValue("wid");
+        int len_val = (int)mb.getIntValue("len");
+        if (len_val <= 0 || !hex_str.length()) return true;
+        std::vector<char> bytes(len_val);
+        String hex_copy(hex_str);
+        const char *p = hex_copy.operator char *();
+        for (int i = 0; i < len_val && p && p[0] && p[1]; i++, p += 2) {
+            char chunk[3] = { p[0], p[1], 0 };
+            bytes[i] = (char)strtoul(chunk, NULL, 16);
+        }
+        updateSurfaceCommandsFromMailbox((unsigned int)wid_val, bytes.data(), len_val);
+    } catch (...) {}
+    return true;
 }
 
 void OrangeFortressApp::enqueueKeyDown(unsigned int keyval) {
@@ -1351,43 +1225,8 @@ void OrangeFortressApp::drainKeyEvents() {
     sendScenePose();
 }
 
-void OrangeFortressApp::installSurfaceCallback() {
-    const char *kernel_names[] = { "scene", "scene_compiler" };
-    bool installed = false;
-    g_orange_fortress_app = this;
-    for (size_t i = 0; i < sizeof(kernel_names) / sizeof(kernel_names[0]); i++) {
-        int idx = epa.findKernelIndex(String(kernel_names[i]));
-        if (idx >= 0) {
-            EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
-            if (kernel) {
-                epa_kernel_set_signal_callback(kernel, on_surface_host_signal);
-                installed = true;
-                printf("Installed surface callback on kernel %s idx=%d\n", kernel_names[i], idx);
-                traceLine(String("{\"event\":\"surface_callback_installed\",\"kernel\":")
-                    + JsonString(String(kernel_names[i]), true).toString()
-                    + String(",\"index\":") + String(idx) + String("}"));
-            }
-        }
-    }
-    if (!installed) {
-        printf("Surface callback install failed: scene/scene_compiler kernels not found\n");
-        traceLine(String("{\"event\":\"surface_callback_install_failed\",\"reason\":\"kernels_not_found\"}"));
-    }
-}
-
 void OrangeFortressApp::shutdown() {
-    g_orange_fortress_app = NULL;
-
-    const char *kernel_names[] = { "scene", "scene_compiler" };
-    for (size_t i = 0; i < sizeof(kernel_names) / sizeof(kernel_names[0]); i++) {
-        int idx = epa.findKernelIndex(String(kernel_names[i]));
-        if (idx >= 0) {
-            EpaKernel *kernel = epa.rawKernelAt((size_t)idx);
-            if (kernel) {
-                epa_kernel_set_signal_callback(kernel, NULL);
-            }
-        }
-    }
+    closeEpaDbg();
 
     if (peer) {
         peer->close();
@@ -1401,9 +1240,6 @@ void OrangeFortressApp::shutdown() {
         ext_logic_server_fd = -1;
     }
     closeHostDebugBridge();
-
-    epa.stopAllKernels();
-    epa.destroy();
     closeTraceArtifact();
 }
 
@@ -1709,7 +1545,7 @@ String OrangeFortressApp::buildStatusItemsJson() const {
         ? String("EPA kernels started")
         : String("EPA kernels not started");
 
-    String kernel_count_label = String("Kernel count: ") + String((int)epa.kernelCount());
+    String kernel_count_label = String("EPA debug VM: ") + (epa_started ? String("connected") : String("not connected"));
     SceneViewState scene = clampSceneViewState(
         SceneViewState{ scene_cam_x, scene_cam_y, scene_cam_z, scene_cam_yaw, scene_cam_pitch, scene_depth, scene_lane }
     );
@@ -1886,24 +1722,23 @@ int OrangeFortressApp::run() {
     }
     publishCachedCubeScene(0);
 
-    refreshEpaState();
-    if (!epa_started) {
-        String error_text(epa.lastError());
-        printf("EPA did not start: %s\n", error_text.operator char *());
-        shutdown();
-        return 1;
-    }
-    if (!sendScenePose()) {
-        String error_text(epa.lastError());
-        printf("Initial scene ingress failed: %s\n", error_text.operator char *());
-        shutdown();
-        return 1;
+    if (!epaDbgLoadBundle()) {
+        printf("[C++ Host] EPA VM not ready; running in cached-replay-only mode.\n");
+    } else {
+        sendScenePose();
     }
     traceLine(String("{\"event\":\"initial_scene_ingress\"}"));
     int loop_count = 0;
     bool cached_replay_started = false;
     bool stdin_open = true;
     while (true) {
+        if (ui_quit_requested.load()) {
+            printf("[C++ Host] UI server sent quit — shutting down cleanly.\n");
+            traceLine(String("{\"event\":\"ui_quit_received\"}"));
+            sendHostDebugLog(String("UI server quit received; host shutting down"));
+            shutdown();
+            return 0;
+        }
         if (ui_connected && failIfUiDisconnected("main_loop")) {
             break;
         }
