@@ -19,7 +19,7 @@ kernel(VM vm) {
   }
 }
 
-@attributes signal_mail_box_size:2048
+@attributes signal_mail_box_size:16384
 worker player_intent_ingress(KeyInput input) {
   static int x;
   static int y;

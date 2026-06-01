@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <pthread.h>
 
 #include "epa_asm_compiler.h"
@@ -72,6 +73,35 @@ static char *kernel_strdup(const char *s) {
   if (!p) return NULL;
   memcpy(p, s, n + 1u);
   return p;
+}
+
+static void kernel_fault_worker(EpaKernel *k, uint32_t wid, const char *fmt, ...) {
+  va_list ap;
+  if (!k || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) return;
+  k->impl.workers[wid].faulted = 1;
+  va_start(ap, fmt);
+  vsnprintf(k->impl.workers[wid].fault_message, sizeof(k->impl.workers[wid].fault_message), fmt, ap);
+  va_end(ap);
+}
+
+int epa_kernel_store_last_host_signal(EpaKernel *k, uint32_t wid, const uint8_t *bytes, uint32_t len, char err[EPA_MAX_ERR]) {
+  uint8_t *next = NULL;
+  if (!k) return 0;
+  if (len > 0u) {
+    if (k->last_host_signal_cap < len) {
+      next = (uint8_t*)realloc(k->last_host_signal_bytes, len);
+      if (!next) {
+        if (err) snprintf(err, EPA_MAX_ERR, "OOM expanding last host signal buffer");
+        return 0;
+      }
+      k->last_host_signal_bytes = next;
+      k->last_host_signal_cap = len;
+    }
+    memcpy(k->last_host_signal_bytes, bytes, len);
+  }
+  k->last_host_signal_len = len;
+  k->last_host_signal_wid = wid;
+  return 1;
 }
 
 static void registry_remove_kernel_locked(EpaKernel *k) {
@@ -267,6 +297,11 @@ void epa_kernel_destroy(EpaKernel *k) {
   free(k->owned_blob);
   k->owned_blob = NULL;
   k->owned_blob_len = 0;
+  free(k->last_host_signal_bytes);
+  k->last_host_signal_bytes = NULL;
+  k->last_host_signal_len = 0;
+  k->last_host_signal_cap = 0;
+  k->last_host_signal_wid = 0;
 
   free(k->kernel_id);
   k->kernel_id = NULL;
@@ -410,6 +445,12 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
   }
 
   if (!epa_kernel_ingress_push_tagged(target, target_wid, payload_tag, payload, payload_len)) {
+    EpaWorkerState *sw = &sender->impl.workers[source_wid];
+    sw->faulted = 1;
+    snprintf(sw->fault_message, sizeof(sw->fault_message),
+             "INGRESS FAULT: target ingress queue full for kernel 0x%016llx wid=%u",
+             (unsigned long long)target_kernel_uid,
+             (unsigned)target_wid);
     if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: target ingress queue full for 0x%016llx",
                       (unsigned long long)target_kernel_uid);
     return 0;
@@ -742,6 +783,7 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
   EpaWorkerState *dst = &k->impl.workers[dst_wid];
 
   if (epa_ring_space(&dst->inq) < 4) {
+    kernel_fault_worker(k, dst_wid, "INGRESS FAULT: ring buffer full for wid=%u (need 4 words)", dst_wid);
     snprintf(err, EPA_MAX_ERR, "ingress: wid=%u inq full (need 4 words)", dst_wid);
     return 0;
   }
@@ -808,6 +850,7 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
   uint32_t needed_words = 1u + (ghs_handle_count * 2u);
 
   if (epa_ring_space(&dst->inq) < needed_words) {
+    kernel_fault_worker(k, dst_wid, "INGRESS FAULT: ring buffer full for wid=%u (need %u words)", dst_wid, needed_words);
     snprintf(err, EPA_MAX_ERR, "ingress: wid=%u inq full (need %u words)", dst_wid, needed_words);
     return 0;
   }

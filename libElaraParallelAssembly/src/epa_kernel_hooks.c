@@ -170,8 +170,12 @@ int hook_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
 	  }
 
 	  if (k->signal_cb) {
+		  EpaWorkerState *w = &k->impl.workers[wid];
+		  uint32_t mailbox_len = (uint32_t)w->vm.csc[3];
+		  uint32_t mailbox_cap = k->prog.signal_mailbox_size[wid];
+		  if (mailbox_len > mailbox_cap) mailbox_len = mailbox_cap;
 		  epa_kernel_request_interrupt(k);
-		  if (!k->signal_cb(wid, (const char*)k->impl.workers[wid].signal_mailbox, k->prog.signal_mailbox_size[wid])) {
+		  if (!k->signal_cb(wid, (const char*)w->signal_mailbox, (int)mailbox_len)) {
 			  k->impl.workers[wid].blocked = 1;
 		  }
 	  }
@@ -186,6 +190,9 @@ int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
     uint32_t mailbox_cap = k->prog.signal_mailbox_size[wid];
     uint32_t mailbox_len = (uint32_t)w->vm.csc[3];
     if (mailbox_len > mailbox_cap) mailbox_len = mailbox_cap;
+    if (!epa_kernel_store_last_host_signal(k, wid, w->signal_mailbox, mailbox_len, err)) {
+      return 0;
+    }
     if (mailbox_len > 0u) {
       char msg[256];
       size_t pos = 0;

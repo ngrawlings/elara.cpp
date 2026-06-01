@@ -15,7 +15,7 @@ kernel(VM vm) {
   }
 }
 
-@attributes signal_mail_box_size:4096
+@attributes signal_mail_box_size:16384
 worker scene_camera_update(ScenePoseInput input) {
   local VkSceneCompileV2 scene;
   int yaw_milli;

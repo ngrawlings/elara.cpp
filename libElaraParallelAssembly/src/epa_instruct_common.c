@@ -1147,6 +1147,9 @@ case EPA_OP_G_XFER: {
     // Notify receiver (kernel-owned ingress queue -> worker wakes on it)
     if (!epa_kernel_deliver_ghs_handles(k, new_owner, msg, n, err)) {
         free(msg);
+        w->faulted = 1;
+        snprintf(w->fault_message, sizeof(w->fault_message),
+                 "G_XFER FAULT: ingress queue full for wid=%u", new_owner);
         snprintf(err, EPA_MAX_ERR, "G_XFER failed: ingress queue full for wid=%u", new_owner);
         return 0;
     }

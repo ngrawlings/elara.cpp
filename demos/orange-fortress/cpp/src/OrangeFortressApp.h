@@ -51,7 +51,7 @@ public:
     ~OrangeFortressApp();
     int run();
     void enqueueKeyDown(unsigned int keyval);
-    void updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len);
+    bool updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len);
     void updateKeyState(unsigned int keyval, bool pressed);
     void accumulateMouseDelta(int dx, int dy);
     void handleMouseDown(int button, double x, double y);

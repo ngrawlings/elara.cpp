@@ -109,6 +109,10 @@ int    epa_dbg_patch_code(EpaKernel *kernel, uint8_t block_type, uint32_t block_
 int    epa_dbg_set_worker_eip(EpaKernel *kernel, uint32_t wid, uint8_t block_type, uint32_t block_id, uint32_t rel_pc);
 int    epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorkerInspect *out,
                                       uint32_t stack_words_limit, uint32_t arena_bytes_limit, uint32_t ghs_bytes_limit);
+uint32_t epa_dbg_last_host_signal_len(EpaKernel *kernel);
+uint32_t epa_dbg_last_host_signal_wid(EpaKernel *kernel);
+int      epa_dbg_copy_last_host_signal(EpaKernel *kernel, uint8_t *out, uint32_t max_len);
+void     epa_dbg_clear_last_host_signal(EpaKernel *kernel);
 
 #ifdef __cplusplus
 }

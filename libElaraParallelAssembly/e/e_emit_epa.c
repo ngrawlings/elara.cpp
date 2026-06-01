@@ -1005,9 +1005,13 @@ static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, 
 }
 
 static int emit_mailbox_write_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
   emit_expr(out, expr, ctx, depth);
   emit_indent(out, depth);
   fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
   emit_indent(out, depth);
   fputs("SM_PUT\n", out);
   return 1;

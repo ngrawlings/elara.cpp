@@ -71,7 +71,7 @@ acl {
   "*" -> scene_compile_full;
 }
 
-@attributes signal_mail_box_size:2048
+@attributes signal_mail_box_size:16384
 worker scene_compile(VkSceneCompile scene) {
   // Frame header: E3SB type = 3, carries frame_id and object count.
   frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.obj_count);
@@ -124,7 +124,7 @@ worker scene_compile(VkSceneCompile scene) {
   kernel_signal();
 }
 
-@attributes signal_mail_box_size:4096
+@attributes signal_mail_box_size:16384
 worker scene_compile_full(VkSceneCompileV2 scene) {
   // E3SB V2: command_count counts the primitive records below.
   frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.command_count);

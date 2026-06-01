@@ -192,3 +192,30 @@ int epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorker
     }
     return 1;
 }
+
+uint32_t epa_dbg_last_host_signal_len(EpaKernel *kernel) {
+    if (!kernel) return 0u;
+    return kernel->last_host_signal_len;
+}
+
+uint32_t epa_dbg_last_host_signal_wid(EpaKernel *kernel) {
+    if (!kernel) return 0u;
+    return kernel->last_host_signal_wid;
+}
+
+int epa_dbg_copy_last_host_signal(EpaKernel *kernel, uint8_t *out, uint32_t max_len) {
+    uint32_t len;
+    if (!kernel) return 0;
+    len = kernel->last_host_signal_len;
+    if (len > max_len) return 0;
+    if (len > 0u && out && kernel->last_host_signal_bytes) {
+        memcpy(out, kernel->last_host_signal_bytes, len);
+    }
+    return (int)len;
+}
+
+void epa_dbg_clear_last_host_signal(EpaKernel *kernel) {
+    if (!kernel) return;
+    kernel->last_host_signal_len = 0u;
+    kernel->last_host_signal_wid = 0u;
+}

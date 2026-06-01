@@ -917,10 +917,21 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     }
     if (method == String("debug.create")) {
         if (!host.create()) { error_code = String("create_failed"); error_message = host.lastError(); return false; }
-        ensureDebugCallback(); ensureSignalCallback(); result_json = String("{\"created\":true}"); return true;
+        ensureDebugCallback();
+        ensureSignalCallback();
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        result_json = String("{\"created\":true}");
+        return true;
     }
     if (method == String("debug.destroy")) {
-        host.destroy(); events.clear(); last_mailbox_bytes.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true;
+        host.destroy();
+        events.clear();
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        worker_debug_enabled.clear();
+        result_json = String("{\"destroyed\":true}");
+        return true;
     }
     if (method == String("debug.setKernelId")) {
         String id;
@@ -934,7 +945,12 @@ bool EpaDbgService::call(const String &method, const String &params_json,
             error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false;
         }
         if (!host.loadAsmPath(path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; }
-        ensureDebugCallback(); ensureSignalCallback(); result_json = String("{\"loaded\":true}"); return true;
+        ensureDebugCallback();
+        ensureSignalCallback();
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        result_json = String("{\"loaded\":true}");
+        return true;
     }
     if (method == String("debug.loadBundle")) {
         String path;
@@ -944,7 +960,24 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         if (!host.loadBundlePath(path)) { error_code = String("load_bundle_failed"); error_message = host.lastError(); return false; }
         ensureDebugCallback();
         ensureSignalCallback();
-        result_json = String("{\"loaded\":true}"); return true;
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        result_json = String("{\"loaded\":true}");
+        return true;
+    }
+    if (method == String("debug.clearMailbox")) {
+        last_mailbox_bytes.clear();
+        last_mailbox_wid = 0;
+        {
+            EpaKernel *kernel = activeKernel();
+            if (kernel) epa_dbg_clear_last_host_signal(kernel);
+            for (size_t i = 0; i < host.kernelCount(); i++) {
+                EpaKernel *mk = host.rawKernelAt(i);
+                if (mk) epa_dbg_clear_last_host_signal(mk);
+            }
+        }
+        result_json = String("{\"cleared\":true}");
+        return true;
     }
     if (method == String("debug.ingressPushHex")) {
         uint32_t wid = 1, tag = 0;
@@ -1129,14 +1162,30 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         result_json = buildEventsJson(clear); return true;
     }
     if (method == String("debug.getMailbox")) {
+        String path_id;
         String hex;
         char tmp[3];
-        for (size_t i = 0; i < last_mailbox_bytes.size(); i++) {
-            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)last_mailbox_bytes[i]);
+        std::vector<uint8_t> bytes;
+        EpaKernel *kernel = NULL;
+        parseString(params_json, String("path_id"), path_id);
+        kernel = kernelForPath(path_id);
+        if (kernel) {
+            uint32_t len = epa_dbg_last_host_signal_len(kernel);
+            if (len > 0u) {
+                bytes.resize(len);
+                if (epa_dbg_copy_last_host_signal(kernel, bytes.data(), len) != (int)len) {
+                    error_code = String("mailbox_copy_failed");
+                    error_message = String("could not copy host signal mailbox");
+                    return false;
+                }
+            }
+        }
+        for (size_t i = 0; i < bytes.size(); i++) {
+            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)bytes[i]);
             hex += String(tmp);
         }
-        result_json = String("{\"wid\":") + String((int)last_mailbox_wid)
-                    + String(",\"len\":") + String((int)last_mailbox_bytes.size())
+        result_json = String("{\"wid\":") + String((int)(kernel ? epa_dbg_last_host_signal_wid(kernel) : 0u))
+                    + String(",\"len\":") + String((int)bytes.size())
                     + String(",\"hex\":\"") + hex + String("\"}");
         return true;
     }

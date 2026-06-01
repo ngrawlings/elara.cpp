@@ -1,6 +1,6 @@
 declare default_in_words 256
 declare default_out_words 256
-declare default_signal_mail_box_size 128
+declare default_signal_mail_box_size 4096
 
 // Shared ingress/message types for the first Orange Fortress kernel mesh.
 // Keep these intentionally small until the runtime paths are exercised.

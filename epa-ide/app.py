@@ -809,6 +809,9 @@ def main():
         app_state.pop("debug_session_path", None)
         app_state.pop("debug_kernel_loaded", None)
         app_state.pop("debug_active_kernel", None)
+        app_state["host_interconnect_ingress_count"] = 0
+        app_state["host_interconnect_egress_count"] = 0
+        app_state.pop("host_interconnect_session_id", None)
         _epa_dbg_set_vm_button(False)
         _refresh_status_panel(client_ref.get("client"))
 
@@ -1040,6 +1043,12 @@ def main():
             return
         ui_c = client_ref.get("client")
         if kind == "register":
+            prior_session = str(app_state.get("host_interconnect_session_id", "") or "")
+            if session_id and session_id != prior_session:
+                app_state["host_interconnect_ingress_count"] = 0
+                app_state["host_interconnect_egress_count"] = 0
+            if session_id:
+                app_state["host_interconnect_session_id"] = session_id
             app_state["host_debug_registered"] = True
             try:
                 host_debug_bridge["client_pid"] = int(payload.get("pid"))
@@ -1062,7 +1071,10 @@ def main():
                 _append_host_io_output(ui_c, f"[C++ Host] {message}\n")
             return
         if kind == "ingress":
+            app_state["host_interconnect_ingress_count"] = int(app_state.get("host_interconnect_ingress_count", 0) or 0) + 1
             if ui_c:
+                kernel_id = str(payload.get("kernel", "") or "")
+                _bump_kernel_interconnect_counter(ui_c, kernel_id, "ingress")
                 kernel_id = str(payload.get("kernel", "") or "")
                 worker = str(payload.get("worker", "") or "")
                 type_name = str(payload.get("type", "") or "")
@@ -1077,9 +1089,13 @@ def main():
                 ] if p]
                 label = " ".join(parts) if parts else str(payload.get("message", "") or "host queued ingress")
                 _append_host_io_output(ui_c, f"[ingress] {label}\n")
+                _refresh_status_panel(ui_c)
             return
         if kind == "egress":
+            app_state["host_interconnect_egress_count"] = int(app_state.get("host_interconnect_egress_count", 0) or 0) + 1
             if ui_c:
+                kernel_id = str(payload.get("kernel", "") or "")
+                _bump_kernel_interconnect_counter(ui_c, kernel_id, "egress")
                 worker = str(payload.get("worker", "") or "")
                 signal_type = str(payload.get("signal", "") or "")
                 seq = payload.get("seq")
@@ -1092,6 +1108,7 @@ def main():
                 ] if p]
                 label = " ".join(parts) if parts else str(payload.get("message", "") or "host received VM egress")
                 _append_host_io_output(ui_c, f"[egress] {label}\n")
+                _refresh_status_panel(ui_c)
             return
         if kind == "state":
             state_text = str(payload.get("status", "") or "")
@@ -2758,6 +2775,42 @@ def main():
                 return str(candidate)
         return str(candidates[0])
 
+    def _kernel_tab_id_for_runtime_kernel(runtime_kernel_id: str) -> str:
+        runtime_kernel_id = str(runtime_kernel_id or "").strip()
+        if not runtime_kernel_id:
+            return ""
+        kernel_ids = [str(k.get("id", "") or "") for k in _kernels_from_project()]
+        if runtime_kernel_id in kernel_ids:
+            return runtime_kernel_id
+        for kernel_id in kernel_ids:
+            if runtime_kernel_id.endswith("." + kernel_id):
+                return kernel_id
+        tail = runtime_kernel_id.rsplit(".", 1)[-1]
+        if tail in kernel_ids:
+            return tail
+        return ""
+
+    def _bump_kernel_interconnect_counter(client, runtime_kernel_id: str, direction: str):
+        kernel_tab_id = _kernel_tab_id_for_runtime_kernel(runtime_kernel_id)
+        if not kernel_tab_id:
+            return
+        queue_state = app_state.setdefault("debug_kernel_queue_state", {}).setdefault(
+            kernel_tab_id,
+            {
+                "total_packets": 0,
+                "worker_packets": {},
+                "lifetime_ingress": 0,
+                "lifetime_egress": 0,
+                "prev_worker_inq": {},
+            },
+        )
+        if direction == "ingress":
+            queue_state["lifetime_ingress"] = int(queue_state.get("lifetime_ingress", 0) or 0) + 1
+        elif direction == "egress":
+            queue_state["lifetime_egress"] = int(queue_state.get("lifetime_egress", 0) or 0) + 1
+        if client:
+            _apply_cached_kernel_queue_state(client, kernel_tab_id)
+
     def _selected_worker_wid_for_kernel(kernel_tab_id: str) -> int | None:
         sel_worker_name = app_state.get(f"debug_kernel_worker_{kernel_tab_id}", "")
         if sel_worker_name == KERNEL_WORKER_ID:
@@ -3613,6 +3666,8 @@ def main():
             app_state.pop("debug_kernel_loaded", None)
         app_state.pop("debug_active_kernel", None)
         app_state["debug_vm_started"] = True
+        app_state["host_interconnect_ingress_count"] = 0
+        app_state["host_interconnect_egress_count"] = 0
         _epa_dbg_set_vm_button(True)
 
         if failures:
@@ -4740,20 +4795,22 @@ def main():
             host_dot2, host_lbl2 = _IND_OFF,    "—"
             host_port_text = "Port: —"
         else:
+            host_ingress_count = int(app_state.get("host_interconnect_ingress_count", 0) or 0)
+            host_egress_count = int(app_state.get("host_interconnect_egress_count", 0) or 0)
             # dot1: EPA host bridge availability
             if ide_connected and bridge_connected:
-                host_dot1, host_lbl1 = _IND_GREEN,  "EPA host"
+                host_dot1, host_lbl1 = _IND_GREEN,  f"EPA host  in={host_ingress_count}"
             elif ide_connected or bridge_connected:
-                host_dot1, host_lbl1 = _IND_ORANGE, "EPA host"
+                host_dot1, host_lbl1 = _IND_ORANGE, f"EPA host  in={host_ingress_count}"
             else:
-                host_dot1, host_lbl1 = _IND_OFF,    "EPA host"
+                host_dot1, host_lbl1 = _IND_OFF,    f"EPA host  in={host_ingress_count}"
             # dot2: External logic — grey → orange (Python only) → green (proxied to C++)
             if ext_logic_proxied:
-                host_dot2, host_lbl2 = _IND_GREEN,  "External logic"
+                host_dot2, host_lbl2 = _IND_GREEN,  f"External logic  out={host_egress_count}"
             elif ext_logic_connected:
-                host_dot2, host_lbl2 = _IND_ORANGE, "External logic"
+                host_dot2, host_lbl2 = _IND_ORANGE, f"External logic  out={host_egress_count}"
             else:
-                host_dot2, host_lbl2 = _IND_OFF,    "External logic"
+                host_dot2, host_lbl2 = _IND_OFF,    f"External logic  out={host_egress_count}"
             host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
         host_ping1 = _IND_GREEN if host_ping_fresh and bridge_connected else (_IND_RED if bridge_connected else _IND_OFF)
         host_ping2 = _IND_GREEN if (ext_logic_connected and ext_ping_fresh) else (_IND_RED if ext_logic_connected else _IND_OFF)

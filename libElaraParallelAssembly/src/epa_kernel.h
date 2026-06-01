@@ -64,6 +64,14 @@ typedef int (*EpaKernelSignal)(
 	const int msg_len
 );
 
+int epa_kernel_store_last_host_signal(
+    struct EpaKernel *k,
+    uint32_t wid,
+    const uint8_t *bytes,
+    uint32_t len,
+    char err[EPA_MAX_ERR]
+);
+
 typedef struct {
   uint8_t *buf;     // owned heap buffer (malloc)
   uint32_t len;     // bytes (already padded to 4 if you want)
@@ -110,4 +118,8 @@ typedef struct EpaKernel {
   pthread_mutex_t state_mu;
   int runtime_status;
   char last_error[EPA_MAX_ERR];
+  uint8_t *last_host_signal_bytes;
+  uint32_t last_host_signal_len;
+  uint32_t last_host_signal_cap;
+  uint32_t last_host_signal_wid;
 } EpaKernel;

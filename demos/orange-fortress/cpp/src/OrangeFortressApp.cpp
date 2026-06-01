@@ -715,9 +715,10 @@ bool OrangeFortressApp::launchUiServerFallback() {
         return false;
     }
     if (pid == 0) {
+        String backend_id = String("org.elara.ui.orange-fortress.p") + String(fallback_port);
         execlp("elaraui-server", "elaraui-server",
                "--port", port_text,
-               "--backend-id", "org.elara.ui.orange-fortress",
+               "--backend-id", backend_id.operator char *(),
                "--persistent",
                (char *)NULL);
         fprintf(stderr, "Failed to exec elaraui-server: %s\n", strerror(errno));
@@ -728,7 +729,10 @@ bool OrangeFortressApp::launchUiServerFallback() {
     recordLaunchedPid("orange-fortress-ui-head", pid);
     host = String("127.0.0.1");
     port = fallback_port;
-    printf("Spawned elaraui-server pid=%d on fallback port %d\n", (int)pid, port);
+    printf("Spawned elaraui-server pid=%d on fallback port %d backend_id=%s\n",
+           (int)pid,
+           port,
+           (String("org.elara.ui.orange-fortress.p") + String(fallback_port)).operator char *());
 
     for (int attempt = 0; attempt < 40; ++attempt) {
         int status = 0;
@@ -1057,10 +1061,18 @@ bool OrangeFortressApp::sendScenePose() {
     String ingress_params = String("{\"path_id\":\"orange.fortress.scene\",\"wid\":1,\"payload_hex\":\"")
                           + hex + String("\"}");
     String result_json;
+    String clear_mailbox_result;
+    String scene_kernel_params = String("{\"path_id\":\"orange.fortress.scene\"}");
+    if (!epaDbgCall(String("epa.debug.clearMailbox"), scene_kernel_params, clear_mailbox_result)) {
+        printf("sendScenePose: clearMailbox failed\n");
+        return false;
+    }
+    printf("sendScenePose: mailbox cleared\n");
     if (!epaDbgCall(String("epa.debug.ingressPushHex"), ingress_params, result_json)) {
         printf("sendScenePose: ingressPushHex failed\n");
         return false;
     }
+    printf("sendScenePose: ingressPushHex queued=%s\n", result_json.operator char *());
     sendHostDebugEvent(
         String("ingress"),
         String("\"kernel\":\"orange.fortress.scene\",")
@@ -1083,18 +1095,35 @@ bool OrangeFortressApp::sendScenePose() {
         printf("sendScenePose: run failed\n");
         return false;
     }
+    printf("sendScenePose: run result=%s\n", run_result.operator char *());
 
     // Retrieve the mailbox bytes produced by frame_commit.
     String mailbox_result;
-    if (!epaDbgCall(String("epa.debug.getMailbox"), String("{}"), mailbox_result)) {
+    if (!epaDbgCall(String("epa.debug.getMailbox"), scene_kernel_params, mailbox_result)) {
+        printf("sendScenePose: getMailbox failed\n");
         return false;
     }
+    printf("sendScenePose: mailbox result=%s\n", mailbox_result.operator char *());
     try {
         Json mb(mailbox_result);
         String hex_str = mb.getStringValue("hex");
         int wid_val = (int)mb.getIntValue("wid");
         int len_val = (int)mb.getIntValue("len");
-        if (len_val <= 0 || !hex_str.length()) return true;
+        if (len_val <= 0 || !hex_str.length()) {
+            printf("sendScenePose: mailbox empty after run wid=%d len=%d\n", wid_val, len_val);
+            sendHostDebugLog(String("mailbox failure: empty mailbox after scene run wid=")
+                + String(wid_val) + String(" len=") + String(len_val));
+            sendHostDebugState(String("Status: mailbox empty after scene run"));
+            return false;
+        }
+        sendHostDebugEvent(
+            String("egress"),
+            String("\"kernel\":\"orange.fortress.scene\",")
+                + String("\"worker\":\"wid=") + String(wid_val) + String("\",")
+                + String("\"signal\":\"SceneFrameMailbox\",")
+                + String("\"details\":")
+                + json_quote_simple(String("len=") + String(len_val))
+        );
         std::vector<char> bytes(len_val);
         String hex_copy(hex_str);
         const char *p = hex_copy.operator char *();
@@ -1102,8 +1131,21 @@ bool OrangeFortressApp::sendScenePose() {
             char chunk[3] = { p[0], p[1], 0 };
             bytes[i] = (char)strtoul(chunk, NULL, 16);
         }
-        updateSurfaceCommandsFromMailbox((unsigned int)wid_val, bytes.data(), len_val);
-    } catch (...) {}
+        if (len_val >= 4) {
+            printf("sendScenePose: mailbox wid=%d len=%d magic=0x%08x\n",
+                   wid_val, len_val, (unsigned)read_le_u32((const unsigned char *)bytes.data()));
+        } else {
+            printf("sendScenePose: mailbox wid=%d len=%d\n", wid_val, len_val);
+        }
+        if (!updateSurfaceCommandsFromMailbox((unsigned int)wid_val, bytes.data(), len_val)) {
+            return false;
+        }
+    } catch (...) {
+        printf("sendScenePose: mailbox parse failed\n");
+        sendHostDebugLog(String("mailbox parse failed after scene ingress"));
+        sendHostDebugState(String("Status: mailbox parse failure"));
+        return false;
+    }
     return true;
 }
 
@@ -1279,7 +1321,7 @@ void OrangeFortressApp::shutdown() {
     closeTraceArtifact();
 }
 
-void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len) {
+bool OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const char *msg, int msg_len) {
     const unsigned char *bytes = (const unsigned char *)msg;
     size_t offset = 0;
     String json("[");
@@ -1291,17 +1333,23 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     if ((wid != 1u && wid != 2u) || !msg || msg_len < 28) {
         printf("surface mailbox ignored: invalid wid/msg/len\n");
         traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":\"invalid_wid_or_len\"}"));
-        return;
+        sendHostDebugLog(String("mailbox failure: invalid worker or payload length len=") + String(msg_len));
+        sendHostDebugState(String("Status: mailbox size failure"));
+        return false;
     }
     if (read_le_u32(bytes) != 0x45465231u) {
         printf("surface mailbox ignored: bad magic 0x%08x\n", (unsigned)read_le_u32(bytes));
         traceLine(String("{\"event\":\"mailbox_ignored\",\"reason\":\"bad_magic\",\"magic\":") + String((int)read_le_u32(bytes)) + String("}"));
-        return;
+        sendHostDebugLog(String("mailbox failure: bad magic 0x") + String((int)read_le_u32(bytes)));
+        sendHostDebugState(String("Status: mailbox format failure"));
+        return false;
     }
     offset += 4; /* magic */
     offset += 4; /* version */
     if ((size_t)msg_len < offset + 20u) {
-        return;
+        sendHostDebugLog(String("mailbox failure: truncated header len=") + String(msg_len));
+        sendHostDebugState(String("Status: mailbox size failure"));
+        return false;
     }
     uint32_t width = read_le_u32(bytes + offset); offset += 4;
     uint32_t height = read_le_u32(bytes + offset); offset += 4;
@@ -1363,7 +1411,7 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
         traceLine(String("{\"event\":\"mailbox_e3sb_parsed\",\"emitted\":") + String(emitted)
             + String(",\"records\":") + String((int)record_count) + String("}"));
         traceKernelStateSnapshot("after_mailbox_e3sb");
-        return;
+        return true;
     }
 
     uint32_t clear_r = frame_type;
@@ -1469,6 +1517,7 @@ void OrangeFortressApp::updateSurfaceCommandsFromMailbox(unsigned int wid, const
     }
     traceLine(String("{\"event\":\"mailbox_parsed\",\"emitted\":") + String(emitted) + String("}"));
     traceKernelStateSnapshot("after_mailbox");
+    return true;
 }
 
 String OrangeFortressApp::buildCachedCubeSceneJson(int angle) const {
