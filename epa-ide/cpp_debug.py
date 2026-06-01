@@ -523,6 +523,15 @@ def setup(ctx: dict) -> None:
             _set_cpp_vm_status(client, "error", str(exc))
             _set_cpp_status_text(client, f"GDB refresh failed: {exc}")
 
+    def _cpp_gdb_refresh_threads_only(client):
+        if not client:
+            return
+        thread_lines = _cpp_gdb_send("-thread-info", timeout=3.0)
+        thread_items, current_tid = _cpp_gdb_threads_from_lines(thread_lines)
+        cpp_gdb_state["last_thread_items"] = list(thread_items)
+        cpp_gdb_state["last_thread_id"] = current_tid
+        _set_cpp_thread_items(client, thread_items)
+
     def _cpp_gdb_show_thread(client, thread_id_str: str):
         """Switch inspector focus to the given thread (user clicked a thread list item)."""
         if cpp_gdb_state.get("running"):
@@ -755,6 +764,10 @@ def setup(ctx: dict) -> None:
                 _set_cpp_status_text(client, status)
                 _set_cpp_vm_buttons(client, True)
                 _set_cpp_vm_status(client, "stopped", status)
+                try:
+                    _cpp_gdb_refresh_threads_only(client)
+                except Exception as exc:
+                    _cpp_gdb_log(client, f"[gdb-thread-refresh-error] {exc}")
                 _cpp_gdb_log(client, f"[gdb] pause: {status}")
                 _cpp_gdb_refresh_ui(client)
                 return True
@@ -787,6 +800,7 @@ def setup(ctx: dict) -> None:
         "_cpp_gdb_threads_from_lines":  _cpp_gdb_threads_from_lines,
         "_cpp_gdb_status_from_lines":   _cpp_gdb_status_from_lines,
         "_cpp_gdb_refresh_ui":          _cpp_gdb_refresh_ui,
+        "_cpp_gdb_refresh_threads_only": _cpp_gdb_refresh_threads_only,
         "_cpp_gdb_show_thread":         _cpp_gdb_show_thread,
         "_ensure_cpp_gdb_session":      _ensure_cpp_gdb_session,
         "_cpp_gdb_log":                 _cpp_gdb_log,

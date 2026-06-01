@@ -67,11 +67,15 @@ private:
     std::deque<DebugEvent>  events;
     std::vector<Breakpoint> breakpoints;
     std::map<std::string, bool> worker_debug_enabled;
+    std::vector<uint8_t>    last_mailbox_bytes;
+    uint8_t                 last_mailbox_wid;
     uint64_t                next_event_id;
 
     static void onKernelDebug(void *user, int kind, uint8_t wid, uint32_t code,
                                const EpaDbgEip *at, const char *msg);
+    static int onSignalMailbox(uint8_t wid, const char *data, const int len);
     void ensureDebugCallback();
+    void ensureSignalCallback();
     void pushEvent(const String &kind, uint32_t wid, uint32_t code,
                    const EpaDbgEip *at, const String &message);
     void pushLog(const String &message);

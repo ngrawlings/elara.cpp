@@ -24,13 +24,13 @@ worker scene_camera_update(ScenePoseInput input) {
 
   yaw_milli = input.yaw * 1000;
   pitch_milli = input.pitch * 1000;
-  cam_z = input.cam_z - 900;
+  cam_z = input.cam_z - 3000;
 
   scene.frame_id = input.depth;
   scene.width = 1280;
   scene.height = 720;
   scene.flags = 0;
-  scene.command_count = 1;
+  scene.command_count = 13;
 
   // Camera records. Positions are milliunits; angles are millidegrees.
   scene.p0_op = 10;
@@ -155,5 +155,17 @@ worker scene_camera_update(ScenePoseInput input) {
 
   frame_begin(scene.width, scene.height, 3, scene.frame_id, scene.command_count);
   frame_line(scene.p0_op, scene.p0_a0, scene.p0_a1, scene.p0_a2, scene.p0_a3, scene.p0_a4, scene.p0_a5, scene.p0_a6);
+  frame_line(scene.p1_op, scene.p1_a0, scene.p1_a1, scene.p1_a2, scene.p1_a3, scene.p1_a4, scene.p1_a5, scene.p1_a6);
+  frame_line(scene.p2_op, scene.p2_a0, scene.p2_a1, scene.p2_a2, scene.p2_a3, scene.p2_a4, scene.p2_a5, scene.p2_a6);
+  frame_line(scene.p3_op, scene.p3_a0, scene.p3_a1, scene.p3_a2, scene.p3_a3, scene.p3_a4, scene.p3_a5, scene.p3_a6);
+  frame_line(scene.p4_op, scene.p4_a0, scene.p4_a1, scene.p4_a2, scene.p4_a3, scene.p4_a4, scene.p4_a5, scene.p4_a6);
+  frame_line(scene.p5_op, scene.p5_a0, scene.p5_a1, scene.p5_a2, scene.p5_a3, scene.p5_a4, scene.p5_a5, scene.p5_a6);
+  frame_line(scene.p6_op, scene.p6_a0, scene.p6_a1, scene.p6_a2, scene.p6_a3, scene.p6_a4, scene.p6_a5, scene.p6_a6);
+  frame_line(scene.p7_op, scene.p7_a0, scene.p7_a1, scene.p7_a2, scene.p7_a3, scene.p7_a4, scene.p7_a5, scene.p7_a6);
+  frame_line(scene.p8_op, scene.p8_a0, scene.p8_a1, scene.p8_a2, scene.p8_a3, scene.p8_a4, scene.p8_a5, scene.p8_a6);
+  frame_line(scene.p9_op, scene.p9_a0, scene.p9_a1, scene.p9_a2, scene.p9_a3, scene.p9_a4, scene.p9_a5, scene.p9_a6);
+  frame_line(scene.p10_op, scene.p10_a0, scene.p10_a1, scene.p10_a2, scene.p10_a3, scene.p10_a4, scene.p10_a5, scene.p10_a6);
+  frame_line(scene.p11_op, scene.p11_a0, scene.p11_a1, scene.p11_a2, scene.p11_a3, scene.p11_a4, scene.p11_a5, scene.p11_a6);
+  frame_line(scene.p12_op, scene.p12_a0, scene.p12_a1, scene.p12_a2, scene.p12_a3, scene.p12_a4, scene.p12_a5, scene.p12_a6);
   frame_commit();
 }

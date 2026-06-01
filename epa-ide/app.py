@@ -2797,6 +2797,42 @@ def main():
         cache = app_state.setdefault("debug_worker_debug_state", {})
         return bool(cache.get(_worker_debug_cache_key(kernel_tab_id, wid), True))
 
+    def _kernel_all_workers_debug_enabled(kernel_tab_id: str, snapshot: dict | None = None) -> bool:
+        snapshot = snapshot or app_state.get("debug_kernel_snapshot_state", {}).get(kernel_tab_id) or {}
+        workers = list(snapshot.get("workers", []) or [])
+        if workers:
+            any_worker = False
+            for worker in workers:
+                try:
+                    wid = int(worker.get("wid", -1))
+                except Exception:
+                    continue
+                if wid < 0:
+                    continue
+                any_worker = True
+                if "debug_enabled" in worker:
+                    if not bool(worker.get("debug_enabled")):
+                        return False
+                    continue
+                cache = app_state.setdefault("debug_worker_debug_state", {})
+                if not bool(cache.get(_worker_debug_cache_key(kernel_tab_id, wid), True)):
+                    return False
+            return any_worker
+        worker_wids = _kernel_worker_wids(kernel_tab_id, snapshot)
+        if not worker_wids:
+            return False
+        cache = app_state.setdefault("debug_worker_debug_state", {})
+        return all(bool(cache.get(_worker_debug_cache_key(kernel_tab_id, wid), True)) for wid in worker_wids)
+
+    def _refresh_kernel_all_workers_button(client, kernel_tab_id: str, snapshot: dict | None = None):
+        if not client or not kernel_tab_id:
+            return
+        label = "None" if _kernel_all_workers_debug_enabled(kernel_tab_id, snapshot) else "All"
+        try:
+            client.set_text(f"nav.debug.kernel.{kernel_tab_id}.all_workers", label)
+        except Exception:
+            pass
+
     def _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id: str, snapshot: dict | None = None):
         if not client or not kernel_tab_id:
             return
@@ -2805,6 +2841,7 @@ def main():
                 f"nav.debug.kernel.{kernel_tab_id}.debug",
                 _selected_worker_debug_enabled(kernel_tab_id, snapshot),
             )
+            _refresh_kernel_all_workers_button(client, kernel_tab_id, snapshot)
         except Exception:
             pass
 
@@ -2847,6 +2884,7 @@ def main():
                     except Exception:
                         continue
             client.set_checked(f"nav.debug.kernel.{kernel_tab_id}.debug", enabled)
+            _refresh_kernel_all_workers_button(client, kernel_tab_id, snapshot)
         except Exception as exc:
             _epa_dbg_log(f"[debug-state-read-error] {kernel_tab_id} wid={wid}: {exc}")
             _set_kernel_worker_debug_checkbox_local(client, kernel_tab_id, snapshot)
@@ -2948,6 +2986,7 @@ def main():
             sel_packets = worker_packets.get(sel_wid, 0) if sel_wid is not None else 0
             _set_kernel_queue_badge(client, kernel_tab_id, total_packets, sel_packets)
             _refresh_kernel_worker_combo(client, kernel_tab_id, snapshot)
+            _refresh_kernel_all_workers_button(client, kernel_tab_id, snapshot)
             _refresh_selected_worker_debug_from_backend(client, kernel_tab_id, snapshot)
 
     def _update_kernel_indicator_from_snapshot(client, kernel_tab_id: str, snapshot: dict):
@@ -6550,7 +6589,8 @@ def main():
                             return
                         _sync_cached_worker_debug_states(dbg_c)
                         if is_bulk_debug:
-                            enabled = _selected_worker_debug_enabled(ktid)
+                            current_snapshot = app_state.get("debug_kernel_snapshot_state", {}).get(ktid) or {}
+                            enabled = not _kernel_all_workers_debug_enabled(ktid, current_snapshot)
                             worker_wids = _kernel_worker_wids(ktid)
                             try:
                                 latest_snap = {}

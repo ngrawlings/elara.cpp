@@ -19,12 +19,14 @@
 #include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonString.h>
 #include <libelarasockets/rpc/brpc/BRpcCodec.h>
+#include <libelarasockets/rpc/brpc/BRpcRpcCodec.h>
 #include <libelarasockets/rpc/json/JsonRPCService.h>
 #include <libelarauirpc/ElaraUiDocumentBuilder.h>
 
 namespace elara {
 using namespace elara::ui::rpc;
 using sockets::rpc::brpc::BRpcReader;
+using sockets::rpc::brpc::BRpcRpcCodec;
 using sockets::rpc::brpc::BRpcWriter;
 using sockets::rpc::brpc::BRPC_ARRAY;
 using sockets::rpc::brpc::BRPC_NAMED_BYTE;
@@ -926,18 +928,16 @@ bool OrangeFortressApp::epaDbgCall(const String &method, const String &params_js
     std::lock_guard<std::mutex> lock(epa_dbg_mutex);
     if (epa_dbg_fd < 0) return false;
 
-    // Build JSON-RPC request.
-    String req = String("{\"id\":\"1\",\"method\":") + json_quote_simple(method)
-               + String(",\"params\":") + (params_json.length() ? params_json : String("{}"))
-               + String("}");
-    String req_copy(req);
-    uint32_t len = (uint32_t)req_copy.length();
-    unsigned char hdr[4] = {
-        (unsigned char)(len >> 24), (unsigned char)(len >> 16),
-        (unsigned char)(len >> 8),  (unsigned char)len
-    };
-    if (write(epa_dbg_fd, hdr, 4) != 4) { closeEpaDbg(); return false; }
-    if (write(epa_dbg_fd, req_copy.operator char *(), len) != (ssize_t)len) { closeEpaDbg(); return false; }
+    ByteArray request = BRpcRpcCodec::buildRequest(
+        String("orange-fortress"),
+        method,
+        params_json.length() ? params_json : String("{}")
+    );
+    ByteArray frame = BRpcRpcCodec::framePayload(request);
+    if (write(epa_dbg_fd, frame.operator const char *(), frame.length()) != (ssize_t)frame.length()) {
+        closeEpaDbg();
+        return false;
+    }
 
     // Read length-prefixed response.
     unsigned char rhdr[4];
@@ -948,13 +948,36 @@ bool OrangeFortressApp::epaDbgCall(const String &method, const String &params_js
     std::vector<char> rbuf(rlen + 1, 0);
     if (!elg_read_exact(epa_dbg_fd, rbuf.data(), rlen)) { closeEpaDbg(); return false; }
 
-    try {
-        Json resp(String(rbuf.data()));
-        int ok_val = (int)resp.getIntValue("ok");
-        if (!ok_val) return false;
-        result_json = String(rbuf.data());
-        return true;
-    } catch (...) { return false; }
+    String response_id;
+    bool ok = false;
+    String response_result_json;
+    String response_error_code;
+    String response_error_message;
+    String parse_error_message;
+    if (!BRpcRpcCodec::parseResponse(
+            rbuf.data(),
+            (size_t)rlen,
+            response_id,
+            ok,
+            response_result_json,
+            response_error_code,
+            response_error_message,
+            parse_error_message)) {
+        printf("[C++ Host] EPA debug VM parseResponse failed: %s\n",
+               parse_error_message.operator char *());
+        closeEpaDbg();
+        return false;
+    }
+    if (!ok) {
+        String method_copy(method);
+        printf("[C++ Host] EPA debug VM RPC failed method=%s code=%s msg=%s\n",
+               method_copy.operator char *(),
+               response_error_code.operator char *(),
+               response_error_message.operator char *());
+        return false;
+    }
+    result_json = response_result_json;
+    return true;
 }
 
 bool OrangeFortressApp::epaDbgLoadBundle() {
@@ -1038,6 +1061,19 @@ bool OrangeFortressApp::sendScenePose() {
         printf("sendScenePose: ingressPushHex failed\n");
         return false;
     }
+    sendHostDebugEvent(
+        String("ingress"),
+        String("\"kernel\":\"orange.fortress.scene\",")
+            + String("\"worker\":\"wid=1\",")
+            + String("\"type\":\"ScenePoseInputPayload\",")
+            + String("\"details\":")
+            + json_quote_simple(
+                String("cam_x=") + String(pose.cam_x)
+                + String(" cam_z=") + String(pose.cam_z)
+                + String(" yaw=") + String(pose.yaw)
+                + String(" pitch=") + String(pose.pitch)
+            )
+    );
 
     // Run the scene kernel until signal (E3SB frame commit) or max ticks.
     String run_result;

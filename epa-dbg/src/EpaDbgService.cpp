@@ -10,6 +10,11 @@
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
 #include "opcodes/epa_opcode_values.h"
 
+extern "C" {
+typedef struct EpaKernel EpaKernel;
+void epa_kernel_set_signal_callback(EpaKernel *k, int (*cb)(uint8_t wid, const char *msg, const int msg_len));
+}
+
 namespace elara {
 using sockets::rpc::json::JsonRPCCodec;
 
@@ -97,10 +102,12 @@ private:
     int  fds[2];
 };
 
+static EpaDbgService *g_debug_service = NULL;
+
 } // anonymous namespace
 
 EpaDbgService::EpaDbgService()
-    : JsonRPCService("epa"), next_event_id(1) {}
+    : JsonRPCService("epa"), last_mailbox_wid(0), next_event_id(1) {}
 
 EpaDbgService::~EpaDbgService() {}
 
@@ -115,6 +122,15 @@ void EpaDbgService::onKernelDebug(void *user, int kind, uint8_t wid, uint32_t co
     else if (kind == 4) label = "signal";
     else if (kind == 5) label = "egress";
     self->pushEvent(String(label), wid, code, at, msg ? String(msg) : String());
+}
+
+int EpaDbgService::onSignalMailbox(uint8_t wid, const char *data, const int len) {
+    if (g_debug_service && data && len > 0) {
+        g_debug_service->last_mailbox_wid = wid;
+        g_debug_service->last_mailbox_bytes.assign(
+            (const uint8_t *)data, (const uint8_t *)data + (size_t)len);
+    }
+    return 1;
 }
 
 EpaKernel *EpaDbgService::activeKernel() const {
@@ -132,8 +148,10 @@ EpaKernel *EpaDbgService::kernelForPath(const String &path_id) const {
     if (!path_id.length()) return activeKernel();
     if (host.rawKernel()) return host.rawKernel();
     if (host.kernelCount() > 0) {
+        int idx = 0;
         int found = host.findKernelIndex(path_id);
-        if (found >= 0) return host.rawKernelAt((size_t)found);
+        if (found >= 0) idx = found;
+        return host.rawKernelAt((size_t)idx);
     }
     return NULL;
 }
@@ -149,6 +167,18 @@ void EpaDbgService::ensureDebugCallback() {
     for (size_t i = 0; i < n; i++) {
         EpaKernel *mk = host.rawKernelAt(i);
         if (mk) epa_kernel_set_debug_callback(mk, (void *)onKernelDebug, this);
+    }
+}
+
+void EpaDbgService::ensureSignalCallback() {
+    g_debug_service = this;
+    if (host.rawKernel()) {
+        epa_kernel_set_signal_callback(host.rawKernel(), onSignalMailbox);
+    }
+    size_t n = host.kernelCount();
+    for (size_t i = 0; i < n; i++) {
+        EpaKernel *mk = host.rawKernelAt(i);
+        if (mk) epa_kernel_set_signal_callback(mk, onSignalMailbox);
     }
 }
 
@@ -887,10 +917,10 @@ bool EpaDbgService::call(const String &method, const String &params_json,
     }
     if (method == String("debug.create")) {
         if (!host.create()) { error_code = String("create_failed"); error_message = host.lastError(); return false; }
-        ensureDebugCallback(); result_json = String("{\"created\":true}"); return true;
+        ensureDebugCallback(); ensureSignalCallback(); result_json = String("{\"created\":true}"); return true;
     }
     if (method == String("debug.destroy")) {
-        host.destroy(); events.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true;
+        host.destroy(); events.clear(); last_mailbox_bytes.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true;
     }
     if (method == String("debug.setKernelId")) {
         String id;
@@ -904,7 +934,7 @@ bool EpaDbgService::call(const String &method, const String &params_json,
             error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false;
         }
         if (!host.loadAsmPath(path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; }
-        ensureDebugCallback(); result_json = String("{\"loaded\":true}"); return true;
+        ensureDebugCallback(); ensureSignalCallback(); result_json = String("{\"loaded\":true}"); return true;
     }
     if (method == String("debug.loadBundle")) {
         String path;
@@ -912,6 +942,8 @@ bool EpaDbgService::call(const String &method, const String &params_json,
             error_code = String("missing_bundle_path"); error_message = String("bundle_path is required"); return false;
         }
         if (!host.loadBundlePath(path)) { error_code = String("load_bundle_failed"); error_message = host.lastError(); return false; }
+        ensureDebugCallback();
+        ensureSignalCallback();
         result_json = String("{\"loaded\":true}"); return true;
     }
     if (method == String("debug.ingressPushHex")) {
@@ -1095,6 +1127,18 @@ bool EpaDbgService::call(const String &method, const String &params_json,
         bool clear = true;
         parseBool(params_json, String("clear"), true, &clear);
         result_json = buildEventsJson(clear); return true;
+    }
+    if (method == String("debug.getMailbox")) {
+        String hex;
+        char tmp[3];
+        for (size_t i = 0; i < last_mailbox_bytes.size(); i++) {
+            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)last_mailbox_bytes[i]);
+            hex += String(tmp);
+        }
+        result_json = String("{\"wid\":") + String((int)last_mailbox_wid)
+                    + String(",\"len\":") + String((int)last_mailbox_bytes.size())
+                    + String(",\"hex\":\"") + hex + String("\"}");
+        return true;
     }
     if (method == String("debug.breakpointAdd")) {
         Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0;
