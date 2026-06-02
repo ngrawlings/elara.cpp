@@ -297,7 +297,7 @@ Accepted proof:
 
 ### Stage 9: Textures
 
-Only after the above is stable.
+Status: passed on 2026-06-02
 
 Add:
 
@@ -308,6 +308,12 @@ Proof:
 
 - textured quad
 - textured cube
+
+Accepted proof:
+
+- pure Python Vulkan proof rendered a textured quad from a storage-buffer texture payload
+- pure Python Vulkan proof rendered a textured cube with distinct quadrant colors and visible UV mapping
+- user accepted the textured cube proof, describing it as a cube textured with something like the old Microsoft logo with thick black borders
 
 ## Explicit Non-Goals For First General-Purpose Pass
 

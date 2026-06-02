@@ -358,6 +358,12 @@ class SurfaceCommand:
     r: float
     g: float
     b: float
+    u0: float = 0.0
+    v0: float = 0.0
+    u1: float = 0.0
+    v1: float = 0.0
+    u2: float = 0.0
+    v2: float = 0.0
 
 
 def build_texture_payload(width: int, height: int, rgb_floats: list[tuple[float, float, float]]) -> bytes:
@@ -660,10 +666,14 @@ class VulkanComputeRenderer:
         header = struct.pack("<iiffi", self.width, self.height, float(self.virtual_width), float(self.virtual_height), len(commands))
         cmd_bytes = bytearray()
         for cmd in commands:
-            cmd_bytes.extend(struct.pack("<Ifffffffffff", cmd.op, cmd.x0, cmd.y0, cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.value0, 0.0, cmd.r, cmd.g, cmd.b))
+            cmd_bytes.extend(struct.pack(
+                "<I" + "f" * 17,
+                cmd.op, cmd.x0, cmd.y0, cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.value0, 0.0, cmd.r, cmd.g, cmd.b,
+                cmd.u0, cmd.v0, cmd.u1, cmd.v1, cmd.u2, cmd.v2,
+            ))
         cmd_payload = header + bytes(cmd_bytes)
         if not commands:
-            cmd_payload += struct.pack("<Ifffffffffff", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.10, 0.11, 0.14)
+            cmd_payload += struct.pack("<I" + "f" * 17, 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.10, 0.11, 0.14, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
         if texture_payload is None:
             texture_payload = white_texture_payload()
 
@@ -824,16 +834,34 @@ def textured_rect_command(x0: float, y0: float, width: float, height: float) -> 
     return SurfaceCommand(4, x0, y0, width, height, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
 
 
+def textured_triangle_command(
+    x0: float, y0: float,
+    x1: float, y1: float,
+    x2: float, y2: float,
+    depth: float,
+    u0: float, v0: float,
+    u1: float, v1: float,
+    u2: float, v2: float,
+) -> SurfaceCommand:
+    return SurfaceCommand(5, x0, y0, x1, y1, x2, y2, depth, 0.0, 0.0, 0.0, u0, v0, u1, v1, u2, v2)
+
+
 def checker_texture_payload() -> bytes:
     width = 8
     height = 8
     texels: list[tuple[float, float, float]] = []
     for y in range(height):
         for x in range(width):
-            if ((x // 2) + (y // 2)) % 2 == 0:
-                texels.append((0.95, 0.90, 0.24))
+            if x == 0 or y == 0 or x == width - 1 or y == height - 1:
+                texels.append((0.08, 0.08, 0.08))
+            elif x < width // 2 and y < height // 2:
+                texels.append((0.92, 0.28, 0.20))
+            elif x >= width // 2 and y < height // 2:
+                texels.append((0.24, 0.82, 0.34))
+            elif x < width // 2 and y >= height // 2:
+                texels.append((0.22, 0.48, 0.94))
             else:
-                texels.append((0.18, 0.42, 0.92))
+                texels.append((0.96, 0.88, 0.22))
     return build_texture_payload(width, height, texels)
 
 
@@ -844,6 +872,81 @@ def textured_quad_proof_commands(width: int, height: int) -> list[SurfaceCommand
         clear_command(),
         textured_rect_command(width * 0.23, height * 0.20, quad_w, quad_h),
     ]
+
+
+def textured_cube_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    cam_pos = (4.8, 2.8, -6.4)
+    target = (0.0, 0.0, 0.0)
+    half = 1.0
+    base_verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    faces = [
+        ((4, 5, 6), (4, 6, 7)),
+        ((0, 1, 2), (0, 2, 3)),
+        ((0, 4, 5), (0, 5, 1)),
+        ((3, 2, 6), (3, 6, 7)),
+        ((1, 5, 6), (1, 6, 2)),
+        ((0, 3, 7), (0, 7, 4)),
+    ]
+    face_uvs = [
+        ((0.0, 1.0), (1.0, 1.0), (1.0, 0.0), (0.0, 0.0)),
+    ] * 6
+    angle_y = 0.62
+    angle_x = -0.28
+    cy = math.cos(angle_y)
+    sy = math.sin(angle_y)
+    cx = math.cos(angle_x)
+    sx = math.sin(angle_x)
+    transformed = []
+    for x, y, z in base_verts:
+        ryx = x * cy - z * sy
+        ryz = x * sy + z * cy
+        rxy = y * cx - ryz * sx
+        rxz = y * sx + ryz * cx
+        transformed.append((ryx, rxy, rxz))
+    projected = [project_point(cam_pos, target, p, width, height) for p in transformed]
+    commands = [clear_command()]
+    for face_idx, tris in enumerate(faces):
+        uv0, uv1, uv2, uv3 = face_uvs[face_idx]
+        uv_by_vertex = [uv0, uv1, uv2, uv3]
+        quad_indices = [
+            (tris[0], (0, 1, 2)),
+            (tris[1], (0, 2, 3)),
+        ]
+        for (ia, ib, ic), (uva_idx, uvb_idx, uvc_idx) in quad_indices:
+            ax, ay, az = transformed[ia]
+            bx, by, bz = transformed[ib]
+            cx3, cy3, cz3 = transformed[ic]
+            ab = (bx - ax, by - ay, bz - az)
+            ac = (cx3 - ax, cy3 - ay, cz3 - az)
+            normal = _normalize3(_cross3(ab, ac))
+            center = ((ax + bx + cx3) / 3.0, (ay + by + cy3) / 3.0, (az + bz + cz3) / 3.0)
+            view = (cam_pos[0] - center[0], cam_pos[1] - center[1], cam_pos[2] - center[2])
+            if _dot3(normal, view) >= 0.0:
+                continue
+            pa = projected[ia]
+            pb = projected[ib]
+            pc = projected[ic]
+            if pa is None or pb is None or pc is None:
+                continue
+            depth = 1.0 / max(0.001, (
+                math.dist(cam_pos, transformed[ia]) +
+                math.dist(cam_pos, transformed[ib]) +
+                math.dist(cam_pos, transformed[ic])
+            ) / 3.0)
+            uva = uv_by_vertex[uva_idx]
+            uvb = uv_by_vertex[uvb_idx]
+            uvc = uv_by_vertex[uvc_idx]
+            commands.append(textured_triangle_command(
+                pa[0], pa[1], pb[0], pb[1], pc[0], pc[1],
+                depth,
+                uva[0], uva[1],
+                uvb[0], uvb[1],
+                uvc[0], uvc[1],
+            ))
+    return commands
 
 
 def triangle_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
@@ -1216,7 +1319,7 @@ def parse_args():
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--write-final", default="")
-    parser.add_argument("--scene", choices=["cube", "triangle", "depth", "indexed-cube", "camera", "instances", "culling", "flat-shading", "materials", "textured-quad"], default="cube")
+    parser.add_argument("--scene", choices=["cube", "triangle", "depth", "indexed-cube", "camera", "instances", "culling", "flat-shading", "materials", "textured-quad", "textured-cube"], default="cube")
     return parser.parse_args()
 
 
@@ -1254,6 +1357,8 @@ def main():
         frame_commands = lambda frame_idx: materials_proof_commands(args.width, args.height)
     elif args.scene == "textured-quad":
         frame_commands = lambda frame_idx: textured_quad_proof_commands(args.width, args.height)
+    elif args.scene == "textured-cube":
+        frame_commands = lambda frame_idx: textured_cube_proof_commands(args.width, args.height)
     else:
         frame_commands = lambda frame_idx: cube_commands(frame_idx, args.width, args.height)
 
@@ -1272,7 +1377,7 @@ def main():
         if args.headless or tk is None or ImageTk is None:
             last_image = None
             for frame_idx in range(args.frames):
-                texture_payload = checker_texture_payload() if args.scene == "textured-quad" else None
+                texture_payload = checker_texture_payload() if args.scene in ("textured-quad", "textured-cube") else None
                 image = renderer.render(frame_commands(frame_idx), texture_payload=texture_payload)
                 last_image = image
                 if output_dir:
@@ -1294,7 +1399,7 @@ def main():
                     state["last_image"].save(args.write_final)
                 root.destroy()
                 return
-            texture_payload = checker_texture_payload() if args.scene == "textured-quad" else None
+            texture_payload = checker_texture_payload() if args.scene in ("textured-quad", "textured-cube") else None
             image = renderer.render(frame_commands(state["frame"]), texture_payload=texture_payload)
             state["last_image"] = image
             if output_dir:

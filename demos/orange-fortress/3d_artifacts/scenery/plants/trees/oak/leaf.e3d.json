@@ -1,0 +1,289 @@
+{
+  "format": "elara.e3d.component.v1",
+  "name": "oak_leaf",
+  "units": "meters",
+  "metadata": {
+    "description": "AI-editable component assembly for a stylized oak leaf",
+    "authoring_mode": "component_assembly",
+    "compile_target": "mesh"
+  },
+  "materials": {
+    "leaf_body": {
+      "base_color": [0.18, 0.48, 0.14],
+      "roughness": 0.82
+    },
+    "leaf_edge": {
+      "base_color": [0.07, 0.22, 0.06],
+      "roughness": 0.9
+    },
+    "leaf_vein": {
+      "base_color": [0.58, 0.78, 0.32],
+      "roughness": 0.76
+    },
+    "stem": {
+      "base_color": [0.34, 0.20, 0.08],
+      "roughness": 0.8
+    }
+  },
+  "parameters": {
+    "length": 3.6,
+    "width": 1.9,
+    "vein_count": 7
+  },
+  "components": {
+    "blade_surface": {
+      "kind": "primitive",
+      "primitive": "thin_shell_from_outline",
+      "material": "leaf_body",
+      "points_ref": "preview_2d.outline",
+      "thickness": 0.0001,
+      "side_material": "leaf_edge",
+      "back_material": "leaf_body",
+      "anchors": {
+        "center": {
+          "position": [0.0, -0.15, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_surface_mount",
+          "tags": ["center", "surface"]
+        },
+        "base": {
+          "position": [0.0, -1.34, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_stem_mount",
+          "tags": ["base", "surface"]
+        },
+        "tip": {
+          "position": [0.0, 1.35, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_tip_mount",
+          "tags": ["tip", "surface"]
+        }
+      }
+    },
+    "central_vein": {
+      "kind": "primitive",
+      "primitive": "capsule",
+      "material": "leaf_vein",
+      "radius": 0.025,
+      "length": 2.9,
+      "local_transform": {
+        "position": [0.0, -0.15, 0.02],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      },
+      "anchors": {
+        "base": {
+          "position": [0.0, -1.60, 0.02],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_stem_mount",
+          "tags": ["base", "vein"]
+        },
+        "center": {
+          "position": [0.0, -0.15, 0.02],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_surface_mount",
+          "tags": ["center", "vein"]
+        },
+        "tip": {
+          "position": [0.0, 1.30, 0.02],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_tip_mount",
+          "tags": ["tip", "vein"]
+        }
+      }
+    },
+    "stem_capsule": {
+      "kind": "primitive",
+      "primitive": "capsule",
+      "material": "stem",
+      "radius": 0.04,
+      "length": 0.72,
+      "local_transform": {
+        "position": [0.0, -1.78, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      },
+      "anchors": {
+        "base": {
+          "position": [0.0, -2.2, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_root_mount",
+          "tags": ["base", "stem"]
+        },
+        "top": {
+          "position": [0.0, -1.36, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "leaf_stem_mount",
+          "tags": ["top", "stem"]
+        }
+      }
+    }
+  },
+  "instances": [
+    {
+      "id": "blade",
+      "component": "blade_surface",
+      "transform": {
+        "position": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "vein",
+      "component": "central_vein",
+      "transform": {
+        "position": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "stem",
+      "component": "stem_capsule",
+      "transform": {
+        "position": [0.0, 0.0, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "stem_to_blade",
+      "from_instance": "stem",
+      "from_anchor": "top",
+      "to_instance": "blade",
+      "to_anchor": "base",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "vein_to_blade",
+      "from_instance": "vein",
+      "from_anchor": "center",
+      "to_instance": "blade",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    }
+  ],
+  "operations": [
+    {
+      "op": "smooth",
+      "targets": ["blade"],
+      "level": 1
+    }
+  ],
+  "anchors": {
+    "root": {
+      "position": [0.0, -2.05, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "leaf_root_mount",
+      "tags": ["root"]
+    },
+    "stem_base": {
+      "position": [0.0, -2.2, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "leaf_root_mount",
+      "tags": ["stem", "base"]
+    },
+    "blade_tip": {
+      "position": [0.0, 1.35, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "leaf_tip_mount",
+      "tags": ["blade", "tip"]
+    },
+    "center": {
+      "position": [0.0, -0.15, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "leaf_surface_mount",
+      "tags": ["center"]
+    }
+  },
+  "preview_2d": {
+    "center": [0.0, -0.12],
+    "scale": 210.0,
+    "outline_material": "leaf_edge",
+    "fill_material": "leaf_body",
+    "vein_material": "leaf_vein",
+    "stem_material": "stem",
+    "outline": [
+      [0.0, -1.48],
+      [-0.18, -1.30],
+      [-0.56, -1.14],
+      [-0.38, -0.88],
+      [-0.78, -0.72],
+      [-0.48, -0.48],
+      [-0.92, -0.28],
+      [-0.52, -0.08],
+      [-0.96, 0.16],
+      [-0.50, 0.30],
+      [-0.72, 0.62],
+      [-0.34, 0.54],
+      [-0.42, 0.94],
+      [-0.14, 0.78],
+      [0.0, 1.34],
+      [0.14, 0.78],
+      [0.42, 0.94],
+      [0.34, 0.54],
+      [0.72, 0.62],
+      [0.50, 0.30],
+      [0.96, 0.16],
+      [0.52, -0.08],
+      [0.92, -0.28],
+      [0.48, -0.48],
+      [0.78, -0.72],
+      [0.38, -0.88],
+      [0.56, -1.14],
+      [0.18, -1.30]
+    ],
+    "left_lobe_tips": [
+      [-0.56, -1.14],
+      [-0.78, -0.72],
+      [-0.92, -0.28],
+      [-0.96, 0.16],
+      [-0.72, 0.62],
+      [-0.42, 0.94]
+    ],
+    "veins": [
+      [[0.0, -1.38], [0.0, 1.18]],
+      [[0.0, -1.08], [-0.48, -1.02]],
+      [[0.0, -0.82], [0.56, -1.02]],
+      [[0.0, -0.58], [-0.68, -0.62]],
+      [[0.0, -0.36], [0.74, -0.34]],
+      [[0.0, -0.10], [-0.76, 0.04]],
+      [[0.0, 0.10], [0.78, 0.16]],
+      [[0.0, 0.34], [-0.56, 0.54]],
+      [[0.0, 0.52], [0.48, 0.72]]
+    ],
+    "stem": [[0.0, -2.12], [0.0, -1.36]]
+  },
+  "compile": {
+    "mesh_resolution": "medium",
+    "generate_normals": true,
+    "preserve_part_ids": true
+  }
+}

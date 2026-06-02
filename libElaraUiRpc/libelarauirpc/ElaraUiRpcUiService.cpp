@@ -3,6 +3,7 @@
 #include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonValue.h>
 #include <libelaraui/frontend/ElaraEventResponder.h>
+#include <vector>
 
 namespace elara {
 namespace ui {
@@ -116,6 +117,34 @@ double jsonValueDouble(Ref<JsonValue> value, double fallback) {
     }
 
     return atof((const char*)text);
+}
+
+bool jsonTextureRgbArray(const Json& spec, int* width_out, int* height_out, std::vector<float>* rgb_out) {
+    if(!width_out || !height_out || !rgb_out) {
+        return false;
+    }
+    int width = (int)jsonNumber(spec, "width", 0.0);
+    int height = (int)jsonNumber(spec, "height", 0.0);
+    if(width <= 0 || height <= 0) {
+        return false;
+    }
+    Array< Ref<JsonValue> > rgb = spec.getArray("rgb");
+    if(rgb.length() != (width * height * 3)) {
+        return false;
+    }
+    rgb_out->clear();
+    for(int i = 0; i < (int)rgb.length(); i++) {
+        double value = jsonValueDouble(rgb[i], 0.0);
+        if(value > 1.0) {
+            value /= 255.0;
+        }
+        if(value < 0.0) value = 0.0;
+        if(value > 1.0) value = 1.0;
+        rgb_out->push_back((float)value);
+    }
+    *width_out = width;
+    *height_out = height;
+    return true;
 }
 
 double jsonValueDoubleEither(
@@ -755,6 +784,19 @@ bool ElaraUiRpcUiService::setSectionJson(
     }
 
     ElaraVulkanSurfaceWidget* vulkan_surface = dynamic_cast<ElaraVulkanSurfaceWidget*>(widget.getPtr());
+    if(vulkan_surface && section == String("texture")) {
+        Json texture_json(value_json);
+        int texture_width = 0;
+        int texture_height = 0;
+        std::vector<float> texture_rgb;
+        if(jsonTextureRgbArray(texture_json, &texture_width, &texture_height, &texture_rgb)) {
+            vulkan_surface->setTextureRgb(texture_width, texture_height, texture_rgb);
+            result_json = "{\"updated\":true}";
+            return true;
+        }
+        result_json = "{\"updated\":false,\"error\":\"invalid texture spec\"}";
+        return false;
+    }
     if(vulkan_surface && section == String("commands")) {
         Json spec(String("{\"commands\":") + value_json + String("}"));
         Array< Ref<JsonValue> > commands = spec.getArray("commands");
@@ -800,6 +842,29 @@ bool ElaraUiRpcUiService::setSectionJson(
                     jsonValueDouble(command_json.getJsonValue("r"), 1.0),
                     jsonValueDouble(command_json.getJsonValue("g"), 1.0),
                     jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
+            } else if(op == String("textured_rect")) {
+                vulkan_surface->addTexturedRect(
+                    jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("h"), 0.0)
+                );
+            } else if(op == String("textured_triangle")) {
+                vulkan_surface->addTexturedTriangle(
+                    jsonValueDouble(command_json.getJsonValue("x0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("x1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("x2"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y2"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("depth"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("u0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("v0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("u1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("v1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("u2"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("v2"), 0.0)
                 );
             } else if(op == String("text")) {
                 vulkan_surface->addText(

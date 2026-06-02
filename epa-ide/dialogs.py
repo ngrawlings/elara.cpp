@@ -853,12 +853,12 @@ def _artifact3d_template_content(file_name: str) -> str:
             break
     symbol = _to_symbol_name(name or "new_artifact")
     payload = {
-        "format": "elara.model.template.v1",
+        "format": "elara.e3d.component.v1",
         "name": symbol,
         "units": "meters",
         "metadata": {
-            "description": "AI-editable primitive model template",
-            "authoring_mode": "template",
+            "description": "AI-editable component assembly template",
+            "authoring_mode": "component_assembly",
             "compile_target": "mesh"
         },
         "materials": {
@@ -867,19 +867,115 @@ def _artifact3d_template_content(file_name: str) -> str:
                 "roughness": 0.65
             }
         },
-        "parameters": {},
-        "nodes": [
+        "parameters": {
+            "body_width": 1.0,
+            "body_height": 1.0,
+            "body_depth": 1.0
+        },
+        "components": {
+            "body_block": {
+                "kind": "primitive",
+                "primitive": "box",
+                "material": "default",
+                "size": ["$body_width", "$body_height", "$body_depth"],
+                "anchors": {
+                    "top": {
+                        "position": [0.0, 0.5, 0.0],
+                        "orientation": [0.0, 0.0, 0.0],
+                        "connector": "rigid_socket",
+                        "tags": ["mount", "top"]
+                    },
+                    "bottom": {
+                        "position": [0.0, -0.5, 0.0],
+                        "orientation": [0.0, 0.0, 0.0],
+                        "connector": "rigid_socket",
+                        "tags": ["mount", "bottom"]
+                    }
+                }
+            },
+            "top_cap": {
+                "kind": "primitive",
+                "primitive": "box",
+                "material": "default",
+                "size": [0.5, 0.25, 0.5],
+                "anchors": {
+                    "base": {
+                        "position": [0.0, -0.125, 0.0],
+                        "orientation": [0.0, 0.0, 0.0],
+                        "connector": "rigid_socket",
+                        "tags": ["mount", "base"]
+                    },
+                    "tip": {
+                        "position": [0.0, 0.125, 0.0],
+                        "orientation": [0.0, 0.0, 0.0],
+                        "connector": "hinge_pin_y",
+                        "tags": ["mount", "tip"]
+                    }
+                }
+            }
+        },
+        "instances": [
             {
                 "id": "body",
-                "primitive": "box",
-                "position": [0.0, 0.5, 0.0],
-                "size": [1.0, 1.0, 1.0],
-                "material": "default"
+                "component": "body_block",
+                "transform": {
+                    "position": [0.0, 0.5, 0.0],
+                    "rotation": [0.0, 0.0, 0.0],
+                    "scale": [1.0, 1.0, 1.0]
+                }
+            },
+            {
+                "id": "cap",
+                "component": "top_cap",
+                "transform": {
+                    "position": [0.0, 1.125, 0.0],
+                    "rotation": [0.0, 0.0, 0.0],
+                    "scale": [1.0, 1.0, 1.0]
+                }
+            }
+        ],
+        "connections": [
+            {
+                "id": "body_to_cap",
+                "from_instance": "body",
+                "from_anchor": "top",
+                "to_instance": "cap",
+                "to_anchor": "base",
+                "joint": {
+                    "mode": "rigid",
+                    "translation_limit": {
+                        "x": [0.0, 0.0],
+                        "y": [0.0, 0.0],
+                        "z": [0.0, 0.0]
+                    },
+                    "rotation_limit_deg": {
+                        "pitch": [0.0, 0.0],
+                        "yaw": [0.0, 0.0],
+                        "roll": [0.0, 0.0]
+                    }
+                }
             }
         ],
         "operations": [],
         "anchors": {
-            "root": [0.0, 0.0, 0.0]
+            "root": {
+                "position": [0.0, 0.0, 0.0],
+                "orientation": [0.0, 0.0, 0.0],
+                "connector": "rigid_socket",
+                "tags": ["root"]
+            }
+        },
+        "preview_2d": {
+            "center": [0.0, 0.5],
+            "scale": 220.0,
+            "outline_material": "default",
+            "fill_material": "default",
+            "outline": [
+                [-0.5, 0.0],
+                [0.5, 0.0],
+                [0.5, 1.0],
+                [-0.5, 1.0]
+            ]
         },
         "compile": {
             "mesh_resolution": "medium",

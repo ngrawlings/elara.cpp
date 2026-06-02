@@ -330,8 +330,9 @@ struct VkSurfaceKernelCommand {
     float x0, y0, x1, y1, x2, y2;
     float value0, value1;
     float r, g, b;
+    float u0, v0, u1, v1, u2, v2;
 };
-static_assert(sizeof(VkSurfaceKernelCommand) == 48, "command struct size mismatch");
+static_assert(sizeof(VkSurfaceKernelCommand) == 72, "command struct size mismatch");
 
 struct VkSceneCameraState {
     double x;
@@ -393,6 +394,7 @@ static int vkSceneClampInt(int value, int min_value, int max_value) {
 static VkSurfaceKernelCommand vkLineCommand(double x0, double y0, double x1, double y1,
                                             double line_width, double r, double g, double b) {
     VkSurfaceKernelCommand kc;
+    memset(&kc, 0, sizeof(kc));
     kc.op = 2u;
     kc.x0 = (float)x0;
     kc.y0 = (float)y0;
@@ -411,6 +413,7 @@ static VkSurfaceKernelCommand vkLineCommand(double x0, double y0, double x1, dou
 static VkSurfaceKernelCommand vkTriangleCommand(double x0, double y0, double x1, double y1,
                                                 double x2, double y2, double r, double g, double b) {
     VkSurfaceKernelCommand kc;
+    memset(&kc, 0, sizeof(kc));
     kc.op = 3u;
     kc.x0 = (float)x0;
     kc.y0 = (float)y0;
@@ -424,6 +427,66 @@ static VkSurfaceKernelCommand vkTriangleCommand(double x0, double y0, double x1,
     kc.g = (float)g;
     kc.b = (float)b;
     return kc;
+}
+
+static VkSurfaceKernelCommand vkTexturedRectCommand(double x0, double y0, double w, double h) {
+    VkSurfaceKernelCommand kc;
+    memset(&kc, 0, sizeof(kc));
+    kc.op = 4u;
+    kc.x0 = (float)x0;
+    kc.y0 = (float)y0;
+    kc.x1 = (float)w;
+    kc.y1 = (float)h;
+    return kc;
+}
+
+static VkSurfaceKernelCommand vkTexturedTriangleCommand(
+    double x0, double y0, double x1, double y1, double x2, double y2, double depth,
+    double u0, double v0, double u1, double v1, double u2, double v2
+) {
+    VkSurfaceKernelCommand kc;
+    memset(&kc, 0, sizeof(kc));
+    kc.op = 5u;
+    kc.x0 = (float)x0;
+    kc.y0 = (float)y0;
+    kc.x1 = (float)x1;
+    kc.y1 = (float)y1;
+    kc.x2 = (float)x2;
+    kc.y2 = (float)y2;
+    kc.value0 = (float)depth;
+    kc.u0 = (float)u0;
+    kc.v0 = (float)v0;
+    kc.u1 = (float)u1;
+    kc.v1 = (float)v1;
+    kc.u2 = (float)u2;
+    kc.v2 = (float)v2;
+    return kc;
+}
+
+static std::vector<uint32_t> vkBuildTextureWords(const std::vector<float>& rgb, int width, int height) {
+    std::vector<uint32_t> words;
+    if(width <= 0 || height <= 0 || rgb.size() != (size_t)(width * height * 3)) {
+        words.resize(5);
+        words[0] = 1u;
+        words[1] = 1u;
+        float white = 1.0f;
+        uint32_t white_bits = 0;
+        memcpy(&white_bits, &white, sizeof(uint32_t));
+        words[2] = white_bits;
+        words[3] = white_bits;
+        words[4] = white_bits;
+        return words;
+    }
+    words.resize(2u + ((size_t)width * (size_t)height * 3u));
+    words[0] = (uint32_t)width;
+    words[1] = (uint32_t)height;
+    for(size_t i = 0; i < rgb.size(); i++) {
+        float clamped = rgb[i];
+        if(clamped < 0.0f) clamped = 0.0f;
+        if(clamped > 1.0f) clamped = 1.0f;
+        memcpy(&words[2u + i], &clamped, sizeof(uint32_t));
+    }
+    return words;
 }
 
 static VkScenePoint2D vkProjectScenePoint(const VkSceneCameraState& cam,
@@ -1020,8 +1083,8 @@ public:
             return false;
         }
 
-        // Descriptor set layout: binding 0 = pixel storage, binding 1 = cmd storage (readonly)
-        VkDescriptorSetLayoutBinding bindings[2];
+        // Descriptor set layout: binding 0 = pixel storage, binding 1 = cmd storage, binding 2 = texture storage
+        VkDescriptorSetLayoutBinding bindings[3];
         memset(bindings, 0, sizeof(bindings));
         bindings[0].binding         = 0;
         bindings[0].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
@@ -1031,11 +1094,15 @@ public:
         bindings[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         bindings[1].descriptorCount = 1;
         bindings[1].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
+        bindings[2].binding         = 2;
+        bindings[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        bindings[2].descriptorCount = 1;
+        bindings[2].stageFlags      = VK_SHADER_STAGE_COMPUTE_BIT;
 
         VkDescriptorSetLayoutCreateInfo dslci;
         memset(&dslci, 0, sizeof(dslci));
         dslci.sType        = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        dslci.bindingCount = 2;
+        dslci.bindingCount = 3;
         dslci.pBindings    = bindings;
         if(vkCreateDescriptorSetLayout(device, &dslci, 0, &ds_layout) != VK_SUCCESS) {
             if(status) *status = "Failed to create Vulkan descriptor set layout";
@@ -1089,7 +1156,7 @@ public:
         // Descriptor pool (enough for many resets-per-frame)
         VkDescriptorPoolSize pool_size;
         pool_size.type            = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
-        pool_size.descriptorCount = 2;
+        pool_size.descriptorCount = 3;
         VkDescriptorPoolCreateInfo dpci;
         memset(&dpci, 0, sizeof(dpci));
         dpci.sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -1107,6 +1174,7 @@ public:
 
     bool render(
         const std::vector<VkSurfaceKernelCommand>& cmd_data,
+        const std::vector<uint32_t>& texture_words,
         int width,
         int height,
         float virtual_width,
@@ -1141,6 +1209,7 @@ public:
 
         VkBuffer      px_buf = 0; VkDeviceMemory px_mem = 0;
         VkBuffer      cd_buf = 0; VkDeviceMemory cd_mem = 0;
+        VkBuffer      tx_buf = 0; VkDeviceMemory tx_mem = 0;
 
         if(!allocBuffer(pixel_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, mem_flags, &px_buf, &px_mem)) {
             if(status) *status = "Failed to allocate Vulkan pixel buffer";
@@ -1150,6 +1219,13 @@ public:
             vkDestroyBuffer(device, px_buf, 0);
             vkFreeMemory(device, px_mem, 0);
             if(status) *status = "Failed to allocate Vulkan command buffer";
+            return false;
+        }
+        size_t texture_bytes = texture_words.empty() ? (size_t)(5u * sizeof(uint32_t)) : (texture_words.size() * sizeof(uint32_t));
+        if(!allocBuffer(texture_bytes, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, mem_flags, &tx_buf, &tx_mem)) {
+            vkDestroyBuffer(device, cd_buf, 0); vkFreeMemory(device, cd_mem, 0);
+            vkDestroyBuffer(device, px_buf, 0); vkFreeMemory(device, px_mem, 0);
+            if(status) *status = "Failed to allocate Vulkan texture buffer";
             return false;
         }
 
@@ -1166,6 +1242,24 @@ public:
                 vkUnmapMemory(device, cd_mem);
             }
         }
+        {
+            void* mapped = 0;
+            if(vkMapMemory(device, tx_mem, 0, texture_bytes, 0, &mapped) == VK_SUCCESS) {
+                if(texture_words.empty()) {
+                    uint32_t fallback_words[5];
+                    float white = 1.0f;
+                    memcpy(&fallback_words[2], &white, sizeof(uint32_t));
+                    memcpy(&fallback_words[3], &white, sizeof(uint32_t));
+                    memcpy(&fallback_words[4], &white, sizeof(uint32_t));
+                    fallback_words[0] = 1u;
+                    fallback_words[1] = 1u;
+                    memcpy(mapped, fallback_words, sizeof(fallback_words));
+                } else {
+                    memcpy(mapped, &texture_words[0], texture_bytes);
+                }
+                vkUnmapMemory(device, tx_mem);
+            }
+        }
 
         // Reset and allocate descriptor set
         vkResetDescriptorPool(device, desc_pool, 0);
@@ -1178,6 +1272,7 @@ public:
             dsai.descriptorSetCount = 1;
             dsai.pSetLayouts        = &ds_layout;
             if(vkAllocateDescriptorSets(device, &dsai, &ds) != VK_SUCCESS) {
+                vkDestroyBuffer(device, tx_buf, 0); vkFreeMemory(device, tx_mem, 0);
                 vkDestroyBuffer(device, cd_buf, 0); vkFreeMemory(device, cd_mem, 0);
                 vkDestroyBuffer(device, px_buf, 0); vkFreeMemory(device, px_mem, 0);
                 if(status) *status = "Failed to allocate Vulkan descriptor set";
@@ -1190,8 +1285,10 @@ public:
         px_bi.buffer = px_buf; px_bi.range = pixel_bytes;
         VkDescriptorBufferInfo cd_bi; memset(&cd_bi, 0, sizeof(cd_bi));
         cd_bi.buffer = cd_buf; cd_bi.range = cmd_data_size;
+        VkDescriptorBufferInfo tx_bi; memset(&tx_bi, 0, sizeof(tx_bi));
+        tx_bi.buffer = tx_buf; tx_bi.range = texture_bytes;
 
-        VkWriteDescriptorSet writes[2];
+        VkWriteDescriptorSet writes[3];
         memset(writes, 0, sizeof(writes));
         writes[0].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         writes[0].dstSet          = ds;
@@ -1205,7 +1302,13 @@ public:
         writes[1].descriptorCount = 1;
         writes[1].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
         writes[1].pBufferInfo     = &cd_bi;
-        vkUpdateDescriptorSets(device, 2, writes, 0, 0);
+        writes[2].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        writes[2].dstSet          = ds;
+        writes[2].dstBinding      = 2;
+        writes[2].descriptorCount = 1;
+        writes[2].descriptorType  = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+        writes[2].pBufferInfo     = &tx_bi;
+        vkUpdateDescriptorSets(device, 3, writes, 0, 0);
 
         // Record and submit command buffer
         VkCommandBufferBeginInfo cbbi;
@@ -1249,6 +1352,7 @@ public:
             }
         }
 
+        vkDestroyBuffer(device, tx_buf, 0); vkFreeMemory(device, tx_mem, 0);
         vkDestroyBuffer(device, cd_buf, 0); vkFreeMemory(device, cd_mem, 0);
         vkDestroyBuffer(device, px_buf, 0); vkFreeMemory(device, px_mem, 0);
 
@@ -1291,6 +1395,7 @@ ElaraVulkanSurfaceCommand::ElaraVulkanSurfaceCommand(Type command_type)
       x0(0), y0(0), x1(0), y1(0), x2(0), y2(0),
       value0(0), value1(0),
       r(1), g(1), b(1),
+      u0(0), v0(0), u1(0), v1(0), u2(0), v2(0),
       text("") {}
 
 ElaraVulkanSurfaceWidget::ElaraVulkanSurfaceWidget(
@@ -1300,6 +1405,8 @@ ElaraVulkanSurfaceWidget::ElaraVulkanSurfaceWidget(
     backend_id("vulkan"),
     kernel_name(""),
     overlay_text(""),
+    texture_width(1),
+    texture_height(1),
     virtual_width(1000.0),
     virtual_height(1000.0),
     execution_status("Vulkan pending"),
@@ -1308,6 +1415,9 @@ ElaraVulkanSurfaceWidget::ElaraVulkanSurfaceWidget(
     drawn_revision(0),
     vulkan_runtime(0) {
     setPaletteMaster("panel");
+    texture_rgb.push_back(1.0f);
+    texture_rgb.push_back(1.0f);
+    texture_rgb.push_back(1.0f);
 }
 
 ElaraVulkanSurfaceWidget::~ElaraVulkanSurfaceWidget() {
@@ -1371,6 +1481,31 @@ void ElaraVulkanSurfaceWidget::addTriangle(double x0, double y0, double x1, doub
     command_revision++;
 }
 
+void ElaraVulkanSurfaceWidget::addTexturedRect(double x, double y, double w, double h) {
+    Mutex::Lock lock(commands_mutex);
+    Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TEXTURED_RECT));
+    cmd->x0 = x; cmd->y0 = y; cmd->x1 = w; cmd->y1 = h;
+    commands.push(cmd);
+    command_revision++;
+}
+
+void ElaraVulkanSurfaceWidget::addTexturedTriangle(
+    double x0, double y0, double x1, double y1, double x2, double y2, double depth,
+    double u0, double v0, double u1, double v1, double u2, double v2
+) {
+    Mutex::Lock lock(commands_mutex);
+    Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TEXTURED_TRIANGLE));
+    cmd->x0 = x0; cmd->y0 = y0;
+    cmd->x1 = x1; cmd->y1 = y1;
+    cmd->x2 = x2; cmd->y2 = y2;
+    cmd->value0 = depth;
+    cmd->u0 = u0; cmd->v0 = v0;
+    cmd->u1 = u1; cmd->v1 = v1;
+    cmd->u2 = u2; cmd->v2 = v2;
+    commands.push(cmd);
+    command_revision++;
+}
+
 void ElaraVulkanSurfaceWidget::addText(double x, double y, const String& value, double size, double red, double green, double blue) {
     Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TEXT));
@@ -1397,6 +1532,28 @@ void ElaraVulkanSurfaceWidget::addSceneCommand(int scene_op, double a0, double a
     command_revision++;
 }
 
+void ElaraVulkanSurfaceWidget::setTextureRgb(int width, int height, const std::vector<float>& rgb) {
+    Mutex::Lock lock(commands_mutex);
+    if(width <= 0 || height <= 0 || rgb.size() != (size_t)(width * height * 3)) {
+        texture_width = 1;
+        texture_height = 1;
+        texture_rgb.assign(3, 1.0f);
+    } else {
+        texture_width = width;
+        texture_height = height;
+        texture_rgb = rgb;
+    }
+    command_revision++;
+}
+
+void ElaraVulkanSurfaceWidget::clearTexture() {
+    Mutex::Lock lock(commands_mutex);
+    texture_width = 1;
+    texture_height = 1;
+    texture_rgb.assign(3, 1.0f);
+    command_revision++;
+}
+
 void ElaraVulkanSurfaceWidget::setBackendId(const String& value) { backend_id = value; }
 String ElaraVulkanSurfaceWidget::getBackendId() const            { return backend_id; }
 
@@ -1415,15 +1572,32 @@ double ElaraVulkanSurfaceWidget::getVirtualWidth()  const { return virtual_width
 double ElaraVulkanSurfaceWidget::getVirtualHeight() const { return virtual_height; }
 
 void ElaraVulkanSurfaceWidget::drawEmptyState(ElaraDrawContext* ctx) {
-    ctx->setColor(0.15, 0.17, 0.20);
+    bool failed = execution_status.indexOf("failed") >= 0
+        || execution_status.indexOf("unavailable") >= 0
+        || execution_status.indexOf("skipped") >= 0;
+
+    if(failed) {
+        ctx->setColor(0.18, 0.06, 0.07);
+    } else {
+        ctx->setColor(0.15, 0.17, 0.20);
+    }
     ctx->fillRect(0, 0, width, height);
 
-    ctx->setColor(0.25, 0.28, 0.32);
+    if(failed) {
+        ctx->setColor(0.30, 0.12, 0.13);
+    } else {
+        ctx->setColor(0.25, 0.28, 0.32);
+    }
     for(int x = 0; x < width; x += 24) ctx->line(x, 0, x, height, 1.0);
     for(int y = 0; y < height; y += 24) ctx->line(0, y, width, y, 1.0);
 
-    ctx->setColor(0.31, 0.76, 0.47);
-    ctx->drawText(16, 26, "Vulkan Surface", 16);
+    if(failed) {
+        ctx->setColor(0.96, 0.78, 0.80);
+        ctx->drawText(16, 26, "Vulkan Surface Failure", 16);
+    } else {
+        ctx->setColor(0.31, 0.76, 0.47);
+        ctx->drawText(16, 26, "Vulkan Surface", 16);
+    }
 
     ctx->setColor(0.82, 0.84, 0.88);
     ctx->drawText(16, 46, String("backend: ") + backend_id, 12);
@@ -1432,9 +1606,9 @@ void ElaraVulkanSurfaceWidget::drawEmptyState(ElaraDrawContext* ctx) {
         ctx->drawText(16, 64, String("kernel: ") + kernel_name, 12);
     }
 
-    if(overlay_text.length() > 0) {
+    if(overlay_text.length() > 0 && !failed) {
         ctx->drawText(16, 86, overlay_text, 12);
-    } else {
+    } else if(!failed) {
         ctx->drawText(16, 86, "Awaiting root-node scene commands", 12);
     }
 
@@ -1502,8 +1676,8 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
                     if(scene_camera.far_z <= scene_camera.near_z) scene_camera.far_z = scene_camera.near_z + 10.0;
                 } else if(cmd->type == ElaraVulkanSurfaceCommand::SCENE_ENVIRONMENT) {
                     VkSurfaceKernelCommand kc;
+                    memset(&kc, 0, sizeof(kc));
                     kc.op = 0u;
-                    kc.x0 = kc.y0 = kc.x1 = kc.y1 = kc.value0 = kc.value1 = 0.0f;
                     kc.r = (float)(((double)vkSceneClampInt((int)cmd->x0, 0, 255)) / 255.0);
                     kc.g = (float)(((double)vkSceneClampInt((int)cmd->y0, 0, 255)) / 255.0);
                     kc.b = (float)(((double)vkSceneClampInt((int)cmd->x1, 0, 255)) / 255.0);
@@ -1559,6 +1733,12 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
             kc.r      = (float)cmd->r;
             kc.g      = (float)cmd->g;
             kc.b      = (float)cmd->b;
+            kc.u0     = (float)cmd->u0;
+            kc.v0     = (float)cmd->v0;
+            kc.u1     = (float)cmd->u1;
+            kc.v1     = (float)cmd->v1;
+            kc.u2     = (float)cmd->u2;
+            kc.v2     = (float)cmd->v2;
             kernel_cmds.push_back(kc);
         }
         if(has_scene_commands) {
@@ -1578,8 +1758,14 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
     }
 
     String render_status;
+    std::vector<uint32_t> texture_words;
+    {
+        Mutex::Lock lock(commands_mutex);
+        texture_words = vkBuildTextureWords(texture_rgb, texture_width, texture_height);
+    }
     bool rendered = vulkan_runtime->render(
         kernel_cmds,
+        texture_words,
         pixel_width, pixel_height,
         (float)virtual_width, (float)virtual_height,
         &pixel_buffer,
@@ -1591,44 +1777,6 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
         execution_status = render_status;
     }
     return rendered;
-}
-
-void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
-    execution_status = "CPU surface fallback active";
-
-    Mutex::Lock lock(commands_mutex);
-    for(int i = 0; i < (int)commands.length(); i++) {
-        Ref<ElaraVulkanSurfaceCommand> cmd = commands[i];
-        if(!cmd || cmd->type == ElaraVulkanSurfaceCommand::TEXT) {
-            continue;
-        }
-
-        ctx->setColor(cmd->r, cmd->g, cmd->b);
-
-        if(cmd->type == ElaraVulkanSurfaceCommand::CLEAR) {
-            ctx->fillRect(0, 0, width, height);
-        } else if(cmd->type == ElaraVulkanSurfaceCommand::RECT) {
-            ctx->fillRect(
-                scaleX(cmd->x0),
-                scaleY(cmd->y0),
-                scaleX(cmd->x1),
-                scaleY(cmd->y1)
-            );
-        } else if(cmd->type == ElaraVulkanSurfaceCommand::LINE) {
-            double line_width = cmd->value0 > 0.0 ? cmd->value0 : 1.0;
-            ctx->line(
-                scaleX(cmd->x0),
-                scaleY(cmd->y0),
-                scaleX(cmd->x1),
-                scaleY(cmd->y1),
-                line_width
-            );
-        } else if(cmd->type == ElaraVulkanSurfaceCommand::TRIANGLE) {
-            ctx->line(scaleX(cmd->x0), scaleY(cmd->y0), scaleX(cmd->x1), scaleY(cmd->y1), 1.0);
-            ctx->line(scaleX(cmd->x1), scaleY(cmd->y1), scaleX(cmd->x2), scaleY(cmd->y2), 1.0);
-            ctx->line(scaleX(cmd->x2), scaleY(cmd->y2), scaleX(cmd->x0), scaleY(cmd->y0), 1.0);
-        }
-    }
 }
 
 void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
@@ -1652,6 +1800,7 @@ void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
         ctx->drawBitmapRgba(0, 0, (int)width, (int)height, &pixel_buffer[0], (int)width * 4);
     } else {
         pixel_buffer.clear();
+        drawEmptyState(ctx);
     }
     if(execution_status.length() > 0 && execution_status != logged_execution_status) {
         printf("[vulkan-surface] status: %s\n", execution_status.operator char *());
@@ -1660,7 +1809,7 @@ void ElaraVulkanSurfaceWidget::drawCanvas(ElaraDrawContext* ctx) {
     }
 
     Mutex::Lock lock(commands_mutex);
-    if(commands.length() <= 0) {
+    if(commands.length() <= 0 || pixel_buffer.empty()) {
         drawEmptyState(ctx);
         return;
     }

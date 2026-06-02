@@ -1,0 +1,307 @@
+{
+  "format": "elara.e3d.component.v1",
+  "name": "scenery.buildings.houses.simple.house",
+  "units": "meters",
+  "metadata": {
+    "description": "Simple learning house assembled from floor, wall, roof, door, and window components",
+    "authoring_mode": "component_assembly",
+    "compile_target": "mesh"
+  },
+  "imports": [
+    {
+      "id": "front_wall_component",
+      "path": "../../components/walls/front_wall.e3d.json",
+      "component": "front_wall"
+    }
+  ],
+  "materials": {
+    "foundation": {
+      "base_color": [0.48, 0.46, 0.42],
+      "roughness": 0.94
+    },
+    "plaster": {
+      "base_color": [0.80, 0.76, 0.68],
+      "roughness": 0.88
+    },
+    "roof": {
+      "base_color": [0.52, 0.20, 0.14],
+      "roughness": 0.90
+    },
+    "wood": {
+      "base_color": [0.36, 0.24, 0.14],
+      "roughness": 0.84
+    },
+    "glass": {
+      "base_color": [0.56, 0.74, 0.82],
+      "roughness": 0.18
+    }
+  },
+  "parameters": {
+    "house_width": 3.8,
+    "house_depth": 3.0,
+    "wall_height": 2.4,
+    "wall_thickness": 0.14
+  },
+  "components": {
+    "foundation_slab": {
+      "kind": "primitive",
+      "primitive": "box",
+      "material": "foundation",
+      "size": [4.2, 0.24, 3.4],
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_core",
+          "tags": ["foundation", "center"]
+        },
+        "top": {
+          "position": [0.0, 0.12, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_mount",
+          "tags": ["foundation", "top"]
+        }
+      }
+    },
+    "wall_side": {
+      "kind": "primitive",
+      "primitive": "box",
+      "material": "plaster",
+      "size": [0.14, 2.4, 3.0],
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_mount",
+          "tags": ["wall", "side"]
+        }
+      }
+    },
+    "roof_slab": {
+      "kind": "primitive",
+      "primitive": "box",
+      "material": "roof",
+      "size": [4.0, 0.18, 3.2],
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_roof_mount",
+          "tags": ["roof", "center"]
+        }
+      }
+    },
+    "door_slab": {
+      "kind": "primitive",
+      "primitive": "box",
+      "material": "wood",
+      "size": [0.82, 1.94, 0.05],
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_detail_mount",
+          "tags": ["door", "center"]
+        }
+      }
+    },
+    "window_slab": {
+      "kind": "primitive",
+      "primitive": "box",
+      "material": "glass",
+      "size": [0.74, 0.74, 0.04],
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_detail_mount",
+          "tags": ["window", "center"]
+        }
+      }
+    }
+  },
+  "instances": [
+    {
+      "id": "foundation",
+      "component": "foundation_slab",
+      "transform": {
+        "position": [0.0, -0.12, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "front_wall",
+      "component": "front_wall_component",
+      "transform": {
+        "position": [0.0, 1.20, 1.43],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "back_wall",
+      "component": "front_wall_component",
+      "transform": {
+        "position": [0.0, 1.20, -1.43],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "left_wall",
+      "component": "wall_side",
+      "transform": {
+        "position": [-1.83, 1.20, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "right_wall",
+      "component": "wall_side",
+      "transform": {
+        "position": [1.83, 1.20, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "roof",
+      "component": "roof_slab",
+      "transform": {
+        "position": [0.0, 2.49, 0.0],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "door",
+      "component": "door_slab",
+      "transform": {
+        "position": [0.0, 0.85, 1.49],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "window_left",
+      "component": "window_slab",
+      "transform": {
+        "position": [-1.06, 1.42, 1.50],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    },
+    {
+      "id": "window_right",
+      "component": "window_slab",
+      "transform": {
+        "position": [1.06, 1.42, 1.50],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.0, 1.0, 1.0]
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "foundation_to_front_wall",
+      "from_instance": "foundation",
+      "from_anchor": "top",
+      "to_instance": "front_wall",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+        "rotation_limit_deg": {"pitch": [0.0, 0.0], "yaw": [0.0, 0.0], "roll": [0.0, 0.0]}
+      }
+    },
+    {
+      "id": "foundation_to_back_wall",
+      "from_instance": "foundation",
+      "from_anchor": "top",
+      "to_instance": "back_wall",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+        "rotation_limit_deg": {"pitch": [0.0, 0.0], "yaw": [0.0, 0.0], "roll": [0.0, 0.0]}
+      }
+    },
+    {
+      "id": "foundation_to_left_wall",
+      "from_instance": "foundation",
+      "from_anchor": "top",
+      "to_instance": "left_wall",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+        "rotation_limit_deg": {"pitch": [0.0, 0.0], "yaw": [0.0, 0.0], "roll": [0.0, 0.0]}
+      }
+    },
+    {
+      "id": "foundation_to_right_wall",
+      "from_instance": "foundation",
+      "from_anchor": "top",
+      "to_instance": "right_wall",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+        "rotation_limit_deg": {"pitch": [0.0, 0.0], "yaw": [0.0, 0.0], "roll": [0.0, 0.0]}
+      }
+    },
+    {
+      "id": "walls_to_roof",
+      "from_instance": "front_wall",
+      "from_anchor": "center",
+      "to_instance": "roof",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {"x": [0.0, 0.0], "y": [0.0, 0.0], "z": [0.0, 0.0]},
+        "rotation_limit_deg": {"pitch": [0.0, 0.0], "yaw": [0.0, 0.0], "roll": [0.0, 0.0]}
+      }
+    }
+  ],
+  "operations": [
+    {
+      "op": "smooth",
+      "targets": ["front_wall", "back_wall", "left_wall", "right_wall", "roof"],
+      "level": 1
+    }
+  ],
+  "anchors": {
+    "root": {
+      "position": [0.0, -0.12, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "house_root_mount",
+      "tags": ["root"]
+    },
+    "doorway": {
+      "position": [0.0, 0.85, 1.49],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "house_entry_mount",
+      "tags": ["entry", "door"]
+    }
+  },
+  "preview_2d": {
+    "center": [0.0, 1.1],
+    "scale": 140.0,
+    "depth_scale": 180.0,
+    "outline_material": "wood",
+    "fill_material": "plaster",
+    "outline": [
+      [-1.9, -0.12],
+      [1.9, -0.12],
+      [1.9, 2.4],
+      [-1.9, 2.4]
+    ]
+  },
+  "compile": {
+    "mesh_resolution": "medium",
+    "generate_normals": true,
+    "preserve_part_ids": true
+  }
+}

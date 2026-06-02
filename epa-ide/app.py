@@ -58,6 +58,7 @@ from dialogs import (
     E_FILE_TEMPLATES,
 )
 from help_window import build_help_window, load_doc as _help_load_doc
+from e3d_runtime import load_runtime_preview
 
 def _ide_state_path() -> Path:
     return Path.home() / ".config" / "epa-ide" / "state.json"
@@ -4061,72 +4062,29 @@ def main():
                 pass
         return fallback
 
-    def _artifact3d_preview_commands(path: Path) -> list[dict]:
+    def _artifact3d_preview_commands(path: Path) -> tuple[list[dict], list[str]]:
         try:
-            template = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            template = {}
-        preview = template.get("preview_2d") if isinstance(template, dict) else {}
-        if not isinstance(preview, dict):
-            preview = {}
-
-        width = 1000.0
-        height = 720.0
-        scale = float(preview.get("scale", 210.0) or 210.0)
-        center = preview.get("center") if isinstance(preview.get("center"), list) else [0.0, 0.0]
-        cx = float(center[0] if len(center) > 0 else 0.0)
-        cy = float(center[1] if len(center) > 1 else 0.0)
-
-        def project(pt):
-            x = float(pt[0] if len(pt) > 0 else 0.0)
-            y = float(pt[1] if len(pt) > 1 else 0.0)
-            return (width * 0.5 + (x - cx) * scale, height * 0.52 - (y - cy) * scale)
-
-        def color(material_key, fallback):
-            return _artifact3d_color(template, str(preview.get(material_key, "")), fallback)
-
-        fill = color("fill_material", (0.18, 0.48, 0.14))
-        edge = color("outline_material", (0.07, 0.22, 0.06))
-        vein = color("vein_material", (0.58, 0.78, 0.32))
-        stem = color("stem_material", (0.34, 0.20, 0.08))
-        outline = preview.get("outline") if isinstance(preview.get("outline"), list) else []
-        commands = [
-            {"op": "clear", "r": 0.025, "g": 0.035, "b": 0.028}
-        ]
-        if len(outline) >= 3:
-            c0x, c0y = project(preview.get("center") if isinstance(preview.get("center"), list) else [0.0, 0.0])
-            for i in range(len(outline)):
-                x1, y1 = project(outline[i])
-                x2, y2 = project(outline[(i + 1) % len(outline)])
-                commands.append({
-                    "op": "triangle",
-                    "x0": c0x, "y0": c0y,
-                    "x1": x1, "y1": y1,
-                    "x2": x2, "y2": y2,
-                    "depth": 0.2,
-                    "r": fill[0], "g": fill[1], "b": fill[2]
-                })
-            for i in range(len(outline)):
-                x1, y1 = project(outline[i])
-                x2, y2 = project(outline[(i + 1) % len(outline)])
-                commands.append({"op": "line", "x0": x1, "y0": y1, "x1": x2, "y1": y2, "r": edge[0], "g": edge[1], "b": edge[2]})
-        for segment in preview.get("veins", []) if isinstance(preview.get("veins"), list) else []:
-            if isinstance(segment, list) and len(segment) >= 2:
-                x0, y0 = project(segment[0])
-                x1, y1 = project(segment[1])
-                commands.append({"op": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1, "r": vein[0], "g": vein[1], "b": vein[2]})
-        stem_segment = preview.get("stem")
-        if isinstance(stem_segment, list) and len(stem_segment) >= 2:
-            x0, y0 = project(stem_segment[0])
-            x1, y1 = project(stem_segment[1])
-            commands.append({"op": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1, "r": stem[0], "g": stem[1], "b": stem[2]})
-        commands.append({"op": "text", "x": 28, "y": 34, "text": template.get("name", path.stem), "size": 24, "r": 0.86, "g": 0.95, "b": 0.78})
-        commands.append({"op": "text", "x": 28, "y": 60, "text": "2D primitive preview - orbit controls coming next", "size": 14, "r": 0.65, "g": 0.78, "b": 0.62})
-        return commands
+            viewer_state = app_state.get("artifact3d_viewer", {})
+            camera = viewer_state.get("camera") if isinstance(viewer_state, dict) else None
+            _, commands, errors = load_runtime_preview(path, camera)
+            return commands, errors
+        except Exception as exc:
+            return ([
+                {"op": "clear", "r": 0.04, "g": 0.02, "b": 0.02},
+                {"op": "text", "x": 28, "y": 36, "text": path.name, "size": 22, "r": 0.96, "g": 0.96, "b": 0.96},
+                {"op": "text", "x": 28, "y": 66, "text": "E3D runtime preview failed", "size": 16, "r": 0.96, "g": 0.42, "b": 0.38},
+                {"op": "text", "x": 28, "y": 92, "text": str(exc), "size": 14, "r": 0.94, "g": 0.72, "b": 0.70},
+            ], [str(exc)])
 
     def _open_artifact3d_viewer(client, path: str):
         artifact_path = Path(path)
-        commands = _artifact3d_preview_commands(artifact_path)
+        app_state["artifact3d_viewer"] = {
+            "path": str(artifact_path),
+            "camera": {"yaw_deg": 18.0, "pitch_deg": 8.0, "distance": 4.8},
+            "dragging": False,
+            "last_xy": None,
+        }
+        commands, errors = _artifact3d_preview_commands(artifact_path)
         ui = UiDocumentBuilder()
         ui.create_window("3D Artifact Viewer", 1040, 760, "org.elara.ui.epa-ide.artifact-viewer")
         ui.set_theme_mode("dark")
@@ -4137,9 +4095,32 @@ def main():
         ui.create_vulkan_surface("artifact.viewer.surface", commands, kernel_name="artifact.preview")
         ui.set_property_number("artifact.viewer.surface", "virtual_width", 1000)
         ui.set_property_number("artifact.viewer.surface", "virtual_height", 720)
-        ui.set_property_string("artifact.viewer.surface", "overlay_text", artifact_path.name)
+        overlay = artifact_path.name if not errors else f"{artifact_path.name}  ({len(errors)} validation issue(s))"
+        ui.set_property_string("artifact.viewer.surface", "overlay_text", overlay)
         ui.place_grid_child("artifact.viewer.shell", "artifact.viewer.surface", 0, 0)
         client.open_window("artifact-3d-viewer", f"3D Artifact: {artifact_path.name}", 1040, 760, ui)
+        try:
+            client.call("ui.subscribe", {"target": "artifact.viewer.surface", "actions": ["mouseDown", "mouseMove", "mouseUp"]})
+        except Exception:
+            pass
+
+    def _refresh_artifact3d_viewer(client):
+        viewer_state = app_state.get("artifact3d_viewer", {})
+        if not isinstance(viewer_state, dict):
+            return
+        path = viewer_state.get("path")
+        if not isinstance(path, str) or not path:
+            return
+        commands, errors = _artifact3d_preview_commands(Path(path))
+        try:
+            client.call("ui.setSectionJson", {"target": "artifact.viewer.surface", "section": "commands", "value": commands})
+        except Exception:
+            return
+        overlay = Path(path).name if not errors else f"{Path(path).name}  ({len(errors)} validation issue(s))"
+        try:
+            client.fire("ui.setProperty", {"target": "artifact.viewer.surface", "property": "overlay_text", "value": overlay})
+        except Exception:
+            pass
 
     def _populate_nav_trees(client, project_path: Path, technologies: list):
         source_only = app_state.get("nav_filter_source_only", False)
@@ -6021,6 +6002,38 @@ def main():
                 np = node_path
                 perm = is_double
                 _deferred(lambda: _open_file_tab(c, np, perm))
+                return {"received": True}
+
+        if target == "artifact.viewer.surface" and action in ("mouseDown", "mouseMove", "mouseUp") and client is not None:
+            viewer_state = app_state.get("artifact3d_viewer", {})
+            if not isinstance(viewer_state, dict):
+                viewer_state = {}
+                app_state["artifact3d_viewer"] = viewer_state
+            camera = viewer_state.get("camera")
+            if not isinstance(camera, dict):
+                camera = {"yaw_deg": 18.0, "pitch_deg": 8.0, "distance": 4.8}
+                viewer_state["camera"] = camera
+            x = float(payload.get("x", -1.0) or -1.0)
+            y = float(payload.get("y", -1.0) or -1.0)
+            if action == "mouseDown":
+                viewer_state["dragging"] = True
+                viewer_state["last_xy"] = [x, y]
+                return {"received": True}
+            if action == "mouseUp":
+                viewer_state["dragging"] = False
+                viewer_state["last_xy"] = None
+                return {"received": True}
+            if action == "mouseMove" and viewer_state.get("dragging") and isinstance(viewer_state.get("last_xy"), list):
+                last = viewer_state.get("last_xy")
+                if x >= 0.0 and y >= 0.0 and isinstance(last, list) and len(last) >= 2:
+                    dx = x - float(last[0])
+                    dy = y - float(last[1])
+                    if abs(dx) > 0.01 or abs(dy) > 0.01:
+                        camera["yaw_deg"] = float(camera.get("yaw_deg", 18.0)) + dx * 0.35
+                        camera["pitch_deg"] = max(-80.0, min(80.0, float(camera.get("pitch_deg", 8.0)) + dy * 0.25))
+                        viewer_state["last_xy"] = [x, y]
+                        c = client
+                        _deferred(lambda: _refresh_artifact3d_viewer(c))
                 return {"received": True}
 
         # Double-click on a folder item navigates into it.

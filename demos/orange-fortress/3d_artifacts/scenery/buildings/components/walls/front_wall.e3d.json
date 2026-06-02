@@ -1,0 +1,78 @@
+{
+  "format": "elara.e3d.component.v1",
+  "name": "scenery.buildings.components.walls.front_wall",
+  "units": "meters",
+  "metadata": {
+    "description": "Reusable thick front wall with door and window cutouts",
+    "authoring_mode": "component_assembly",
+    "compile_target": "mesh"
+  },
+  "materials": {
+    "plaster": {
+      "base_color": [0.80, 0.76, 0.68],
+      "roughness": 0.88
+    }
+  },
+  "components": {
+    "front_wall": {
+      "kind": "primitive",
+      "primitive": "wall_shell_with_cutouts",
+      "material": "plaster",
+      "points_ref": "preview_2d.front_wall_outline",
+      "cutout_refs": [
+        "preview_2d.front_door_cutout",
+        "preview_2d.front_window_left_cutout",
+        "preview_2d.front_window_right_cutout"
+      ],
+      "thickness": 0.22,
+      "side_material": "plaster",
+      "back_material": "plaster",
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "house_mount",
+          "tags": ["wall", "front"]
+        }
+      }
+    }
+  },
+  "instances": [],
+  "connections": [],
+  "operations": [],
+  "anchors": {},
+  "preview_2d": {
+    "center": [0.0, 1.2],
+    "scale": 140.0,
+    "depth_scale": 180.0,
+    "front_wall_outline": [
+      [-1.9, 0.0],
+      [1.9, 0.0],
+      [1.9, 2.4],
+      [-1.9, 2.4]
+    ],
+    "front_door_cutout": [
+      [-0.41, 0.0],
+      [0.41, 0.0],
+      [0.41, 1.94],
+      [-0.41, 1.94]
+    ],
+    "front_window_left_cutout": [
+      [-1.43, 1.05],
+      [-0.69, 1.05],
+      [-0.69, 1.79],
+      [-1.43, 1.79]
+    ],
+    "front_window_right_cutout": [
+      [0.69, 1.05],
+      [1.43, 1.05],
+      [1.43, 1.79],
+      [0.69, 1.79]
+    ]
+  },
+  "compile": {
+    "mesh_resolution": "medium",
+    "generate_normals": true,
+    "preserve_part_ids": true
+  }
+}

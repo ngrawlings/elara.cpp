@@ -17,7 +17,9 @@ public:
         RECT = 1,
         LINE = 2,
         TRIANGLE = 3,
-        TEXT = 4,
+        TEXTURED_RECT = 4,
+        TEXTURED_TRIANGLE = 5,
+        TEXT = 6,
         // 3D scene ops (E3SB path emitted by elara.platform.scene_compiler).
         // These values match the first payload word in a V2 E3SB primitive
         // record: [2] scene_op a0 a1 a2 a3 a4 a5 a6.
@@ -60,6 +62,12 @@ public:
     double r;
     double g;
     double b;
+    double u0;
+    double v0;
+    double u1;
+    double v1;
+    double u2;
+    double v2;
     String text;
 
     ElaraVulkanSurfaceCommand(Type command_type);
@@ -71,6 +79,9 @@ private:
 
     mutable Mutex commands_mutex;
     Array< Ref<ElaraVulkanSurfaceCommand> > commands;
+    std::vector<float> texture_rgb;
+    int texture_width;
+    int texture_height;
     unsigned long command_revision;
     unsigned long drawn_revision;
     String backend_id;
@@ -86,7 +97,6 @@ private:
     double scaleX(double value) const;
     double scaleY(double value) const;
     bool renderVulkan(int pixel_width, int pixel_height);
-    void drawCpuCommands(ElaraDrawContext* ctx);
     void drawEmptyState(ElaraDrawContext* ctx);
 
 public:
@@ -102,8 +112,15 @@ public:
     void addRect(double x, double y, double w, double h, double r, double g, double b);
     void addLine(double x0, double y0, double x1, double y1, double r, double g, double b);
     void addTriangle(double x0, double y0, double x1, double y1, double x2, double y2, double depth, double r, double g, double b);
+    void addTexturedRect(double x, double y, double w, double h);
+    void addTexturedTriangle(
+        double x0, double y0, double x1, double y1, double x2, double y2, double depth,
+        double u0, double v0, double u1, double v1, double u2, double v2
+    );
     void addText(double x, double y, const String& text, double size, double r, double g, double b);
     void addSceneCommand(int scene_op, double a0, double a1, double a2, double a3, double a4, double a5, double a6);
+    void setTextureRgb(int width, int height, const std::vector<float>& rgb);
+    void clearTexture();
 
     void setBackendId(const String& value);
     String getBackendId() const;

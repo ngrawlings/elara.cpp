@@ -6,6 +6,7 @@
 #include <libelaraformat/json/types/JsonValue.h>
 #include <libelaravector/elara_vector.h>
 #include <libelaravectorcpp/ElaraVectorDocument.h>
+#include <vector>
 
 #include <libelaraui/frontend/widgets/ElaraTabWidget.h>
 #include <libelaraui/frontend/widgets/ElaraPopupWidget.h>
@@ -173,6 +174,45 @@ static bool jsonColor(const Json& json, const String& path, ElaraColor* color_ou
         (double)b / 255.0,
         (double)a / 255.0
     );
+    return true;
+}
+
+static bool jsonTextureRgbArray(
+    const Json& json,
+    const String& path,
+    int* width_out,
+    int* height_out,
+    std::vector<float>* rgb_out
+) {
+    if(!width_out || !height_out || !rgb_out) {
+        return false;
+    }
+    Ref<JsonValue> value = json.getJsonValue(path);
+    if(!value || value->getType() == JsonValue::INVALID) {
+        return false;
+    }
+    Json spec(value->toString());
+    int width = jsonInt(spec, "width", 0);
+    int height = jsonInt(spec, "height", 0);
+    if(width <= 0 || height <= 0) {
+        return false;
+    }
+    Array< Ref<JsonValue> > rgb = spec.getArray("rgb");
+    if(rgb.length() != (width * height * 3)) {
+        return false;
+    }
+    rgb_out->clear();
+    for(int i = 0; i < (int)rgb.length(); i++) {
+        double value = jsonValueDouble(rgb[i], 0.0);
+        if(value > 1.0) {
+            value /= 255.0;
+        }
+        if(value < 0.0) value = 0.0;
+        if(value > 1.0) value = 1.0;
+        rgb_out->push_back((float)value);
+    }
+    *width_out = width;
+    *height_out = height;
     return true;
 }
 
@@ -1272,6 +1312,15 @@ public:
                 jsonDouble(spec, "properties.virtual_width", 1000.0),
                 jsonDouble(spec, "properties.virtual_height", 1000.0)
             );
+            int texture_width = 0;
+            int texture_height = 0;
+            std::vector<float> texture_rgb;
+            if(jsonTextureRgbArray(spec, "texture", &texture_width, &texture_height, &texture_rgb) ||
+               jsonTextureRgbArray(spec, "sections.texture", &texture_width, &texture_height, &texture_rgb)) {
+                vulkan_surface->setTextureRgb(texture_width, texture_height, texture_rgb);
+            } else {
+                vulkan_surface->clearTexture();
+            }
 
             vulkan_surface->clearCommands();
             Array< Ref<JsonValue> > surface_commands = spec.getArray("commands");
@@ -1320,6 +1369,29 @@ public:
                         jsonValueDouble(command_json.getJsonValue("r"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("g"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                    );
+                } else if(op == String("textured_rect")) {
+                    vulkan_surface->addTexturedRect(
+                        jsonValueDouble(command_json.getJsonValue("x"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("w"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("h"), 0.0)
+                    );
+                } else if(op == String("textured_triangle")) {
+                    vulkan_surface->addTexturedTriangle(
+                        jsonValueDouble(command_json.getJsonValue("x0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("x1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("x2"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("y2"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("depth"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("u0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("v0"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("u1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("v1"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("u2"), 0.0),
+                        jsonValueDouble(command_json.getJsonValue("v2"), 0.0)
                     );
                 } else if(op == String("text")) {
                     vulkan_surface->addText(

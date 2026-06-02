@@ -1,0 +1,500 @@
+{
+  "format": "elara.e3d.component.v1",
+  "name": "oak_trunk",
+  "units": "meters",
+  "metadata": {
+    "description": "Oak trunk built from stacked ring sections lofted together",
+    "authoring_mode": "component_assembly",
+    "compile_target": "mesh"
+  },
+  "materials": {
+    "bark_outer": {
+      "base_color": [0.34, 0.24, 0.16],
+      "roughness": 0.96
+    },
+    "bark_side": {
+      "base_color": [0.28, 0.20, 0.14],
+      "roughness": 0.98
+    },
+    "sapwood": {
+      "base_color": [0.54, 0.44, 0.28],
+      "roughness": 0.92
+    }
+  },
+  "parameters": {
+    "height": 2.16,
+    "ring_spacing": 0.18,
+    "base_radius_x": 0.72,
+    "base_radius_z": 0.62
+  },
+  "components": {
+    "trunk_ring": {
+      "kind": "primitive",
+      "primitive": "ring_section",
+      "material": "bark_outer",
+      "radius_x": 0.72,
+      "radius_z": 0.62,
+      "segment_count": 16,
+      "anchors": {
+        "center": {
+          "position": [0.0, 0.0, 0.0],
+          "orientation": [0.0, 0.0, 0.0],
+          "connector": "trunk_section_center",
+          "tags": ["section", "center"]
+        }
+      }
+    }
+  },
+  "instances": [
+    {
+      "id": "ring_00",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.00, -1.08, 0.00],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [1.00, 1.00, 1.00]
+      }
+    },
+    {
+      "id": "ring_01",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.01, -0.90, 0.02],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.985, 1.00, 0.985]
+      }
+    },
+    {
+      "id": "ring_02",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [-0.01, -0.72, 0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.97, 1.00, 0.97]
+      }
+    },
+    {
+      "id": "ring_03",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.02, -0.54, -0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.955, 1.00, 0.95]
+      }
+    },
+    {
+      "id": "ring_04",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.00, -0.36, -0.02],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.94, 1.00, 0.935]
+      }
+    },
+    {
+      "id": "ring_05",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [-0.02, -0.18, 0.00],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.92, 1.00, 0.915]
+      }
+    },
+    {
+      "id": "ring_06",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.00, 0.00, 0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.895, 1.00, 0.89]
+      }
+    },
+    {
+      "id": "ring_07",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.01, 0.18, -0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.865, 1.00, 0.86]
+      }
+    },
+    {
+      "id": "ring_08",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [-0.01, 0.36, -0.02],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.83, 1.00, 0.825]
+      }
+    },
+    {
+      "id": "ring_09",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.02, 0.54, 0.00],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.79, 1.00, 0.785]
+      }
+    },
+    {
+      "id": "ring_10",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.01, 0.72, 0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.74, 1.00, 0.74]
+      }
+    },
+    {
+      "id": "ring_11",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.00, 0.90, -0.01],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.69, 1.00, 0.69]
+      }
+    },
+    {
+      "id": "ring_12",
+      "component": "trunk_ring",
+      "transform": {
+        "position": [0.00, 1.08, 0.00],
+        "rotation": [0.0, 0.0, 0.0],
+        "scale": [0.63, 1.00, 0.63]
+      }
+    }
+  ],
+  "connections": [
+    {
+      "id": "ring_00_to_01",
+      "from_instance": "ring_00",
+      "from_anchor": "center",
+      "to_instance": "ring_01",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_01_to_02",
+      "from_instance": "ring_01",
+      "from_anchor": "center",
+      "to_instance": "ring_02",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_02_to_03",
+      "from_instance": "ring_02",
+      "from_anchor": "center",
+      "to_instance": "ring_03",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_03_to_04",
+      "from_instance": "ring_03",
+      "from_anchor": "center",
+      "to_instance": "ring_04",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_04_to_05",
+      "from_instance": "ring_04",
+      "from_anchor": "center",
+      "to_instance": "ring_05",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_05_to_06",
+      "from_instance": "ring_05",
+      "from_anchor": "center",
+      "to_instance": "ring_06",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_06_to_07",
+      "from_instance": "ring_06",
+      "from_anchor": "center",
+      "to_instance": "ring_07",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_07_to_08",
+      "from_instance": "ring_07",
+      "from_anchor": "center",
+      "to_instance": "ring_08",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_08_to_09",
+      "from_instance": "ring_08",
+      "from_anchor": "center",
+      "to_instance": "ring_09",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_09_to_10",
+      "from_instance": "ring_09",
+      "from_anchor": "center",
+      "to_instance": "ring_10",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_10_to_11",
+      "from_instance": "ring_10",
+      "from_anchor": "center",
+      "to_instance": "ring_11",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    },
+    {
+      "id": "ring_11_to_12",
+      "from_instance": "ring_11",
+      "from_anchor": "center",
+      "to_instance": "ring_12",
+      "to_anchor": "center",
+      "joint": {
+        "mode": "rigid",
+        "translation_limit": {
+          "x": [0.0, 0.0],
+          "y": [0.0, 0.0],
+          "z": [0.0, 0.0]
+        },
+        "rotation_limit_deg": {
+          "pitch": [0.0, 0.0],
+          "yaw": [0.0, 0.0],
+          "roll": [0.0, 0.0]
+        }
+      }
+    }
+  ],
+  "operations": [
+    {
+      "op": "loft_sections",
+      "section_instances": [
+        "ring_00",
+        "ring_01",
+        "ring_02",
+        "ring_03",
+        "ring_04",
+        "ring_05",
+        "ring_06",
+        "ring_07",
+        "ring_08",
+        "ring_09",
+        "ring_10",
+        "ring_11",
+        "ring_12"
+      ],
+      "material": "bark_outer",
+      "side_material": "bark_side",
+      "cap_start": true,
+      "cap_end": true
+    },
+    {
+      "op": "smooth",
+      "targets": [
+        "ring_00",
+        "ring_01",
+        "ring_02",
+        "ring_03",
+        "ring_04",
+        "ring_05",
+        "ring_06",
+        "ring_07",
+        "ring_08",
+        "ring_09",
+        "ring_10",
+        "ring_11",
+        "ring_12"
+      ],
+      "level": 1
+    }
+  ],
+  "anchors": {
+    "root": {
+      "position": [0.0, -1.08, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "trunk_root_mount",
+      "tags": ["root", "base"]
+    },
+    "top": {
+      "position": [0.0, 1.08, 0.0],
+      "orientation": [0.0, 0.0, 0.0],
+      "connector": "trunk_branch_mount",
+      "tags": ["top", "crown"]
+    }
+  },
+  "preview_2d": {
+    "center": [0.0, 0.0],
+    "scale": 180.0,
+    "depth_scale": 220.0,
+    "outline_material": "bark_side",
+    "fill_material": "bark_outer",
+    "outline": [
+      [-0.42, -1.08],
+      [-0.40, -0.84],
+      [-0.38, -0.60],
+      [-0.36, -0.36],
+      [-0.34, -0.12],
+      [-0.32, 0.12],
+      [-0.29, 0.36],
+      [-0.27, 0.60],
+      [-0.24, 0.84],
+      [-0.21, 1.08],
+      [0.21, 1.08],
+      [0.24, 0.84],
+      [0.27, 0.60],
+      [0.29, 0.36],
+      [0.32, 0.12],
+      [0.34, -0.12],
+      [0.36, -0.36],
+      [0.38, -0.60],
+      [0.40, -0.84],
+      [0.42, -1.08]
+    ]
+  },
+  "compile": {
+    "mesh_resolution": "medium",
+    "generate_normals": true,
+    "preserve_part_ids": true
+  }
+}
