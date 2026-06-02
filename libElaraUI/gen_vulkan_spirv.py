@@ -456,9 +456,9 @@ def build():
 
     s.E(OP['Label'], L_line_merge)
     cr_line = tid(); cg_line = tid(); cb_line = tid()
-    s.E(OP['Phi'], T_float, cr_line, cmd_r, L_line_inner, cr_after1, L_op2_true)
-    s.E(OP['Phi'], T_float, cg_line, cmd_g, L_line_inner, cg_after1, L_op2_true)
-    s.E(OP['Phi'], T_float, cb_line, cmd_b, L_line_inner, cb_after1, L_op2_true)
+    s.E(OP['Phi'], T_float, cr_line, cr_after1, L_line_inner, cmd_r, L_op2_true)
+    s.E(OP['Phi'], T_float, cg_line, cg_after1, L_line_inner, cmd_g, L_op2_true)
+    s.E(OP['Phi'], T_float, cb_line, cb_after1, L_line_inner, cmd_b, L_op2_true)
     s.E(OP['Branch'], L_op2_merge)
 
     s.E(OP['Label'], L_op2_merge)

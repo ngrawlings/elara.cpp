@@ -16,6 +16,7 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <time.h>
+#include <limits.h>
 #include <libelaraformat/json/Json.h>
 #include <libelaraformat/json/types/JsonString.h>
 #include <libelarasockets/rpc/brpc/BRpcCodec.h>
@@ -34,6 +35,124 @@ using sockets::rpc::brpc::BRPC_NAMED_BYTE;
 using sockets::rpc::brpc::BRPC_NAMED_STRING;
 
 namespace {
+
+static bool path_exists(const std::string &path) {
+    if (path.empty()) {
+        return false;
+    }
+    struct stat st;
+    return stat(path.c_str(), &st) == 0;
+}
+
+static std::string dirname_of(const std::string &path) {
+    std::string::size_type slash = path.find_last_of('/');
+    if (slash == std::string::npos) {
+        return std::string();
+    }
+    if (slash == 0) {
+        return std::string("/");
+    }
+    return path.substr(0, slash);
+}
+
+static std::string executable_path() {
+    char buf[PATH_MAX];
+    ssize_t len = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    if (len <= 0) {
+        return std::string();
+    }
+    buf[len] = '\0';
+    return std::string(buf);
+}
+
+static std::string orange_fortress_root_path() {
+    std::string exe = executable_path();
+    if (exe.empty()) {
+        return std::string();
+    }
+    return dirname_of(dirname_of(dirname_of(exe)));
+}
+
+static std::string orange_fortress_spirv_builder_path() {
+    std::string root = orange_fortress_root_path();
+    if (root.empty()) {
+        return std::string();
+    }
+    return root + "/shaders/build_spirv_dat.py";
+}
+
+static std::string orange_fortress_system_spirv_path() {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) {
+        return std::string();
+    }
+    return std::string(home) + "/.elara/spirv.dat";
+}
+
+static bool ensure_directory_exists(const std::string &path) {
+    if (path.empty()) {
+        return false;
+    }
+    if (mkdir(path.c_str(), 0755) == 0) {
+        return true;
+    }
+    return errno == EEXIST;
+}
+
+static bool run_and_wait(char *const argv[]) {
+    pid_t pid = fork();
+    if (pid < 0) {
+        return false;
+    }
+    if (pid == 0) {
+        execvp(argv[0], argv);
+        _exit(127);
+    }
+    int status = 0;
+    if (waitpid(pid, &status, 0) != pid) {
+        return false;
+    }
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
+
+static bool ensure_system_spirv_dat() {
+    std::string spirv_path = orange_fortress_system_spirv_path();
+    if (path_exists(spirv_path)) {
+        return true;
+    }
+
+    std::string builder_path = orange_fortress_spirv_builder_path();
+    std::string parent_dir = dirname_of(spirv_path);
+    if (spirv_path.empty() || builder_path.empty()) {
+        printf("Unable to resolve Orange Fortress SPIR-V paths\n");
+        return false;
+    }
+    if (!path_exists(builder_path)) {
+        printf("Missing Orange Fortress SPIR-V builder: %s\n", builder_path.c_str());
+        return false;
+    }
+    if (!ensure_directory_exists(parent_dir)) {
+        printf("Unable to create system shader directory: %s\n", parent_dir.c_str());
+        return false;
+    }
+
+    printf("Building missing system SPIR-V cache: %s\n", spirv_path.c_str());
+    char python3_cmd[] = "python3";
+    char builder_arg[PATH_MAX];
+    char out_arg[PATH_MAX];
+    snprintf(builder_arg, sizeof(builder_arg), "%s", builder_path.c_str());
+    snprintf(out_arg, sizeof(out_arg), "%s", spirv_path.c_str());
+    char *argv[] = { python3_cmd, builder_arg, out_arg, NULL };
+    if (!run_and_wait(argv)) {
+        printf("Failed to build system SPIR-V cache via %s\n", builder_path.c_str());
+        return false;
+    }
+    if (!path_exists(spirv_path)) {
+        printf("SPIR-V builder completed without producing %s\n", spirv_path.c_str());
+        return false;
+    }
+    return true;
+}
 
 static double parse_json_number_after(const String& text, const String& needle, double fallback) {
     String text_copy(text);
@@ -706,6 +825,12 @@ bool OrangeFortressApp::launchUiServerFallback() {
 
     char port_text[32];
     snprintf(port_text, sizeof(port_text), "%d", fallback_port);
+    std::string spirv_path = orange_fortress_system_spirv_path();
+    if (!ensure_system_spirv_dat()) {
+        printf("Proceeding with embedded Vulkan shader fallback\n");
+    } else if (!spirv_path.empty()) {
+        printf("Using common SPIR-V cache: %s\n", spirv_path.c_str());
+    }
     const char *display_env = getenv("DISPLAY");
     const char *wayland_env = getenv("WAYLAND_DISPLAY");
     const char *xauth_env = getenv("XAUTHORITY");

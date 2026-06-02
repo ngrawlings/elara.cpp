@@ -5,12 +5,52 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <fstream>
 #include <vector>
 
 namespace elara {
 
 namespace {
+
+static bool loadSpirvWordsFromFile(const std::string &path, std::vector<uint32_t> *out_words) {
+    if (path.empty() || !out_words) {
+        return false;
+    }
+    std::ifstream in(path.c_str(), std::ios::binary);
+    if (!in) {
+        return false;
+    }
+    in.seekg(0, std::ios::end);
+    std::streamoff size = in.tellg();
+    if (size <= 0 || (size % 4) != 0) {
+        return false;
+    }
+    in.seekg(0, std::ios::beg);
+    out_words->resize((size_t)(size / 4));
+    in.read((char *)&(*out_words)[0], size);
+    return in.good() || in.eof();
+}
+
+static std::string defaultSpirvCachePath() {
+    const char *home = getenv("HOME");
+    if (!home || !home[0]) {
+        return std::string();
+    }
+    return std::string(home) + "/.elara/spirv.dat";
+}
+
+static bool loadExternalSurfaceSpirv(std::vector<uint32_t> *out_words) {
+    if (loadSpirvWordsFromFile(defaultSpirvCachePath(), out_words)) {
+        return true;
+    }
+    const char *override_path = getenv("ELARA_VULKAN_SURFACE_SPIRV_PATH");
+    if (override_path && override_path[0] && loadSpirvWordsFromFile(std::string(override_path), out_words)) {
+        return true;
+    }
+    return false;
+}
 
 // --- Vulkan type definitions (no system headers needed) ---
 
@@ -994,12 +1034,19 @@ public:
             return false;
         }
 
-        // Shader module from embedded SPIR-V
+        // Shader module from system cache when available, otherwise embedded SPIR-V.
+        std::vector<uint32_t> external_spirv;
+        const uint32_t *shader_code = kVulkanSurfaceSPIRV;
+        size_t shader_size = kVulkanSurfaceSPIRVSize;
+        if (loadExternalSurfaceSpirv(&external_spirv) && !external_spirv.empty()) {
+            shader_code = &external_spirv[0];
+            shader_size = external_spirv.size() * sizeof(uint32_t);
+        }
         VkShaderModuleCreateInfo smci;
         memset(&smci, 0, sizeof(smci));
         smci.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-        smci.codeSize = kVulkanSurfaceSPIRVSize;
-        smci.pCode    = kVulkanSurfaceSPIRV;
+        smci.codeSize = shader_size;
+        smci.pCode    = shader_code;
         if(vkCreateShaderModule(device, &smci, 0, &shader_module) != VK_SUCCESS) {
             if(status) *status = "Failed to create Vulkan shader module";
             return false;
