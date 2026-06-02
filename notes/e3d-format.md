@@ -186,6 +186,7 @@ Useful primitive patterns now include:
 - `lobe_tip_chain`
 - `thin_shell_from_outline`
 - `wall_shell_with_cutouts`
+- `rectangular_frame`
 - `ring_section`
 
 ### `thin_shell_from_outline`
@@ -221,6 +222,7 @@ shape contains rectangular openings such as:
 - facades
 - panels with doors
 - walls with windows
+- thick window frames or trim built from an outer rectangle and inner cutout
 
 Expected fields:
 
@@ -229,12 +231,58 @@ Expected fields:
 - `points_ref`
 - `cutout_refs`
 - `thickness`
+- optional `surface_normal`
+- optional `inner_surfaces`
 - optional `side_material`
 - optional `back_material`
 
-The outer wall face is duplicated front and back, the cutout openings are left
-empty, and the perimeter plus cutout edges are stitched into a solid wall
-thickness.
+The main outer shape is duplicated into a carbon-copy back face, the cutout
+openings are left empty, and the perimeter plus cutout edges are stitched into
+a solid wall thickness.
+
+`surface_normal` declares which local direction is the authored front or paint
+face. For the current 2D wall-shell primitive this should normally be
+`[0.0, 0.0, 1.0]`.
+
+Surface generation follows one rule:
+
+- the main outer shape and its carbon-copy back shape have joining surfaces
+  pointing away from the main outer shape center
+- each cutout has joining surfaces pointing toward that cutout's own center
+
+Author the outer loop counter-clockwise when viewed from the front paint face.
+Author cutout loops clockwise. The preview/runtime normalizes loops to this
+convention before stitching side faces. Cutout side surfaces should semantically
+point toward the void or opening center. If a frame needs stable named surfaces,
+declare them in `inner_surfaces` with explicit normals, such as left jamb normal
+`[1.0, 0.0, 0.0]` and right jamb normal `[-1.0, 0.0, 0.0]`.
+
+Use this primitive, rather than a flat preview-only shape, when a frame needs
+real thickness. The 2D outer outline plus cutout outline is converted into front
+and back faces with stitched side faces.
+
+Use `tools/e3d_shell_surfaces.py` to normalize shell loops and generate the
+`outer_surfaces` and `inner_surfaces` declarations. Do not hand-flip shell
+surface winding during normal authoring; regenerate the surfaces from the 2D
+loops and let the validator show the declared normals.
+
+### `rectangular_frame`
+
+Use this for simple flat trim, picture-frame guides, and quick rectangular
+surround previews.
+
+Expected fields:
+
+- `primitive`: `rectangular_frame`
+- `material`
+- `outer_size`
+- `inner_size`
+- optional `surface_normal`
+- optional `anchors`
+
+The frame is authored as a single semantic component rather than four loose bar
+instances. This keeps AI edits focused on the frame dimensions and bonding
+surface instead of manually maintaining four separate rectangles.
 
 ### `ring_section`
 
@@ -417,6 +465,7 @@ Supported authoring modes should start with:
 - `slider`
 - `ball`
 - `planar`
+- `surface_bond`
 
 These are authoring semantics. The compiler/runtime may later reduce them to a
 different internal representation, but the source format should keep these
@@ -447,6 +496,62 @@ Angular freedom is allowed in multiple axes, with bounded rotation ranges.
 ### `planar`
 
 Movement is allowed within a plane and optionally around the plane normal.
+
+### `surface_bond`
+
+A surface bond attaches one component surface to another component surface.
+
+Use `axis_lock_frame` to declare which frame the locks are relative to. For
+bonding detail components onto an imported wall, use:
+
+```json
+"axis_lock_frame": "from_anchor_surface"
+```
+
+This means the `x`, `y`, and `z` lock axes are taken from the surface frame on
+the receiving/imported object's `from_anchor`, not from world space and not from
+the free component's own local transform.
+
+Surface anchors used this way should expose a `surface_frame`:
+
+```json
+"surface_frame": {
+  "x": [1.0, 0.0, 0.0],
+  "y": [0.0, 1.0, 0.0],
+  "z": [0.0, 0.0, 1.0]
+}
+```
+
+For a flat wall, `z` is normally the surface normal, while `x` and `y` are the
+surface tangent axes. Use `axis_lock` to state whether each surface-relative
+axis is independently locked:
+
+```json
+"axis_lock": {
+  "x": "locked",
+  "y": "locked",
+  "z": "locked"
+}
+```
+
+Use `axis_offset` to keep a bonded component offset from the receiving surface
+along any of those same surface-frame axes:
+
+```json
+"axis_offset": {
+  "x": 0.0,
+  "y": 0.0,
+  "z": 0.04
+}
+```
+
+For example, a window frame bonded to a wall can lock all three axes relative to
+the wall surface while offsetting along surface `z` so the frame sits proud of
+the wall instead of z-fighting with the wall face.
+
+When all three axes are locked and `integrate_when_all_axes_locked` is true, the
+compiler may treat the bonded instance as part of the receiving component for
+mesh generation and later editing.
 
 ## Allowed Movement Ranges
 

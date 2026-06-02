@@ -111,7 +111,11 @@ public:
     void addClear(double r, double g, double b);
     void addRect(double x, double y, double w, double h, double r, double g, double b);
     void addLine(double x0, double y0, double x1, double y1, double r, double g, double b);
-    void addTriangle(double x0, double y0, double x1, double y1, double x2, double y2, double depth, double r, double g, double b);
+    void addTriangle(
+        double x0, double y0, double x1, double y1, double x2, double y2,
+        double depth, double r, double g, double b,
+        double depth0 = -1.0, double depth1 = -1.0, double depth2 = -1.0
+    );
     void addTexturedRect(double x, double y, double w, double h);
     void addTexturedTriangle(
         double x0, double y0, double x1, double y1, double x2, double y2, double depth,

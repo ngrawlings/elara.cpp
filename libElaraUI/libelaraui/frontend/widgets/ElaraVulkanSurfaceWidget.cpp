@@ -1469,13 +1469,23 @@ void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y
     command_revision++;
 }
 
-void ElaraVulkanSurfaceWidget::addTriangle(double x0, double y0, double x1, double y1, double x2, double y2, double depth, double red, double green, double blue) {
+void ElaraVulkanSurfaceWidget::addTriangle(
+    double x0, double y0, double x1, double y1, double x2, double y2,
+    double depth, double red, double green, double blue,
+    double depth0, double depth1, double depth2
+) {
     Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TRIANGLE));
     cmd->x0 = x0; cmd->y0 = y0;
     cmd->x1 = x1; cmd->y1 = y1;
     cmd->x2 = x2; cmd->y2 = y2;
     cmd->value0 = depth;
+    if(depth0 >= 0.0 && depth1 >= 0.0 && depth2 >= 0.0) {
+        cmd->value1 = 1.0;
+        cmd->u0 = depth0;
+        cmd->u1 = depth1;
+        cmd->u2 = depth2;
+    }
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
     command_revision++;

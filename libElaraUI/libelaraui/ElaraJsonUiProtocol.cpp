@@ -1368,7 +1368,10 @@ public:
                         jsonValueDouble(command_json.getJsonValue("depth"), 0.0),
                         jsonValueDouble(command_json.getJsonValue("r"), 1.0),
                         jsonValueDouble(command_json.getJsonValue("g"), 1.0),
-                        jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                        jsonValueDouble(command_json.getJsonValue("b"), 1.0),
+                        jsonValueDouble(command_json.getJsonValue("depth0"), -1.0),
+                        jsonValueDouble(command_json.getJsonValue("depth1"), -1.0),
+                        jsonValueDouble(command_json.getJsonValue("depth2"), -1.0)
                     );
                 } else if(op == String("textured_rect")) {
                     vulkan_surface->addTexturedRect(

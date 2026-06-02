@@ -166,6 +166,22 @@ def _mirrored_point(point: list[float], axis: str) -> list[float]:
 def _preview_instances(doc: dict) -> list[dict]:
     instances = [item for item in _instance_list(doc) if isinstance(item, dict)]
     out: list[dict] = [json.loads(json.dumps(item)) for item in instances]
+    if not out:
+        for component_id, component in _component_map(doc).items():
+            if not isinstance(component_id, str) or not isinstance(component, dict):
+                continue
+            if component.get("kind") != "primitive":
+                continue
+            out.append({
+                "id": component_id,
+                "component": component_id,
+                "transform": {
+                    "position": [0.0, 0.0, 0.0],
+                    "rotation": [0.0, 0.0, 0.0],
+                    "scale": [1.0, 1.0, 1.0],
+                },
+                "_preview_standalone_component": True,
+            })
     operations = doc.get("operations")
     if not isinstance(operations, list):
         return out
@@ -241,9 +257,29 @@ def _resolve_instance_anchor(doc: dict, instance_id: str, anchor_name: str) -> d
 
 def _range_text(joint: dict) -> str:
     mode = str(joint.get("mode", "unknown"))
+    axis_lock = joint.get("axis_lock")
+    axis_offset = joint.get("axis_offset")
     rotation = joint.get("rotation_limit_deg")
     translation = joint.get("translation_limit")
     bits = [mode]
+    if isinstance(axis_lock, dict):
+        axis_lock_frame = joint.get("axis_lock_frame")
+        if isinstance(axis_lock_frame, str) and axis_lock_frame:
+            bits.append(f"frame:{axis_lock_frame}")
+        for axis in ("x", "y", "z"):
+            value = axis_lock.get(axis)
+            if isinstance(value, str):
+                bits.append(f"{axis}:{value}")
+        if isinstance(axis_offset, dict):
+            offsets: list[str] = []
+            for axis in ("x", "y", "z"):
+                value = axis_offset.get(axis)
+                if isinstance(value, (int, float)):
+                    offsets.append(f"{axis}={float(value):g}")
+            if offsets:
+                bits.append("offset[" + ",".join(offsets) + "]")
+        if all(axis_lock.get(axis) == "locked" for axis in ("x", "y", "z")) and joint.get("integrate_when_all_axes_locked"):
+            bits.append("integrated")
     if isinstance(rotation, dict):
         for axis in ("pitch", "yaw", "roll"):
             bounds = rotation.get(axis)
@@ -260,6 +296,8 @@ def _range_text(joint: dict) -> str:
 def _joint_color(mode: str) -> tuple[float, float, float]:
     if mode == "rigid":
         return (0.98, 0.58, 0.20)
+    if mode == "surface_bond":
+        return (0.74, 0.92, 0.36)
     if mode == "hinge":
         return (0.28, 0.72, 0.98)
     if mode == "slider":
@@ -412,6 +450,23 @@ def _triangulate_polygon(points2: list[tuple[float, float]]) -> list[tuple[int, 
     return triangles
 
 
+def _add_triangle(commands: list[dict], points2: list[tuple[float, float]], fill: tuple[float, float, float], depth: float, vertex_depths: list[float] | None = None):
+    (x0, y0), (x1, y1), (x2, y2) = points2
+    command = {
+        "op": "triangle",
+        "x0": x0, "y0": y0,
+        "x1": x1, "y1": y1,
+        "x2": x2, "y2": y2,
+        "depth": depth,
+        "r": fill[0], "g": fill[1], "b": fill[2],
+    }
+    if vertex_depths and len(vertex_depths) >= 3:
+        command["depth0"] = vertex_depths[0]
+        command["depth1"] = vertex_depths[1]
+        command["depth2"] = vertex_depths[2]
+    commands.append(command)
+
+
 def _add_polygon(commands: list[dict], points2: list[tuple[float, float]], fill: tuple[float, float, float], edge: tuple[float, float, float], depth: float = 0.24, draw_edges: bool = True):
     if len(points2) < 3:
         return
@@ -419,17 +474,7 @@ def _add_polygon(commands: list[dict], points2: list[tuple[float, float]], fill:
     if not triangles:
         triangles = [(0, i, i + 1) for i in range(1, len(points2) - 1)]
     for i0, i1, i2 in triangles:
-        x0, y0 = points2[i0]
-        x1, y1 = points2[i1]
-        x2, y2 = points2[i2]
-        commands.append({
-            "op": "triangle",
-            "x0": x0, "y0": y0,
-            "x1": x1, "y1": y1,
-            "x2": x2, "y2": y2,
-            "depth": depth,
-            "r": fill[0], "g": fill[1], "b": fill[2],
-        })
+        _add_triangle(commands, [points2[i0], points2[i1], points2[i2]], fill, depth)
     if draw_edges:
         for i in range(len(points2)):
             x1, y1 = points2[i]
@@ -441,7 +486,7 @@ def _depth_for_points(doc: dict, points3: list[list[float]], camera: dict | None
     if not points3:
         return 0.5
     avg_z = sum(_camera_space(doc, pt, camera)[2] for pt in points3) / float(len(points3))
-    depth = 0.5 - avg_z * 0.08 + bias
+    depth = 0.5 + avg_z * 0.08 + bias
     if depth < 0.02:
         depth = 0.02
     if depth > 0.98:
@@ -450,7 +495,28 @@ def _depth_for_points(doc: dict, points3: list[list[float]], camera: dict | None
 
 
 def _add_polygon3d(commands: list[dict], doc: dict, project, points3: list[list[float]], fill: tuple[float, float, float], edge: tuple[float, float, float], camera: dict | None, depth_bias: float = 0.0, draw_edges: bool = True):
-    _add_polygon(commands, _project_points(project, points3, camera), fill, edge, depth=_depth_for_points(doc, points3, camera, depth_bias), draw_edges=draw_edges)
+    if len(points3) < 3:
+        return
+    points2 = _project_points(project, points3, camera)
+    triangles = _triangulate_polygon(points2)
+    if not triangles:
+        triangles = [(0, i, i + 1) for i in range(1, len(points2) - 1)]
+    for i0, i1, i2 in triangles:
+        depth = _depth_for_points(doc, [points3[i0], points3[i1], points3[i2]], camera, depth_bias)
+        area = abs(_cross2(points2[i0], points2[i1], points2[i2]))
+        vertex_depths = None
+        if area > 1e-4:
+            vertex_depths = [
+                _depth_for_points(doc, [points3[i0]], camera, depth_bias),
+                _depth_for_points(doc, [points3[i1]], camera, depth_bias),
+                _depth_for_points(doc, [points3[i2]], camera, depth_bias),
+            ]
+        _add_triangle(commands, [points2[i0], points2[i1], points2[i2]], fill, depth, vertex_depths)
+    if draw_edges:
+        for i in range(len(points2)):
+            x1, y1 = points2[i]
+            x2, y2 = points2[(i + 1) % len(points2)]
+            commands.append({"op": "line", "x0": x1, "y0": y1, "x1": x2, "y1": y2, "r": edge[0], "g": edge[1], "b": edge[2]})
 
 
 def _render_box(commands: list[dict], project, doc: dict, world_transform: dict, size_value, fill, edge, camera: dict | None):
@@ -465,7 +531,38 @@ def _render_box(commands: list[dict], project, doc: dict, world_transform: dict,
     _add_polygon3d(commands, doc, project, points3, fill, edge, camera)
 
 
-def _render_polygon_fan(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
+def _render_rectangular_frame(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, camera: dict | None):
+    outer_x, outer_y, outer_z = _vec3(component.get("outer_size"), (1.0, 1.0, 0.08))
+    inner = component.get("inner_size")
+    if isinstance(inner, list):
+        inner_x = float(inner[0] if len(inner) > 0 else outer_x * 0.7)
+        inner_y = float(inner[1] if len(inner) > 1 else outer_y * 0.7)
+    else:
+        inner_x = outer_x * 0.7
+        inner_y = outer_y * 0.7
+    inner_x = max(0.0, min(inner_x, outer_x))
+    inner_y = max(0.0, min(inner_y, outer_y))
+    x0 = -outer_x * 0.5
+    x1 = outer_x * 0.5
+    y0 = -outer_y * 0.5
+    y1 = outer_y * 0.5
+    ix0 = -inner_x * 0.5
+    ix1 = inner_x * 0.5
+    iy0 = -inner_y * 0.5
+    iy1 = inner_y * 0.5
+    z = outer_z * 0.5
+    rects = [
+        [[x0, y0, z], [x1, y0, z], [x1, iy0, z], [x0, iy0, z]],
+        [[x0, iy1, z], [x1, iy1, z], [x1, y1, z], [x0, y1, z]],
+        [[x0, iy0, z], [ix0, iy0, z], [ix0, iy1, z], [x0, iy1, z]],
+        [[ix1, iy0, z], [x1, iy0, z], [x1, iy1, z], [ix1, iy1, z]],
+    ]
+    for rect in rects:
+        points3 = [_transform_point(pt, world_transform) for pt in rect]
+        _add_polygon3d(commands, doc, project, points3, fill, edge, camera, depth_bias=0.02)
+
+
+def _render_polygon_fan(commands: list[dict], project, doc: dict, view_doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
     points_ref = component.get("points_ref")
     if not isinstance(points_ref, str):
         return
@@ -477,10 +574,10 @@ def _render_polygon_fan(commands: list[dict], project, doc: dict, component: dic
             if mirror_axis:
                 p = _mirrored_point(p, mirror_axis)
             points3.append(_transform_point(p, world_transform))
-    _add_polygon3d(commands, doc, project, points3, fill, edge, camera)
+    _add_polygon3d(commands, view_doc, project, points3, fill, edge, camera)
 
 
-def _render_thin_shell_from_outline(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
+def _render_thin_shell_from_outline(commands: list[dict], project, doc: dict, view_doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
     points_ref = component.get("points_ref")
     if not isinstance(points_ref, str):
         return
@@ -500,12 +597,12 @@ def _render_thin_shell_from_outline(commands: list[dict], project, doc: dict, co
             back3.append(_transform_point([p[0], p[1], p[2] - half], world_transform))
     if len(front3) < 3:
         return
-    _add_polygon3d(commands, doc, project, front3, fill, edge, camera, depth_bias=-0.01)
-    _add_polygon3d(commands, doc, project, list(reversed(back3)), back_fill, edge, camera, depth_bias=0.01)
+    _add_polygon3d(commands, view_doc, project, front3, fill, edge, camera)
+    _add_polygon3d(commands, view_doc, project, list(reversed(back3)), back_fill, edge, camera)
     for i in range(len(front3)):
         j = (i + 1) % len(front3)
         quad = [front3[i], front3[j], back3[j], back3[i]]
-        _add_polygon3d(commands, doc, project, quad, side_fill, edge, camera)
+        _add_polygon3d(commands, view_doc, project, quad, side_fill, edge, camera)
 
 
 def _axis_rects_from_cutouts(outer_pts: list[list[float]], cutout_groups: list[list[list[float]]]) -> list[list[list[float]]]:
@@ -561,13 +658,26 @@ def _axis_rects_from_cutouts(outer_pts: list[list[float]], cutout_groups: list[l
     return rects
 
 
-def _render_wall_shell_with_cutouts(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
+def _signed_area_points2(points: list[list[float]]) -> float:
+    area = 0.0
+    for i in range(len(points)):
+        x1 = float(points[i][0])
+        y1 = float(points[i][1])
+        x2 = float(points[(i + 1) % len(points)][0])
+        y2 = float(points[(i + 1) % len(points)][1])
+        area += x1 * y2 - x2 * y1
+    return area * 0.5
+
+
+def _render_wall_shell_with_cutouts(commands: list[dict], project, doc: dict, view_doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
     points_ref = component.get("points_ref")
     if not isinstance(points_ref, str):
         return
     raw_outer = _resolve_points_ref(doc, points_ref)
     cutout_refs = component.get("cutout_refs") if isinstance(component.get("cutout_refs"), list) else []
     thickness = float(component.get("thickness", 0.14) or 0.14)
+    surface_normal = _vec3(component.get("surface_normal"), (0.0, 0.0, 1.0))
+    front_sign = 1.0 if surface_normal[2] >= 0.0 else -1.0
     back_fill = _color(doc, str(component.get("back_material") or component.get("material") or "default"), fill)
     side_fill = _color(doc, str(component.get("side_material") or component.get("material") or "default"), _darken(fill, 0.85))
     outer2: list[list[float]] = []
@@ -577,6 +687,8 @@ def _render_wall_shell_with_cutouts(commands: list[dict], project, doc: dict, co
             if mirror_axis:
                 p = _mirrored_point(p, mirror_axis)
             outer2.append(p)
+    if _signed_area_points2(outer2) < 0.0:
+        outer2 = list(reversed(outer2))
     cutout_groups: list[list[list[float]]] = []
     for ref in cutout_refs:
         if not isinstance(ref, str):
@@ -589,27 +701,33 @@ def _render_wall_shell_with_cutouts(commands: list[dict], project, doc: dict, co
                     p = _mirrored_point(p, mirror_axis)
                 group.append(p)
         if group:
+            if _signed_area_points2(group) > 0.0:
+                group = list(reversed(group))
             cutout_groups.append(group)
     face_rects = _axis_rects_from_cutouts(outer2, cutout_groups)
     half = thickness * 0.5
+    front_z = half * front_sign
+    back_z = -half * front_sign
     for rect in face_rects:
-        front = [_transform_point([p[0], p[1], p[2] + half], world_transform) for p in rect]
-        back = [_transform_point([p[0], p[1], p[2] - half], world_transform) for p in rect]
-        _add_polygon3d(commands, doc, project, front, fill, edge, camera, depth_bias=-0.01, draw_edges=False)
-        _add_polygon3d(commands, doc, project, list(reversed(back)), back_fill, edge, camera, depth_bias=0.01, draw_edges=False)
-    outer_front = [_transform_point([p[0], p[1], p[2] + half], world_transform) for p in outer2]
-    outer_back = [_transform_point([p[0], p[1], p[2] - half], world_transform) for p in outer2]
+        front = [_transform_point([p[0], p[1], front_z], world_transform) for p in rect]
+        back = [_transform_point([p[0], p[1], back_z], world_transform) for p in rect]
+        front_face = front if front_sign >= 0.0 else list(reversed(front))
+        back_face = list(reversed(back)) if front_sign >= 0.0 else back
+        _add_polygon3d(commands, view_doc, project, front_face, fill, edge, camera, draw_edges=False)
+        _add_polygon3d(commands, view_doc, project, back_face, back_fill, edge, camera, draw_edges=False)
+    outer_front = [_transform_point([p[0], p[1], front_z], world_transform) for p in outer2]
+    outer_back = [_transform_point([p[0], p[1], back_z], world_transform) for p in outer2]
     for i in range(len(outer_front)):
         j = (i + 1) % len(outer_front)
-        quad = [outer_front[i], outer_front[j], outer_back[j], outer_back[i]]
-        _add_polygon3d(commands, doc, project, quad, side_fill, edge, camera, draw_edges=False)
+        quad = [outer_front[j], outer_front[i], outer_back[i], outer_back[j]]
+        _add_polygon3d(commands, view_doc, project, quad, side_fill, edge, camera, draw_edges=False)
     for group in cutout_groups:
-        hole_front = [_transform_point([p[0], p[1], p[2] + half], world_transform) for p in group]
-        hole_back = [_transform_point([p[0], p[1], p[2] - half], world_transform) for p in group]
+        hole_front = [_transform_point([p[0], p[1], front_z], world_transform) for p in group]
+        hole_back = [_transform_point([p[0], p[1], back_z], world_transform) for p in group]
         for i in range(len(hole_front)):
             j = (i + 1) % len(hole_front)
-            quad = [hole_front[i], hole_front[j], hole_back[j], hole_back[i]]
-            _add_polygon3d(commands, doc, project, quad, side_fill, edge, camera, draw_edges=False)
+            quad = [hole_front[j], hole_front[i], hole_back[i], hole_back[j]]
+            _add_polygon3d(commands, view_doc, project, quad, side_fill, edge, camera, draw_edges=False)
 
 
 def _render_capsule(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, camera: dict | None):
@@ -642,7 +760,7 @@ def _render_capsule(commands: list[dict], project, doc: dict, component: dict, w
     _add_polygon3d(commands, doc, project, rect, fill, edge, camera)
 
 
-def _render_lobe_chain(commands: list[dict], project, doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
+def _render_lobe_chain(commands: list[dict], project, doc: dict, view_doc: dict, component: dict, world_transform: dict, fill, edge, mirror_axis: str | None, camera: dict | None):
     points_ref = component.get("points_ref")
     if not isinstance(points_ref, str):
         return
@@ -661,7 +779,7 @@ def _render_lobe_chain(commands: list[dict], project, doc: dict, component: dict
                 p = _mirrored_point(p, mirror_axis)
             tips.append(_transform_point(p, world_transform))
     if len(tips) >= 2:
-        _add_polygon3d(commands, doc, project, [attach_world] + tips, fill, edge, camera, depth_bias=-0.01)
+        _add_polygon3d(commands, view_doc, project, [attach_world] + tips, fill, edge, camera, depth_bias=-0.01)
     for pt in tips:
         (x0, y0), (x1, y1) = _project_points(project, [attach_world, pt], camera)
         commands.append({"op": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1, "r": edge[0], "g": edge[1], "b": edge[2]})
@@ -694,16 +812,18 @@ def _render_instance_body(commands: list[dict], project, doc: dict, component_do
     mirror_axis = instance.get("_mirror_axis") if isinstance(instance.get("_mirror_axis"), str) else None
     if primitive == "box":
         _render_box(commands, project, doc, world_transform, component.get("size"), fill, edge, camera)
+    elif primitive == "rectangular_frame":
+        _render_rectangular_frame(commands, project, doc, component, world_transform, fill, edge, camera)
     elif primitive == "capsule":
         _render_capsule(commands, project, doc, component, world_transform, fill, edge, camera)
     elif primitive == "polygon_fan":
-        _render_polygon_fan(commands, project, component_doc, component, world_transform, fill, edge, mirror_axis, camera)
+        _render_polygon_fan(commands, project, component_doc, doc, component, world_transform, fill, edge, mirror_axis, camera)
     elif primitive == "thin_shell_from_outline":
-        _render_thin_shell_from_outline(commands, project, component_doc, component, world_transform, fill, edge, mirror_axis, camera)
+        _render_thin_shell_from_outline(commands, project, component_doc, doc, component, world_transform, fill, edge, mirror_axis, camera)
     elif primitive == "wall_shell_with_cutouts":
-        _render_wall_shell_with_cutouts(commands, project, component_doc, component, world_transform, fill, edge, mirror_axis, camera)
+        _render_wall_shell_with_cutouts(commands, project, component_doc, doc, component, world_transform, fill, edge, mirror_axis, camera)
     elif primitive == "lobe_tip_chain":
-        _render_lobe_chain(commands, project, component_doc, component, world_transform, fill, edge, mirror_axis, camera)
+        _render_lobe_chain(commands, project, component_doc, doc, component, world_transform, fill, edge, mirror_axis, camera)
     elif primitive == "ring_section":
         _render_ring_section(commands, project, component, world_transform, edge, camera)
 

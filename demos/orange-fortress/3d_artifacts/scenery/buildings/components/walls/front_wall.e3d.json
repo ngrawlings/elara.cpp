@@ -9,7 +9,11 @@
   },
   "materials": {
     "plaster": {
-      "base_color": [0.80, 0.76, 0.68],
+      "base_color": [
+        0.8,
+        0.76,
+        0.68
+      ],
       "roughness": 0.88
     }
   },
@@ -25,15 +29,476 @@
         "preview_2d.front_window_right_cutout"
       ],
       "thickness": 0.22,
+      "surface_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
       "side_material": "plaster",
       "back_material": "plaster",
       "anchors": {
         "center": {
-          "position": [0.0, 0.0, 0.0],
-          "orientation": [0.0, 0.0, 0.0],
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "orientation": [
+            0.0,
+            0.0,
+            0.0
+          ],
           "connector": "house_mount",
-          "tags": ["wall", "front"]
+          "tags": [
+            "wall",
+            "front"
+          ]
+        },
+        "front_window_left_surface": {
+          "position": [
+            -1.06,
+            1.42,
+            0.11
+          ],
+          "orientation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "surface_frame": {
+            "x": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "y": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "z": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "connector": "surface_bond_socket",
+          "tags": [
+            "wall",
+            "front",
+            "window",
+            "left",
+            "surface"
+          ]
+        },
+        "front_window_right_surface": {
+          "position": [
+            1.06,
+            1.42,
+            0.11
+          ],
+          "orientation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            1.0
+          ],
+          "surface_frame": {
+            "x": [
+              1.0,
+              0.0,
+              0.0
+            ],
+            "y": [
+              0.0,
+              1.0,
+              0.0
+            ],
+            "z": [
+              0.0,
+              0.0,
+              1.0
+            ]
+          },
+          "connector": "surface_bond_socket",
+          "tags": [
+            "wall",
+            "front",
+            "window",
+            "right",
+            "surface"
+          ]
         }
+      },
+      "outer_surfaces": {
+        "bottom_outer": {
+          "edge": [
+            [
+              -1.9,
+              0.0
+            ],
+            [
+              1.9,
+              0.0
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "right_outer": {
+          "edge": [
+            [
+              1.9,
+              0.0
+            ],
+            [
+              1.9,
+              2.4
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "top_outer": {
+          "edge": [
+            [
+              1.9,
+              2.4
+            ],
+            [
+              -1.9,
+              2.4
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "left_outer": {
+          "edge": [
+            [
+              -1.9,
+              2.4
+            ],
+            [
+              -1.9,
+              0.0
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        }
+      },
+      "inner_surfaces": {
+        "front_door_left_jamb": {
+          "edge": [
+            [
+              -0.41,
+              0.0
+            ],
+            [
+              -0.41,
+              1.94
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_door_top_jamb": {
+          "edge": [
+            [
+              -0.41,
+              1.94
+            ],
+            [
+              0.41,
+              1.94
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_door_right_jamb": {
+          "edge": [
+            [
+              0.41,
+              1.94
+            ],
+            [
+              0.41,
+              0.0
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_door_bottom_jamb": {
+          "edge": [
+            [
+              0.41,
+              0.0
+            ],
+            [
+              -0.41,
+              0.0
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_left_left_jamb": {
+          "edge": [
+            [
+              -1.43,
+              1.05
+            ],
+            [
+              -1.43,
+              1.79
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_left_top_jamb": {
+          "edge": [
+            [
+              -1.43,
+              1.79
+            ],
+            [
+              -0.69,
+              1.79
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_left_right_jamb": {
+          "edge": [
+            [
+              -0.69,
+              1.79
+            ],
+            [
+              -0.69,
+              1.05
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_left_bottom_jamb": {
+          "edge": [
+            [
+              -0.69,
+              1.05
+            ],
+            [
+              -1.43,
+              1.05
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_right_left_jamb": {
+          "edge": [
+            [
+              0.69,
+              1.05
+            ],
+            [
+              0.69,
+              1.79
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_right_top_jamb": {
+          "edge": [
+            [
+              0.69,
+              1.79
+            ],
+            [
+              1.43,
+              1.79
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_right_right_jamb": {
+          "edge": [
+            [
+              1.43,
+              1.79
+            ],
+            [
+              1.43,
+              1.05
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "front_window_right_bottom_jamb": {
+          "edge": [
+            [
+              1.43,
+              1.05
+            ],
+            [
+              0.69,
+              1.05
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        }
+      },
+      "surface_generation": {
+        "tool": "tools/e3d_shell_surfaces.py",
+        "outer_join_surfaces": "away_from_outer_center",
+        "cutout_join_surfaces": "toward_each_cutout_center"
       }
     }
   },
@@ -42,32 +507,83 @@
   "operations": [],
   "anchors": {},
   "preview_2d": {
-    "center": [0.0, 1.2],
+    "center": [
+      0.0,
+      1.2
+    ],
     "scale": 140.0,
     "depth_scale": 180.0,
     "front_wall_outline": [
-      [-1.9, 0.0],
-      [1.9, 0.0],
-      [1.9, 2.4],
-      [-1.9, 2.4]
+      [
+        -1.9,
+        0.0
+      ],
+      [
+        1.9,
+        0.0
+      ],
+      [
+        1.9,
+        2.4
+      ],
+      [
+        -1.9,
+        2.4
+      ]
     ],
     "front_door_cutout": [
-      [-0.41, 0.0],
-      [0.41, 0.0],
-      [0.41, 1.94],
-      [-0.41, 1.94]
+      [
+        -0.41,
+        0.0
+      ],
+      [
+        -0.41,
+        1.94
+      ],
+      [
+        0.41,
+        1.94
+      ],
+      [
+        0.41,
+        0.0
+      ]
     ],
     "front_window_left_cutout": [
-      [-1.43, 1.05],
-      [-0.69, 1.05],
-      [-0.69, 1.79],
-      [-1.43, 1.79]
+      [
+        -1.43,
+        1.05
+      ],
+      [
+        -1.43,
+        1.79
+      ],
+      [
+        -0.69,
+        1.79
+      ],
+      [
+        -0.69,
+        1.05
+      ]
     ],
     "front_window_right_cutout": [
-      [0.69, 1.05],
-      [1.43, 1.05],
-      [1.43, 1.79],
-      [0.69, 1.79]
+      [
+        0.69,
+        1.05
+      ],
+      [
+        0.69,
+        1.79
+      ],
+      [
+        1.43,
+        1.79
+      ],
+      [
+        1.43,
+        1.05
+      ]
     ]
   },
   "compile": {

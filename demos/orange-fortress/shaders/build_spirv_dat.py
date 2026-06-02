@@ -10,6 +10,7 @@ from __future__ import annotations
 import pathlib
 import struct
 import sys
+import importlib.util
 
 MAGIC = 0x07230203
 VER = 0x00010300  # SPIR-V 1.3
@@ -115,7 +116,24 @@ OP = dict(
 GLSL = dict(FMax=40, FMin=37, FClamp=43, Length=66, Sqrt=31)
 
 
+def _shared_surface_build() -> bytes | None:
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    builder_path = repo_root / "tools" / "build_spirv_texture_dat.py"
+    if not builder_path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("build_spirv_texture_dat", builder_path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build()
+
+
 def build() -> bytes:
+    shared = _shared_surface_build()
+    if shared is not None:
+        return shared
+
     s = SpirvBuilder()
 
     glsl_ext = s.alloc_id()

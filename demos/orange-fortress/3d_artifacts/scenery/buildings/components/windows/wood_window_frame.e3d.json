@@ -1,0 +1,351 @@
+{
+  "format": "elara.e3d.component.v1",
+  "name": "scenery.buildings.components.windows.wood_window_frame",
+  "units": "meters",
+  "metadata": {
+    "description": "Reusable wooden rectangular window frame sized for the simple wall cutouts",
+    "authoring_mode": "component_assembly",
+    "compile_target": "mesh"
+  },
+  "materials": {
+    "wood_frame": {
+      "base_color": [
+        0.42,
+        0.27,
+        0.13
+      ],
+      "roughness": 0.86
+    }
+  },
+  "parameters": {
+    "outer_width": 0.66,
+    "outer_height": 0.66,
+    "inner_width": 0.38,
+    "inner_height": 0.38,
+    "frame_depth": 0.14
+  },
+  "components": {
+    "wood_window_frame": {
+      "kind": "primitive",
+      "primitive": "wall_shell_with_cutouts",
+      "material": "wood_frame",
+      "points_ref": "preview_2d.frame_outer",
+      "cutout_refs": [
+        "preview_2d.frame_inner_cutout"
+      ],
+      "thickness": 0.14,
+      "surface_normal": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "side_material": "wood_frame",
+      "back_material": "wood_frame",
+      "outer_surfaces": {
+        "bottom_outer": {
+          "edge": [
+            [
+              -0.33,
+              -0.33
+            ],
+            [
+              0.33,
+              -0.33
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "right_outer": {
+          "edge": [
+            [
+              0.33,
+              -0.33
+            ],
+            [
+              0.33,
+              0.33
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "top_outer": {
+          "edge": [
+            [
+              0.33,
+              0.33
+            ],
+            [
+              -0.33,
+              0.33
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        },
+        "left_outer": {
+          "edge": [
+            [
+              -0.33,
+              0.33
+            ],
+            [
+              -0.33,
+              -0.33
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "away_from_outer_center",
+          "tags": [
+            "outer",
+            "away_from_center"
+          ]
+        }
+      },
+      "inner_surfaces": {
+        "left_jamb": {
+          "edge": [
+            [
+              -0.19,
+              -0.19
+            ],
+            [
+              -0.19,
+              0.19
+            ]
+          ],
+          "normal": [
+            1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "top_jamb": {
+          "edge": [
+            [
+              -0.19,
+              0.19
+            ],
+            [
+              0.19,
+              0.19
+            ]
+          ],
+          "normal": [
+            0.0,
+            -1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "right_jamb": {
+          "edge": [
+            [
+              0.19,
+              0.19
+            ],
+            [
+              0.19,
+              -0.19
+            ]
+          ],
+          "normal": [
+            -1.0,
+            -0.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        },
+        "bottom_jamb": {
+          "edge": [
+            [
+              0.19,
+              -0.19
+            ],
+            [
+              -0.19,
+              -0.19
+            ]
+          ],
+          "normal": [
+            0.0,
+            1.0,
+            0.0
+          ],
+          "normal_rule": "toward_cutout_center",
+          "tags": [
+            "inner",
+            "toward_center"
+          ]
+        }
+      },
+      "anchors": {
+        "bond_surface": {
+          "position": [
+            0.0,
+            0.0,
+            -0.07
+          ],
+          "orientation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "normal": [
+            0.0,
+            0.0,
+            -1.0
+          ],
+          "connector": "surface_bond_plate",
+          "tags": [
+            "window",
+            "frame",
+            "bond_surface"
+          ]
+        },
+        "center": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "orientation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "connector": "window_frame_center",
+          "tags": [
+            "window",
+            "frame",
+            "center"
+          ]
+        }
+      },
+      "surface_generation": {
+        "tool": "tools/e3d_shell_surfaces.py",
+        "outer_join_surfaces": "away_from_outer_center",
+        "cutout_join_surfaces": "toward_each_cutout_center"
+      }
+    }
+  },
+  "instances": [],
+  "connections": [],
+  "operations": [],
+  "anchors": {
+    "bond_surface": {
+      "position": [
+        0.0,
+        0.0,
+        -0.07
+      ],
+      "orientation": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "normal": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "connector": "surface_bond_plate",
+      "tags": [
+        "window",
+        "frame",
+        "bond_surface"
+      ]
+    }
+  },
+  "preview_2d": {
+    "center": [
+      0.0,
+      0.0
+    ],
+    "scale": 320.0,
+    "depth_scale": 180.0,
+    "frame_outer": [
+      [
+        -0.33,
+        -0.33
+      ],
+      [
+        0.33,
+        -0.33
+      ],
+      [
+        0.33,
+        0.33
+      ],
+      [
+        -0.33,
+        0.33
+      ]
+    ],
+    "frame_inner_cutout": [
+      [
+        -0.19,
+        -0.19
+      ],
+      [
+        -0.19,
+        0.19
+      ],
+      [
+        0.19,
+        0.19
+      ],
+      [
+        0.19,
+        -0.19
+      ]
+    ]
+  },
+  "compile": {
+    "mesh_resolution": "medium",
+    "generate_normals": true,
+    "preserve_part_ids": true
+  }
+}
