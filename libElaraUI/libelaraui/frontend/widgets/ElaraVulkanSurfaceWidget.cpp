@@ -327,11 +327,11 @@ struct VkSubmitInfo {
 // Per-frame kernel command struct (matches SPIR-V flat uint layout)
 struct VkSurfaceKernelCommand {
     uint32_t op;
-    float x0, y0, x1, y1;
+    float x0, y0, x1, y1, x2, y2;
     float value0, value1;
     float r, g, b;
 };
-static_assert(sizeof(VkSurfaceKernelCommand) == 40, "command struct size mismatch");
+static_assert(sizeof(VkSurfaceKernelCommand) == 48, "command struct size mismatch");
 
 struct VkSceneCameraState {
     double x;
@@ -398,7 +398,27 @@ static VkSurfaceKernelCommand vkLineCommand(double x0, double y0, double x1, dou
     kc.y0 = (float)y0;
     kc.x1 = (float)x1;
     kc.y1 = (float)y1;
+    kc.x2 = 0.0f;
+    kc.y2 = 0.0f;
     kc.value0 = (float)line_width;
+    kc.value1 = 0.0f;
+    kc.r = (float)r;
+    kc.g = (float)g;
+    kc.b = (float)b;
+    return kc;
+}
+
+static VkSurfaceKernelCommand vkTriangleCommand(double x0, double y0, double x1, double y1,
+                                                double x2, double y2, double r, double g, double b) {
+    VkSurfaceKernelCommand kc;
+    kc.op = 3u;
+    kc.x0 = (float)x0;
+    kc.y0 = (float)y0;
+    kc.x1 = (float)x1;
+    kc.y1 = (float)y1;
+    kc.x2 = (float)x2;
+    kc.y2 = (float)y2;
+    kc.value0 = 0.0f;
     kc.value1 = 0.0f;
     kc.r = (float)r;
     kc.g = (float)g;
@@ -1268,7 +1288,7 @@ public:
 
 ElaraVulkanSurfaceCommand::ElaraVulkanSurfaceCommand(Type command_type)
     : type(command_type),
-      x0(0), y0(0), x1(0), y1(0),
+      x0(0), y0(0), x1(0), y1(0), x2(0), y2(0),
       value0(0), value1(0),
       r(1), g(1), b(1),
       text("") {}
@@ -1334,6 +1354,18 @@ void ElaraVulkanSurfaceWidget::addLine(double x0, double y0, double x1, double y
     Mutex::Lock lock(commands_mutex);
     Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::LINE));
     cmd->x0 = x0; cmd->y0 = y0; cmd->x1 = x1; cmd->y1 = y1;
+    cmd->r = red; cmd->g = green; cmd->b = blue;
+    commands.push(cmd);
+    command_revision++;
+}
+
+void ElaraVulkanSurfaceWidget::addTriangle(double x0, double y0, double x1, double y1, double x2, double y2, double depth, double red, double green, double blue) {
+    Mutex::Lock lock(commands_mutex);
+    Ref<ElaraVulkanSurfaceCommand> cmd(new ElaraVulkanSurfaceCommand(ElaraVulkanSurfaceCommand::TRIANGLE));
+    cmd->x0 = x0; cmd->y0 = y0;
+    cmd->x1 = x1; cmd->y1 = y1;
+    cmd->x2 = x2; cmd->y2 = y2;
+    cmd->value0 = depth;
     cmd->r = red; cmd->g = green; cmd->b = blue;
     commands.push(cmd);
     command_revision++;
@@ -1520,6 +1552,8 @@ bool ElaraVulkanSurfaceWidget::renderVulkan(int pixel_width, int pixel_height) {
             kc.y0     = (float)cmd->y0;
             kc.x1     = (float)cmd->x1;
             kc.y1     = (float)cmd->y1;
+            kc.x2     = (float)cmd->x2;
+            kc.y2     = (float)cmd->y2;
             kc.value0 = (float)cmd->value0;
             kc.value1 = (float)cmd->value1;
             kc.r      = (float)cmd->r;
@@ -1589,6 +1623,10 @@ void ElaraVulkanSurfaceWidget::drawCpuCommands(ElaraDrawContext* ctx) {
                 scaleY(cmd->y1),
                 line_width
             );
+        } else if(cmd->type == ElaraVulkanSurfaceCommand::TRIANGLE) {
+            ctx->line(scaleX(cmd->x0), scaleY(cmd->y0), scaleX(cmd->x1), scaleY(cmd->y1), 1.0);
+            ctx->line(scaleX(cmd->x1), scaleY(cmd->y1), scaleX(cmd->x2), scaleY(cmd->y2), 1.0);
+            ctx->line(scaleX(cmd->x2), scaleY(cmd->y2), scaleX(cmd->x0), scaleY(cmd->y0), 1.0);
         }
     }
 }

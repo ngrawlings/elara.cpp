@@ -352,10 +352,25 @@ class SurfaceCommand:
     y0: float
     x1: float
     y1: float
-    width: float
+    x2: float
+    y2: float
+    value0: float
     r: float
     g: float
     b: float
+
+
+def build_texture_payload(width: int, height: int, rgb_floats: list[tuple[float, float, float]]) -> bytes:
+    words = [struct.unpack("<I", struct.pack("<i", width))[0], struct.unpack("<I", struct.pack("<i", height))[0]]
+    for r, g, b in rgb_floats:
+        words.append(struct.unpack("<I", struct.pack("<f", r))[0])
+        words.append(struct.unpack("<I", struct.pack("<f", g))[0])
+        words.append(struct.unpack("<I", struct.pack("<f", b))[0])
+    return struct.pack("<" + "I" * len(words), *words)
+
+
+def white_texture_payload() -> bytes:
+    return build_texture_payload(1, 1, [(1.0, 1.0, 1.0)])
 
 
 class VulkanError(RuntimeError):
@@ -573,14 +588,15 @@ class VulkanComputeRenderer:
         )
         self._check(self.vkAllocateCommandBuffers(self.device, ctypes.byref(cbai), ctypes.byref(self.cmd_buf)), "vkAllocateCommandBuffers failed")
 
-        bindings = (VkDescriptorSetLayoutBinding * 2)()
+        bindings = (VkDescriptorSetLayoutBinding * 3)()
         bindings[0] = VkDescriptorSetLayoutBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, None)
         bindings[1] = VkDescriptorSetLayoutBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, None)
+        bindings[2] = VkDescriptorSetLayoutBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT, None)
         dslci = VkDescriptorSetLayoutCreateInfo(
             sType=VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
             pNext=None,
             flags=0,
-            bindingCount=2,
+            bindingCount=3,
             pBindings=bindings,
         )
         self._check(self.vkCreateDescriptorSetLayout(self.device, ctypes.byref(dslci), None, ctypes.byref(self.ds_layout)), "vkCreateDescriptorSetLayout failed")
@@ -628,7 +644,7 @@ class VulkanComputeRenderer:
         )
         self._check(self.vkCreateComputePipelines(self.device, VkPipelineCache(), 1, ctypes.byref(cpci2), None, ctypes.byref(self.pipeline)), "vkCreateComputePipelines failed")
 
-        pool_size = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 2)
+        pool_size = VkDescriptorPoolSize(VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3)
         dpci = VkDescriptorPoolCreateInfo(
             sType=VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
             pNext=None,
@@ -639,21 +655,25 @@ class VulkanComputeRenderer:
         )
         self._check(self.vkCreateDescriptorPool(self.device, ctypes.byref(dpci), None, ctypes.byref(self.desc_pool)), "vkCreateDescriptorPool failed")
 
-    def render(self, commands: list[SurfaceCommand]) -> Image.Image:
+    def render(self, commands: list[SurfaceCommand], texture_payload: bytes | None = None) -> Image.Image:
         pixel_bytes = self.width * self.height * 4
         header = struct.pack("<iiffi", self.width, self.height, float(self.virtual_width), float(self.virtual_height), len(commands))
         cmd_bytes = bytearray()
         for cmd in commands:
-            cmd_bytes.extend(struct.pack("<Ifffffffff", cmd.op, cmd.x0, cmd.y0, cmd.x1, cmd.y1, cmd.width, 0.0, cmd.r, cmd.g, cmd.b))
+            cmd_bytes.extend(struct.pack("<Ifffffffffff", cmd.op, cmd.x0, cmd.y0, cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.value0, 0.0, cmd.r, cmd.g, cmd.b))
         cmd_payload = header + bytes(cmd_bytes)
         if not commands:
-            cmd_payload += struct.pack("<Ifffffffff", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.10, 0.11, 0.14)
+            cmd_payload += struct.pack("<Ifffffffffff", 0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.10, 0.11, 0.14)
+        if texture_payload is None:
+            texture_payload = white_texture_payload()
 
         px_buf, px_mem, _ = self._alloc_buffer(pixel_bytes)
         cd_buf, cd_mem, _ = self._alloc_buffer(len(cmd_payload))
+        tx_buf, tx_mem, _ = self._alloc_buffer(len(texture_payload))
         try:
             self._map_write(px_mem, b"\x00" * pixel_bytes)
             self._map_write(cd_mem, cmd_payload)
+            self._map_write(tx_mem, texture_payload)
 
             self._check(self.vkResetDescriptorPool(self.device, self.desc_pool, 0), "vkResetDescriptorPool failed")
             dsa = VkDescriptorSetAllocateInfo(
@@ -668,10 +688,12 @@ class VulkanComputeRenderer:
 
             px_info = VkDescriptorBufferInfo(px_buf, 0, pixel_bytes)
             cd_info = VkDescriptorBufferInfo(cd_buf, 0, len(cmd_payload))
-            writes = (VkWriteDescriptorSet * 2)()
+            tx_info = VkDescriptorBufferInfo(tx_buf, 0, len(texture_payload))
+            writes = (VkWriteDescriptorSet * 3)()
             writes[0] = VkWriteDescriptorSet(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, None, desc_set, 0, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, None, ctypes.pointer(px_info), None)
             writes[1] = VkWriteDescriptorSet(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, None, desc_set, 1, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, None, ctypes.pointer(cd_info), None)
-            self.vkUpdateDescriptorSets(self.device, 2, writes, 0, None)
+            writes[2] = VkWriteDescriptorSet(VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, None, desc_set, 2, 0, 1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, None, ctypes.pointer(tx_info), None)
+            self.vkUpdateDescriptorSets(self.device, 3, writes, 0, None)
 
             self._check(self.vkResetCommandBuffer(self.cmd_buf, 0), "vkResetCommandBuffer failed")
             begin = VkCommandBufferBeginInfo(
@@ -704,6 +726,8 @@ class VulkanComputeRenderer:
 
             raw = self._map_read(px_mem, pixel_bytes)
         finally:
+            self.vkFreeMemory(self.device, tx_mem, None)
+            self.vkDestroyBuffer(self.device, tx_buf, None)
             self.vkFreeMemory(self.device, cd_mem, None)
             self.vkDestroyBuffer(self.device, cd_buf, None)
             self.vkFreeMemory(self.device, px_mem, None)
@@ -784,6 +808,367 @@ def project_point(cam_pos, target_pos, point, width, height, fov_deg=60.0, near_
     return sx, sy2
 
 
+def clear_command(r: float = 0.10, g: float = 0.11, b: float = 0.14) -> SurfaceCommand:
+    return SurfaceCommand(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, r, g, b)
+
+
+def line_command(x0: float, y0: float, x1: float, y1: float, width: float, r: float, g: float, b: float) -> SurfaceCommand:
+    return SurfaceCommand(2, x0, y0, x1, y1, 0.0, 0.0, width, r, g, b)
+
+
+def triangle_command(x0: float, y0: float, x1: float, y1: float, x2: float, y2: float, depth: float, r: float, g: float, b: float) -> SurfaceCommand:
+    return SurfaceCommand(3, x0, y0, x1, y1, x2, y2, depth, r, g, b)
+
+
+def textured_rect_command(x0: float, y0: float, width: float, height: float) -> SurfaceCommand:
+    return SurfaceCommand(4, x0, y0, width, height, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+
+def checker_texture_payload() -> bytes:
+    width = 8
+    height = 8
+    texels: list[tuple[float, float, float]] = []
+    for y in range(height):
+        for x in range(width):
+            if ((x // 2) + (y // 2)) % 2 == 0:
+                texels.append((0.95, 0.90, 0.24))
+            else:
+                texels.append((0.18, 0.42, 0.92))
+    return build_texture_payload(width, height, texels)
+
+
+def textured_quad_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    quad_w = width * 0.54
+    quad_h = height * 0.54
+    return [
+        clear_command(),
+        textured_rect_command(width * 0.23, height * 0.20, quad_w, quad_h),
+    ]
+
+
+def triangle_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    return [
+        clear_command(),
+        triangle_command(width * 0.50, height * 0.16,
+                         width * 0.22, height * 0.80,
+                         width * 0.78, height * 0.72,
+                         0.80, 0.96, 0.42, 0.18),
+    ]
+
+
+def depth_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    return [
+        clear_command(),
+        triangle_command(width * 0.45, height * 0.20,
+                         width * 0.18, height * 0.82,
+                         width * 0.72, height * 0.68,
+                         0.80, 0.96, 0.42, 0.18),
+        triangle_command(width * 0.60, height * 0.24,
+                         width * 0.30, height * 0.86,
+                         width * 0.84, height * 0.76,
+                         0.25, 0.16, 0.70, 0.96),
+    ]
+
+
+def indexed_cube_commands_for_camera(width: int, height: int, cam_pos, target, angle: float) -> list[SurfaceCommand]:
+    half = 1.0
+    verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    cr = math.cos(angle)
+    sr = math.sin(angle)
+    transformed = []
+    for x, y, z in verts:
+        rx = x * cr - z * sr
+        rz = x * sr + z * cr
+        transformed.append((rx, y, rz))
+    projected = [project_point(cam_pos, target, p, width, height) for p in transformed]
+    tri_indices = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 4, 5), (0, 5, 1),
+        (3, 2, 6), (3, 6, 7),
+        (1, 5, 6), (1, 6, 2),
+        (0, 3, 7), (0, 7, 4),
+    ]
+    commands = [clear_command()]
+    for ia, ib, ic in tri_indices:
+        pa = projected[ia]
+        pb = projected[ib]
+        pc = projected[ic]
+        if pa is None or pb is None or pc is None:
+            continue
+        depth = 1.0 / max(0.001, (
+            math.dist(cam_pos, transformed[ia]) +
+            math.dist(cam_pos, transformed[ib]) +
+            math.dist(cam_pos, transformed[ic])
+        ) / 3.0)
+        commands.append(triangle_command(
+            pa[0], pa[1], pb[0], pb[1], pc[0], pc[1],
+            depth, 0.92, 0.56, 0.18
+        ))
+    return commands
+
+
+def indexed_cube_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    return indexed_cube_commands_for_camera(width, height, (3.0, 2.0, -5.8), (0.0, 0.0, 0.0), 0.55)
+
+
+def append_indexed_cube_instance(commands: list[SurfaceCommand], width: int, height: int, cam_pos, target, base_verts, tri_indices, translate, scale, angle_y, color, cull_backfaces: bool = False):
+    cr = math.cos(angle_y)
+    sr = math.sin(angle_y)
+    transformed = []
+    for x, y, z in base_verts:
+        sx = x * scale
+        sy = y * scale
+        sz = z * scale
+        rx = sx * cr - sz * sr
+        rz = sx * sr + sz * cr
+        transformed.append((rx + translate[0], sy + translate[1], rz + translate[2]))
+    projected = [project_point(cam_pos, target, p, width, height) for p in transformed]
+    for ia, ib, ic in tri_indices:
+        if cull_backfaces:
+            ax, ay, az = transformed[ia]
+            bx, by, bz = transformed[ib]
+            cx, cy, cz = transformed[ic]
+            ab = (bx - ax, by - ay, bz - az)
+            ac = (cx - ax, cy - ay, cz - az)
+            nx = ab[1] * ac[2] - ab[2] * ac[1]
+            ny = ab[2] * ac[0] - ab[0] * ac[2]
+            nz = ab[0] * ac[1] - ab[1] * ac[0]
+            center = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0, (az + bz + cz) / 3.0)
+            view = (cam_pos[0] - center[0], cam_pos[1] - center[1], cam_pos[2] - center[2])
+            if nx * view[0] + ny * view[1] + nz * view[2] >= 0.0:
+                continue
+        pa = projected[ia]
+        pb = projected[ib]
+        pc = projected[ic]
+        if pa is None or pb is None or pc is None:
+            continue
+        depth = 1.0 / max(0.001, (
+            math.dist(cam_pos, transformed[ia]) +
+            math.dist(cam_pos, transformed[ib]) +
+            math.dist(cam_pos, transformed[ic])
+        ) / 3.0)
+        commands.append(triangle_command(
+            pa[0], pa[1], pb[0], pb[1], pc[0], pc[1],
+            depth, color[0], color[1], color[2]
+        ))
+
+
+def instances_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    cam_pos = (5.8, 3.6, -8.0)
+    target = (0.0, 0.5, 0.0)
+    half = 1.0
+    base_verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    tri_indices = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 4, 5), (0, 5, 1),
+        (3, 2, 6), (3, 6, 7),
+        (1, 5, 6), (1, 6, 2),
+        (0, 3, 7), (0, 7, 4),
+    ]
+    instances = [
+        ((-2.8, 0.0, 0.0), 0.85, 0.20, (0.92, 0.56, 0.18)),
+        ((0.0, 0.3, 0.0), 1.10, 0.75, (0.22, 0.76, 0.94)),
+        ((2.9, -0.2, 0.2), 0.95, -0.45, (0.40, 0.88, 0.34)),
+        ((-1.2, 1.6, 1.2), 0.55, 1.10, (0.96, 0.42, 0.62)),
+        ((2.1, 1.2, -0.9), 0.65, -1.00, (0.95, 0.86, 0.28)),
+    ]
+    commands = [clear_command()]
+    for translate, scale, angle_y, color in instances:
+        append_indexed_cube_instance(commands, width, height, cam_pos, target, base_verts, tri_indices, translate, scale, angle_y, color)
+    return commands
+
+
+def culling_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    cam_pos = (3.5, 2.4, -6.0)
+    target = (0.0, 0.0, 0.0)
+    half = 1.0
+    base_verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    tri_indices = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 4, 5), (0, 5, 1),
+        (3, 2, 6), (3, 6, 7),
+        (1, 5, 6), (1, 6, 2),
+        (0, 3, 7), (0, 7, 4),
+    ]
+    commands = [clear_command()]
+    append_indexed_cube_instance(
+        commands, width, height, cam_pos, target,
+        base_verts, tri_indices,
+        (0.0, 0.0, 0.0), 1.25, 0.85,
+        (0.92, 0.56, 0.18),
+        cull_backfaces=True,
+    )
+    return commands
+
+
+def flat_shading_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    cam_pos = (4.6, 3.2, -5.2)
+    target = (0.0, 0.0, 0.0)
+    half = 1.0
+    base_verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    tri_indices = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 4, 5), (0, 5, 1),
+        (3, 2, 6), (3, 6, 7),
+        (1, 5, 6), (1, 6, 2),
+        (0, 3, 7), (0, 7, 4),
+    ]
+    angle_y = 0.45
+    cr = math.cos(angle_y)
+    sr = math.sin(angle_y)
+    transformed = []
+    for x, y, z in base_verts:
+        rx = x * cr - z * sr
+        rz = x * sr + z * cr
+        transformed.append((rx, y, rz))
+    projected = [project_point(cam_pos, target, p, width, height) for p in transformed]
+    light_dir = _normalize3((-0.92, 0.35, -0.18))
+    base_color = (0.92, 0.92, 0.92)
+    commands = [clear_command()]
+    for ia, ib, ic in tri_indices:
+        ax, ay, az = transformed[ia]
+        bx, by, bz = transformed[ib]
+        cx, cy, cz = transformed[ic]
+        ab = (bx - ax, by - ay, bz - az)
+        ac = (cx - ax, cy - ay, cz - az)
+        normal = _normalize3((
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ))
+        center = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0, (az + bz + cz) / 3.0)
+        view = (cam_pos[0] - center[0], cam_pos[1] - center[1], cam_pos[2] - center[2])
+        pa = projected[ia]
+        pb = projected[ib]
+        pc = projected[ic]
+        if pa is None or pb is None or pc is None:
+            continue
+        facing = normal[0] * view[0] + normal[1] * view[1] + normal[2] * view[2]
+        if facing >= 0.0:
+            continue
+        diffuse = max(0.0, normal[0] * light_dir[0] + normal[1] * light_dir[1] + normal[2] * light_dir[2])
+        brightness = 0.08 + 0.92 * diffuse
+        color = (
+            min(1.0, base_color[0] * brightness),
+            min(1.0, base_color[1] * brightness),
+            min(1.0, base_color[2] * brightness),
+        )
+        depth = 1.0 / max(0.001, (
+            math.dist(cam_pos, transformed[ia]) +
+            math.dist(cam_pos, transformed[ib]) +
+            math.dist(cam_pos, transformed[ic])
+        ) / 3.0)
+        commands.append(triangle_command(
+            pa[0], pa[1], pb[0], pb[1], pc[0], pc[1],
+            depth, color[0], color[1], color[2]
+        ))
+    return commands
+
+
+def materials_proof_commands(width: int, height: int) -> list[SurfaceCommand]:
+    cam_pos = (6.2, 3.0, -8.5)
+    target = (0.0, 0.6, 0.0)
+    half = 1.0
+    base_verts = [
+        (-half, -half, -half), (half, -half, -half), (half, half, -half), (-half, half, -half),
+        (-half, -half, half), (half, -half, half), (half, half, half), (-half, half, half),
+    ]
+    tri_indices = [
+        (0, 1, 2), (0, 2, 3),
+        (4, 6, 5), (4, 7, 6),
+        (0, 4, 5), (0, 5, 1),
+        (3, 2, 6), (3, 6, 7),
+        (1, 5, 6), (1, 6, 2),
+        (0, 3, 7), (0, 7, 4),
+    ]
+    materials = [
+        ((-3.2, 0.0, 0.0), 0.95, 0.18, (0.92, 0.26, 0.22)),
+        ((0.0, 0.4, 0.0), 1.15, 0.72, (0.26, 0.84, 0.36)),
+        ((3.0, -0.1, 0.1), 0.90, -0.38, (0.22, 0.58, 0.94)),
+        ((-1.4, 1.9, 1.1), 0.55, 1.05, (0.92, 0.82, 0.26)),
+    ]
+    light_dir = _normalize3((-0.8, 0.45, -0.25))
+    commands = [clear_command()]
+    for translate, scale, angle_y, base_color in materials:
+        cr = math.cos(angle_y)
+        sr = math.sin(angle_y)
+        transformed = []
+        for x, y, z in base_verts:
+            sx = x * scale
+            sy = y * scale
+            sz = z * scale
+            rx = sx * cr - sz * sr
+            rz = sx * sr + sz * cr
+            transformed.append((rx + translate[0], sy + translate[1], rz + translate[2]))
+        projected = [project_point(cam_pos, target, p, width, height) for p in transformed]
+        for ia, ib, ic in tri_indices:
+            ax, ay, az = transformed[ia]
+            bx, by, bz = transformed[ib]
+            cx, cy, cz = transformed[ic]
+            ab = (bx - ax, by - ay, bz - az)
+            ac = (cx - ax, cy - ay, cz - az)
+            normal = _normalize3((
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ))
+            center = ((ax + bx + cx) / 3.0, (ay + by + cy) / 3.0, (az + bz + cz) / 3.0)
+            view = (cam_pos[0] - center[0], cam_pos[1] - center[1], cam_pos[2] - center[2])
+            if normal[0] * view[0] + normal[1] * view[1] + normal[2] * view[2] >= 0.0:
+                continue
+            pa = projected[ia]
+            pb = projected[ib]
+            pc = projected[ic]
+            if pa is None or pb is None or pc is None:
+                continue
+            diffuse = max(0.0, normal[0] * light_dir[0] + normal[1] * light_dir[1] + normal[2] * light_dir[2])
+            brightness = 0.12 + 0.88 * diffuse
+            color = (
+                min(1.0, base_color[0] * brightness),
+                min(1.0, base_color[1] * brightness),
+                min(1.0, base_color[2] * brightness),
+            )
+            depth = 1.0 / max(0.001, (
+                math.dist(cam_pos, transformed[ia]) +
+                math.dist(cam_pos, transformed[ib]) +
+                math.dist(cam_pos, transformed[ic])
+            ) / 3.0)
+            commands.append(triangle_command(
+                pa[0], pa[1], pb[0], pb[1], pc[0], pc[1],
+                depth, color[0], color[1], color[2]
+            ))
+    return commands
+
+
+def camera_proof_images(renderer: VulkanComputeRenderer, width: int, height: int) -> list[Image.Image]:
+    views = [
+        ((3.0, 2.0, -5.8), 0.55),
+        ((-4.2, 1.4, -4.8), -0.20),
+        ((0.0, 4.8, -4.2), 0.85),
+    ]
+    images = []
+    for cam_pos, angle in views:
+        cmds = indexed_cube_commands_for_camera(width, height, cam_pos, (0.0, 0.0, 0.0), angle)
+        images.append(renderer.render(cmds))
+    return images
+
+
 def cube_commands(frame_idx: int, width: int, height: int) -> list[SurfaceCommand]:
     angle = frame_idx * 0.22
     cam_radius = 3.6
@@ -810,14 +1195,14 @@ def cube_commands(frame_idx: int, width: int, height: int) -> list[SurfaceComman
     ]
     projected = [project_point((cam_x, cam_y, cam_z), (0.0, 0.0, 0.0), p, width, height) for p in transformed]
     commands: list[SurfaceCommand] = [
-        SurfaceCommand(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.10, 0.11, 0.14),
+        clear_command(),
     ]
     for a, b in edges:
         pa = projected[a]
         pb = projected[b]
         if pa is None or pb is None:
             continue
-        commands.append(SurfaceCommand(2, pa[0], pa[1], pb[0], pb[1], 2.0, 1.0, 0.58, 0.16))
+        commands.append(line_command(pa[0], pa[1], pb[0], pb[1], 2.0, 1.0, 0.58, 0.16))
     return commands
 
 
@@ -831,6 +1216,7 @@ def parse_args():
     parser.add_argument("--output-dir", default="")
     parser.add_argument("--headless", action="store_true")
     parser.add_argument("--write-final", default="")
+    parser.add_argument("--scene", choices=["cube", "triangle", "depth", "indexed-cube", "camera", "instances", "culling", "flat-shading", "materials", "textured-quad"], default="cube")
     return parser.parse_args()
 
 
@@ -850,11 +1236,44 @@ def main():
     if output_dir:
         output_dir.mkdir(parents=True, exist_ok=True)
 
+    if args.scene == "triangle":
+        frame_commands = lambda frame_idx: triangle_proof_commands(args.width, args.height)
+    elif args.scene == "depth":
+        frame_commands = lambda frame_idx: depth_proof_commands(args.width, args.height)
+    elif args.scene == "indexed-cube":
+        frame_commands = lambda frame_idx: indexed_cube_proof_commands(args.width, args.height)
+    elif args.scene == "camera":
+        frame_commands = None
+    elif args.scene == "instances":
+        frame_commands = lambda frame_idx: instances_proof_commands(args.width, args.height)
+    elif args.scene == "culling":
+        frame_commands = lambda frame_idx: culling_proof_commands(args.width, args.height)
+    elif args.scene == "flat-shading":
+        frame_commands = lambda frame_idx: flat_shading_proof_commands(args.width, args.height)
+    elif args.scene == "materials":
+        frame_commands = lambda frame_idx: materials_proof_commands(args.width, args.height)
+    elif args.scene == "textured-quad":
+        frame_commands = lambda frame_idx: textured_quad_proof_commands(args.width, args.height)
+    else:
+        frame_commands = lambda frame_idx: cube_commands(frame_idx, args.width, args.height)
+
     try:
+        if args.scene == "camera":
+            images = camera_proof_images(renderer, args.width, args.height)
+            montage = Image.new("RGBA", (args.width * len(images), args.height))
+            for i, image in enumerate(images):
+                montage.paste(image, (i * args.width, 0))
+                if output_dir:
+                    image.save(output_dir / f"frame-{i:04d}.png")
+            if args.write_final:
+                montage.save(args.write_final)
+            print("Render completed", flush=True)
+            return
         if args.headless or tk is None or ImageTk is None:
             last_image = None
             for frame_idx in range(args.frames):
-                image = renderer.render(cube_commands(frame_idx, args.width, args.height))
+                texture_payload = checker_texture_payload() if args.scene == "textured-quad" else None
+                image = renderer.render(frame_commands(frame_idx), texture_payload=texture_payload)
                 last_image = image
                 if output_dir:
                     image.save(output_dir / f"frame-{frame_idx:04d}.png")
@@ -875,7 +1294,8 @@ def main():
                     state["last_image"].save(args.write_final)
                 root.destroy()
                 return
-            image = renderer.render(cube_commands(state["frame"], args.width, args.height))
+            texture_payload = checker_texture_payload() if args.scene == "textured-quad" else None
+            image = renderer.render(frame_commands(state["frame"]), texture_payload=texture_payload)
             state["last_image"] = image
             if output_dir:
                 image.save(output_dir / f"frame-{state['frame']:04d}.png")

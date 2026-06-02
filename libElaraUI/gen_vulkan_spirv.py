@@ -86,10 +86,10 @@ def build():
     V_cmds    = s.ID()
     V_glob_id = s.ID()
 
-    # int constants (CI5 = header size, CI12 = cmd offset from base)
+    # int constants (CI5 = header size, CI12 = command stride)
     CI0=s.ID(); CI1=s.ID(); CI2=s.ID()
-    CI3=s.ID(); CI4=s.ID(); CI5=s.ID()
-    CI7=s.ID(); CI8=s.ID(); CI9=s.ID(); CI10=s.ID()
+    CI3=s.ID(); CI4=s.ID(); CI5=s.ID(); CI6=s.ID()
+    CI7=s.ID(); CI8=s.ID(); CI9=s.ID(); CI10=s.ID(); CI11=s.ID(); CI12=s.ID()
     # uint constants
     CU8=s.ID(); CU16=s.ID(); CU_ALPHA=s.ID()  # 0xFF000000
     # float constants
@@ -111,10 +111,14 @@ def build():
     L_op1_merge    = s.ID()
     L_op2_true     = s.ID()
     L_op2_merge    = s.ID()
+    L_op3_true     = s.ID()
+    L_op3_merge    = s.ID()
     L_rect_inner   = s.ID()
     L_rect_merge   = s.ID()
     L_line_inner   = s.ID()
     L_line_merge   = s.ID()
+    L_tri_inner    = s.ID()
+    L_tri_merge    = s.ID()
 
     # Extra temp IDs for function body
     def tid(): return s.ID()
@@ -171,10 +175,13 @@ def build():
     s.E(OP['Constant'], T_int,  CI3,  3)
     s.E(OP['Constant'], T_int,  CI4,  4)
     s.E(OP['Constant'], T_int,  CI5,  5)
+    s.E(OP['Constant'], T_int,  CI6,  6)
     s.E(OP['Constant'], T_int,  CI7,  7)
     s.E(OP['Constant'], T_int,  CI8,  8)
     s.E(OP['Constant'], T_int,  CI9,  9)
     s.E(OP['Constant'], T_int,  CI10, 10)
+    s.E(OP['Constant'], T_int,  CI11, 11)
+    s.E(OP['Constant'], T_int,  CI12, 12)
     s.E(OP['Constant'], T_uint, CU8,  8)
     s.E(OP['Constant'], T_uint, CU16, 16)
     s.E(OP['Constant'], T_uint, CU_ALPHA, 0xFF000000)
@@ -297,6 +304,9 @@ def build():
     phi_cb = tid()
     phi_cb_pos = len(s.w)
     s.E(OP['Phi'], T_float, phi_cb, CF014, L_bounds_merge, 0, L_loop_cont)
+    phi_depth = tid()
+    phi_depth_pos = len(s.w)
+    s.E(OP['Phi'], T_float, phi_depth, CF0, L_bounds_merge, 0, L_loop_cont)
 
     loop_cond = tid()
     s.E(OP['SLessThan'], T_bool, loop_cond, phi_i, cc)
@@ -306,9 +316,9 @@ def build():
     # --- Loop body ---
     s.E(OP['Label'], L_loop_body)
 
-    # base = CI5 + i * 10  (skip the 5-word header)
+    # base = CI5 + i * 12  (skip the 5-word header)
     base_mul = tid()
-    s.E(OP['IMul'], T_int, base_mul, phi_i, CI10)
+    s.E(OP['IMul'], T_int, base_mul, phi_i, CI12)
     base = tid()
     s.E(OP['IAdd'], T_int, base, base_mul, CI5)
 
@@ -339,9 +349,12 @@ def build():
     y0 = load_float_at(CI2)
     x1 = load_float_at(CI3)
     y1 = load_float_at(CI4)
-    cmd_r = load_float_at(CI7)
-    cmd_g = load_float_at(CI8)
-    cmd_b = load_float_at(CI9)
+    x2 = load_float_at(CI5)
+    y2 = load_float_at(CI6)
+    cmd_depth = load_float_at(CI7)
+    cmd_r = load_float_at(CI9)
+    cmd_g = load_float_at(CI10)
+    cmd_b = load_float_at(CI11)
 
     # --- if op == 0 (clear) ---
     cond_op0 = tid()
@@ -357,9 +370,11 @@ def build():
     cr_after0 = tid()
     cg_after0 = tid()
     cb_after0 = tid()
+    depth_after0 = tid()
     s.E(OP['Phi'], T_float, cr_after0, cmd_r, L_op0_true, phi_cr, L_loop_body)
     s.E(OP['Phi'], T_float, cg_after0, cmd_g, L_op0_true, phi_cg, L_loop_body)
     s.E(OP['Phi'], T_float, cb_after0, cmd_b, L_op0_true, phi_cb, L_loop_body)
+    s.E(OP['Phi'], T_float, depth_after0, CF0, L_op0_true, phi_depth, L_loop_body)
 
     # --- if op == 1 (rect) ---
     cond_op1 = tid()
@@ -389,17 +404,19 @@ def build():
     s.E(OP['Branch'], L_rect_merge)
 
     s.E(OP['Label'], L_rect_merge)
-    cr_rect = tid(); cg_rect = tid(); cb_rect = tid()
+    cr_rect = tid(); cg_rect = tid(); cb_rect = tid(); depth_rect = tid()
     s.E(OP['Phi'], T_float, cr_rect, cmd_r, L_rect_inner, cr_after0, L_op1_true)
     s.E(OP['Phi'], T_float, cg_rect, cmd_g, L_rect_inner, cg_after0, L_op1_true)
     s.E(OP['Phi'], T_float, cb_rect, cmd_b, L_rect_inner, cb_after0, L_op1_true)
+    s.E(OP['Phi'], T_float, depth_rect, depth_after0, L_rect_inner, depth_after0, L_op1_true)
     s.E(OP['Branch'], L_op1_merge)
 
     s.E(OP['Label'], L_op1_merge)
-    cr_after1 = tid(); cg_after1 = tid(); cb_after1 = tid()
+    cr_after1 = tid(); cg_after1 = tid(); cb_after1 = tid(); depth_after1 = tid()
     s.E(OP['Phi'], T_float, cr_after1, cr_rect, L_rect_merge, cr_after0, L_op0_merge)
     s.E(OP['Phi'], T_float, cg_after1, cg_rect, L_rect_merge, cg_after0, L_op0_merge)
     s.E(OP['Phi'], T_float, cb_after1, cb_rect, L_rect_merge, cb_after0, L_op0_merge)
+    s.E(OP['Phi'], T_float, depth_after1, depth_rect, L_rect_merge, depth_after0, L_op0_merge)
 
     # --- if op == 2 (line) ---
     cond_op2 = tid()
@@ -455,17 +472,101 @@ def build():
     s.E(OP['Branch'], L_line_merge)
 
     s.E(OP['Label'], L_line_merge)
-    cr_line = tid(); cg_line = tid(); cb_line = tid()
+    cr_line = tid(); cg_line = tid(); cb_line = tid(); depth_line = tid()
     s.E(OP['Phi'], T_float, cr_line, cr_after1, L_line_inner, cmd_r, L_op2_true)
     s.E(OP['Phi'], T_float, cg_line, cg_after1, L_line_inner, cmd_g, L_op2_true)
     s.E(OP['Phi'], T_float, cb_line, cb_after1, L_line_inner, cmd_b, L_op2_true)
+    s.E(OP['Phi'], T_float, depth_line, depth_after1, L_line_inner, depth_after1, L_op2_true)
     s.E(OP['Branch'], L_op2_merge)
 
     s.E(OP['Label'], L_op2_merge)
-    cr_new = tid(); cg_new = tid(); cb_new = tid()
-    s.E(OP['Phi'], T_float, cr_new, cr_line, L_line_merge, cr_after1, L_op1_merge)
-    s.E(OP['Phi'], T_float, cg_new, cg_line, L_line_merge, cg_after1, L_op1_merge)
-    s.E(OP['Phi'], T_float, cb_new, cb_line, L_line_merge, cb_after1, L_op1_merge)
+    cr_after2 = tid(); cg_after2 = tid(); cb_after2 = tid(); depth_after2 = tid()
+    s.E(OP['Phi'], T_float, cr_after2, cr_line, L_line_merge, cr_after1, L_op1_merge)
+    s.E(OP['Phi'], T_float, cg_after2, cg_line, L_line_merge, cg_after1, L_op1_merge)
+    s.E(OP['Phi'], T_float, cb_after2, cb_line, L_line_merge, cb_after1, L_op1_merge)
+    s.E(OP['Phi'], T_float, depth_after2, depth_line, L_line_merge, depth_after1, L_op1_merge)
+
+    cond_op3 = tid()
+    s.E(OP['IEqual'], T_bool, cond_op3, op_i, CI3)
+    s.E(OP['SelectionMerge'], L_op3_merge, 0)
+    s.E(OP['BranchConditional'], cond_op3, L_op3_true, L_op3_merge)
+
+    s.E(OP['Label'], L_op3_true)
+    e0a = tid(); e0b = tid(); e0 = tid()
+    s.E(OP['FSub'], T_float, e0a, vx, x1)
+    s.E(OP['FSub'], T_float, e0b, y2, y1)
+    e0c = tid(); e0d = tid(); e0e = tid()
+    s.E(OP['FMul'], T_float, e0c, e0a, e0b)
+    s.E(OP['FSub'], T_float, e0d, vy, y1)
+    s.E(OP['FSub'], T_float, e0e, x2, x1)
+    e0f = tid()
+    s.E(OP['FMul'], T_float, e0f, e0d, e0e)
+    s.E(OP['FSub'], T_float, e0, e0c, e0f)
+
+    e1a = tid(); e1b = tid(); e1 = tid()
+    s.E(OP['FSub'], T_float, e1a, vx, x2)
+    s.E(OP['FSub'], T_float, e1b, y0, y2)
+    e1c = tid(); e1d = tid(); e1e = tid()
+    s.E(OP['FMul'], T_float, e1c, e1a, e1b)
+    s.E(OP['FSub'], T_float, e1d, vy, y2)
+    s.E(OP['FSub'], T_float, e1e, x0, x2)
+    e1f = tid()
+    s.E(OP['FMul'], T_float, e1f, e1d, e1e)
+    s.E(OP['FSub'], T_float, e1, e1c, e1f)
+
+    e2a = tid(); e2b = tid(); e2 = tid()
+    s.E(OP['FSub'], T_float, e2a, vx, x0)
+    s.E(OP['FSub'], T_float, e2b, y1, y0)
+    e2c = tid(); e2d = tid(); e2e = tid()
+    s.E(OP['FMul'], T_float, e2c, e2a, e2b)
+    s.E(OP['FSub'], T_float, e2d, vy, y0)
+    s.E(OP['FSub'], T_float, e2e, x1, x0)
+    e2f = tid()
+    s.E(OP['FMul'], T_float, e2f, e2d, e2e)
+    s.E(OP['FSub'], T_float, e2, e2c, e2f)
+
+    e0_pos = tid(); e1_pos = tid(); e2_pos = tid()
+    s.E(OP['FOrdGreaterThanEqual'], T_bool, e0_pos, e0, CF0)
+    s.E(OP['FOrdGreaterThanEqual'], T_bool, e1_pos, e1, CF0)
+    s.E(OP['FOrdGreaterThanEqual'], T_bool, e2_pos, e2, CF0)
+    tri_all_pos_a = tid(); tri_all_pos = tid()
+    s.E(OP['LogicalAnd'], T_bool, tri_all_pos_a, e0_pos, e1_pos)
+    s.E(OP['LogicalAnd'], T_bool, tri_all_pos, tri_all_pos_a, e2_pos)
+
+    e0_neg = tid(); e1_neg = tid(); e2_neg = tid()
+    s.E(OP['FOrdLessThanEqual'], T_bool, e0_neg, e0, CF0)
+    s.E(OP['FOrdLessThanEqual'], T_bool, e1_neg, e1, CF0)
+    s.E(OP['FOrdLessThanEqual'], T_bool, e2_neg, e2, CF0)
+    tri_all_neg_a = tid(); tri_all_neg = tid()
+    s.E(OP['LogicalAnd'], T_bool, tri_all_neg_a, e0_neg, e1_neg)
+    s.E(OP['LogicalAnd'], T_bool, tri_all_neg, tri_all_neg_a, e2_neg)
+
+    tri_hit = tid()
+    s.E(OP['LogicalOr'], T_bool, tri_hit, tri_all_pos, tri_all_neg)
+    depth_pass = tid()
+    s.E(OP['FOrdGreaterThanEqual'], T_bool, depth_pass, cmd_depth, depth_after2)
+    tri_write = tid()
+    s.E(OP['LogicalAnd'], T_bool, tri_write, tri_hit, depth_pass)
+    s.E(OP['SelectionMerge'], L_tri_merge, 0)
+    s.E(OP['BranchConditional'], tri_write, L_tri_inner, L_tri_merge)
+
+    s.E(OP['Label'], L_tri_inner)
+    s.E(OP['Branch'], L_tri_merge)
+
+    s.E(OP['Label'], L_tri_merge)
+    cr_tri = tid(); cg_tri = tid(); cb_tri = tid(); depth_tri = tid()
+    s.E(OP['Phi'], T_float, cr_tri, cmd_r, L_tri_inner, cr_after2, L_op3_true)
+    s.E(OP['Phi'], T_float, cg_tri, cmd_g, L_tri_inner, cg_after2, L_op3_true)
+    s.E(OP['Phi'], T_float, cb_tri, cmd_b, L_tri_inner, cb_after2, L_op3_true)
+    s.E(OP['Phi'], T_float, depth_tri, cmd_depth, L_tri_inner, depth_after2, L_op3_true)
+    s.E(OP['Branch'], L_op3_merge)
+
+    s.E(OP['Label'], L_op3_merge)
+    cr_new = tid(); cg_new = tid(); cb_new = tid(); depth_new = tid()
+    s.E(OP['Phi'], T_float, cr_new, cr_tri, L_tri_merge, cr_after2, L_op2_merge)
+    s.E(OP['Phi'], T_float, cg_new, cg_tri, L_tri_merge, cg_after2, L_op2_merge)
+    s.E(OP['Phi'], T_float, cb_new, cb_tri, L_tri_merge, cb_after2, L_op2_merge)
+    s.E(OP['Phi'], T_float, depth_new, depth_tri, L_tri_merge, depth_after2, L_op2_merge)
 
     s.E(OP['Branch'], L_loop_cont)
 
@@ -482,6 +583,8 @@ def build():
     s.w[phi_cg_pos + 6] = L_loop_cont
     s.w[phi_cb_pos + 5] = cb_new
     s.w[phi_cb_pos + 6] = L_loop_cont
+    s.w[phi_depth_pos + 5] = depth_new
+    s.w[phi_depth_pos + 6] = L_loop_cont
     s.E(OP['Branch'], L_loop_hdr)
 
     # --- Loop merge: write pixel ---

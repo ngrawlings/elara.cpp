@@ -788,6 +788,19 @@ bool ElaraUiRpcUiService::setSectionJson(
                     jsonValueDouble(command_json.getJsonValue("g"), 1.0),
                     jsonValueDouble(command_json.getJsonValue("b"), 1.0)
                 );
+            } else if(op == String("triangle")) {
+                vulkan_surface->addTriangle(
+                    jsonValueDouble(command_json.getJsonValue("x0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y0"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("x1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y1"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("x2"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("y2"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("depth"), 0.0),
+                    jsonValueDouble(command_json.getJsonValue("r"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("g"), 1.0),
+                    jsonValueDouble(command_json.getJsonValue("b"), 1.0)
+                );
             } else if(op == String("text")) {
                 vulkan_surface->addText(
                     jsonValueDouble(command_json.getJsonValue("x"), 0.0),
