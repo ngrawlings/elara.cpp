@@ -293,6 +293,7 @@ def main():
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
     app_state["nav_view"] = "files"
+    app_state["nav_artifacts_tab_present"] = False
     app_state["debug_vm_started"] = False
     initial_state = _current_layout_state()
     initial_layout = initial_state.get("layout", {}) if isinstance(initial_state, dict) else {}
@@ -1475,6 +1476,9 @@ def main():
             items.append({"label": "New Python File", "action": "project_add.new_file.Python"})
         else:
             items.append({"label": "Add Python Technology", "action": "project_add.add_tech.python"})
+        project_root = app_state.get("project_root", "")
+        if project_root and (Path(project_root) / "3d_artifacts").is_dir():
+            items.append({"label": "New 3D Artifact Template", "action": "project_add.new_file.Artifact3D"})
         return items
 
     def _write_project_meta(project_root: Path, meta: dict):
@@ -4009,6 +4013,133 @@ def main():
         ("cpp",    "nav.tree.cpp",    "nav.add_tech_wrap.cpp"),
         ("python", "nav.tree.python", "nav.add_tech_wrap.python"),
     ]
+    _NAV_ARTIFACTS_TECH = "3d_artifacts"
+    _NAV_ARTIFACTS_TREE_ID = "nav.tree.3d_artifacts"
+    _NAV_ARTIFACTS_TAB_INDEX = len(_NAV_TECH_TREE_MAP)
+
+    def _artifacts_nav_tab_json() -> str:
+        ui = UiDocumentBuilder()
+        ui.create_grid("nav.tech_panel.3d_artifacts")
+        ui.add_grid_column_fill("nav.tech_panel.3d_artifacts")
+        ui.add_grid_row_fill("nav.tech_panel.3d_artifacts")
+        ui.create_tree_view(_NAV_ARTIFACTS_TREE_ID)
+        ui.set_property_number(_NAV_ARTIFACTS_TREE_ID, "font_size", 14)
+        ui.set_section_json(_NAV_ARTIFACTS_TREE_ID, "nodes", [])
+        ui.place_grid_child("nav.tech_panel.3d_artifacts", _NAV_ARTIFACTS_TREE_ID, 0, 0)
+        return json.dumps({
+            "title": "3D Artifacts",
+            "button_glyph": "+",
+            "button_action": "new_file.Artifact3D",
+            "child": ui.widget_json("nav.tech_panel.3d_artifacts", indent=None),
+        }, separators=(",", ":"))
+
+    def _sync_artifacts_nav_tab(client, has_artifacts: bool):
+        present = bool(app_state.get("nav_artifacts_tab_present", False))
+        if has_artifacts and not present:
+            try:
+                client.call("ui.addTab", {
+                    "target": "nav.file_tabs",
+                    **json.loads(_artifacts_nav_tab_json()),
+                })
+                app_state["nav_artifacts_tab_present"] = True
+            except Exception:
+                pass
+        elif not has_artifacts and present:
+            try:
+                client.fire("ui.removeTab", {"target": "nav.file_tabs", "index": _NAV_ARTIFACTS_TAB_INDEX})
+            except Exception:
+                pass
+            app_state["nav_artifacts_tab_present"] = False
+
+    def _artifact3d_color(template: dict, material_id: str, fallback: tuple[float, float, float]) -> tuple[float, float, float]:
+        material = (template.get("materials") or {}).get(material_id, {})
+        color = material.get("base_color") if isinstance(material, dict) else None
+        if isinstance(color, list) and len(color) >= 3:
+            try:
+                return (float(color[0]), float(color[1]), float(color[2]))
+            except Exception:
+                pass
+        return fallback
+
+    def _artifact3d_preview_commands(path: Path) -> list[dict]:
+        try:
+            template = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            template = {}
+        preview = template.get("preview_2d") if isinstance(template, dict) else {}
+        if not isinstance(preview, dict):
+            preview = {}
+
+        width = 1000.0
+        height = 720.0
+        scale = float(preview.get("scale", 210.0) or 210.0)
+        center = preview.get("center") if isinstance(preview.get("center"), list) else [0.0, 0.0]
+        cx = float(center[0] if len(center) > 0 else 0.0)
+        cy = float(center[1] if len(center) > 1 else 0.0)
+
+        def project(pt):
+            x = float(pt[0] if len(pt) > 0 else 0.0)
+            y = float(pt[1] if len(pt) > 1 else 0.0)
+            return (width * 0.5 + (x - cx) * scale, height * 0.52 - (y - cy) * scale)
+
+        def color(material_key, fallback):
+            return _artifact3d_color(template, str(preview.get(material_key, "")), fallback)
+
+        fill = color("fill_material", (0.18, 0.48, 0.14))
+        edge = color("outline_material", (0.07, 0.22, 0.06))
+        vein = color("vein_material", (0.58, 0.78, 0.32))
+        stem = color("stem_material", (0.34, 0.20, 0.08))
+        outline = preview.get("outline") if isinstance(preview.get("outline"), list) else []
+        commands = [
+            {"op": "clear", "r": 0.025, "g": 0.035, "b": 0.028}
+        ]
+        if len(outline) >= 3:
+            c0x, c0y = project(preview.get("center") if isinstance(preview.get("center"), list) else [0.0, 0.0])
+            for i in range(len(outline)):
+                x1, y1 = project(outline[i])
+                x2, y2 = project(outline[(i + 1) % len(outline)])
+                commands.append({
+                    "op": "triangle",
+                    "x0": c0x, "y0": c0y,
+                    "x1": x1, "y1": y1,
+                    "x2": x2, "y2": y2,
+                    "depth": 0.2,
+                    "r": fill[0], "g": fill[1], "b": fill[2]
+                })
+            for i in range(len(outline)):
+                x1, y1 = project(outline[i])
+                x2, y2 = project(outline[(i + 1) % len(outline)])
+                commands.append({"op": "line", "x0": x1, "y0": y1, "x1": x2, "y1": y2, "r": edge[0], "g": edge[1], "b": edge[2]})
+        for segment in preview.get("veins", []) if isinstance(preview.get("veins"), list) else []:
+            if isinstance(segment, list) and len(segment) >= 2:
+                x0, y0 = project(segment[0])
+                x1, y1 = project(segment[1])
+                commands.append({"op": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1, "r": vein[0], "g": vein[1], "b": vein[2]})
+        stem_segment = preview.get("stem")
+        if isinstance(stem_segment, list) and len(stem_segment) >= 2:
+            x0, y0 = project(stem_segment[0])
+            x1, y1 = project(stem_segment[1])
+            commands.append({"op": "line", "x0": x0, "y0": y0, "x1": x1, "y1": y1, "r": stem[0], "g": stem[1], "b": stem[2]})
+        commands.append({"op": "text", "x": 28, "y": 34, "text": template.get("name", path.stem), "size": 24, "r": 0.86, "g": 0.95, "b": 0.78})
+        commands.append({"op": "text", "x": 28, "y": 60, "text": "2D primitive preview - orbit controls coming next", "size": 14, "r": 0.65, "g": 0.78, "b": 0.62})
+        return commands
+
+    def _open_artifact3d_viewer(client, path: str):
+        artifact_path = Path(path)
+        commands = _artifact3d_preview_commands(artifact_path)
+        ui = UiDocumentBuilder()
+        ui.create_window("3D Artifact Viewer", 1040, 760, "org.elara.ui.epa-ide.artifact-viewer")
+        ui.set_theme_mode("dark")
+        ui.create_grid("artifact.viewer.shell")
+        ui.add_grid_column_fill("artifact.viewer.shell")
+        ui.add_grid_row_fill("artifact.viewer.shell")
+        ui.set_root_content("artifact.viewer.shell")
+        ui.create_vulkan_surface("artifact.viewer.surface", commands, kernel_name="artifact.preview")
+        ui.set_property_number("artifact.viewer.surface", "virtual_width", 1000)
+        ui.set_property_number("artifact.viewer.surface", "virtual_height", 720)
+        ui.set_property_string("artifact.viewer.surface", "overlay_text", artifact_path.name)
+        ui.place_grid_child("artifact.viewer.shell", "artifact.viewer.surface", 0, 0)
+        client.open_window("artifact-3d-viewer", f"3D Artifact: {artifact_path.name}", 1040, 760, ui)
 
     def _populate_nav_trees(client, project_path: Path, technologies: list):
         source_only = app_state.get("nav_filter_source_only", False)
@@ -4037,6 +4168,21 @@ def main():
                 client.fire("ui.setVisible", {"target": wrap_id, "visible": not has_tech})
             except Exception:
                 pass
+        artifacts_dir = project_path / _NAV_ARTIFACTS_TECH
+        has_artifacts = artifacts_dir.is_dir()
+        _sync_artifacts_nav_tab(client, has_artifacts)
+        artifact_nodes = []
+        if has_artifacts:
+            artifact_nodes = _dir_node(artifacts_dir).get("children", [])
+            per_tech[_NAV_ARTIFACTS_TECH] = artifact_nodes
+            all_nodes.extend(artifact_nodes)
+            try:
+                doc = json.dumps({"nodes": artifact_nodes}, separators=(",", ":"))
+                client.call("ui.replaceChildren", {"target": _NAV_ARTIFACTS_TREE_ID, "document": doc})
+            except Exception:
+                pass
+        else:
+            per_tech[_NAV_ARTIFACTS_TECH] = []
         app_state["nav_tree_nodes"] = all_nodes
         app_state["nav_tree_nodes_per_tech"] = per_tech
         try:
@@ -5858,9 +6004,13 @@ def main():
             return {"received": True}
 
         # Tree view file click — single click = preview tab, double click = permanent tab.
-        if action == "action" and target in ("nav.tree.epa", "nav.tree.cpp", "nav.tree.python") and client is not None:
+        if action == "action" and target in ("nav.tree.epa", "nav.tree.cpp", "nav.tree.python", _NAV_ARTIFACTS_TREE_ID) and client is not None:
             node_path = payload.get("action", "")
             if node_path and Path(node_path).is_file():
+                if target == _NAV_ARTIFACTS_TREE_ID and node_path.endswith(".e3d.json"):
+                    c = client
+                    np = node_path
+                    _deferred(lambda: _open_artifact3d_viewer(c, np))
                 now = time.monotonic()
                 last = tab_click_state.get("path")
                 last_t = tab_click_state.get("time", 0.0)
@@ -6190,12 +6340,21 @@ def main():
             elif item_action and item_action.startswith("project_add.new_file."):
                 tech = item_action[len("project_add.new_file."):]
                 project_root = app_state.get("project_root", "")
-                tech_sub = {"E": "epa", "Cpp": "cpp", "Python": "python"}.get(tech, "")
+                tech_sub = {"E": "epa", "Cpp": "cpp", "Python": "python", "Artifact3D": "3d_artifacts"}.get(tech, "")
                 initial = project_root or str(Path.home())
                 if project_root and tech_sub:
                     candidate = str(Path(project_root) / tech_sub)
                     if Path(candidate).is_dir():
                         initial = candidate
+                new_file_state.clear()
+                new_file_state.update({
+                    "filename": "",
+                    "new_folder_name": "",
+                    "tech": tech,
+                    "dir": initial,
+                    "template": "root_node" if tech == "E" else "",
+                })
+                new_file_nav_state["path"] = initial
                 _deferred(lambda: c.close_window("project-add-menu"))
                 _deferred(lambda: c.open_window(
                     "new-file",
@@ -6278,7 +6437,7 @@ def main():
             ):
                 tech = item_action[len("new_file."):]
                 project_root = app_state.get("project_root", "")
-                tech_dir_map = {"E": "epa", "Cpp": "cpp", "Python": "python"}
+                tech_dir_map = {"E": "epa", "Cpp": "cpp", "Python": "python", "Artifact3D": "3d_artifacts"}
                 tech_sub = tech_dir_map.get(tech, "")
                 if project_root and tech_sub:
                     initial = str(Path(project_root) / tech_sub)
@@ -6348,7 +6507,7 @@ def main():
                 save_dir    = new_file_nav_state.get("path", new_file_state.get("dir", str(Path.home())))
                 tech        = new_file_state.get("tech", "")
                 template_id = new_file_state.get("template", "root_node")
-                ext_map     = {"E": ".e", "Cpp": ".cpp", "Python": ".py"}
+                ext_map     = {"E": ".e", "Cpp": ".cpp", "Python": ".py", "Artifact3D": ".e3d.json"}
                 default_ext = ext_map.get(tech, "")
 
                 def _do_create_file():
@@ -6383,6 +6542,10 @@ def main():
                     project_root = app_state.get("project_root", "")
                     if project_root:
                         _open_project(c, project_root)
+                    try:
+                        _open_file_tab(c, str(dest), make_permanent=True)
+                    except Exception:
+                        pass
 
                 _deferred(_do_create_file)
 
@@ -7467,7 +7630,12 @@ def main():
                                 return True
                         return False
 
-                    _tech_tree_ids = {"epa": "nav.tree.epa", "cpp": "nav.tree.cpp", "python": "nav.tree.python"}
+                    _tech_tree_ids = {
+                        "epa": "nav.tree.epa",
+                        "cpp": "nav.tree.cpp",
+                        "python": "nav.tree.python",
+                        _NAV_ARTIFACTS_TECH: _NAV_ARTIFACTS_TREE_ID,
+                    }
                     for tech, tech_nodes in per_tech.items():
                         if _toggle(tech_nodes):
                             c = client_ref.get("client")

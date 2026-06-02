@@ -1,3 +1,4 @@
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -844,6 +845,51 @@ def _e_file_content(file_name: str, template_id: str = "root_node") -> str:
     return builder(file_name)
 
 
+def _artifact3d_template_content(file_name: str) -> str:
+    name = Path(file_name).name
+    for suffix in (".e3d.json", ".json"):
+        if name.endswith(suffix):
+            name = name[: -len(suffix)]
+            break
+    symbol = _to_symbol_name(name or "new_artifact")
+    payload = {
+        "format": "elara.model.template.v1",
+        "name": symbol,
+        "units": "meters",
+        "metadata": {
+            "description": "AI-editable primitive model template",
+            "authoring_mode": "template",
+            "compile_target": "mesh"
+        },
+        "materials": {
+            "default": {
+                "base_color": [1.0, 0.42, 0.08],
+                "roughness": 0.65
+            }
+        },
+        "parameters": {},
+        "nodes": [
+            {
+                "id": "body",
+                "primitive": "box",
+                "position": [0.0, 0.5, 0.0],
+                "size": [1.0, 1.0, 1.0],
+                "material": "default"
+            }
+        ],
+        "operations": [],
+        "anchors": {
+            "root": [0.0, 0.0, 0.0]
+        },
+        "compile": {
+            "mesh_resolution": "medium",
+            "generate_normals": True,
+            "preserve_part_ids": True
+        }
+    }
+    return json.dumps(payload, indent=2) + "\n"
+
+
 def _file_content(tech: str, name: str, template_id: str | None = None) -> str:
     stem = Path(name).stem
     ext  = Path(name).suffix.lower()
@@ -861,12 +907,14 @@ def _file_content(tech: str, name: str, template_id: str | None = None) -> str:
         )
     if ext == ".e":
         return _e_file_content(name, template_id or "root_node")
+    if tech == "Artifact3D" or name.endswith(".e3d.json"):
+        return _artifact3d_template_content(name)
     return ""
 
 
 def build_new_file_dialog(tech: str, initial_dir: str, selected_template: str | None = None):
-    ph_map    = {"E": "my_module.e", "Cpp": "my_module.cpp", "Python": "my_module.py"}
-    label_map = {"E": "E", "Cpp": "C++", "Python": "Python"}
+    ph_map    = {"E": "my_module.e", "Cpp": "my_module.cpp", "Python": "my_module.py", "Artifact3D": "new_artifact.e3d.json"}
+    label_map = {"E": "E", "Cpp": "C++", "Python": "Python", "Artifact3D": "3D Artifact Template"}
     label     = label_map.get(tech, tech)
     selected_template = selected_template or "root_node"
 
@@ -1152,4 +1200,3 @@ def start_background_worker():
     worker = MultiCpuWorkerTemplate(str(Path(__file__).resolve().parent / "workers" / "worker_template.py"), ["8"])
     worker.start()
     return worker
-

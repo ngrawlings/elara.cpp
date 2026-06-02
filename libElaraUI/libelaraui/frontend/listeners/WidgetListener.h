@@ -29,6 +29,12 @@ public:
         double y
     ) {}
 
+    virtual void onWidgetMouseScroll(
+        ElaraWidgetHandle handle,
+        double dx,
+        double dy
+    ) {}
+
     virtual void onWidgetClicked(
         ElaraWidgetHandle handle,
         int button,

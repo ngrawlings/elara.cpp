@@ -81,12 +81,12 @@ static std::string orange_fortress_spirv_builder_path() {
     return root + "/shaders/build_spirv_dat.py";
 }
 
-static std::string orange_fortress_system_spirv_path() {
-    const char *home = getenv("HOME");
-    if (!home || !home[0]) {
+static std::string orange_fortress_project_spirv_path() {
+    std::string root = orange_fortress_root_path();
+    if (root.empty()) {
         return std::string();
     }
-    return std::string(home) + "/.elara/spirv.dat";
+    return root + "/shaders/spirv.dat";
 }
 
 static bool ensure_directory_exists(const std::string &path) {
@@ -115,8 +115,8 @@ static bool run_and_wait(char *const argv[]) {
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
-static bool ensure_system_spirv_dat() {
-    std::string spirv_path = orange_fortress_system_spirv_path();
+static bool ensure_project_spirv_dat() {
+    std::string spirv_path = orange_fortress_project_spirv_path();
     if (path_exists(spirv_path)) {
         return true;
     }
@@ -132,11 +132,11 @@ static bool ensure_system_spirv_dat() {
         return false;
     }
     if (!ensure_directory_exists(parent_dir)) {
-        printf("Unable to create system shader directory: %s\n", parent_dir.c_str());
+        printf("Unable to create Orange Fortress shader directory: %s\n", parent_dir.c_str());
         return false;
     }
 
-    printf("Building missing system SPIR-V cache: %s\n", spirv_path.c_str());
+    printf("Building missing Orange Fortress SPIR-V cache: %s\n", spirv_path.c_str());
     char python3_cmd[] = "python3";
     char builder_arg[PATH_MAX];
     char out_arg[PATH_MAX];
@@ -144,7 +144,7 @@ static bool ensure_system_spirv_dat() {
     snprintf(out_arg, sizeof(out_arg), "%s", spirv_path.c_str());
     char *argv[] = { python3_cmd, builder_arg, out_arg, NULL };
     if (!run_and_wait(argv)) {
-        printf("Failed to build system SPIR-V cache via %s\n", builder_path.c_str());
+        printf("Failed to build Orange Fortress SPIR-V cache via %s\n", builder_path.c_str());
         return false;
     }
     if (!path_exists(spirv_path)) {
@@ -223,6 +223,12 @@ static int wrapDegrees360(int value) {
         wrapped += 360;
     }
     return wrapped;
+}
+
+static int orangeFortressSceneCameraZForDistance(int distance) {
+    const int target_z = 2200;
+    const int epa_camera_z_bias = 6500;
+    return target_z + epa_camera_z_bias - distance;
 }
 
 static void appendJsonCommand(String &json, int &emitted, const String &command) {
@@ -367,6 +373,13 @@ public:
           app(value_app) {
     }
 
+    void notify(const String& method, const String& params_json) override {
+        String result_json;
+        String error_code;
+        String error_message;
+        call(method, params_json, result_json, error_code, error_message);
+    }
+
     bool call(
         const String& method,
         const String& params_json,
@@ -410,6 +423,10 @@ public:
                 double x = parse_json_number_after(params, String("\"x\":"), 0.0);
                 double y = parse_json_number_after(params, String("\"y\":"), 0.0);
                 app->handleMouseMove(x, y);
+            } else if (app && params.indexOf(String("\"action\":\"mouseScroll\"")) >= 0) {
+                double dx = parse_json_number_after(params, String("\"dx\":"), 0.0);
+                double dy = parse_json_number_after(params, String("\"dy\":"), 0.0);
+                app->handleMouseScroll(dx, dy);
             }
 
             result_json = "{\"received\":true}";
@@ -439,7 +456,7 @@ SceneViewState clampSceneViewState(const SceneViewState &input) {
     state.cam_y = clampInt(state.cam_y, -1024, 1024);
     state.cam_z = clampInt(state.cam_z, -4096, 4096);
     state.cam_yaw = wrapDegrees360(state.cam_yaw);
-    state.cam_pitch = clampInt(state.cam_pitch, -89, 89);
+    state.cam_pitch = wrapDegrees360(state.cam_pitch);
     state.depth = clampInt(state.depth, 0, 6);
     state.lane = clampInt(state.lane, -320, 320);
     return state;
@@ -552,6 +569,8 @@ OrangeFortressApp::OrangeFortressApp(
       held_right(false),
       pending_mouse_dx(0),
       pending_mouse_dy(0),
+      pending_mouse_scroll_dy(0),
+      mouse_drag_active(false),
       mouse_captured(false),
       mouse_capture_requested(false),
       mouse_uncapture_requested(false),
@@ -560,6 +579,7 @@ OrangeFortressApp::OrangeFortressApp(
       scene_cam_z(0),
       scene_cam_yaw(0),
       scene_cam_pitch(0),
+      scene_orbit_distance(8700),
       scene_depth(0),
       scene_lane(0),
       cached_scene_angle(0),
@@ -825,11 +845,11 @@ bool OrangeFortressApp::launchUiServerFallback() {
 
     char port_text[32];
     snprintf(port_text, sizeof(port_text), "%d", fallback_port);
-    std::string spirv_path = orange_fortress_system_spirv_path();
-    if (!ensure_system_spirv_dat()) {
+    std::string spirv_path = orange_fortress_project_spirv_path();
+    if (!ensure_project_spirv_dat()) {
         printf("Proceeding with embedded Vulkan shader fallback\n");
     } else if (!spirv_path.empty()) {
-        printf("Using common SPIR-V cache: %s\n", spirv_path.c_str());
+        printf("Using Orange Fortress SPIR-V cache: %s\n", spirv_path.c_str());
     }
     const char *display_env = getenv("DISPLAY");
     const char *wayland_env = getenv("WAYLAND_DISPLAY");
@@ -847,6 +867,9 @@ bool OrangeFortressApp::launchUiServerFallback() {
         return false;
     }
     if (pid == 0) {
+        if (!spirv_path.empty()) {
+            setenv("ELARA_VULKAN_SURFACE_SPIRV_PATH", spirv_path.c_str(), 1);
+        }
         String backend_id = String("org.elara.ui.orange-fortress.p") + String(fallback_port);
         execlp("elaraui-server", "elaraui-server",
                "--port", port_text,
@@ -952,6 +975,7 @@ void OrangeFortressApp::armUiInputFocus() {
     peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseMove\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseDown\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseUp\"}"), result_json, error_code, error_message, 5000);
+    peer->call(String("ui.enableEvent"), String("{\"action\":\"mouseScroll\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.setFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
     peer->call(String("ui.lockFocus"), String("{\"target\":\"app.surface\"}"), result_json, error_code, error_message, 5000);
 
@@ -972,8 +996,12 @@ void OrangeFortressApp::setMouseCaptured(bool captured) {
     mouse_uncapture_requested = false;
     {
         Mutex::Lock lock(input_lock);
+        if (!captured) {
+            mouse_drag_active = false;
+        }
         pending_mouse_dx = 0;
         pending_mouse_dy = 0;
+        pending_mouse_scroll_dy = 0;
     }
     bool ok = peer->call(
         String("ui.setMouseCaptured"),
@@ -1192,7 +1220,7 @@ bool OrangeFortressApp::sendScenePose() {
     );
     ScenePoseInputPayload pose = {
         scene_cam_x, scene_cam_z, scene_depth, scene_lane,
-        wrapDegrees360(scene_cam_yaw), clampInt(scene_cam_pitch, -89, 89),
+        wrapDegrees360(scene_cam_yaw), wrapDegrees360(scene_cam_pitch),
         projection.end_wall.x, projection.end_wall.y, projection.end_wall.w, projection.end_wall.h, projection.end_wall.visible ? 1 : 0,
         projection.side_wall.x, projection.side_wall.y, projection.side_wall.w, projection.side_wall.h, projection.side_wall.visible ? 1 : 0,
         projection.marker0.x, projection.marker0.y, projection.marker0.visible ? 1 : 0,
@@ -1332,18 +1360,11 @@ void OrangeFortressApp::enqueueKeyDown(unsigned int keyval) {
 }
 
 void OrangeFortressApp::updateKeyState(unsigned int keyval, bool pressed) {
-    if (pressed) {
-        if (keyval == 49u) { printf("keyboard angle hotkey: 1\n"); fflush(stdout); publishCachedCubeScene(0); return; }
-        if (keyval == 50u) { printf("keyboard angle hotkey: 2\n"); fflush(stdout); publishCachedCubeScene(1); return; }
-        if (keyval == 51u) { printf("keyboard angle hotkey: 3\n"); fflush(stdout); publishCachedCubeScene(2); return; }
-        if (keyval == 32u) { printf("keyboard angle hotkey: next\n"); fflush(stdout); cycleCachedCubeScene(1); return; }
-    }
-
     Mutex::Lock lock(input_lock);
     printf("updateKeyState: keyval=%u pressed=%d held_f=%d held_b=%d held_l=%d held_r=%d\n",
            keyval, (int)pressed, (int)held_forward, (int)held_back, (int)held_left, (int)held_right);
     fflush(stdout);
-    // Arrow keys and WASD both control movement.
+    // Arrow keys and WASD rotate the camera relatively around the scene.
     if (keyval == 65362u || keyval == 119u) { held_forward = pressed; }  // Up / W
     if (keyval == 65364u || keyval == 115u) { held_back    = pressed; }  // Down / S
     if (keyval == 65361u || keyval == 97u)  { held_left    = pressed; }  // Left / A
@@ -1374,27 +1395,60 @@ void OrangeFortressApp::accumulateMouseDelta(int dx, int dy) {
     if (pending_mouse_dy < -128) { pending_mouse_dy = -128; }
 }
 
+void OrangeFortressApp::handleMouseScroll(double dx, double dy) {
+    (void)dx;
+    Mutex::Lock lock(input_lock);
+    int steps = (int)lrint(dy);
+    if (steps == 0 && dy != 0.0) {
+        steps = dy > 0.0 ? 1 : -1;
+    }
+    pending_mouse_scroll_dy += steps;
+    if (pending_mouse_scroll_dy > 12) { pending_mouse_scroll_dy = 12; }
+    if (pending_mouse_scroll_dy < -12) { pending_mouse_scroll_dy = -12; }
+}
+
 void OrangeFortressApp::handleMouseDown(int button, double x, double y) {
     (void)x;
     (void)y;
     printf("handleMouseDown: button=%d x=%.2f y=%.2f\n", button, x, y);
     if (button == 1) {
+        Mutex::Lock lock(input_lock);
+        mouse_drag_active = true;
+        pending_mouse_dx = 0;
+        pending_mouse_dy = 0;
         mouse_capture_requested = true;
+        mouse_uncapture_requested = false;
     }
 }
 
 void OrangeFortressApp::handleMouseUp(int button, double x, double y) {
     printf("handleMouseUp: button=%d x=%.2f y=%.2f\n", button, x, y);
-    if (button == 1 && !mouse_captured) {
-        mouse_capture_requested = true;
+    if (button == 1) {
+        Mutex::Lock lock(input_lock);
+        mouse_drag_active = false;
+        pending_mouse_dx = 0;
+        pending_mouse_dy = 0;
+        mouse_capture_requested = false;
+        mouse_uncapture_requested = true;
     }
 }
 
 void OrangeFortressApp::handleMouseMove(double x, double y) {
-    if (!mouse_captured) {
-        return;
+    {
+        Mutex::Lock lock(input_lock);
+        if (!mouse_drag_active) {
+            return;
+        }
     }
     accumulateMouseDelta((int)x, (int)y);
+}
+
+void OrangeFortressApp::updateSceneCameraFromOrbit() {
+    scene_orbit_distance = clampInt(scene_orbit_distance, 1800, 16000);
+    scene_cam_z = orangeFortressSceneCameraZForDistance(scene_orbit_distance);
+    scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
+    scene_cam_yaw = wrapDegrees360(scene_cam_yaw);
+    scene_cam_pitch = wrapDegrees360(scene_cam_pitch);
 }
 
 void OrangeFortressApp::publishCachedCubeScene(int angle) {
@@ -1415,21 +1469,6 @@ void OrangeFortressApp::publishCachedCubeScene(int angle) {
     traceLine(String("{\"event\":\"cached_cube_scene\",\"angle\":") + String(angle + 1) + String("}"));
 }
 
-void OrangeFortressApp::cycleCachedCubeScene(int delta) {
-    int next_angle;
-    {
-        Mutex::Lock lock(render_lock);
-        next_angle = cached_scene_angle + delta;
-    }
-    if (next_angle < 0) {
-        next_angle = 2;
-    }
-    if (next_angle > 2) {
-        next_angle = 0;
-    }
-    publishCachedCubeScene(next_angle);
-}
-
 String OrangeFortressApp::buildHostDebugSurfaceTestJson() const {
     return String("[")
         + String("{\"op\":\"clear\",\"r\":0.02,\"g\":0.025,\"b\":0.035},")
@@ -1443,11 +1482,34 @@ String OrangeFortressApp::buildHostDebugSurfaceTestJson() const {
 
 bool OrangeFortressApp::handleExtLogicRequest(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {
     if (method == String("ext.debug.status")) {
+        bool drag_active = false;
+        int pending_dx = 0;
+        int pending_dy = 0;
+        int pending_scroll = 0;
+        bool captured = false;
+        {
+            Mutex::Lock input(input_lock);
+            drag_active = mouse_drag_active;
+            pending_dx = pending_mouse_dx;
+            pending_dy = pending_mouse_dy;
+            pending_scroll = pending_mouse_scroll_dy;
+            captured = mouse_captured;
+        }
         Mutex::Lock lock(render_lock);
         result_json = String("{\"epa_started\":") + String(epa_started ? "true" : "false")
             + String(",\"latest_surface_valid\":") + String(latest_surface_valid ? "true" : "false")
             + String(",\"surface_revision\":") + String((int)surface_revision)
             + String(",\"pushed_surface_revision\":") + String((int)pushed_surface_revision)
+            + String(",\"mouse_captured\":") + String(captured ? "true" : "false")
+            + String(",\"mouse_drag_active\":") + String(drag_active ? "true" : "false")
+            + String(",\"pending_mouse_dx\":") + String(pending_dx)
+            + String(",\"pending_mouse_dy\":") + String(pending_dy)
+            + String(",\"pending_mouse_scroll_dy\":") + String(pending_scroll)
+            + String(",\"scene_cam_x\":") + String(scene_cam_x)
+            + String(",\"scene_cam_z\":") + String(scene_cam_z)
+            + String(",\"scene_cam_yaw\":") + String(scene_cam_yaw)
+            + String(",\"scene_cam_pitch\":") + String(scene_cam_pitch)
+            + String(",\"scene_orbit_distance\":") + String(scene_orbit_distance)
             + String(",\"cached_scene_angle\":") + String(cached_scene_angle + 1)
             + String("}");
         return true;
@@ -1500,38 +1562,32 @@ void OrangeFortressApp::drainKeyEvents() {
     int move_z = 0;
     int look_dx = 0;
     int look_dy = 0;
+    int scroll_dy = 0;
     {
         Mutex::Lock lock(input_lock);
         move_x = (held_right ? 1 : 0) - (held_left ? 1 : 0);
         move_z = (held_forward ? 1 : 0) - (held_back ? 1 : 0);
         look_dx = pending_mouse_dx;
         look_dy = pending_mouse_dy;
+        scroll_dy = pending_mouse_scroll_dy;
         pending_mouse_dx = 0;
         pending_mouse_dy = 0;
+        pending_mouse_scroll_dy = 0;
         pending_keydowns.clear();
     }
 
-    if (move_x == 0 && move_z == 0 && look_dx == 0 && look_dy == 0) {
+    if (move_x == 0 && move_z == 0 && look_dx == 0 && look_dy == 0 && scroll_dy == 0) {
         return;
     }
 
-    scene_cam_x += (move_x * 24);
-    scene_cam_z += (move_z * 96);
-    scene_lane += (move_x * 24);
-    scene_cam_yaw = wrapDegrees360(scene_cam_yaw + (look_dx / 6));
-    scene_cam_pitch = clampInt(scene_cam_pitch - (look_dy / 8), -89, 89);
-    if (move_z > 0) {
-        scene_depth = 1;
-    } else if (move_z < 0) {
-        scene_depth = 0;
-    }
-    scene_cam_x = clampInt(scene_cam_x, -4096, 4096);
-    scene_cam_z = clampInt(scene_cam_z, -4096, 4096);
-    scene_lane = clampInt(scene_lane, -320, 320);
-    scene_depth = clampInt(scene_depth, 0, 1);
+    scene_cam_yaw = wrapDegrees360(scene_cam_yaw + (move_x * 3) + (look_dx / 4));
+    scene_cam_pitch = wrapDegrees360(scene_cam_pitch + (move_z * 3) - (look_dy / 5));
+    scene_orbit_distance += (scroll_dy * 450);
+    updateSceneCameraFromOrbit();
+    scene_depth = clampInt((scene_orbit_distance - 1800) / 1800, 0, 6);
 
-    printf("drainKeyEvents: cam_x=%d cam_z=%d depth=%d lane=%d yaw=%d pitch=%d\n",
-           scene_cam_x, scene_cam_z, scene_depth, scene_lane, scene_cam_yaw, scene_cam_pitch);
+    printf("drainCameraInput: distance=%d cam_x=%d cam_z=%d depth=%d yaw=%d pitch=%d\n",
+           scene_orbit_distance, scene_cam_x, scene_cam_z, scene_depth, scene_cam_yaw, scene_cam_pitch);
     sendScenePose();
 }
 
@@ -2085,12 +2141,7 @@ int OrangeFortressApp::run() {
                     shutdown();
                     return 0;
                 }
-                if (command == String("1")) { publishCachedCubeScene(0); }
-                else if (command == String("2")) { publishCachedCubeScene(1); }
-                else if (command == String("3")) { publishCachedCubeScene(2); }
-                else if (command == String("next")) { cycleCachedCubeScene(1); }
-                else if (command == String("prev")) { cycleCachedCubeScene(-1); }
-                else if (command == String("snapshot")) { printSnapshot(); }
+                if (command == String("snapshot")) { printSnapshot(); }
             }
         }
 

@@ -94,6 +94,7 @@ protected:
     virtual void emitMouseMove(double px, double py);
     virtual void emitMouseDown(int button, double px, double py);
     virtual void emitMouseUp(int button, double px, double py);
+    virtual void emitMouseScroll(double dx, double dy);
     virtual void emitClicked(int button, double px, double py);
     virtual void emitHoverChanged(bool is_hovered);
     virtual void emitKeyDown(unsigned int keyval);

@@ -37,6 +37,12 @@ public:
         double y
     );
 
+    void onWidgetMouseScroll(
+        ElaraWidgetHandle handle,
+        double dx,
+        double dy
+    );
+
     void onWidgetClicked(
         ElaraWidgetHandle handle,
         int button,
@@ -96,6 +102,7 @@ private:
 
     String mousePayload(double x, double y) const;
     String buttonPayload(int button, double x, double y) const;
+    String scrollPayload(double dx, double dy) const;
     String stringPayload(const String& field, const String& value) const;
 };
 

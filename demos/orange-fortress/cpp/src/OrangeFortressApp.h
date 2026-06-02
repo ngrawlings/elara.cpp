@@ -57,6 +57,7 @@ public:
     void handleMouseDown(int button, double x, double y);
     void handleMouseUp(int button, double x, double y);
     void handleMouseMove(double x, double y);
+    void handleMouseScroll(double dx, double dy);
     bool handleExtLogicRequest(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message);
 
     std::atomic<bool> ui_quit_requested;
@@ -81,6 +82,8 @@ private:
     bool held_right;
     int pending_mouse_dx;
     int pending_mouse_dy;
+    int pending_mouse_scroll_dy;
+    bool mouse_drag_active;
     bool mouse_captured;
     bool mouse_capture_requested;
     bool mouse_uncapture_requested;
@@ -89,6 +92,7 @@ private:
     int scene_cam_z;
     int scene_cam_yaw;
     int scene_cam_pitch;
+    int scene_orbit_distance;
     int scene_depth;
     int scene_lane;
     int cached_scene_angle;
@@ -126,7 +130,7 @@ private:
     bool sendScenePose();
     void drainKeyEvents();
     void publishCachedCubeScene(int angle);
-    void cycleCachedCubeScene(int delta);
+    void updateSceneCameraFromOrbit();
     String buildCachedCubeSceneJson(int angle) const;
     String buildSurfaceCommandsJson() const;
     String buildStatusItemsJson() const;

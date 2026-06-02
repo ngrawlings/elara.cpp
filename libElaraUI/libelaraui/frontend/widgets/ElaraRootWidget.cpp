@@ -650,6 +650,14 @@ bool ElaraRootWidget::eventPropagate(ElaraUiEvent event) {
         }
     }
 
+    if(focus_locked &&
+       (event.type == ELARA_UI_MOUSE_MOVE || event.type == ELARA_UI_MOUSE_SCROLL)) {
+        Ref<ElaraWidget> focused_widget = getWidget(locked_focus);
+        if(focused_widget && focused_widget->isVisible()) {
+            return focused_widget->handleEvent(event);
+        }
+    }
+
     Ref<ElaraWidget> c = getWidget(content);
     if(c) {
         return c->eventPropagate(event);

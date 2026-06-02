@@ -196,6 +196,14 @@ void ElaraWidget::emitMouseUp(int button, double px, double py) {
     }
 }
 
+void ElaraWidget::emitMouseScroll(double dx, double dy) {
+    for(int i = 0; i < (int)listeners.length(); i++) {
+        if(listeners[i]) {
+            listeners[i]->onWidgetMouseScroll(widget_handle, dx, dy);
+        }
+    }
+}
+
 void ElaraWidget::emitClicked(int button, double px, double py) {
     for(int i = 0; i < (int)listeners.length(); i++) {
         if(listeners[i]) {

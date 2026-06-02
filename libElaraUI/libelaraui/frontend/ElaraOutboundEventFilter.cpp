@@ -57,6 +57,12 @@ String ElaraOutboundEventFilter::buttonPayload(
            String("}");
 }
 
+String ElaraOutboundEventFilter::scrollPayload(double dx, double dy) const {
+    return String("{\"dx\":") + String(dx) +
+           String(",\"dy\":") + String(dy) +
+           String("}");
+}
+
 String ElaraOutboundEventFilter::stringPayload(
     const String& field,
     const String& value
@@ -92,6 +98,14 @@ void ElaraOutboundEventFilter::onWidgetMouseUp(
     double y
 ) {
     queue(handle, "mouseUp", buttonPayload(button, x, y));
+}
+
+void ElaraOutboundEventFilter::onWidgetMouseScroll(
+    ElaraWidgetHandle handle,
+    double dx,
+    double dy
+) {
+    queue(handle, "mouseScroll", scrollPayload(dx, dy));
 }
 
 void ElaraOutboundEventFilter::onWidgetClicked(

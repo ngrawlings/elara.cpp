@@ -42,11 +42,11 @@ static std::string defaultSpirvCachePath() {
 }
 
 static bool loadExternalSurfaceSpirv(std::vector<uint32_t> *out_words) {
-    if (loadSpirvWordsFromFile(defaultSpirvCachePath(), out_words)) {
-        return true;
-    }
     const char *override_path = getenv("ELARA_VULKAN_SURFACE_SPIRV_PATH");
     if (override_path && override_path[0] && loadSpirvWordsFromFile(std::string(override_path), out_words)) {
+        return true;
+    }
+    if (loadSpirvWordsFromFile(defaultSpirvCachePath(), out_words)) {
         return true;
     }
     return false;
@@ -1704,6 +1704,10 @@ void ElaraVulkanSurfaceWidget::onMouseMove(double px, double py) {
 
 void ElaraVulkanSurfaceWidget::onMouseUp(int button, double px, double py) {
     emitMouseUp(button, px, py);
+}
+
+void ElaraVulkanSurfaceWidget::onMouseScroll(double dx, double dy) {
+    emitMouseScroll(dx, dy);
 }
 
 void ElaraVulkanSurfaceWidget::onKeyDown(unsigned int keyval) {

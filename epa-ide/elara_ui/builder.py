@@ -218,6 +218,15 @@ class UiDocumentBuilder:
             self.set_section_json(widget_id, "commands", commands)
         return self
 
+    def create_vulkan_surface(self, widget_id, commands=None, backend="vulkan", kernel_name=None):
+        self.create_widget(widget_id, "elara.widgets.vulkan_surface")
+        self.set_property_string(widget_id, "backend", backend)
+        if kernel_name:
+            self.set_property_string(widget_id, "kernel_name", kernel_name)
+        if commands is not None:
+            self.set_section_json(widget_id, "commands", commands)
+        return self
+
     def create_density_map(self, widget_id):
         return self.create_widget(widget_id, "elara.widgets.density_map")
 
