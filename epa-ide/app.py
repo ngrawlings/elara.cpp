@@ -59,6 +59,17 @@ from dialogs import (
 )
 from help_window import build_help_window, load_doc as _help_load_doc
 from e3d_runtime import load_runtime_preview
+from level_path_runtime import (
+    build_level_path_preview,
+    hit_test_item as level_path_hit_test_item,
+    load_level_path_document,
+    move_item as level_path_move_item,
+    place_primitive as level_path_place_primitive,
+    rotate_view as level_path_rotate_view,
+    screen_to_world as level_path_screen_to_world,
+    view_cube_contains as level_path_view_cube_contains,
+    view_cube_hit_test as level_path_view_cube_hit_test,
+)
 
 def _ide_state_path() -> Path:
     return Path.home() / ".config" / "epa-ide" / "state.json"
@@ -294,7 +305,7 @@ def main():
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
     app_state["theme"] = "dark"
     app_state["nav_view"] = "files"
-    app_state["nav_artifacts_tab_present"] = False
+    app_state["nav_3d_tab_present"] = False
     app_state["debug_vm_started"] = False
     initial_state = _current_layout_state()
     initial_layout = initial_state.get("layout", {}) if isinstance(initial_state, dict) else {}
@@ -4015,42 +4026,43 @@ def main():
         ("python", "nav.tree.python", "nav.add_tech_wrap.python"),
     ]
     _NAV_ARTIFACTS_TECH = "3d_artifacts"
-    _NAV_ARTIFACTS_TREE_ID = "nav.tree.3d_artifacts"
-    _NAV_ARTIFACTS_TAB_INDEX = len(_NAV_TECH_TREE_MAP)
+    _NAV_LEVEL_PATHS_TECH = "level_paths"
+    _NAV_3D_TREE_ID = "nav.tree.3d"
+    _NAV_3D_TAB_INDEX = len(_NAV_TECH_TREE_MAP)
 
-    def _artifacts_nav_tab_json() -> str:
+    def _three_d_nav_tab_json() -> str:
         ui = UiDocumentBuilder()
-        ui.create_grid("nav.tech_panel.3d_artifacts")
-        ui.add_grid_column_fill("nav.tech_panel.3d_artifacts")
-        ui.add_grid_row_fill("nav.tech_panel.3d_artifacts")
-        ui.create_tree_view(_NAV_ARTIFACTS_TREE_ID)
-        ui.set_property_number(_NAV_ARTIFACTS_TREE_ID, "font_size", 14)
-        ui.set_section_json(_NAV_ARTIFACTS_TREE_ID, "nodes", [])
-        ui.place_grid_child("nav.tech_panel.3d_artifacts", _NAV_ARTIFACTS_TREE_ID, 0, 0)
+        ui.create_grid("nav.tech_panel.3d")
+        ui.add_grid_column_fill("nav.tech_panel.3d")
+        ui.add_grid_row_fill("nav.tech_panel.3d")
+        ui.create_tree_view(_NAV_3D_TREE_ID)
+        ui.set_property_number(_NAV_3D_TREE_ID, "font_size", 14)
+        ui.set_section_json(_NAV_3D_TREE_ID, "nodes", [])
+        ui.place_grid_child("nav.tech_panel.3d", _NAV_3D_TREE_ID, 0, 0)
         return json.dumps({
-            "title": "3D Artifacts",
+            "title": "3D",
             "button_glyph": "+",
-            "button_action": "new_file.Artifact3D",
-            "child": ui.widget_json("nav.tech_panel.3d_artifacts", indent=None),
+            "button_action": "",
+            "child": ui.widget_json("nav.tech_panel.3d", indent=None),
         }, separators=(",", ":"))
 
-    def _sync_artifacts_nav_tab(client, has_artifacts: bool):
-        present = bool(app_state.get("nav_artifacts_tab_present", False))
-        if has_artifacts and not present:
+    def _sync_three_d_nav_tab(client, has_three_d: bool):
+        present = bool(app_state.get("nav_3d_tab_present", False))
+        if has_three_d and not present:
             try:
                 client.call("ui.addTab", {
                     "target": "nav.file_tabs",
-                    **json.loads(_artifacts_nav_tab_json()),
+                    **json.loads(_three_d_nav_tab_json()),
                 })
-                app_state["nav_artifacts_tab_present"] = True
+                app_state["nav_3d_tab_present"] = True
             except Exception:
                 pass
-        elif not has_artifacts and present:
+        elif not has_three_d and present:
             try:
-                client.fire("ui.removeTab", {"target": "nav.file_tabs", "index": _NAV_ARTIFACTS_TAB_INDEX})
+                client.fire("ui.removeTab", {"target": "nav.file_tabs", "index": _NAV_3D_TAB_INDEX})
             except Exception:
                 pass
-            app_state["nav_artifacts_tab_present"] = False
+            app_state["nav_3d_tab_present"] = False
 
     def _artifact3d_color(template: dict, material_id: str, fallback: tuple[float, float, float]) -> tuple[float, float, float]:
         material = (template.get("materials") or {}).get(material_id, {})
@@ -4122,6 +4134,158 @@ def main():
         except Exception:
             pass
 
+    def _level_path_tool_button_text(tool_id: str, current_tool: str) -> str:
+        label_map = {"square": "Open Space", "cube": "Closed Space", "line": "Connecting Corridor"}
+        prefix = ">" if tool_id == current_tool else " "
+        return f"{prefix} {label_map.get(tool_id, tool_id.title())}"
+
+    def _set_level_path_tool_labels(client):
+        viewer_state = app_state.get("level_path_viewer", {})
+        if not isinstance(viewer_state, dict):
+            return
+        current_tool = str(viewer_state.get("tool", "select"))
+        for tool_id in ("square", "cube", "line"):
+            try:
+                client.fire("ui.setProperty", {
+                    "target": f"level_path.tool.{tool_id}",
+                    "property": "text",
+                    "value": _level_path_tool_button_text(tool_id, current_tool),
+                })
+            except Exception:
+                pass
+
+    def _level_path_preview_commands() -> tuple[list[dict], list[str]]:
+        viewer_state = app_state.get("level_path_viewer", {})
+        if not isinstance(viewer_state, dict):
+            return ([
+                {"op": "clear", "r": 0.04, "g": 0.02, "b": 0.02},
+                {"op": "text", "x": 28, "y": 36, "text": "Level path viewer not initialized", "size": 18, "r": 0.96, "g": 0.42, "b": 0.38},
+            ], ["viewer not initialized"])
+        doc = viewer_state.get("doc")
+        if not isinstance(doc, dict):
+            return ([
+                {"op": "clear", "r": 0.04, "g": 0.02, "b": 0.02},
+                {"op": "text", "x": 28, "y": 36, "text": "Level path document unavailable", "size": 18, "r": 0.96, "g": 0.42, "b": 0.38},
+            ], ["document unavailable"])
+        editor_state = {
+            "tool": str(viewer_state.get("tool", "select")),
+            "pending_line": viewer_state.get("pending_line"),
+            "view": str(viewer_state.get("view", "top")),
+            "zoom": float(viewer_state.get("zoom", 52.0) or 52.0),
+            "center": list(viewer_state.get("center", [0.0, 0.0])),
+            "active_item": (viewer_state.get("drag") or {}).get("item"),
+        }
+        try:
+            return build_level_path_preview(doc, editor_state)
+        except Exception as exc:
+            return ([
+                {"op": "clear", "r": 0.04, "g": 0.02, "b": 0.02},
+                {"op": "text", "x": 28, "y": 36, "text": Path(str(viewer_state.get('path', 'level path'))).name, "size": 22, "r": 0.96, "g": 0.96, "b": 0.96},
+                {"op": "text", "x": 28, "y": 66, "text": "Level path preview failed", "size": 16, "r": 0.96, "g": 0.42, "b": 0.38},
+                {"op": "text", "x": 28, "y": 92, "text": str(exc), "size": 14, "r": 0.94, "g": 0.72, "b": 0.70},
+            ], [str(exc)])
+
+    def _open_level_path_viewer(client, path: str):
+        level_path = Path(path)
+        doc = load_level_path_document(level_path)
+        app_state["level_path_viewer"] = {
+            "path": str(level_path),
+            "doc": doc,
+            "tool": "select",
+            "pending_line": None,
+            "view": "top",
+            "zoom": 52.0,
+            "center": [0.0, 0.0],
+            "drag": None,
+        }
+        commands, errors = _level_path_preview_commands()
+        ui = UiDocumentBuilder()
+        ui.create_window("Level Path Designer", 1280, 820, "org.elara.ui.epa-ide.level-path-viewer")
+        ui.set_theme_mode("dark")
+        ui.create_grid("level_path.viewer.shell")
+        ui.add_grid_column_exact("level_path.viewer.shell", 180)
+        ui.add_grid_column_fill("level_path.viewer.shell")
+        ui.add_grid_row_fill("level_path.viewer.shell")
+        ui.set_root_content("level_path.viewer.shell")
+        ui.create_grid("level_path.viewer.sidebar")
+        ui.add_grid_column_fill("level_path.viewer.sidebar")
+        ui.add_grid_row_exact("level_path.viewer.sidebar", 36)
+        ui.add_grid_row_exact("level_path.viewer.sidebar", 18)
+        ui.add_grid_row_exact("level_path.viewer.sidebar", 44)
+        ui.add_grid_row_exact("level_path.viewer.sidebar", 44)
+        ui.add_grid_row_exact("level_path.viewer.sidebar", 44)
+        ui.add_grid_row_fill("level_path.viewer.sidebar")
+        ui.create_label("level_path.viewer.title", "Space Tools", 18)
+        ui.create_label("level_path.viewer.hint", "Wheel zooms. Drag items to move in the current view plane.", 12)
+        ui.create_button("level_path.tool.square", _level_path_tool_button_text("square", "select"), "level_path.tool.square")
+        ui.create_button("level_path.tool.cube", _level_path_tool_button_text("cube", "select"), "level_path.tool.cube")
+        ui.create_button("level_path.tool.line", _level_path_tool_button_text("line", "select"), "level_path.tool.line")
+        ui.place_grid_child("level_path.viewer.sidebar", "level_path.viewer.title", 0, 0)
+        ui.place_grid_child("level_path.viewer.sidebar", "level_path.viewer.hint", 0, 1)
+        ui.place_grid_child("level_path.viewer.sidebar", "level_path.tool.square", 0, 2)
+        ui.place_grid_child("level_path.viewer.sidebar", "level_path.tool.cube", 0, 3)
+        ui.place_grid_child("level_path.viewer.sidebar", "level_path.tool.line", 0, 4)
+        ui.place_grid_child("level_path.viewer.shell", "level_path.viewer.sidebar", 0, 0)
+        ui.create_vulkan_surface("level_path.viewer.surface", commands, kernel_name="level_path.preview")
+        ui.set_property_number("level_path.viewer.surface", "virtual_width", 1180)
+        ui.set_property_number("level_path.viewer.surface", "virtual_height", 820)
+        overlay = level_path.name if not errors else f"{level_path.name}  ({len(errors)} validation issue(s))"
+        ui.set_property_string("level_path.viewer.surface", "overlay_text", overlay)
+        ui.place_grid_child("level_path.viewer.shell", "level_path.viewer.surface", 1, 0)
+        client.open_window("level-path-viewer", f"Level Path: {level_path.name}", 1280, 820, ui)
+        try:
+            client.call("ui.subscribe", {"target": "level_path.viewer.surface", "actions": ["mouseDown", "mouseMove", "mouseUp", "mouseWheel"]})
+        except Exception:
+            pass
+
+    def _refresh_level_path_viewer(client):
+        viewer_state = app_state.get("level_path_viewer", {})
+        if not isinstance(viewer_state, dict):
+            return
+        commands, errors = _level_path_preview_commands()
+        try:
+            client.call("ui.setSectionJson", {"target": "level_path.viewer.surface", "section": "commands", "value": commands})
+        except Exception:
+            return
+        overlay = Path(str(viewer_state.get("path", "level_path"))).name
+        if errors:
+            overlay = f"{overlay}  ({len(errors)} validation issue(s))"
+        try:
+            client.fire("ui.setProperty", {"target": "level_path.viewer.surface", "property": "overlay_text", "value": overlay})
+        except Exception:
+            pass
+        _set_level_path_tool_labels(client)
+
+    def _snapshot_widget_bounds(client, target: str) -> dict | None:
+        try:
+            snap = client.call("ui.snapshotWidget", {"target": target})
+        except Exception:
+            return None
+        if not isinstance(snap, dict):
+            return None
+        bounds = snap.get("bounds")
+        if isinstance(bounds, dict):
+            return bounds
+        return None
+
+    def _level_path_surface_event_to_virtual(client, x: float, y: float) -> tuple[float, float]:
+        if x < 0.0 or y < 0.0:
+            return (x, y)
+        bounds = _snapshot_widget_bounds(client, "level_path.viewer.surface")
+        if not isinstance(bounds, dict):
+            return (x, y)
+        try:
+            width = float(bounds.get("width", 0.0) or 0.0)
+            height = float(bounds.get("height", 0.0) or 0.0)
+        except Exception:
+            return (x, y)
+        if width <= 1.0 or height <= 1.0:
+            return (x, y)
+        return (
+            x * (1180.0 / width),
+            y * (820.0 / height),
+        )
+
     def _populate_nav_trees(client, project_path: Path, technologies: list):
         source_only = app_state.get("nav_filter_source_only", False)
         all_nodes: list = []
@@ -4150,20 +4314,37 @@ def main():
             except Exception:
                 pass
         artifacts_dir = project_path / _NAV_ARTIFACTS_TECH
+        level_paths_dir = project_path / _NAV_LEVEL_PATHS_TECH
         has_artifacts = artifacts_dir.is_dir()
-        _sync_artifacts_nav_tab(client, has_artifacts)
-        artifact_nodes = []
-        if has_artifacts:
-            artifact_nodes = _dir_node(artifacts_dir).get("children", [])
-            per_tech[_NAV_ARTIFACTS_TECH] = artifact_nodes
-            all_nodes.extend(artifact_nodes)
+        has_level_paths = level_paths_dir.is_dir()
+        _sync_three_d_nav_tab(client, has_artifacts or has_level_paths)
+        artifact_nodes = _dir_node(artifacts_dir).get("children", []) if has_artifacts else []
+        level_path_nodes = _dir_node(level_paths_dir).get("children", []) if has_level_paths else []
+        per_tech[_NAV_ARTIFACTS_TECH] = artifact_nodes
+        per_tech[_NAV_LEVEL_PATHS_TECH] = level_path_nodes
+        if has_artifacts or has_level_paths:
+            tree_nodes = []
+            if has_artifacts:
+                tree_nodes.append({
+                    "id": str(artifacts_dir),
+                    "label": "3D Artifacts",
+                    "expanded": True,
+                    "children": artifact_nodes,
+                })
+                all_nodes.extend(artifact_nodes)
+            if has_level_paths:
+                tree_nodes.append({
+                    "id": str(level_paths_dir),
+                    "label": "Level Paths",
+                    "expanded": True,
+                    "children": level_path_nodes,
+                })
+                all_nodes.extend(level_path_nodes)
             try:
-                doc = json.dumps({"nodes": artifact_nodes}, separators=(",", ":"))
-                client.call("ui.replaceChildren", {"target": _NAV_ARTIFACTS_TREE_ID, "document": doc})
+                doc = json.dumps({"nodes": tree_nodes}, separators=(",", ":"))
+                client.call("ui.replaceChildren", {"target": _NAV_3D_TREE_ID, "document": doc})
             except Exception:
                 pass
-        else:
-            per_tech[_NAV_ARTIFACTS_TECH] = []
         app_state["nav_tree_nodes"] = all_nodes
         app_state["nav_tree_nodes_per_tech"] = per_tech
         try:
@@ -5985,13 +6166,17 @@ def main():
             return {"received": True}
 
         # Tree view file click — single click = preview tab, double click = permanent tab.
-        if action == "action" and target in ("nav.tree.epa", "nav.tree.cpp", "nav.tree.python", _NAV_ARTIFACTS_TREE_ID) and client is not None:
+        if action == "action" and target in ("nav.tree.epa", "nav.tree.cpp", "nav.tree.python", _NAV_3D_TREE_ID) and client is not None:
             node_path = payload.get("action", "")
             if node_path and Path(node_path).is_file():
-                if target == _NAV_ARTIFACTS_TREE_ID and node_path.endswith(".e3d.json"):
+                if target == _NAV_3D_TREE_ID and node_path.endswith(".e3d.json"):
                     c = client
                     np = node_path
                     _deferred(lambda: _open_artifact3d_viewer(c, np))
+                if target == _NAV_3D_TREE_ID and node_path.endswith(".elp.json"):
+                    c = client
+                    np = node_path
+                    _deferred(lambda: _open_level_path_viewer(c, np))
                 now = time.monotonic()
                 last = tab_click_state.get("path")
                 last_t = tab_click_state.get("time", 0.0)
@@ -6035,6 +6220,128 @@ def main():
                         c = client
                         _deferred(lambda: _refresh_artifact3d_viewer(c))
                 return {"received": True}
+
+        if target == "level_path.viewer.surface" and action in ("mouseDown", "mouseMove", "mouseUp", "mouseWheel") and client is not None:
+            viewer_state = app_state.get("level_path_viewer", {})
+            if not isinstance(viewer_state, dict):
+                return {"received": True}
+            doc = viewer_state.get("doc")
+            if not isinstance(doc, dict):
+                return {"received": True}
+            raw_x = float(payload.get("x", -1.0) or -1.0)
+            raw_y = float(payload.get("y", -1.0) or -1.0)
+            x, y = _level_path_surface_event_to_virtual(client, raw_x, raw_y)
+            editor_view_state = {
+                "tool": str(viewer_state.get("tool", "select")),
+                "pending_line": viewer_state.get("pending_line"),
+                "view": str(viewer_state.get("view", "top")),
+                "zoom": float(viewer_state.get("zoom", 52.0) or 52.0),
+                "center": list(viewer_state.get("center", [0.0, 0.0])),
+                "active_item": (viewer_state.get("drag") or {}).get("item"),
+            }
+            if action == "mouseWheel":
+                delta = payload.get("delta_y")
+                if delta is None:
+                    delta = payload.get("dy")
+                if delta is None:
+                    delta = payload.get("delta")
+                try:
+                    delta_value = float(delta or 0.0)
+                except Exception:
+                    delta_value = 0.0
+                if abs(delta_value) > 0.001:
+                    zoom = float(viewer_state.get("zoom", 52.0) or 52.0)
+                    scale = 0.92 if delta_value > 0.0 else 1.08
+                    viewer_state["zoom"] = max(12.0, min(220.0, zoom * scale))
+                    c = client
+                    _deferred(lambda: _refresh_level_path_viewer(c))
+                return {"received": True}
+            if x < 0.0 or y < 0.0:
+                return {"received": True}
+            if action == "mouseDown":
+                face = level_path_view_cube_hit_test(x, y)
+                if face:
+                    viewer_state["view"] = face
+                    viewer_state["drag"] = {"kind": "view_cube", "start_xy": [x, y], "face_down": face}
+                    c = client
+                    _deferred(lambda: _refresh_level_path_viewer(c))
+                    return {"received": True}
+                if level_path_view_cube_contains(x, y):
+                    viewer_state["drag"] = {"kind": "view_cube", "start_xy": [x, y], "face_down": None}
+                    return {"received": True}
+                hit_item = level_path_hit_test_item(doc, editor_view_state, x, y)
+                if hit_item:
+                    anchor_world = level_path_screen_to_world(doc, x, y, editor_view_state, anchor=hit_item.get("world"))
+                    viewer_state["drag"] = {
+                        "kind": "move_item",
+                        "item": hit_item,
+                        "anchor_world": list(anchor_world),
+                        "initial_world": list(hit_item.get("world", [0.0, 0.0, 0.0])),
+                    }
+                    c = client
+                    _deferred(lambda: _refresh_level_path_viewer(c))
+                    return {"received": True}
+                tool = str(viewer_state.get("tool", "select"))
+                if tool in ("square", "cube", "line"):
+                    world_point = level_path_screen_to_world(doc, x, y, editor_view_state)
+                    updated_doc, updated_editor_state = level_path_place_primitive(doc, tool, world_point, editor_view_state)
+                    viewer_state["doc"] = updated_doc
+                    viewer_state["pending_line"] = updated_editor_state.get("pending_line")
+                    if tool != "line" or not viewer_state.get("pending_line"):
+                        viewer_state["tool"] = "select"
+                    c = client
+                    _deferred(lambda: _refresh_level_path_viewer(c))
+                    return {"received": True}
+                c = client
+                _deferred(lambda: _refresh_level_path_viewer(c))
+                return {"received": True}
+            if action == "mouseMove":
+                drag = viewer_state.get("drag")
+                if not isinstance(drag, dict):
+                    return {"received": True}
+                if drag.get("kind") == "view_cube":
+                    start_xy = drag.get("start_xy")
+                    if isinstance(start_xy, list) and len(start_xy) >= 2:
+                        dx = x - float(start_xy[0])
+                        dy = y - float(start_xy[1])
+                        if abs(dx) > 12.0 or abs(dy) > 12.0:
+                            drag["face_down"] = None
+                            next_view = level_path_rotate_view(str(viewer_state.get("view", "top")), dx, dy)
+                            if next_view != str(viewer_state.get("view", "top")):
+                                viewer_state["view"] = next_view
+                                drag["start_xy"] = [x, y]
+                                c = client
+                                _deferred(lambda: _refresh_level_path_viewer(c))
+                    return {"received": True}
+                if drag.get("kind") == "move_item":
+                    anchor = drag.get("anchor_world")
+                    initial_world = drag.get("initial_world")
+                    if isinstance(anchor, list) and len(anchor) >= 3 and isinstance(initial_world, list) and len(initial_world) >= 3:
+                        current_world = level_path_screen_to_world(doc, x, y, editor_view_state, anchor=initial_world)
+                        delta_world = (
+                            float(current_world[0]) - float(anchor[0]),
+                            float(current_world[1]) - float(anchor[1]),
+                            float(current_world[2]) - float(anchor[2]),
+                        )
+                        viewer_state["doc"] = level_path_move_item(doc, drag.get("item", {}), delta_world)
+                        drag["anchor_world"] = list(current_world)
+                        c = client
+                        _deferred(lambda: _refresh_level_path_viewer(c))
+                    return {"received": True}
+                return {"received": True}
+            if action == "mouseUp":
+                drag = viewer_state.get("drag")
+                if isinstance(drag, dict) and drag.get("kind") == "view_cube":
+                    face = level_path_view_cube_hit_test(x, y)
+                    face_down = drag.get("face_down")
+                    if face:
+                        viewer_state["view"] = face
+                    elif isinstance(face_down, str) and face_down:
+                        viewer_state["view"] = face_down
+                viewer_state["drag"] = None
+                c = client
+                _deferred(lambda: _refresh_level_path_viewer(c))
+            return {"received": True}
 
         # Double-click on a folder item navigates into it.
         if action == "action" and target == "wizard.folder_list" and client is not None:
@@ -6943,6 +7250,16 @@ def main():
                 _deferred(_do_clear_chat)
                 return {"received": True}
 
+            elif item_action in ("level_path.tool.square", "level_path.tool.cube", "level_path.tool.line"):
+                viewer_state = app_state.get("level_path_viewer", {})
+                if isinstance(viewer_state, dict):
+                    viewer_state["tool"] = item_action.rsplit(".", 1)[-1]
+                    viewer_state["pending_line"] = None
+                    viewer_state["drag"] = None
+                    c = client
+                    _deferred(lambda: _refresh_level_path_viewer(c))
+                return {"received": True}
+
         # AI context checkbox toggles
         if action == "valueChanged" and target in (
             "ai.ctx.file", "ai.ctx.project", "ai.ctx.selection"
@@ -7647,7 +7964,8 @@ def main():
                         "epa": "nav.tree.epa",
                         "cpp": "nav.tree.cpp",
                         "python": "nav.tree.python",
-                        _NAV_ARTIFACTS_TECH: _NAV_ARTIFACTS_TREE_ID,
+                        _NAV_ARTIFACTS_TECH: _NAV_3D_TREE_ID,
+                        _NAV_LEVEL_PATHS_TECH: _NAV_3D_TREE_ID,
                     }
                     for tech, tech_nodes in per_tech.items():
                         if _toggle(tech_nodes):

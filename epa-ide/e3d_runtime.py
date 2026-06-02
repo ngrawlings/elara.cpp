@@ -255,6 +255,10 @@ def _resolve_instance_anchor(doc: dict, instance_id: str, anchor_name: str) -> d
     }
 
 
+def _component_and_doc_for_instance(doc: dict, instance: dict) -> tuple[dict | None, dict]:
+    return _resolve_component_ref(doc, str(instance.get("component", "")))
+
+
 def _range_text(joint: dict) -> str:
     mode = str(joint.get("mode", "unknown"))
     axis_lock = joint.get("axis_lock")
