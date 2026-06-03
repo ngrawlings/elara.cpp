@@ -15,6 +15,13 @@ typedef struct {
   EpaCodeView code;
 } EpaFuncDesc;
 
+typedef struct {
+  uint32_t at_id;
+  uint16_t frame_words; // r0=thread_index, r1/r2=shared GHS, r3=thread_count, plus stack words if nonzero
+  uint16_t _pad;
+  EpaCodeView code;
+} EpaAtEntryDesc;
+
 typedef enum {
   EPA_CONST_NONE  = 0,
   EPA_CONST_STR   = 1,
@@ -65,6 +72,9 @@ typedef struct {
   EpaFuncDesc *funcs;         // dense
   size_t nfuncs;
 
+  EpaAtEntryDesc *at_entries; // dense, resolved by at_id
+  size_t nat_entries;
+
   EpaProgramDynamicPoolDesc *dynamic_pools;
   size_t dynamic_pool_count;
 
@@ -95,6 +105,11 @@ static inline int epa_prog_resolve(
     *out_code = p->funcs[block_id].code.code;
     *out_len  = p->funcs[block_id].code.code_len;
     return 1;
+  } else if (block_type == 2 /*EPA_BLOCK_AT_ENTRY*/) {
+    if (block_id >= p->nat_entries) return 0;
+    *out_code = p->at_entries[block_id].code.code;
+    *out_len  = p->at_entries[block_id].code.code_len;
+    return 1;
   }
   return 0;
 }
@@ -111,6 +126,23 @@ static inline int epa_prog_find_func(
     if (p->funcs[i].func_id == func_id) {
       if (out_func_index) *out_func_index = (uint32_t)i;
       if (out_frame_words) *out_frame_words = p->funcs[i].frame_words;
+      return 1;
+    }
+  }
+  return 0;
+}
+
+static inline int epa_prog_find_at_entry(
+    const EpaProgramDesc *p,
+    uint32_t at_id,
+    uint32_t *out_at_index,
+    uint16_t *out_frame_words
+) {
+  if (!p) return 0;
+  for (size_t i = 0; i < p->nat_entries; i++) {
+    if (p->at_entries[i].at_id == at_id) {
+      if (out_at_index) *out_at_index = (uint32_t)i;
+      if (out_frame_words) *out_frame_words = p->at_entries[i].frame_words;
       return 1;
     }
   }

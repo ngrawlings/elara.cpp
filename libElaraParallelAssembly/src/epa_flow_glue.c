@@ -36,6 +36,16 @@ int epa_resolve_eip(
     return 1;
   }
 
+  if (eip->block_type == EPA_BLOCK_AT_ENTRY) {
+    if (eip->block_id >= prog->nat_entries) {
+      snprintf(err, EPA_MAX_ERR, "resolve_eip: missing at_entry %u", (unsigned)eip->block_id);
+      return 0;
+    }
+    *out_code = prog->at_entries[eip->block_id].code.code;
+    *out_len  = prog->at_entries[eip->block_id].code.code_len;
+    if (out_abs_base) *out_abs_base = prog->at_entries[eip->block_id].code.abs_base;
+    return 1;
+  }
 
   snprintf(err, EPA_MAX_ERR, "resolve_eip: invalid block_type %u", (unsigned)eip->block_type);
   return 0;

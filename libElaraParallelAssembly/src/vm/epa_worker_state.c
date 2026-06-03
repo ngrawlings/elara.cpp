@@ -52,7 +52,6 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   w->fault_message[0] = '\0';
   w->halted  = 0;
   w->waiting_for_data = 0;
-  w->at_running = 0;
   w->has_current_ghs = 0;
   w->current_ghs = 0;
 
@@ -116,7 +115,6 @@ void epa_worker_reset(EpaWorkerState *w) {
   w->fault_message[0] = '\0';
   w->halted  = 0;
   w->waiting_for_data = 0;
-  w->at_running = 0;
   w->has_current_ghs = 0;
   w->current_ghs = 0;
 

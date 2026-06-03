@@ -497,7 +497,7 @@ def main():
                 break
         return [binary, "--port", str(args.port), "--persistent"]
 
-    # --- epa-dbg subprocess + client -----------------------------------------
+    # --- epavm subprocess + client -------------------------------------------
     _epa_dbg: dict = {"proc": None, "client": None, "output_lines": [], "port": None, "build_output": ""}
 
     # ── Shared context for subsystem modules ─────────────────────────────────
@@ -568,7 +568,7 @@ def main():
 
     def _epa_dbg_binary():
         workspace = Path(__file__).resolve().parent.parent
-        return workspace / "epa-dbg" / "build" / "epa-dbg"
+        return workspace / "epavm" / "build" / "epavm"
 
     def _epa_dbg_port() -> int | None:
         port = _epa_dbg.get("port")
@@ -622,7 +622,7 @@ def main():
         _epa_dbg_set_vm_status("running" if running else "idle")
 
     def _epa_dbg_log(line: str):
-        """Append a line to the epa-dbg output buffer and push to the build output panel."""
+        """Append a line to the epavm output buffer and push to the build output panel."""
         buf = _epa_dbg.get("build_output", "") + line + "\n"
         buf = buf[-32000:]  # cap at ~32k chars
         _epa_dbg["build_output"] = buf
@@ -639,7 +639,7 @@ def main():
         artifacts_dir = Path(__file__).resolve().parent / "artifacts"
         artifacts_dir.mkdir(exist_ok=True)
         stamp = time.strftime("%Y%m%d-%H%M%S")
-        artifact_path = artifacts_dir / f"epa-dbg-error-{stamp}.txt"
+        artifact_path = artifacts_dir / f"epavm-error-{stamp}.txt"
         try:
             artifact_path.write_text(
                 f"{title}\n{'='*60}\n{message}\n"
@@ -649,11 +649,11 @@ def main():
         except Exception:
             pass
         ui_c = client_ref.get("client")
-        _epa_dbg_set_vm_status("error", title.replace("epa-dbg: ", ""))
+        _epa_dbg_set_vm_status("error", title.replace("epavm: ", "").replace("epa-dbg: ", ""))
         if ui_c:
             try:
                 ui_c.open_window(
-                    "epa-dbg-error",
+                    "epavm-error",
                     title,
                     520, 220,
                     build_error_dialog(title, f"{message}\n\nDetails written to:\n{artifact_path}"),
@@ -662,8 +662,8 @@ def main():
                 pass
 
     def _epa_dbg_launch():
-        """Start epa-dbg if not already running, connect client."""
-        from epa_dbg_client import EpaDbgClient
+        """Start epavm if not already running, connect client."""
+        from epavm_client import EpaDbgClient
 
         _epa_dbg_set_vm_status("starting")
         proc = _epa_dbg.get("proc")
@@ -675,8 +675,8 @@ def main():
             port = _epa_dbg_port()
             if not port:
                 _epa_dbg_show_error(
-                    "epa-dbg: reconnect failed",
-                    "epa-dbg is running but no port was recorded for this session.",
+                    "epavm: reconnect failed",
+                    "epavm is running but no port was recorded for this session.",
                     list(_epa_dbg.get("output_lines", [])),
                 )
                 return
@@ -687,8 +687,8 @@ def main():
                 _epa_dbg_set_vm_button(True)
             except Exception as exc:
                 _epa_dbg_show_error(
-                    "epa-dbg: reconnect failed",
-                    f"Could not reconnect to epa-dbg on port {port}.\n{exc}",
+                    "epavm: reconnect failed",
+                    f"Could not reconnect to epavm on port {port}.\n{exc}",
                     list(_epa_dbg.get("output_lines", [])),
                 )
             return
@@ -697,8 +697,8 @@ def main():
         if not binary.is_file():
             _epa_dbg_set_vm_button(False)
             _epa_dbg_show_error(
-                "epa-dbg: binary not found",
-                f"Binary not found at:\n{binary}\n\nRun: make  in the epa-dbg directory.",
+                "epavm: binary not found",
+                f"Binary not found at:\n{binary}\n\nRun: make in the epavm directory.",
             )
             return
 
@@ -724,7 +724,7 @@ def main():
 
         try:
             new_proc = subprocess.Popen(
-                [str(binary), str(port), "127.0.0.1"],
+                [str(binary), "--debug", str(port), "127.0.0.1"],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 start_new_session=True,
@@ -732,7 +732,7 @@ def main():
         except OSError as exc:
             _epa_dbg_set_vm_button(False)
             _epa_dbg_show_error(
-                "epa-dbg: failed to start",
+                "epavm: failed to start",
                 f"Could not execute:\n{binary}\n\n{exc}",
             )
             return
@@ -740,7 +740,7 @@ def main():
         threading.Thread(target=_reader, args=(new_proc.stdout, "stdout"), daemon=True).start()
         threading.Thread(target=_reader, args=(new_proc.stderr, "stderr"), daemon=True).start()
         _epa_dbg["proc"] = new_proc
-        _epa_dbg_log(f"[epa-dbg] started on port {port}")
+        _epa_dbg_log(f"[epavm] started debug service on port {port}")
 
         # Give process a moment then check it hasn't immediately exited
         time.sleep(0.3)
@@ -748,8 +748,8 @@ def main():
         if exit_code is not None:
             time.sleep(0.5)   # let readers drain
             _epa_dbg_show_error(
-                "epa-dbg: process exited immediately",
-                f"epa-dbg exited with code {exit_code} before accepting connections.",
+                "epavm: process exited immediately",
+                f"epavm exited with code {exit_code} before accepting connections.",
                 list(out_lines),
             )
             _epa_dbg["proc"] = None
@@ -766,7 +766,7 @@ def main():
             exit_code = new_proc.poll()
             time.sleep(0.3)
             _epa_dbg_show_error(
-                "epa-dbg: connection failed",
+                "epavm: connection failed",
                 f"Process started on port {port} (exit={exit_code}) but TCP connect failed.\n{exc}",
                 list(out_lines),
             )
@@ -802,7 +802,7 @@ def main():
             pass
 
     def _epa_dbg_stop():
-        """Terminate epa-dbg process and close client."""
+        """Terminate epavm process and close client."""
         _epa_dbg_set_vm_status("stopping")
         c = _epa_dbg.get("client")
         if c:
@@ -829,11 +829,11 @@ def main():
         _refresh_status_panel(client_ref.get("client"))
 
     def _epa_dbg_reset(kernel_id: int = 0) -> dict:
-        """Ensure epa-dbg is running and reset the kernel slot."""
+        """Ensure epavm is running and reset the kernel slot."""
         _epa_dbg_launch()
         c = _epa_dbg_client()
         if not c:
-            return {"ok": False, "error": "epa-dbg not available"}
+            return {"ok": False, "error": "epavm not available"}
         try:
             result = c.reset(kernel_id)
             return {"ok": True, "result": result}
@@ -845,7 +845,7 @@ def main():
         _epa_dbg_launch()
         c = _epa_dbg_client()
         if not c:
-            return {"ok": False, "error": "epa-dbg not available"}
+            return {"ok": False, "error": "epavm not available"}
         try:
             load_result = c.load_bundle(kernel_id, bundle_path)
             return {"ok": True, "load": load_result}
@@ -857,7 +857,7 @@ def main():
         _epa_dbg_launch()
         c = _epa_dbg_client()
         if not c:
-            return {"ok": False, "error": "epa-dbg not available"}
+            return {"ok": False, "error": "epavm not available"}
         try:
             reset_result = c.reset(kernel_id)
             load_result = c.load_asm(kernel_id, asm_text)
@@ -1822,7 +1822,7 @@ def main():
         _clear_build_output(client)
         _append_build_output(client, f"Build started: {project_root}\n")
         if _epa_dbg_running():
-            _append_build_output(client, "[build] stopping epa-dbg before build\n")
+            _append_build_output(client, "[build] stopping epavm before build\n")
             _epa_dbg_stop()
 
         try:
@@ -7353,7 +7353,7 @@ def main():
         # Error dialog close button
         if item_action == "error_dialog.close":
             c = client
-            _deferred(lambda: c.close_window("epa-dbg-error") if c else None)
+            _deferred(lambda: c.close_window("epavm-error") if c else None)
             return {"received": True}
 
         if item_action == "worker_fault.close":
@@ -7490,7 +7490,7 @@ def main():
                 _deferred(lambda tn=type_name: _open_ingress_profile_editor(c, tn))
             return {"received": True}
 
-        # Queue selected ingress packet into epa-dbg
+        # Queue selected ingress packet into epavm
         if target == "nav.debug.ingress_queue_btn" and action in ("action", "clicked"):
             selected_profile = app_state.get("debug_ingress_selected_profile", "")
             type_name = app_state.get("debug_ingress_type", "")

@@ -20,7 +20,7 @@ PROJECT_FLAGS=(
   "libelarauirpc"
   "libelarapythonthreads"
   "libelaraparallelassembly"
-  "epadbg"
+  "epavm"
   "libelaraserializer"
   "libelaravector"
   "libelaraui"

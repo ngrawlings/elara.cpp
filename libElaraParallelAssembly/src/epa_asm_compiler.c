@@ -710,6 +710,8 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"FUNC_END",   EPA_OP_FUNC_END,   0,0,0, {0},             NULL, "FUNC_END"},
 	{"CALL",       EPA_OP_CALL,       1,1,1, {AK_U32},        NULL, "CALL <func_id:u32>"},
 	{"RET",        EPA_OP_RET,        0,0,0, {0},             NULL, "RET"},
+	{"AT_ENTRY_START", EPA_OP_AT_ENTRY_START, 2,2,2, {AK_U32, AK_U16}, NULL, "AT_ENTRY_START <at_id:u32> <frame_words:u16>"},
+	{"AT_ENTRY_END",   EPA_OP_AT_ENTRY_END,   0,0,0, {0},             NULL, "AT_ENTRY_END"},
 
     // Entry scheduler
     {"ENTRY_START",EPA_OP_ENTRY_START,           4,4, 4,{AK_U32, AK_U16, AK_U16, AK_U32}, NULL, "ENTRY_START <id> <in_words:u16> <out_words:u16> <signal_mail_box_size:u32>"},
@@ -725,8 +727,6 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     // Data / wakeups
     {"WAIT_FOR_DATA",EPA_OP_WAIT_FOR_DATA,       0,0, 0,{0}, NULL, "WAIT_FOR_DATA takes no params"},
     {"DATA_READY", EPA_OP_DATA_READY,            1,1, 1,{AK_U8}, NULL, "DATA_READY <worker_id:u8>"},
-	{"WAIT_FOR_AT", EPA_OP_WAIT_FOR_AT,          0,0, 0,{0}, NULL, "WAIT_FOR_AT takes no params"},
-
 	// Ring-buffer transfers
 	{ "WORKER_TRX",        EPA_OP_WORKER_TRX,        3, 3, 3, 	{ AK_U32, AK_U32, AK_U16 }, NULL, "" }, // src_laddr, dst_laddr, len
 	{ "KERNEL_TRX_IN_L",   EPA_OP_KERNEL_TRX_IN_L,   3, 3, 3,  	{ AK_U8,  AK_U32, AK_U16 }, NULL, "" }, // worker_id, laddr, len
@@ -765,6 +765,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"FAR_SIGNAL", EPA_OP_FAR_SIGNAL,            0,0, 0,{0}, NULL, "FAR_SIGNAL"},
 	{"HOST_SIGNAL",EPA_OP_HOST_SIGNAL,           0,0, 0,{0}, NULL, "HOST_SIGNAL"},
 	{"REQUEST_THREADS",EPA_OP_REQUEST_THREADS,   0,0, 0,{0}, NULL, "REQUEST_THREADS   ; kernel-only, r0=desired_total_threads"},
+	{"REQUEST_AT", EPA_OP_REQUEST_AT,            0,0, 0,{0}, NULL, "REQUEST_AT   ; consumes stack: descriptor words, descriptor_word_count"},
 
 	{"LOAD_CONST", EPA_OP_LOAD_CONST, 1,1, 1,{AK_U32}, NULL, "LOAD_CONST <id:u32>"},
 
@@ -778,8 +779,6 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"LOG", EPA_OP_LOG, 0,0, 0,{0}, NULL, "LOG   ; log string (r0,r1,r2)"},
 
 	{"SM_PUT", EPA_OP_SM_PUT, 0, 0, 0, {0}, NULL, "SM_PUT: write u32 from r0 to signal mailbox at r3; r3 += 4"},
-
-	{"AT", EPA_OP_AT, 0, 0, 0, {0}, NULL, "AT: (uses: r0=EPA_FUNCTION, r1=GHS_HANDLE_LO, r2=GHS_HANDLE_HI, r3=THREAD_COUNT)"},
 
   };
 

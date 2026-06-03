@@ -752,7 +752,7 @@ int EpaSignalLabApp::run() {
     if (debug_session.enabled) {
         appendLog(String("debug session id: ") + debug_session.session_id);
         appendLog(String("debug session file: ") + debug_session.session_path);
-        appendLog(String("epa-dbg endpoint: ")
+        appendLog(String("epavm debug endpoint: ")
             + debug_session.epa_dbg_host
             + String(":")
             + String(debug_session.epa_dbg_port));

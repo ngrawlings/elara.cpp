@@ -25,15 +25,6 @@ typedef enum {
   EPA_NF_EXEC_NOT_MINE = 3    // opcode is flow-owned; caller should run FlowLogic
 } EpaNonFlowRc;
 
-typedef struct {
-    uint32_t active;        // 0/1
-    uint32_t fn;            // r0 EPA_FUNCTION
-    epa_ghs_handle_t init_h; // r1
-    uint32_t want_threads;  // r2 requested
-    uint32_t got_threads;   // assigned
-    uint32_t done_threads;  // completed
-} EpaAtCtx;
-
 typedef enum { EPA_EXEC_WORKER=0, EPA_EXEC_THREAD=1 } EpaExecType;
 
 typedef struct {
@@ -60,7 +51,6 @@ typedef struct {
   char    fault_message[256]; // filled when faulted != 0
 
   uint8_t waiting_for_data;
-  uint8_t at_running;
   uint8_t has_current_ghs;
 
   // Descriptor-debug metadata (not used for control flow)
@@ -68,8 +58,6 @@ typedef struct {
   // code_len = length of this descriptor in bytes
   uint32_t abs_base;
   uint32_t code_len;
-
-  EpaAtCtx at;
 
   // IO rings (u32 words)
   IdRing inq;

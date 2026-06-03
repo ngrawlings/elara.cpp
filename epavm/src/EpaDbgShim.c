@@ -58,7 +58,6 @@ size_t epa_dbg_capture_workers(EpaKernel *kernel, EpaDbgWorkerSnapshot *out, siz
         dst->blocked          = (uint32_t)w->blocked;
         dst->faulted          = (uint32_t)w->faulted;
         dst->waiting_for_data = (uint32_t)w->waiting_for_data;
-        dst->at_running       = (uint32_t)w->at_running;
         dst->has_current_ghs  = (uint32_t)w->has_current_ghs;
         memcpy(dst->csc, w->vm.csc, sizeof(dst->csc));
         dst->stack_depth         = (uint32_t)w->vm.stack.sp;
@@ -135,7 +134,6 @@ int epa_dbg_capture_worker_inspect(EpaKernel *kernel, uint32_t wid, EpaDbgWorker
     out->blocked = (uint32_t)w->blocked;
     out->faulted = (uint32_t)w->faulted;
     out->waiting_for_data = (uint32_t)w->waiting_for_data;
-    out->at_running = (uint32_t)w->at_running;
     out->inq_count = kernel->ingress.inq[wid].count;
     out->outq_count = epa_ring_count(&w->outq);
     memcpy(out->csc, w->vm.csc, sizeof(out->csc));

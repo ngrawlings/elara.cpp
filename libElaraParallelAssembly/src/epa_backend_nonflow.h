@@ -26,6 +26,12 @@ static inline int epa_prog_resolve_view(
     *out_len  = p->funcs[block_id].code.code_len;
     return 1;
   }
+  if (block_type == EPA_BLOCK_AT_ENTRY) {
+    if (block_id >= p->nat_entries) return 0;
+    *out_code = p->at_entries[block_id].code.code;
+    *out_len  = p->at_entries[block_id].code.code_len;
+    return 1;
+  }
   return 0;
 }
 

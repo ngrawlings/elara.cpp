@@ -21,7 +21,8 @@ void kdbg_emit(EpaKernel *k, EpaKernelDbgKind kind, uint8_t wid, uint32_t code, 
 
 void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, const char *detail) {
   const char *kernel = k && k->kernel_id ? k->kernel_id : "(unnamed)";
-  const char *block  = (eip && eip->block_type == 0) ? "entry" : "func";
+  const char *block  = (eip && eip->block_type == EPA_BLOCK_ENTRY) ? "entry" :
+                       (eip && eip->block_type == EPA_BLOCK_AT_ENTRY) ? "at_entry" : "func";
   uint32_t    bid    = eip ? (uint32_t)eip->block_id  : 0u;
   uint32_t    pc     = eip ? (uint32_t)eip->rel_pc    : 0u;
 
@@ -242,6 +243,91 @@ int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char e
   }
   add_count = desired_total - current;
   return epa_kernel_add_threads(k, add_count, err);
+}
+
+int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, uint32_t descriptor_word_count, uint32_t *out_request_id, char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  EpaWorkerState *w;
+  EpaSystemAtRequestRecord *slot;
+  uint32_t *owned_words;
+  uint64_t request_id;
+  uint32_t at_id;
+  uint32_t at_index;
+  uint32_t requested_threads;
+  uint32_t param_words;
+  uint16_t frame_words;
+
+  if (err) err[0] = 0;
+  if (out_request_id) *out_request_id = 0u;
+  if (!k) { snprintf(err, EPA_MAX_ERR, "hook_request_at: kernel null"); return 0; }
+  if (wid == 0u || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: only valid in initialized workers");
+    return 0;
+  }
+  if (!descriptor_words || descriptor_word_count < 6u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: descriptor too small");
+    return 0;
+  }
+  if (descriptor_word_count > 1024u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: descriptor too large");
+    return 0;
+  }
+
+  at_id = descriptor_words[0];
+  requested_threads = descriptor_words[2];
+  param_words = descriptor_words[4];
+  at_index = 0u;
+  frame_words = 0u;
+  if (!epa_prog_find_at_entry(&k->prog, at_id, &at_index, &frame_words)) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: unknown AT entry at_id=%u", (unsigned)at_id);
+    return 0;
+  }
+  if (requested_threads == 0u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: requested_threads=0");
+    return 0;
+  }
+  if ((uint64_t)6u + (uint64_t)param_words > (uint64_t)descriptor_word_count) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: param_words exceeds descriptor");
+    return 0;
+  }
+  if (param_words < (uint32_t)frame_words) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: descriptor param_words=%u below AT entry frame_words=%u",
+             (unsigned)param_words, (unsigned)frame_words);
+    return 0;
+  }
+
+  owned_words = (uint32_t*)malloc((size_t)descriptor_word_count * sizeof(uint32_t));
+  if (!owned_words) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: OOM copying descriptor");
+    return 0;
+  }
+  memcpy(owned_words, descriptor_words, (size_t)descriptor_word_count * sizeof(uint32_t));
+
+  pthread_mutex_lock(&k->impl.atq_mu);
+  if (k->impl.atq.count >= EPA_SYSTEM_AT_QMAX) {
+    pthread_mutex_unlock(&k->impl.atq_mu);
+    free(owned_words);
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: system AT queue full");
+    return 0;
+  }
+
+  request_id = k->impl.atq.next_request_id++;
+  if (k->impl.atq.next_request_id == 0u) k->impl.atq.next_request_id = 1u;
+  slot = &k->impl.atq.q[k->impl.atq.tail];
+  free(slot->descriptor_words);
+  slot->request_id = request_id;
+  slot->wid = wid;
+  slot->at_entry_index = at_index;
+  slot->descriptor_word_count = descriptor_word_count;
+  slot->descriptor_words = owned_words;
+  k->impl.atq.tail = (k->impl.atq.tail + 1u) % EPA_SYSTEM_AT_QMAX;
+  k->impl.atq.count++;
+  pthread_mutex_unlock(&k->impl.atq_mu);
+
+  w = &k->impl.workers[wid];
+  if (out_request_id) *out_request_id = (uint32_t)(request_id & 0xffffffffu);
+  kdbg_emit(k, EPA_KDBG_SIGNAL, wid, (uint32_t)(request_id & 0xffffffffu), &w->vm.eip, "request_at");
+  return 1;
 }
 
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {

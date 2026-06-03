@@ -1,4 +1,4 @@
-AC_INIT([epa-dbg], [0.1])
+AC_INIT([epavm], [0.1])
 AC_PROG_CXX
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

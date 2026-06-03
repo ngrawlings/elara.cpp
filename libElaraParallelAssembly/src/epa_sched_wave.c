@@ -119,21 +119,7 @@ static int wave_run(EpaKernel *k,
       }
     }
 
-    if (!any_ran) {
-      int any_at_running = 0;
-      for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
-        if (k->impl.workers[wid].at_running) {
-          any_at_running = 1;
-          break;
-        }
-      }
-
-      if (any_at_running) {
-        continue;
-      }
-
-      return 1;
-    }
+    if (!any_ran) return 1;
   }
 }
 

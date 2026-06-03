@@ -19,10 +19,6 @@
 
 #include "epa_kernel_hooks.h"
 
-#ifndef EPA_AT_POOL_THREADS
-#define EPA_AT_POOL_THREADS 8u
-#endif
-
 static EpaNonFlowRc epa_null_nf_exec_one(void *impl, const EpaProgramDesc *prog,
                                           EpaWorkerState *w, EpaEip *eip,
                                           char err[EPA_MAX_ERR]) {
@@ -73,6 +69,22 @@ static char *kernel_strdup(const char *s) {
   if (!p) return NULL;
   memcpy(p, s, n + 1u);
   return p;
+}
+
+static void kernel_atq_clear(EpaKernel *k) {
+  if (!k) return;
+  for (uint32_t i = 0; i < EPA_SYSTEM_AT_QMAX; i++) {
+    free(k->impl.atq.q[i].descriptor_words);
+    k->impl.atq.q[i].descriptor_words = NULL;
+    k->impl.atq.q[i].descriptor_word_count = 0;
+    k->impl.atq.q[i].request_id = 0;
+    k->impl.atq.q[i].wid = 0;
+    k->impl.atq.q[i].at_entry_index = 0;
+  }
+  k->impl.atq.head = 0;
+  k->impl.atq.tail = 0;
+  k->impl.atq.count = 0;
+  if (k->impl.atq.next_request_id == 0u) k->impl.atq.next_request_id = 1u;
 }
 
 static void kernel_fault_worker(EpaKernel *k, uint32_t wid, const char *fmt, ...) {
@@ -235,7 +247,9 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
     return NULL;
   }
   pthread_mutex_init(&k->impl.syncq_mu, NULL);
+  pthread_mutex_init(&k->impl.atq_mu, NULL);
   pthread_mutex_init(&k->state_mu, NULL);
+  k->impl.atq.next_request_id = 1u;
   k->runtime_status = EPA_KERNEL_STATUS_UNLOADED;
   k->last_error[0] = 0;
 
@@ -243,21 +257,6 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
   if (!k->impl.ghs) {
      TRACE("GHS init failed");
      return 0; // or your init fail path
-  }
-
-  k->impl.tp = (EpaThreadPool*)calloc(1, sizeof(EpaThreadPool));
-  if (!k->impl.tp) {
-    if (err) snprintf(err, EPA_MAX_ERR, "OOM creating AT thread pool");
-    epa_ghs_destroy(k->impl.ghs);
-    free(k);
-    return NULL;
-  }
-  if (!epa_thread_pool_init(k->impl.tp, EPA_AT_POOL_THREADS)) {
-    if (err) snprintf(err, EPA_MAX_ERR, "AT thread pool init failed");
-    free(k->impl.tp);
-    epa_ghs_destroy(k->impl.ghs);
-    free(k);
-    return NULL;
   }
 
   epa_kernel_set_scheduler(k, EPA_SCHED_WAVE, err);
@@ -283,14 +282,12 @@ void epa_kernel_destroy(EpaKernel *k) {
   	  k->impl.ghs = NULL;
   }
 
-  if (k->impl.tp) {
-    epa_thread_pool_shutdown(k->impl.tp);
-    free(k->impl.tp);
-    k->impl.tp = NULL;
-  }
-
   epa_ring_free(&k->impl.syncq);
+  pthread_mutex_lock(&k->impl.atq_mu);
+  kernel_atq_clear(k);
+  pthread_mutex_unlock(&k->impl.atq_mu);
   pthread_mutex_destroy(&k->impl.syncq_mu);
+  pthread_mutex_destroy(&k->impl.atq_mu);
   pthread_mutex_destroy(&k->state_mu);
 
   if (k->prog_loaded) epa_program_free(&k->prog);
@@ -600,6 +597,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->hooks.on_far_signal   = hook_far_signal;
   k->hooks.on_host_signal  = hook_host_signal;
   k->hooks.on_request_threads = hook_request_threads;
+  k->hooks.on_request_at   = hook_request_at;
 
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
@@ -669,6 +667,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->hooks.on_far_signal   = hook_far_signal;
   k->hooks.on_host_signal  = hook_host_signal;
   k->hooks.on_request_threads = hook_request_threads;
+  k->hooks.on_request_at   = hook_request_at;
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
   k->nf = epa_null_nf_backend;
 

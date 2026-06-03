@@ -25,8 +25,18 @@ int hook_sync(void *user, char err[EPA_MAX_ERR]);
 int hook_wait_on_sync(void *user, char err[EPA_MAX_ERR]);
 EpaWorkerState* hook_get_worker(void *user, uint8_t wid);
 int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char err[EPA_MAX_ERR]);
+int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, uint32_t descriptor_word_count, uint32_t *out_request_id, char err[EPA_MAX_ERR]);
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+
+typedef struct {
+  uint32_t at_id;
+  uint32_t at_version;
+  uint32_t requested_threads;
+  uint32_t flags;
+  uint32_t param_words;
+  uint32_t result_ref_index;
+} EpaAtRequestDescriptorHeader;
 
 typedef enum {
   EPA_FLOW_ERR      			= 0,
@@ -65,6 +75,7 @@ typedef struct {
   int (*on_far_signal)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
   int (*on_host_signal)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
   int (*on_request_threads)(void *user, uint8_t wid, uint32_t desired_total, char err[EPA_MAX_ERR]);
+  int (*on_request_at)(void *user, uint8_t wid, const uint32_t *descriptor_words, uint32_t descriptor_word_count, uint32_t *out_request_id, char err[EPA_MAX_ERR]);
 } EpaFlowHooks;
 
 typedef struct {

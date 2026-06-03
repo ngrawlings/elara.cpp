@@ -31,7 +31,6 @@ typedef struct {
     uint32_t  blocked;
     uint32_t  faulted;
     uint32_t  waiting_for_data;
-    uint32_t  at_running;
     uint32_t  has_current_ghs;
     uint32_t  csc[4];
     uint32_t  stack_depth;
@@ -77,7 +76,6 @@ typedef struct {
     uint32_t blocked;
     uint32_t faulted;
     uint32_t waiting_for_data;
-    uint32_t at_running;
     uint32_t inq_count;
     uint32_t outq_count;
     uint32_t csc[4];

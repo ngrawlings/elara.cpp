@@ -2092,7 +2092,7 @@ int OrangeFortressApp::run() {
     if (debug_session.enabled) {
         sendHostDebugLog(String("debug session id: ") + debug_session.session_id);
         sendHostDebugLog(String("debug session file: ") + debug_session.session_path);
-        sendHostDebugLog(String("epa-dbg endpoint: ")
+        sendHostDebugLog(String("epavm debug endpoint: ")
             + debug_session.epa_dbg_host
             + String(":")
             + String(debug_session.epa_dbg_port));

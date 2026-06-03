@@ -1,5 +1,5 @@
-NAME=epa-dbg
-CXX=@CXX@
+NAME=epavm
+CXX=g++
 CC?=gcc
 
 FRAMEWORK_ROOT?=$(abspath ..)

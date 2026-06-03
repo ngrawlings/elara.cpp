@@ -44,10 +44,6 @@ X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC ar
 X(WAIT_FOR_DATA,  0x0140u, "WAIT_FOR_DATA",0) // Block until input data available
 X(DATA_READY,     0x0141u, "DATA_READY",   1) // Signal data ready for worker (u8 wid)
 
-X(WAIT_FOR_AT,  0x0142u, "WAIT_FOR_AT",0) // Block until AT finished
-
-X(AT,  0x0150u, "AT", 0) // Execute Atomic Task (register ABI)
-
 //
 // ---------- COMMON: Stack + arithmetic + locals/registers ----------
 //
@@ -96,6 +92,8 @@ X(FUNC_START, 0x002Au, "FUNC_START", 6)  // Begin function (func_id, frame_words
 X(FUNC_END,   0x002Bu, "FUNC_END",   0)  // End function
 X(CALL,       0x002Cu, "CALL",       4)  // Call function by id
 X(RET,        0x002Du, "RET",        0)  // Return from function
+X(AT_ENTRY_START, 0x002Eu, "AT_ENTRY_START", 6) // Begin AT entry (at_id, frame_words)
+X(AT_ENTRY_END,   0x002Fu, "AT_ENTRY_END",   0) // End AT entry
 
 //
 // ---------- COMMON: Ring-buffer transfers ----------
@@ -144,6 +142,7 @@ X(SIGNAL,  0x0403u, "SIGNAL", 0)
 X(FAR_SIGNAL,  0x0404u, "FAR_SIGNAL", 0)
 X(HOST_SIGNAL, 0x0405u, "HOST_SIGNAL", 0)
 X(REQUEST_THREADS, 0x0406u, "REQUEST_THREADS", 0) // kernel-only, uses r0=desired_total_threads
+X(REQUEST_AT,      0x0407u, "REQUEST_AT",      0) // copy stack AT descriptor, issue system AT request
 
 // Local byte arena allocation (worker-local, byte-addressable)
 X(L_ALLOC, 0x0222u, "L_ALLOC", 0) // in: r0=size_bytes  out: r0=off, r1=size, r2=ok(1/0), r3=0
@@ -154,9 +153,6 @@ X(L_SCOPE_ALLOC, 0x0226u, "L_SCOPE_ALLOC", 0) // like L_ALLOC, intended for scop
 
 X(FMT, 0x0745u, "FMT", 1) // u8 argc
 X(LOG, 0x0746u, "LOG", 0) // consumes (r0=off, r1=len, r2=kind)
-
-
-X(AT_PARALLEL, 0x0800u, "AT_PARALLEL", 0) // consumes (r0=EPA_FUNCTION, r1=GHS_IDX, r2=GHS_GEN, r3=THREAD_COUNT)
 
 
 //

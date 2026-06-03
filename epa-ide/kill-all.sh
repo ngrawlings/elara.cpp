@@ -14,6 +14,7 @@ pid_matches_epa_ide() {
   [[ "${args}" == *"elaraui-server"* ]] && return 0
   [[ "${args}" == *"/ai_rpc_client.py"* ]] && return 0
   [[ "${args}" == *" epa-ide/ai_rpc_client.py "* ]] && return 0
+  [[ "${args}" == *"epavm"* ]] && return 0
   [[ "${args}" == *"epa-dbg"* ]] && return 0
   [[ "${args}" == *"gdb --interpreter=mi2"* ]] && return 0
   [[ "${args}" == *"epa-signal-lab"* ]] && return 0
@@ -64,6 +65,7 @@ kill_pid_file_entries ""
 kill_matching_processes "" 'python3 ./app.py'
 kill_matching_processes "" 'python3 (.+/epa-ide/ai_rpc_client.py|epa-ide/ai_rpc_client.py) --port'
 kill_matching_processes "" 'elaraui-server'
+kill_matching_processes "" '/epavm '
 kill_matching_processes "" '/epa-dbg '
 kill_matching_processes "" 'gdb --interpreter=mi2'
 kill_matching_processes "" '/epa-signal-lab/cpp/build/epa-signal-lab '
@@ -76,6 +78,7 @@ kill_pid_file_entries "-9"
 kill_matching_processes "-9" 'python3 ./app.py'
 kill_matching_processes "-9" 'python3 (.+/epa-ide/ai_rpc_client.py|epa-ide/ai_rpc_client.py) --port'
 kill_matching_processes "-9" 'elaraui-server'
+kill_matching_processes "-9" '/epavm '
 kill_matching_processes "-9" '/epa-dbg '
 kill_matching_processes "-9" 'gdb --interpreter=mi2'
 kill_matching_processes "-9" '/epa-signal-lab/cpp/build/epa-signal-lab '

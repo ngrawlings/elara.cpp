@@ -2017,6 +2017,7 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
   int in_body = 0;
   int body_offset = 0;
   int func_dense_idx = 0;
+  int at_entry_dense_idx = 0;
   int epa_line = 0;
 
   rewind(asm_out);
@@ -2060,6 +2061,14 @@ static void e_write_epa_map(FILE *asm_out, FILE *map_out) {
       continue;
     }
     if (strcmp(token, "FUNC_END") == 0) { in_body = 0; continue; }
+    if (strcmp(token, "AT_ENTRY_START") == 0) {
+      fprintf(map_out, "B 2 %d\n", at_entry_dense_idx++);
+      in_body = 1;
+      body_offset = 0;
+      current_e_line = 0;
+      continue;
+    }
+    if (strcmp(token, "AT_ENTRY_END") == 0) { in_body = 0; continue; }
     if (!in_body) continue;
 
     /* Extract optional first argument (needed for PUSH ambiguity) */

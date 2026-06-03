@@ -11,10 +11,10 @@
 #include "vm/epa_worker_state.h"
 
 #include "epa_scheduler.h"
-#include "threads/epa_thread_pool.h"
 #include <pthread.h>
 
 #define EPA_INGRESS_QMAX  16
+#define EPA_SYSTEM_AT_QMAX 64
 
 // Event kinds
 typedef enum {
@@ -24,6 +24,22 @@ typedef enum {
   EPA_KDBG_SIGNAL = 4,
   EPA_KDBG_EGRESS = 5,
 } EpaKernelDbgKind;
+
+typedef struct {
+  uint64_t request_id;
+  uint32_t wid;
+  uint32_t at_entry_index;
+  uint32_t descriptor_word_count;
+  uint32_t *descriptor_words;
+} EpaSystemAtRequestRecord;
+
+typedef struct {
+  EpaSystemAtRequestRecord q[EPA_SYSTEM_AT_QMAX];
+  uint32_t head;
+  uint32_t tail;
+  uint32_t count;
+  uint64_t next_request_id;
+} EpaSystemAtRequestRing;
 
 typedef struct {
   // same impl you have today
@@ -43,10 +59,11 @@ typedef struct {
   uint32_t worker_next[EPA_MAX_WORKERS];   // next active wid per slot
 
   epa_ghs_t* ghs;
-  EpaThreadPool *tp;
+  EpaSystemAtRequestRing atq;
 
   int interrupt_requested;
   pthread_mutex_t syncq_mu;
+  pthread_mutex_t atq_mu;
 } KernelImpl;
 
 typedef void (*EpaKernelDbgCallback)(

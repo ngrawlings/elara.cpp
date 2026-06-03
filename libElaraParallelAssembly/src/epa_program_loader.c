@@ -108,6 +108,49 @@ static int skip_func(
   return 0;
 }
 
+static int skip_at_entry(
+    const uint8_t *blob, size_t blob_len,
+    size_t pc_at_at_entry_start,
+    size_t *out_pc_after_at_entry_end,
+    char err[EPA_MAX_ERR]
+) {
+  size_t pc = pc_at_at_entry_start;
+  int depth = 0;
+
+  while (pc + 2 <= blob_len) {
+    uint16_t op = EPA_READ_U16_LE(blob, pc);
+    const EpaOpcodeDef *def = epa_find_opcode(op);
+    if (!def) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", op, pc);
+      return 0;
+    }
+
+    size_t need = 2u + (size_t)def->param_len;
+    if (pc + need > blob_len) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
+      return 0;
+    }
+
+    if (op == EPA_OP_AT_ENTRY_START) depth++;
+    else if (op == EPA_OP_AT_ENTRY_END) {
+      depth--;
+      if (depth == 0) {
+        *out_pc_after_at_entry_end = pc + need;
+        return 1;
+      }
+      if (depth < 0) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: AT_ENTRY_END without AT_ENTRY_START at pc=%zu", pc);
+        return 0;
+      }
+    }
+
+    pc += need;
+  }
+
+  snprintf(err, EPA_MAX_ERR, "program_loader: unterminated AT_ENTRY (missing AT_ENTRY_END)");
+  return 0;
+}
+
 static int parse_data_block(
     EpaProgramDesc *out,
     const uint8_t *blob, size_t blob_len,
@@ -244,6 +287,7 @@ void epa_program_free(EpaProgramDesc *p) {
   if (!p) return;
   free(p->consts);
   free(p->funcs);
+  free(p->at_entries);
   free(p->dynamic_pools);
   free(p->acl_entries);
   memset(p, 0, sizeof(*p));
@@ -266,6 +310,8 @@ int epa_program_parse(
 
   out->funcs = NULL;
   out->nfuncs = 0;
+  out->at_entries = NULL;
+  out->nat_entries = 0;
 
   out->image_base = blob;
   out->image_size = blob_len;
@@ -438,6 +484,46 @@ int epa_program_parse(
       F->code.code = blob + body_start;
       F->code.code_len = (body_end - body_start);
       F->code.abs_base = (uint32_t)body_start;
+
+      pc = pc_after;
+      continue;
+    }
+
+    if (op == EPA_OP_AT_ENTRY_START) {
+      uint32_t at_id = EPA_READ_U32_LE(blob, pc + 2);
+      uint16_t frame_words = EPA_READ_U16_LE(blob, pc + 6);
+
+      for (size_t i = 0; i < out->nat_entries; i++) {
+        if (out->at_entries[i].at_id == at_id) {
+          snprintf(err, EPA_MAX_ERR, "program_loader: duplicate AT_ENTRY_START at_id=%u", (unsigned)at_id);
+          return 0;
+        }
+      }
+
+      size_t pc_after = 0;
+      if (!skip_at_entry(blob, blob_len, pc, &pc_after, err)) return 0;
+
+      size_t body_start = pc + need;
+      size_t body_end   = pc_after - 2; // start of AT_ENTRY_END
+      if (body_end < body_start) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: malformed AT_ENTRY at_id=%u", (unsigned)at_id);
+        return 0;
+      }
+
+      EpaAtEntryDesc *na = (EpaAtEntryDesc *)realloc(out->at_entries, (out->nat_entries + 1) * sizeof(EpaAtEntryDesc));
+      if (!na) {
+        snprintf(err, EPA_MAX_ERR, "program_loader: OOM adding AT_ENTRY at_id=%u", (unsigned)at_id);
+        return 0;
+      }
+      out->at_entries = na;
+
+      EpaAtEntryDesc *A = &out->at_entries[out->nat_entries++];
+      memset(A, 0, sizeof(*A));
+      A->at_id = at_id;
+      A->frame_words = frame_words;
+      A->code.code = blob + body_start;
+      A->code.code_len = (body_end - body_start);
+      A->code.abs_base = (uint32_t)body_start;
 
       pc = pc_after;
       continue;

@@ -9,7 +9,6 @@
 
 #include "memory/epa_ghs.h"
 #include "epa_instruct_helpers.h"
-#include "atomic_tasks/epa_at_router.h"
 
 #define EPA_CALL_MAGIC0 0xC011CA11u
 #define EPA_CALL_MAGIC1 0xF00DF00Du
@@ -225,7 +224,8 @@ EpaFlowRc epa_flow_step(
 
   TRACE("[GL-NF] slot=%u %s[%u] pc=%zu op=0x%04x %s\n",
         (unsigned)w->id,
-        (eip->block_type==EPA_BLOCK_ENTRY)?"entry":"func",
+        (eip->block_type == EPA_BLOCK_ENTRY) ? "entry" :
+        (eip->block_type == EPA_BLOCK_AT_ENTRY) ? "at_entry" : "func",
         (unsigned)eip->block_id,
         pc, op, def->name);
 
@@ -337,6 +337,57 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_REQUEST_AT: {
+      uint32_t descriptor_word_count;
+      uint32_t *descriptor_words;
+      uint32_t request_id = 0u;
+      size_t descriptor_start;
+
+      if (!ctx->hooks.on_request_at) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT hook not installed");
+        return EPA_FLOW_ERR;
+      }
+      if (!st->words || st->sp < 1u) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: stack underflow reading descriptor size");
+        return EPA_FLOW_ERR;
+      }
+
+      descriptor_word_count = st->words[st->sp - 1u];
+      if (descriptor_word_count < 6u) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: descriptor too small (%u words)", (unsigned)descriptor_word_count);
+        return EPA_FLOW_ERR;
+      }
+      if (descriptor_word_count > 1024u) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: descriptor too large (%u words)", (unsigned)descriptor_word_count);
+        return EPA_FLOW_ERR;
+      }
+      if (st->sp < (size_t)descriptor_word_count + 1u) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: stack underflow need=%u have=%zu",
+                 (unsigned)(descriptor_word_count + 1u), st->sp);
+        return EPA_FLOW_ERR;
+      }
+
+      descriptor_start = st->sp - 1u - (size_t)descriptor_word_count;
+      descriptor_words = (uint32_t*)malloc((size_t)descriptor_word_count * sizeof(uint32_t));
+      if (!descriptor_words) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: OOM copying descriptor");
+        return EPA_FLOW_ERR;
+      }
+      memcpy(descriptor_words, st->words + descriptor_start, (size_t)descriptor_word_count * sizeof(uint32_t));
+
+      if (!ctx->hooks.on_request_at(ctx->hooks_user, (uint8_t)w->id, descriptor_words, descriptor_word_count, &request_id, err)) {
+        free(descriptor_words);
+        return EPA_FLOW_ERR;
+      }
+
+      free(descriptor_words);
+      st->sp = descriptor_start;
+      w->vm.csc[0] = (int32_t)request_id;
+      w->vm.csc[1] = 1;
+      eip->rel_pc = (uint32_t)(pc + need);
+      return EPA_FLOW_YIELDED;
+    }
+
     case EPA_OP_TRAP: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
       EpaEip at = *eip;
@@ -427,26 +478,6 @@ EpaFlowRc epa_flow_step(
 
       eip->rel_pc = (uint32_t)(pc + need);
       return EPA_FLOW_YIELDED;
-    }
-
-    case EPA_OP_WAIT_FOR_AT: {
-          // worker-only
-          if (w->id == 0) {
-            snprintf(err, EPA_MAX_ERR, "WAIT_FOR_AT only valid in workers");
-            return EPA_FLOW_ERR;
-          }
-
-          if (!epa_at_router_update_worker(w, err)) {
-            return EPA_FLOW_ERR;
-          }
-
-          if (w->at_running) {
-        	  w->blocked = 1;
-              return EPA_FLOW_YIELDED;
-          }
-
-          eip->rel_pc = (uint32_t)(pc + need);
-          return EPA_FLOW_YIELDED;
     }
 
     case EPA_OP_CMP: {
@@ -1784,39 +1815,6 @@ case EPA_OP_SM_PUT: {
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
-
-case EPA_OP_AT: {
-  // worker-only (kernel entry 0 must not launch AT)
-  if (w->id == 0) {
-    snprintf(err, EPA_MAX_ERR, "AT_PARALLEL only valid in workers");
-    return EPA_FLOW_ERR;
-  }
-
-  // ABI: r0=sub_id, r1=ghs_handle_lo, r2=ghs_handle_hi, r3=thread_count
-  uint32_t sub_id = w->vm.csc[0];
-  epa_ghs_handle_t h = epa_h_from_regs(w->vm.csc[1], w->vm.csc[2]);
-  uint32_t thread_count = w->vm.csc[3];
-
-  if (!k || !k->impl.ghs) {
-    snprintf(err, EPA_MAX_ERR, "AT_PARALLEL: kernel has no GHS");
-    return EPA_FLOW_ERR;
-  }
-
-  if (w->at_running) {
-    snprintf(err, EPA_MAX_ERR, "AT_PARALLEL: AT already running");
-    return EPA_FLOW_ERR;
-  }
-
-  // Launch AT batch
-  if (!epa_at_router_launch_parallel(k, w, sub_id, k->impl.ghs, h, thread_count, err)) {
-    return EPA_FLOW_ERR;
-  }
-
-  // Advance PC and yield (AT runs async; WAIT_FOR_AT will join)
-  eip->rel_pc = (uint32_t)(pc + need);
-  return EPA_FLOW_YIELDED;
-}
-
 
     default:
       return EPA_FLOW_NOT_FLOW;

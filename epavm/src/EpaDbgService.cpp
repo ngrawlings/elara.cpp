@@ -772,7 +772,6 @@ String EpaDbgService::buildSnapshotJson(const String &path_id) const {
         result += String(",\"blocked\":") + String((int)w.blocked);
         result += String(",\"faulted\":") + String((int)w.faulted);
         result += String(",\"waiting_for_data\":") + String((int)w.waiting_for_data);
-        result += String(",\"at_running\":") + String((int)w.at_running);
         result += String(",\"debug_enabled\":") + String(workerDebugIsEnabled(path_id, w.wid) ? "true" : "false");
         result += String(",\"has_current_ghs\":") + String((int)w.has_current_ghs);
         result += String(",\"current_ghs\":") + String((unsigned long long)w.current_ghs);
@@ -866,8 +865,7 @@ String EpaDbgService::buildWorkerInspectJson(const String &path_id, uint32_t wid
     result += String(",\"flags\":{\"halted\":") + String((int)info.halted)
            + String(",\"blocked\":") + String((int)info.blocked)
            + String(",\"faulted\":") + String((int)info.faulted)
-           + String(",\"waiting_for_data\":") + String((int)info.waiting_for_data)
-           + String(",\"at_running\":") + String((int)info.at_running) + String("}");
+           + String(",\"waiting_for_data\":") + String((int)info.waiting_for_data) + String("}");
     result += String(",\"stack\":{\"depth\":") + String((int)info.stack_depth)
            + String(",\"start_index\":") + String((int)info.stack_start)
            + String(",\"words\":[");
