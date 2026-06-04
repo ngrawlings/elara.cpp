@@ -2,6 +2,7 @@
 #include "epa_kernel.h"
 #include "epa_kernel_internal.h"
 #include "epa_kernel_hooks.h"
+#include "platform/epa_platform_wait.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -193,7 +194,7 @@ static void* cpu_worker_thread_main(void *argp) {
     while (!st->stop &&
            atomic_load(&st->interrupt) == 0 &&
            st->tid_to_wid[tid] < 0) {
-      pthread_cond_wait(&st->cv, &st->mu);
+      epa_platform_cond_wait(&st->cv, &st->mu);
     }
 
     if (st->stop) {
@@ -205,7 +206,7 @@ static void* cpu_worker_thread_main(void *argp) {
     if (atomic_load(&st->interrupt) != 0) {
       if (st->tid_to_wid[tid] >= 0) {
         unbind_locked(k, st, tid);
-        pthread_cond_broadcast(&st->cv);
+        epa_platform_cond_broadcast(&st->cv);
       }
       pthread_mutex_unlock(&st->mu);
       continue;
@@ -238,7 +239,7 @@ static void* cpu_worker_thread_main(void *argp) {
                     (unsigned)w->vm.eip.rel_pc);
           }
           unbind_locked(k, st, tid);
-          pthread_cond_broadcast(&st->cv);
+          epa_platform_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
         break;
@@ -264,7 +265,7 @@ static void* cpu_worker_thread_main(void *argp) {
                     (unsigned)w->vm.eip.rel_pc);
           }
           unbind_locked(k, st, tid);
-          pthread_cond_broadcast(&st->cv);
+          epa_platform_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
         break;
@@ -276,7 +277,7 @@ static void* cpu_worker_thread_main(void *argp) {
         pthread_mutex_lock(&st->mu);
         if (st->tid_to_wid[tid] == wid) {
           unbind_locked(k, st, tid);
-          pthread_cond_broadcast(&st->cv);
+          epa_platform_cond_broadcast(&st->cv);
         }
         pthread_mutex_unlock(&st->mu);
         break;
@@ -286,7 +287,7 @@ static void* cpu_worker_thread_main(void *argp) {
         // kernel ended (worker 0 halted)
         pthread_mutex_lock(&st->mu);
         st->stop = 1;
-        pthread_cond_broadcast(&st->cv);
+        epa_platform_cond_broadcast(&st->cv);
         pthread_mutex_unlock(&st->mu);
         break;
       }
@@ -337,7 +338,7 @@ static int cpu_init(EpaKernel *k, EpaSchedState *s, char err[EPA_MAX_ERR]) {
     if (!cpu_spawn_thread(k, st, i, err)) {
       if (err) snprintf(err, EPA_MAX_ERR, "cpu_thread: pthread_create failed");
       st->stop = 1;
-      pthread_cond_broadcast(&st->cv);
+      epa_platform_cond_broadcast(&st->cv);
       for (uint32_t j = 0; j < i; j++) pthread_join(st->threads[j], NULL);
       pthread_cond_destroy(&st->cv);
       pthread_mutex_destroy(&st->mu);
@@ -388,7 +389,7 @@ int epa_sched_cpu_thread_add_threads(EpaKernel *k,
   }
 
   pthread_mutex_lock(&st->mu);
-  pthread_cond_broadcast(&st->cv);
+  epa_platform_cond_broadcast(&st->cv);
   pthread_mutex_unlock(&st->mu);
   return 1;
 }
@@ -412,7 +413,7 @@ static void cpu_destroy(EpaKernel *k, EpaSchedState *s) {
 
   pthread_mutex_lock(&st->mu);
   st->stop = 1;
-  pthread_cond_broadcast(&st->cv);
+  epa_platform_cond_broadcast(&st->cv);
   pthread_mutex_unlock(&st->mu);
 
   for (uint32_t i = 0; i < st->n_threads; i++) {
@@ -440,7 +441,7 @@ static void cpu_request_interrupt(EpaKernel *k, EpaSchedState *s) {
     CpuThreadState *st = (CpuThreadState*)s->opaque;
     atomic_store(&st->interrupt, 1);
     pthread_mutex_lock(&st->mu);
-    pthread_cond_broadcast(&st->cv);
+    epa_platform_cond_broadcast(&st->cv);
     pthread_mutex_unlock(&st->mu);
   }
 }
@@ -450,7 +451,7 @@ static void cpu_wake(EpaKernel *k, EpaSchedState *s) {
   if (!s || !s->opaque) return;
   CpuThreadState *st = (CpuThreadState*)s->opaque;
   pthread_mutex_lock(&st->mu);
-  pthread_cond_broadcast(&st->cv);
+  epa_platform_cond_broadcast(&st->cv);
   pthread_mutex_unlock(&st->mu);
 }
 
@@ -475,7 +476,7 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
     st->wid_to_tid[wid] = free_tid;
   }
 
-  pthread_cond_broadcast(&st->cv);
+  epa_platform_cond_broadcast(&st->cv);
 }
 
 static int all_threads_idle_locked(CpuThreadState *st) {
@@ -538,10 +539,10 @@ static int cpu_run(EpaKernel *k,
     // Interrupt/yield handling:
     if (k->impl.interrupt_requested) {
       atomic_store(&st->interrupt, 1);
-      pthread_cond_broadcast(&st->cv);
+      epa_platform_cond_broadcast(&st->cv);
 
       while (!st->stop && !all_threads_idle_locked(st)) {
-        pthread_cond_wait(&st->cv, &st->mu);
+        epa_platform_cond_wait(&st->cv, &st->mu);
       }
 
       // Clear and yield
@@ -563,11 +564,11 @@ static int cpu_run(EpaKernel *k,
     // Headless artifact-driven execution: sleep until woken by ingress,
     // worker unbind, or explicit wake().
     if (!any_runnable_unbound) {
-      pthread_cond_wait(&st->cv, &st->mu);
+      epa_platform_cond_wait(&st->cv, &st->mu);
       pthread_mutex_unlock(&st->mu);
     } else {
       // Runnable work exists but no free threads; wait for a thread to return.
-      pthread_cond_wait(&st->cv, &st->mu);
+      epa_platform_cond_wait(&st->cv, &st->mu);
       pthread_mutex_unlock(&st->mu);
     }
   }

@@ -35,10 +35,12 @@ OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.o,$(SOURCES))
 TOOLS_BUILD=$(BUILDPATH)/tools
 EPAASM_REPL=$(TOOLS_BUILD)/epa_asm_repl
 EPAASM_REPL_OBJS=$(TOOLS_BUILD)/epa_asm_repl.o $(TOOLS_BUILD)/epa_asm_compiler.o
+CUDA_BUILD=$(BUILDPATH)/cuda
+CUDA_SMOKE_OBJ=$(CUDA_BUILD)/epa_cuda_smoke.o
 
 SHARED_LDLIBS=-pthread -lglfw -lGL -ldl -lrt
 
-.PHONY: all install clean remove cleanconf isa-lint legacy-shared tools unit clean-unit e epa-build clean-e test
+.PHONY: all install clean remove cleanconf isa-lint legacy-shared tools unit clean-unit e epa-build clean-e test cuda-build cuda-run
 
 all: $(STATIC_LIBRARY)
 
@@ -107,6 +109,26 @@ test: legacy-shared
 		ctests
 	@echo "Running EPA unit tests"
 	$(BUILDPATH)/unittests/epa_unit_runner $(BUILDPATH)/$(LEGACY_SHARED) $(UNIT_DIR)/tests 5000000
+
+cuda-build:
+	@if command -v nvcc >/dev/null 2>&1; then \
+		$(MKDIR) $(CUDA_BUILD); \
+		echo "Building CUDA EPA smoke object"; \
+		nvcc -std=c++14 -dc -I$(shell pwd) -I./src -DEPA_ENABLE_CUDA=1 src/cuda/epa_cuda_smoke.cu -o $(CUDA_SMOKE_OBJ); \
+	else \
+		echo "CUDA build skipped: nvcc not found"; \
+	fi
+
+cuda-run: cuda-build
+	@if ! command -v nvcc >/dev/null 2>&1; then \
+		echo "CUDA run skipped: nvcc not found"; \
+	elif ! command -v nvidia-smi >/dev/null 2>&1; then \
+		echo "CUDA run skipped: nvidia-smi not found"; \
+	elif ! nvidia-smi -L >/dev/null 2>&1; then \
+		echo "CUDA run skipped: no CUDA device available"; \
+	else \
+		echo "CUDA smoke target is compile-only for now: $(CUDA_SMOKE_OBJ)"; \
+	fi
 
 install: all
 	@for header in $(HEADERS); do \
