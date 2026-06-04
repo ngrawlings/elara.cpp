@@ -253,7 +253,8 @@ epa_ghs_err_t epa_ghs_write_bytes(epa_ghs_t* ghs,
 
   // Validate + get slot
   EPA_GHS_RETURN_IF_ERR(epa_ghs_validate(ghs, h));
-  epa_ghs_entry_t* s = &ghs->entries[h];
+  uint32_t idx = epa_ghs_handle_index(h);
+  epa_ghs_entry_t* s = &ghs->entries[idx];
 
   if (offset > s->size_bytes) return EPA_GHS_EBOUNDS;
   if (len > (s->size_bytes - offset)) return EPA_GHS_EBOUNDS;
@@ -331,4 +332,3 @@ int epa_ghs_get_tag(epa_ghs_t *ghs, epa_ghs_handle_t h, uint32_t *out_tag) {
     *out_tag = e->tag;
     return EPA_GHS_OK;
 }
-

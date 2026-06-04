@@ -124,6 +124,9 @@ typedef struct {
   const EFunction **functions;
   size_t function_count;
 
+  const EFunction **at_entries;
+  size_t at_entry_count;
+
   EValidatorBinding *validators;
   size_t validator_count;
 

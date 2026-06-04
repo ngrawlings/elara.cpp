@@ -185,6 +185,11 @@ static uint64_t fnv1a64_bytes(const char *s) {
   return h;
 }
 
+static unsigned int stable_at_id_for_name(const char *name) {
+  uint32_t id = (uint32_t)(fnv1a64_bytes(name) & 0x7fffffffu);
+  return id ? id : 1u;
+}
+
 static const char *normalized_string_token(const char *s, char *buf, size_t buf_sz) {
   size_t n;
   if (!s) return "";
@@ -314,6 +319,7 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
       case E_TOP_KERNEL: collect_strings_in_stmt(ctx, top->as.kernel.body); break;
       case E_TOP_WORKER: collect_strings_in_stmt(ctx, top->as.worker.body); break;
       case E_TOP_FUNCTION: collect_strings_in_stmt(ctx, top->as.func.body); break;
+      case E_TOP_AT_ENTRY: collect_strings_in_stmt(ctx, top->as.at_entry.body); break;
       case E_TOP_TYPE: collect_strings_in_stmt(ctx, top->as.tdecl.body); break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
@@ -335,6 +341,11 @@ static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
 static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_ghs_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -488,6 +499,11 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"frame_commit", emit_frame_commit_builtin},
     {"far_signal", emit_far_signal_builtin},
     {"request_threads", emit_request_threads_builtin},
+    {"request_at", emit_request_at_builtin},
+    {"ghs_alloc", emit_ghs_alloc_builtin},
+    {"ghs_alloc_from_local", emit_ghs_alloc_from_local_builtin},
+    {"ghs_store_i32", emit_ghs_store_i32_builtin},
+    {"local_store_i32", emit_local_store_i32_builtin},
     {"start_worker", emit_worker_start_builtin},
     {"stop_worker", emit_worker_stop_builtin},
     {"worker_start", emit_worker_start_builtin},
@@ -577,11 +593,7 @@ static int emit_user_func_call(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
       } else if (check->vm_local_words == 2u) {
         emit_expr(out, expr->as.call.args[i], ctx, depth);
         emit_indent(out, depth);
-        fputs("POP R1\n", out);
-        emit_indent(out, depth);
         EMIT_STORE_L(out, ctx, check->vm_local_slot + 1u);
-        emit_indent(out, depth);
-        fputs("POP R0\n", out);
         emit_indent(out, depth);
         EMIT_STORE_L(out, ctx, check->vm_local_slot);
         stored = 1;
@@ -690,11 +702,7 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
             EMIT_LOAD_L(out, ctx, slot);
           } else if (type_ref_vm_local_slot_for_name(ctx, expr->as.assign.lhs->as.ident, &slot)) {
             emit_indent(out, depth);
-            fputs("POP R1\n", out);
-            emit_indent(out, depth);
             EMIT_STORE_L(out, ctx, slot + 1u);
-            emit_indent(out, depth);
-            fputs("POP R0\n", out);
             emit_indent(out, depth);
             EMIT_STORE_L(out, ctx, slot);
             emit_indent(out, depth);
@@ -1207,6 +1215,183 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   return 1;
 }
 
+static const EFunction *find_at_entry_decl_by_name(const ESemanticModel *model, const char *name) {
+  size_t i;
+  if (!model || !name) return NULL;
+  for (i = 0; i < model->at_entry_count; i++) {
+    if (strcmp(model->at_entries[i]->name, name) == 0) return model->at_entries[i];
+  }
+  return NULL;
+}
+
+static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EExpr *entry_arg;
+  const EFunction *entry;
+  unsigned int at_id;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 4u) {
+    emit_indent(out, depth);
+    fprintf(out, "; request_at expects (at_entry, shared_ghs, virtual_threads, real_threads), got %zu\n",
+            expr->as.call.arg_count);
+    return 0;
+  }
+  entry_arg = expr->as.call.args[0];
+  if (!entry_arg || entry_arg->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; request_at first arg must be an at_entry identifier\n", out);
+    return 0;
+  }
+  entry = find_at_entry_decl_by_name(ctx->model, entry_arg->as.ident);
+  if (!entry) {
+    emit_indent(out, depth);
+    fprintf(out, "; request_at unknown at_entry %s\n", entry_arg->as.ident);
+    return 0;
+  }
+  at_id = stable_at_id_for_name(entry->name);
+
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", at_id);
+  emit_indent(out, depth);
+  fputs("PUSH 1\n", out);
+  emit_expr(out, expr->as.call.args[2], ctx, depth);
+  emit_expr(out, expr->as.call.args[3], ctx, depth);
+  emit_indent(out, depth);
+  fputs("PUSH 2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("REQUEST_AT\n", out);
+  return 1;
+}
+
+static int emit_ghs_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ETypeLayout *layout;
+  const EValidatorBinding *validator;
+  const char *type_name;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; ghs_alloc expects a declared type identifier\n", out);
+    return 0;
+  }
+  type_name = expr->as.call.args[0]->as.ident;
+  layout = find_type_layout(ctx->model, type_name);
+  validator = find_validator_binding(ctx->model, type_name);
+  if (!layout) {
+    emit_indent(out, depth);
+    fprintf(out, "; ghs_alloc unknown type %s\n", type_name);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %u\n", validator ? validator->validator_id : 0u);
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 1 %zu\n", layout->total_size);
+  emit_indent(out, depth);
+  fputs("G_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  return 1;
+}
+
+static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ETypeLayout *layout;
+  const EValidatorBinding *validator;
+  const char *type_name;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u ||
+      expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; ghs_alloc_from_local expects (TypeName, local_payload)\n", out);
+    return 0;
+  }
+  type_name = expr->as.call.args[0]->as.ident;
+  layout = find_type_layout(ctx->model, type_name);
+  validator = find_validator_binding(ctx->model, type_name);
+  if (!layout) {
+    emit_indent(out, depth);
+    fprintf(out, "; ghs_alloc_from_local unknown type %s\n", type_name);
+    return 0;
+  }
+
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %u\n", validator ? validator->validator_id : 0u);
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 1 %zu\n", layout->total_size);
+  emit_indent(out, depth);
+  fputs("G_ALLOC_L\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  return 1;
+}
+
+static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 3u) {
+    emit_indent(out, depth);
+    fprintf(out, "; ghs_store_i32 expects (ghs_ref, byte_offset, value), got %zu\n",
+            expr->as.call.arg_count);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_expr(out, expr->as.call.args[2], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("GW_MOV4 3\n", out);
+  return 1;
+}
+
+static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 3u) {
+    emit_indent(out, depth);
+    fprintf(out, "; local_store_i32 expects (local_ref, byte_offset, value), got %zu\n",
+            expr->as.call.arg_count);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_expr(out, expr->as.call.args[2], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("RLB_MOV4 R3 R2\n", out);
+  return 1;
+}
+
 static int emit_worker_control_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, const char *opname) {
   unsigned int wid = 0u;
   const EExpr *arg;
@@ -1583,11 +1768,7 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
           EMIT_STORE_L(out, ctx, binding->vm_local_slot);
         } else if (binding && binding->vm_local_words == 2u) {
           emit_indent(out, depth);
-          fprintf(out, "POP R1\n");
-          emit_indent(out, depth);
           EMIT_STORE_L(out, ctx, binding->vm_local_slot + 1u);
-          emit_indent(out, depth);
-          fprintf(out, "POP R0\n");
           emit_indent(out, depth);
           EMIT_STORE_L(out, ctx, binding->vm_local_slot);
         }
@@ -1987,6 +2168,34 @@ static int frame_words_for_function(const ESemanticModel *model, const char *nam
   return (int)((frame->total_size + 3u) / 4u);
 }
 
+static void emit_at_entry_prototype_bindings(FILE *out, const EFunction *at_entry, EmitCtx *ctx) {
+  const EFunctionParamCheck *thread_param;
+  const EFunctionParamCheck *ghs_param;
+  if (!at_entry || at_entry->param_count < 2u) return;
+
+  thread_param = find_param_check_by_name(ctx, at_entry->params[0].name);
+  ghs_param = find_param_check_by_name(ctx, at_entry->params[1].name);
+
+  emit_indent(out, 1);
+  fputs("; AT prototype: r0=thread_index r1/r2=shared GHS r3=thread_count\n", out);
+  if (thread_param && thread_param->vm_local_words == 1u) {
+    emit_indent(out, 1);
+    fputs("PUSH R0\n", out);
+    emit_indent(out, 1);
+    fprintf(out, "STORE_LW %u\n", thread_param->vm_local_slot);
+  }
+  if (ghs_param && ghs_param->vm_local_words == 2u) {
+    emit_indent(out, 1);
+    fputs("PUSH R1\n", out);
+    emit_indent(out, 1);
+    fprintf(out, "STORE_LW %u\n", ghs_param->vm_local_slot);
+    emit_indent(out, 1);
+    fputs("PUSH R2\n", out);
+    emit_indent(out, 1);
+    fprintf(out, "STORE_LW %u\n", ghs_param->vm_local_slot + 1u);
+  }
+}
+
 static unsigned int resolved_in_words(const ESemanticModel *model, const EEntryAttributes *attrs) {
   if (attrs && attrs->has_in_words) return attrs->in_words;
   return model->default_in_words;
@@ -2278,7 +2487,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.current_frame = find_frame(model, "kernel");
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
         ctx.current_frame = NULL;
-        fputs("  RET\n", out);
+        fputs("  END\n", out);
         fputs("ENTRY_END\n\n", out);
         break;
       case E_TOP_WORKER:
@@ -2373,6 +2582,22 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.current_frame = find_frame(model, top->as.func.name);
         emit_stmt(out, top->as.func.body, &ctx, 1, NULL, NULL);
         fputs("FUNC_END\n\n", out);
+        ctx.current_function = NULL;
+        ctx.current_frame = NULL;
+        break;
+      }
+      case E_TOP_AT_ENTRY: {
+        unsigned int at_id = stable_at_id_for_name(top->as.at_entry.name);
+        int frame_words = frame_words_for_function(model, top->as.at_entry.name);
+        fprintf(out, "; at_entry %s at_id=%u\n", top->as.at_entry.name, at_id);
+        fprintf(out, "AT_ENTRY_START %u %d\n", at_id, frame_words);
+        ctx.iter_binding_count = 0u;
+        ctx.current_function = &top->as.at_entry;
+        ctx.current_frame = find_frame(model, top->as.at_entry.name);
+        emit_at_entry_prototype_bindings(out, &top->as.at_entry, &ctx);
+        emit_stmt(out, top->as.at_entry.body, &ctx, 1, NULL, NULL);
+        fputs("  END\n", out);
+        fputs("AT_ENTRY_END\n\n", out);
         ctx.current_function = NULL;
         ctx.current_frame = NULL;
         break;

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "epa_kernel.h"
+#include "epa_kernel_internal.h"
 #include "epa_kernel_so.h"
 #include "epa_kernel_hooks.h"
 #include "opcodes/opcode_def.h"
@@ -254,14 +255,15 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
   uint32_t at_id;
   uint32_t at_index;
   uint32_t requested_threads;
+  uint32_t real_threads;
   uint32_t param_words;
   uint16_t frame_words;
 
   if (err) err[0] = 0;
   if (out_request_id) *out_request_id = 0u;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_request_at: kernel null"); return 0; }
-  if (wid == 0u || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
-    snprintf(err, EPA_MAX_ERR, "hook_request_at: only valid in initialized workers");
+  if (wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: only valid in initialized entries/workers");
     return 0;
   }
   if (!descriptor_words || descriptor_word_count < 6u) {
@@ -275,6 +277,7 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
 
   at_id = descriptor_words[0];
   requested_threads = descriptor_words[2];
+  real_threads = descriptor_words[3];
   param_words = descriptor_words[4];
   at_index = 0u;
   frame_words = 0u;
@@ -286,15 +289,20 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
     snprintf(err, EPA_MAX_ERR, "hook_request_at: requested_threads=0");
     return 0;
   }
+  if (real_threads == 0u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: real_threads=0");
+    return 0;
+  }
   if ((uint64_t)6u + (uint64_t)param_words > (uint64_t)descriptor_word_count) {
     snprintf(err, EPA_MAX_ERR, "hook_request_at: param_words exceeds descriptor");
     return 0;
   }
-  if (param_words < (uint32_t)frame_words) {
-    snprintf(err, EPA_MAX_ERR, "hook_request_at: descriptor param_words=%u below AT entry frame_words=%u",
-             (unsigned)param_words, (unsigned)frame_words);
+  if (param_words < 2u) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_at: descriptor param_words=%u below shared GHS handle words",
+             (unsigned)param_words);
     return 0;
   }
+  (void)frame_words;
 
   owned_words = (uint32_t*)malloc((size_t)descriptor_word_count * sizeof(uint32_t));
   if (!owned_words) {
@@ -307,8 +315,8 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
   if (k->impl.atq.count >= EPA_SYSTEM_AT_QMAX) {
     pthread_mutex_unlock(&k->impl.atq_mu);
     free(owned_words);
-    snprintf(err, EPA_MAX_ERR, "hook_request_at: system AT queue full");
-    return 0;
+    if (err) err[0] = 0;
+    return 2;
   }
 
   request_id = k->impl.atq.next_request_id++;
@@ -327,7 +335,7 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
   w = &k->impl.workers[wid];
   if (out_request_id) *out_request_id = (uint32_t)(request_id & 0xffffffffu);
   kdbg_emit(k, EPA_KDBG_SIGNAL, wid, (uint32_t)(request_id & 0xffffffffu), &w->vm.eip, "request_at");
-  return 1;
+  return epa_kernel_dispatch_at_requests_cpu(k, err);
 }
 
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {

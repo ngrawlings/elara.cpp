@@ -341,6 +341,7 @@ EpaFlowRc epa_flow_step(
       uint32_t descriptor_word_count;
       uint32_t *descriptor_words;
       uint32_t request_id = 0u;
+      int submit_rc;
       size_t descriptor_start;
 
       if (!ctx->hooks.on_request_at) {
@@ -375,7 +376,13 @@ EpaFlowRc epa_flow_step(
       }
       memcpy(descriptor_words, st->words + descriptor_start, (size_t)descriptor_word_count * sizeof(uint32_t));
 
-      if (!ctx->hooks.on_request_at(ctx->hooks_user, (uint8_t)w->id, descriptor_words, descriptor_word_count, &request_id, err)) {
+      submit_rc = ctx->hooks.on_request_at(ctx->hooks_user, (uint8_t)w->id, descriptor_words, descriptor_word_count, &request_id, err);
+      if (submit_rc == 2) {
+        if (err) err[0] = 0;
+        free(descriptor_words);
+        return EPA_FLOW_YIELDED;
+      }
+      if (!submit_rc) {
         free(descriptor_words);
         return EPA_FLOW_ERR;
       }
@@ -1097,6 +1104,44 @@ case EPA_OP_G_ALLOC: {
   return EPA_FLOW_YIELDED;
 }
 
+case EPA_OP_G_ALLOC_L: {
+  // in: r0=type, r1=size_bytes, r2=lbytes_off
+  // out: r0=idx, r1=gen
+  uint32_t caller = w->id;
+  uint32_t type_u = (uint32_t)w->vm.csc[0];
+  uint32_t size_b = (uint32_t)w->vm.csc[1];
+  uint32_t off = (uint32_t)w->vm.csc[2];
+  epa_ghs_handle_t h = 0;
+  epa_ghs_err_t ge;
+
+  if (!w->vm.lbytes || off > w->vm.lbytes_top || size_b > w->vm.lbytes_top - off) {
+    snprintf(err, EPA_MAX_ERR, "G_ALLOC_L local range out of bounds off=%u size=%u top=%u",
+             (unsigned)off, (unsigned)size_b, (unsigned)w->vm.lbytes_top);
+    return EPA_FLOW_ERR;
+  }
+
+  ge = epa_ghs_alloc(k->impl.ghs, (epa_ghs_type_t)type_u, caller, size_b, &h);
+  if (ge != EPA_GHS_OK) {
+    snprintf(err, EPA_MAX_ERR, "G_ALLOC_L alloc failed (type=%u size=%u) err=%d", type_u, size_b, ge);
+    return EPA_FLOW_ERR;
+  }
+
+  ge = epa_ghs_write_bytes(k->impl.ghs, h, 0u, w->vm.lbytes + off, size_b);
+  if (ge != EPA_GHS_OK) {
+    (void)epa_ghs_free(k->impl.ghs, h);
+    snprintf(err, EPA_MAX_ERR, "G_ALLOC_L copy failed size=%u err=%d", size_b, ge);
+    return EPA_FLOW_ERR;
+  }
+
+  w->vm.csc[0] = (int32_t)epa_ghs_handle_index(h);
+  w->vm.csc[1] = (int32_t)epa_ghs_handle_gen(h);
+  w->vm.csc[2] = 1;
+  w->vm.csc[3] = 0;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
 case EPA_OP_G_FREE: {
   uint32_t caller = w->id;
   epa_ghs_handle_t h = epa_h_from_regs(w->vm.csc[0], w->vm.csc[1]);
@@ -1350,7 +1395,34 @@ case EPA_OP_G_TAG: {
 case EPA_OP_GR_MOV4: {
 	uint32_t rid = code[pc + 2];
 	epa_ghs_handle_t h = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
-	epa_ghs_read_bytes(k->impl.ghs, h, w->vm.csc[2], &w->vm.csc[rid], 4);
+	epa_ghs_err_t ge;
+	if (rid >= 4u) {
+	  snprintf(err, EPA_MAX_ERR, "GR_MOV4: invalid register r%u", (unsigned)rid);
+	  return EPA_FLOW_ERR;
+	}
+	ge = epa_ghs_read_bytes(k->impl.ghs, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4);
+	if (ge != EPA_GHS_OK) {
+	  snprintf(err, EPA_MAX_ERR, "GR_MOV4 failed off=%u err=%d", (unsigned)w->vm.csc[2], ge);
+	  return EPA_FLOW_ERR;
+	}
+
+	eip->rel_pc = (uint32_t)(pc + need);
+	return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_GW_MOV4: {
+	uint32_t rid = code[pc + 2];
+	epa_ghs_handle_t h = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
+	epa_ghs_err_t ge;
+	if (rid >= 4u) {
+	  snprintf(err, EPA_MAX_ERR, "GW_MOV4: invalid register r%u", (unsigned)rid);
+	  return EPA_FLOW_ERR;
+	}
+	ge = epa_ghs_write_bytes(k->impl.ghs, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4);
+	if (ge != EPA_GHS_OK) {
+	  snprintf(err, EPA_MAX_ERR, "GW_MOV4 failed off=%u err=%d", (unsigned)w->vm.csc[2], ge);
+	  return EPA_FLOW_ERR;
+	}
 
 	eip->rel_pc = (uint32_t)(pc + need);
 	return EPA_FLOW_YIELDED;

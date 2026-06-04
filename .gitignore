@@ -32,6 +32,7 @@
 *.log
 *.pyc
 *.tmp
+*.status
 __pycache__
 .DS_Store
 autom4te.cache

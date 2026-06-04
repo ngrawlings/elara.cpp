@@ -59,6 +59,7 @@ static ETokenKind kw_kind(const char *text) {
   if (strcmp(text, "kernel") == 0) return E_TOK_KW_KERNEL;
   if (strcmp(text, "worker") == 0) return E_TOK_KW_WORKER;
   if (strcmp(text, "function") == 0) return E_TOK_KW_FUNCTION;
+  if (strcmp(text, "at_entry") == 0) return E_TOK_KW_AT_ENTRY;
   if (strcmp(text, "if") == 0) return E_TOK_KW_IF;
   if (strcmp(text, "else") == 0) return E_TOK_KW_ELSE;
   if (strcmp(text, "while") == 0) return E_TOK_KW_WHILE;

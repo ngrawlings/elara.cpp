@@ -116,6 +116,19 @@ typedef struct EpaSysMemoryRef {
 
 On CPU, a handle maps to an owned host allocation or a GHS block. On CUDA, a handle maps to VRAM, pinned host memory, or an imported device allocation. The shape is identical.
 
+GHS payloads are allocated at final size. Large or non-zero initial payloads should be built in VM local bytes first, then copied into GHS during allocation:
+
+```text
+G_ALLOC_L
+  in:  r0 = type/tag
+       r1 = final_size_bytes
+       r2 = local_bytes_offset
+  out: r0 = ghs_handle_lo
+       r1 = ghs_handle_hi
+```
+
+E exposes this as `ghs_alloc_from_local(TypeName, localPayload)`. This avoids constructing large payloads on the stack; the stack only carries the resulting two-word GHS handle.
+
 ## AT Request
 
 An AT command is a frame with `kind = EPA_SYS_AT_REQUEST`.
@@ -126,6 +139,14 @@ AT implementations are EPA `AT_ENTRY` blocks, not worker entries and not native 
 AT_ENTRY_START <at_id:u32> <frame_words:u16>
   ...
 AT_ENTRY_END
+```
+
+E source declares the same body with a dedicated top-level entry:
+
+```text
+at_entry Name(u32 thread_index, SharedBody body) {
+  ...
+}
 ```
 
 The fixed AT entry prototype is:
@@ -166,14 +187,16 @@ Descriptor header words:
 ```text
 word 0 = at_id
 word 1 = at_version
-word 2 = requested_threads
-word 3 = flags
+word 2 = virtual_threads
+word 3 = real_threads
 word 4 = param_words
 word 5 = result_ref_index
 word 6... = params / refs for the current descriptor version
 ```
 
 `REQUEST_AT` does not execute an AT command inside the VM and does not call a CPU-native AT router. It only submits the copied descriptor to the system request queue. The system layer turns that descriptor into an `EPA_SYS_AT_REQUEST` frame on the global ring, invokes the CPU/CUDA/silicon implementation behind the same contract, and returns results as `EPA_SYS_AT_RESPONSE` plus memory refs.
+
+If the system AT request ring is temporarily full, `REQUEST_AT` applies backpressure instead of faulting: the descriptor remains on the stack, the instruction pointer does not advance, and the worker yields so the same instruction can retry later. It faults only for hard/impossible cases such as malformed descriptors, unknown AT ids, or resource failures that cannot be resolved by queue space becoming available.
 
 Payload:
 

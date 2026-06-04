@@ -239,6 +239,7 @@ typedef enum {
   E_TOP_TYPE,
   E_TOP_DECLARE,
   E_TOP_DYNAMIC,
+  E_TOP_AT_ENTRY,
 } ETopKind;
 
 typedef struct {
@@ -248,6 +249,7 @@ typedef struct {
     EKernel kernel;
     EWorker worker;
     EFunction func;
+    EFunction at_entry;
     ETypeDecl tdecl;
     EDeclareDecl declare_decl;
     EDynamicDecl dynamic_decl;

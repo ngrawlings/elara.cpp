@@ -27,6 +27,14 @@ static int type_ref_is_union(const ETypeRef *type) {
 
 static int is_primitive_type(const char *name) {
   return strcmp(name, "int") == 0 ||
+         strcmp(name, "i8") == 0 ||
+         strcmp(name, "u8") == 0 ||
+         strcmp(name, "i16") == 0 ||
+         strcmp(name, "u16") == 0 ||
+         strcmp(name, "i32") == 0 ||
+         strcmp(name, "u32") == 0 ||
+         strcmp(name, "i64") == 0 ||
+         strcmp(name, "u64") == 0 ||
          strcmp(name, "long") == 0 ||
          strcmp(name, "short") == 0 ||
          strcmp(name, "byte") == 0 ||
@@ -68,11 +76,19 @@ static uint64_t fnv1a64_bytes(const char *s) {
 }
 
 static size_t primitive_size(const char *name) {
+  if (strcmp(name, "i8") == 0) return 1u;
+  if (strcmp(name, "u8") == 0) return 1u;
   if (strcmp(name, "byte") == 0) return 1u;
   if (strcmp(name, "char") == 0) return 1u;
+  if (strcmp(name, "i16") == 0) return 2u;
+  if (strcmp(name, "u16") == 0) return 2u;
   if (strcmp(name, "short") == 0) return 2u;
+  if (strcmp(name, "i32") == 0) return 4u;
+  if (strcmp(name, "u32") == 0) return 4u;
   if (strcmp(name, "int") == 0) return 4u;
   if (strcmp(name, "float") == 0) return 4u;
+  if (strcmp(name, "i64") == 0) return 8u;
+  if (strcmp(name, "u64") == 0) return 8u;
   if (strcmp(name, "long") == 0) return 8u;
   if (strcmp(name, "double") == 0) return 8u;
   if (strcmp(name, "z") == 0) return 8u;
@@ -350,6 +366,18 @@ static int push_function_decl(ESemanticModel *model, const EFunction *fn) {
   return 1;
 }
 
+static int push_at_entry_decl(ESemanticModel *model, const EFunction *fn) {
+  const EFunction **next;
+  next = (const EFunction**)realloc(model->at_entries, sizeof(EFunction*) * (model->at_entry_count + 1u));
+  if (!next) {
+    fprintf(stderr, "OOM\n");
+    exit(1);
+  }
+  model->at_entries = next;
+  model->at_entries[model->at_entry_count++] = fn;
+  return 1;
+}
+
 static const EDynamicPool *find_dynamic_pool(const ESemanticModel *model, const char *name) {
   size_t i;
   for (i = 0; i < model->dynamic_pool_count; i++) {
@@ -496,6 +524,26 @@ static int collect_top_level_roles(const EProgram *program, ESemanticModel *mode
       case E_TOP_FUNCTION:
         push_function_decl(model, &top->as.func);
         break;
+      case E_TOP_AT_ENTRY:
+        if (top->as.at_entry.param_count != 2u) {
+          snprintf(err, 256, "at_entry '%s' must take exactly two parameters: u32 thread_index, <GHS type> body",
+                   top->as.at_entry.name);
+          return 0;
+        }
+        if (strcmp(top->as.at_entry.params[0].type.name, "u32") != 0 ||
+            top->as.at_entry.params[0].type.array_len != 0u) {
+          snprintf(err, 256, "at_entry '%s' first parameter must be u32 thread_index",
+                   top->as.at_entry.name);
+          return 0;
+        }
+        if (type_ref_is_union(&top->as.at_entry.params[1].type) ||
+            !is_custom_type_with_layout(model, top->as.at_entry.params[1].type.name)) {
+          snprintf(err, 256, "at_entry '%s' second parameter must be a custom GHS layout type",
+                   top->as.at_entry.name);
+          return 0;
+        }
+        push_at_entry_decl(model, &top->as.at_entry);
+        break;
       case E_TOP_STRUCT:
       case E_TOP_TYPE:
       case E_TOP_DECLARE:
@@ -601,6 +649,9 @@ static int collect_kernel_identity(const EProgram *program, ESemanticModel *mode
     } else if (top->kind == E_TOP_FUNCTION) {
       body = top->as.func.body;
       owner_name = top->as.func.name;
+    } else if (top->kind == E_TOP_AT_ENTRY) {
+      body = top->as.at_entry.body;
+      owner_name = top->as.at_entry.name;
     } else if (top->kind == E_TOP_TYPE) {
       body = top->as.tdecl.body;
       owner_name = top->as.tdecl.name;
@@ -911,21 +962,17 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
   return 1;
 }
 
-static int collect_function_checks(const EProgram *program, ESemanticModel *model, char err[256]) {
-  size_t i;
-  for (i = 0; i < program->count; i++) {
-    const ETopDecl *top = &program->items[i];
+static int collect_callable_checks(const EFunction *fn, ESemanticModel *model, const char *kind_name, char err[256]) {
     size_t j;
     size_t next_offset = 0u;
     unsigned int next_vm_local_slot = 0u;
     EFunctionFrame frame;
-    if (top->kind != E_TOP_FUNCTION) continue;
     memset(&frame, 0, sizeof(frame));
-    for (j = 0; j < top->as.func.param_count; j++) {
-      const EParam *param = &top->as.func.params[j];
+    for (j = 0; j < fn->param_count; j++) {
+      const EParam *param = &fn->params[j];
       if (type_ref_is_union(&param->type)) {
-        snprintf(err, 256, "function '%s' parameter '%s' cannot use a union ingress type",
-                 top->as.func.name, param->name);
+        snprintf(err, 256, "%s '%s' parameter '%s' cannot use a union ingress type",
+                 kind_name, fn->name, param->name);
         return 0;
       }
       size_t field_size = type_ref_size(model, &param->type, err);
@@ -944,21 +991,24 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
           vm_local_words = 1u;
           next_vm_local_slot += 1u;
         }
-        push_check(model, &top->as.func, j, E_PARAM_PRIMITIVE, E_PARAM_ABI_VALUE,
+        push_check(model, fn, j, E_PARAM_PRIMITIVE, E_PARAM_ABI_VALUE,
                    0u, next_offset, abi_size, field_size,
                    vm_local_slot, vm_local_words);
       } else {
         const EValidatorBinding *binding = find_validator(model, param->type.name);
         if (!is_primitive_type(param->type.name)) {
           abi_size = E_TYPE_REF_ABI_SIZE;
+          vm_local_slot = next_vm_local_slot;
+          vm_local_words = E_TYPE_REF_ABI_WORDS;
+          next_vm_local_slot += E_TYPE_REF_ABI_WORDS;
         }
         if (binding) {
-          push_check(model, &top->as.func, j, E_PARAM_CUSTOM_VALIDATED,
+          push_check(model, fn, j, E_PARAM_CUSTOM_VALIDATED,
                      !is_primitive_type(param->type.name) ? E_PARAM_ABI_TYPE_REF : E_PARAM_ABI_VALUE,
                      binding->validator_id, next_offset, abi_size, field_size,
                      vm_local_slot, vm_local_words);
         } else {
-          push_check(model, &top->as.func, j, E_PARAM_CUSTOM_UNVALIDATED,
+          push_check(model, fn, j, E_PARAM_CUSTOM_UNVALIDATED,
                      !is_primitive_type(param->type.name) ? E_PARAM_ABI_TYPE_REF : E_PARAM_ABI_VALUE,
                      0u, next_offset, abi_size, field_size,
                      vm_local_slot, vm_local_words);
@@ -968,11 +1018,23 @@ static int collect_function_checks(const EProgram *program, ESemanticModel *mode
     }
     frame.param_size = next_offset;
     frame.vm_local_count = next_vm_local_slot;
-    if (!collect_local_decls_in_stmt(top->as.func.body, model, &frame, 0, err)) {
+    if (!collect_local_decls_in_stmt(fn->body, model, &frame, 0, err)) {
       return 0;
     }
-    push_frame(model, top->as.func.name, &top->as.func, frame.param_size, frame.stack_local_size,
+    push_frame(model, fn->name, fn, frame.param_size, frame.stack_local_size,
                frame.reserved_reg_words, frame.vm_local_count, frame.locals, frame.local_count);
+    return 1;
+}
+
+static int collect_function_checks(const EProgram *program, ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    if (top->kind == E_TOP_FUNCTION) {
+      if (!collect_callable_checks(&top->as.func, model, "function", err)) return 0;
+    } else if (top->kind == E_TOP_AT_ENTRY) {
+      if (!collect_callable_checks(&top->as.at_entry, model, "at_entry", err)) return 0;
+    }
   }
   return 1;
 }
@@ -1112,6 +1174,7 @@ static int validate_loop_control_usage(const EProgram *program, char err[256]) {
       case E_TOP_KERNEL: body = top->as.kernel.body; break;
       case E_TOP_WORKER: body = top->as.worker.body; break;
       case E_TOP_FUNCTION: body = top->as.func.body; break;
+      case E_TOP_AT_ENTRY: body = top->as.at_entry.body; break;
       case E_TOP_TYPE: body = top->as.tdecl.body; break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
@@ -1205,6 +1268,14 @@ static int is_kernel_get_ghs_call(const EExpr *expr) {
          strcmp(expr->as.call.callee, "kernel_get_ghs") == 0;
 }
 
+static int is_ghs_alloc_call(const EExpr *expr) {
+  return expr && expr->kind == E_EXPR_CALL && strcmp(expr->as.call.callee, "ghs_alloc") == 0;
+}
+
+static int is_ghs_alloc_from_local_call(const EExpr *expr) {
+  return expr && expr->kind == E_EXPR_CALL && strcmp(expr->as.call.callee, "ghs_alloc_from_local") == 0;
+}
+
 static const char *expr_source_name(const EExpr *expr) {
   if (!expr) return "expression";
   if (expr->kind == E_EXPR_CALL) return expr->as.call.callee;
@@ -1240,6 +1311,20 @@ static const char *infer_custom_expr_type(const EExpr *expr,
       }
       return NULL;
     case E_EXPR_CALL:
+      if (is_ghs_alloc_call(expr) || is_ghs_alloc_from_local_call(expr)) {
+        if ((is_ghs_alloc_call(expr) && expr->as.call.arg_count != 1u) ||
+            (is_ghs_alloc_from_local_call(expr) && expr->as.call.arg_count != 2u) ||
+            expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+          snprintf(err, 256, "%s expects a declared type identifier first",
+                   expr->as.call.callee);
+          return (const char*)-1;
+        }
+        if (!find_type_layout(model, expr->as.call.args[0]->as.ident)) {
+          snprintf(err, 256, "%s unknown type '%s'", expr->as.call.callee, expr->as.call.args[0]->as.ident);
+          return (const char*)-1;
+        }
+        return expr->as.call.args[0]->as.ident;
+      }
       if (!is_kernel_get_ghs_call(expr)) return NULL;
       if (!in_kernel) {
         snprintf(err, 256, "%s only valid in kernel", expr->as.call.callee);
@@ -1453,6 +1538,7 @@ static int validate_typeof_typeid_usage(const EProgram *program, const ESemantic
       case E_TOP_KERNEL: body = top->as.kernel.body; break;
       case E_TOP_WORKER: body = top->as.worker.body; break;
       case E_TOP_FUNCTION: body = top->as.func.body; break;
+      case E_TOP_AT_ENTRY: body = top->as.at_entry.body; break;
       case E_TOP_TYPE: body = top->as.tdecl.body; break;
       case E_TOP_STRUCT:
       case E_TOP_DECLARE:
@@ -1631,6 +1717,10 @@ static int validate_far_signal_usage(const EProgram *program, const ESemanticMod
         body = top->as.func.body;
         frame = find_frame(model, top->as.func.name);
         break;
+      case E_TOP_AT_ENTRY:
+        body = top->as.at_entry.body;
+        frame = find_frame(model, top->as.at_entry.name);
+        break;
       case E_TOP_TYPE:
         body = top->as.tdecl.body;
         frame = find_frame(model, top->as.tdecl.name);
@@ -1670,6 +1760,11 @@ static int validate_kernel_get_ghs_usage(const EProgram *program, const ESemanti
         body = top->as.func.body;
         frame = find_frame(model, top->as.func.name);
         function = &top->as.func;
+        break;
+      case E_TOP_AT_ENTRY:
+        body = top->as.at_entry.body;
+        frame = find_frame(model, top->as.at_entry.name);
+        function = &top->as.at_entry;
         break;
       case E_TOP_TYPE:
         body = top->as.tdecl.body;
@@ -1724,6 +1819,7 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
         break;
       case E_TOP_STRUCT:
       case E_TOP_FUNCTION:
+      case E_TOP_AT_ENTRY:
       case E_TOP_DECLARE:
       case E_TOP_DYNAMIC:
         break;
@@ -1935,6 +2031,7 @@ void e_semantic_model_free(ESemanticModel *model) {
   free(model->frames);
   free(model->workers);
   free(model->functions);
+  free(model->at_entries);
   for (i = 0; i < model->dynamic_pool_count; i++) {
     free(model->dynamic_pools[i].name);
     free(model->dynamic_pools[i].element_type_name);
@@ -1948,12 +2045,14 @@ void e_semantic_model_free(ESemanticModel *model) {
   model->frames = NULL;
   model->workers = NULL;
   model->functions = NULL;
+  model->at_entries = NULL;
   model->dynamic_pools = NULL;
   model->kernel_declared_id = NULL;
   model->kernel_declared_uid = 0;
   model->kernel_count = 0;
   model->worker_count = 0;
   model->function_count = 0;
+  model->at_entry_count = 0;
   model->validator_count = 0;
   model->type_layout_count = 0;
   model->check_count = 0;

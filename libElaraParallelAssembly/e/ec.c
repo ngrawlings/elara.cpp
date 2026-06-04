@@ -35,6 +35,10 @@ static void dump_templates(FILE *out, const EProgram *prog) {
         body = top->as.func.body;
         name = top->as.func.name;
         break;
+      case E_TOP_AT_ENTRY:
+        body = top->as.at_entry.body;
+        name = top->as.at_entry.name;
+        break;
       case E_TOP_TYPE:
         body = top->as.tdecl.body;
         name = top->as.tdecl.name;

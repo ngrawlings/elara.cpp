@@ -122,7 +122,9 @@ X(G_TAG,            0x0318u, "G_TAG",       0) // Query handle tag -> r0=tag
 // Ingress ring helper: pop 4 u32 words from the worker INQ into r0..r3.
 // Intended for the standard payload routing: INGRESS -> GHS -> notify worker,
 // where the worker's INQ receives a 4-word coordinate packet.
-X(GR_MOV4,         0x0317u, "GR_MOV4", 1) // out: r0..r3 (u32 each)
+X(GR_MOV4,         0x0317u, "GR_MOV4", 1) // read GHS u32 at r0/r1 handle + r2 offset into selected reg
+X(GW_MOV4,         0x0320u, "GW_MOV4", 1) // write selected reg as u32 to GHS at r0/r1 handle + r2 offset
+X(G_ALLOC_L,       0x0321u, "G_ALLOC_L", 0) // allocate final-size GHS and copy r1 bytes from lbytes[r2], type r0
 X(DYN_ALLOC,       0x0319u, "DYN_ALLOC", 4) // pool_id:u32 -> r0=id, r1=ok
 X(DYN_FREE,        0x031Au, "DYN_FREE",  4) // pool_id:u32, r0=id -> r1=ok
 X(DYN_LOAD,        0x031Bu, "DYN_LOAD",  4) // pool_id:u32, r0=id -> r0=off,r1=size,r2=ok

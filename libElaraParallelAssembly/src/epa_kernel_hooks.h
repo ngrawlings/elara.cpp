@@ -20,4 +20,5 @@ int hook_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char err[EPA_MAX_ERR]);
+// Returns 1=submitted, 2=retry later/backpressure, 0=hard error.
 int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, uint32_t descriptor_word_count, uint32_t *out_request_id, char err[EPA_MAX_ERR]);

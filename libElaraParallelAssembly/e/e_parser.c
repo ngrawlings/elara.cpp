@@ -876,6 +876,22 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       continue;
     }
 
+    if (match(&p, E_TOK_KW_AT_ENTRY)) {
+      if (pending_attrs.has_in_words || pending_attrs.has_out_words || pending_attrs.has_signal_mail_box_size) {
+        return set_err(&p, "attributes must be attached to kernel or worker", peek(&p));
+      }
+      top.kind = E_TOP_AT_ENTRY;
+      if (!expect(&p, E_TOK_IDENT, "expected AT entry name")) return 0;
+      top.as.at_entry.return_type.name = xstrdup_local("void");
+      top.as.at_entry.name = xstrdup_local(tokens->items[p.pos - 1].text);
+      if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
+      if (!parse_param_list(&p, &top.as.at_entry.params, &top.as.at_entry.param_count)) return 0;
+      top.as.at_entry.body = parse_block(&p);
+      if (!top.as.at_entry.body) return 0;
+      top_push(out_program, &top);
+      continue;
+    }
+
     return set_err(&p, "expected top-level declaration", peek(&p));
   }
 

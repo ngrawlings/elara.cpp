@@ -172,6 +172,12 @@ void e_program_free(EProgram *p) {
         free_params(d->as.func.params, d->as.func.param_count);
         free_stmt(d->as.func.body);
         break;
+      case E_TOP_AT_ENTRY:
+        free_type_ref(&d->as.at_entry.return_type);
+        free(d->as.at_entry.name);
+        free_params(d->as.at_entry.params, d->as.at_entry.param_count);
+        free_stmt(d->as.at_entry.body);
+        break;
       case E_TOP_TYPE:
         free(d->as.tdecl.name);
         free_params(d->as.tdecl.params, d->as.tdecl.param_count);
@@ -512,6 +518,16 @@ void e_program_dump(FILE *out, const EProgram *p) {
         }
         fputs(")\n", out);
         dump_stmt(out, d->as.func.body, 1);
+        break;
+      case E_TOP_AT_ENTRY:
+        fprintf(out, "at_entry %s(", d->as.at_entry.name);
+        for (j = 0; j < d->as.at_entry.param_count; j++) {
+          if (j) fputs(", ", out);
+          dump_type_ref(out, &d->as.at_entry.params[j].type);
+          fprintf(out, " %s", d->as.at_entry.params[j].name);
+        }
+        fputs(")\n", out);
+        dump_stmt(out, d->as.at_entry.body, 1);
         break;
       case E_TOP_TYPE:
         fprintf(out, "type %s(", d->as.tdecl.name);
