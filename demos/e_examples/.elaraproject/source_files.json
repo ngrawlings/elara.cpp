@@ -1,5 +1,6 @@
 {
   "epa": [
-    "epa/entry.e"
+    "epa/entry.e",
+    "epa/dynamic_memory.e"
   ]
 }

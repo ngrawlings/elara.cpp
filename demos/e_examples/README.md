@@ -16,3 +16,18 @@ Build the EPA assembly:
 ```sh
 ../../libElaraParallelAssembly/build/e/e2epa epa/entry.e build/entry.epaasm
 ```
+
+## Dynamic Memory Demo
+
+`epa/dynamic_memory.e` exercises the hidden dynamic pool growth path:
+
+- `DynamicCell` objects are allocated through an E `dynamic` pool.
+- The pool starts with no backing slots and grows in batches of 4.
+- The worker allocates 40 cells, forcing multiple runtime capacity requests under the hood.
+- E does not request or resize memory directly; `DYN_ALLOC` triggers the system memory ring when the pool needs more backing capacity.
+
+Build the EPA assembly:
+
+```sh
+../../libElaraParallelAssembly/build/e/e2epa epa/dynamic_memory.e build/dynamic_memory.epaasm
+```
