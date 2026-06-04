@@ -37,6 +37,8 @@ X(ENTRY_HALT,     0x0123u, "ENTRY_HALT",   1) // Halt worker by id (u8 wid)
 X(DYNAMIC_POOL,   0x0124u, "DYNAMIC_POOL", 20) // Program-level dynamic pool manifest (pool_id, element_size, min_free, max_free, grow_by)
 X(KERNEL_ID,      0x0125u, "KERNEL_ID",    8) // Program-level kernel 64-bit id (lo,hi)
 X(ACL_ALLOW,      0x0126u, "ACL_ALLOW",   12) // Program-level ACL allow (remote_id_lo, remote_id_hi, local_wid)
+X(ENTRY_RETIRE,   0x0127u, "ENTRY_RETIRE", 1) // Permanently remove worker from scheduler pool (u8 wid)
+X(KERNEL_RETIRE,  0x0128u, "KERNEL_RETIRE",0) // Unload kernel by uid in r0/r1
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker
 X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives
@@ -125,6 +127,10 @@ X(G_TAG,            0x0318u, "G_TAG",       0) // Query handle tag -> r0=tag
 X(GR_MOV4,         0x0317u, "GR_MOV4", 1) // read GHS u32 at r0/r1 handle + r2 offset into selected reg
 X(GW_MOV4,         0x0320u, "GW_MOV4", 1) // write selected reg as u32 to GHS at r0/r1 handle + r2 offset
 X(G_ALLOC_L,       0x0321u, "G_ALLOC_L", 0) // allocate final-size GHS and copy r1 bytes from lbytes[r2], type r0
+X(RGM_PUBLISH_L,   0x0322u, "RGM_PUBLISH_L", 0) // publish read-only named global from local bytes: r0/r1=name uid, r2=local off, r3=size
+X(RGM_GET,         0x0323u, "RGM_GET", 0) // get read-only global handle by name uid in r0/r1 -> r0/r1 handle, r2=size, r3=ok
+X(RGM_META,        0x0324u, "RGM_META", 0) // r0/r1 handle -> r0=name_lo, r1=name_hi, r2=size, r3=gen
+X(RGM_READ4,       0x0325u, "RGM_READ4", 1) // read RGM u32 at r0/r1 handle + r2 offset into selected reg
 X(DYN_ALLOC,       0x0319u, "DYN_ALLOC", 4) // pool_id:u32 -> r0=id, r1=ok
 X(DYN_FREE,        0x031Au, "DYN_FREE",  4) // pool_id:u32, r0=id -> r1=ok
 X(DYN_LOAD,        0x031Bu, "DYN_LOAD",  4) // pool_id:u32, r0=id -> r0=off,r1=size,r2=ok

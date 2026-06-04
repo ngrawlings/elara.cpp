@@ -58,7 +58,7 @@ static int wave_run(EpaKernel *k,
         uint32_t i = order[step];
         EpaWorkerState *w = &k->impl.workers[i];
 
-        if (w->halted || w->faulted || w->blocked) continue;
+        if (w->retired || w->halted || w->faulted || w->blocked) continue;
 
         any_ran = 1;
         k->impl.cur_wid = i;

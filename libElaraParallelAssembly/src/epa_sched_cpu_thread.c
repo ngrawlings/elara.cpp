@@ -79,7 +79,7 @@ static int cpu_spawn_thread(EpaKernel *k, CpuThreadState *st, uint32_t tid, char
 }
 
 static inline int worker_runnable(const EpaWorkerState *w) {
-  return w && w->inited && !w->halted && !w->faulted && !w->blocked;
+  return w && w->inited && !w->retired && !w->halted && !w->faulted && !w->blocked;
 }
 
 static int debug_player_avatar_worker(const EpaKernel *k, uint32_t wid) {

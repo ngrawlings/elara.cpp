@@ -279,6 +279,20 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_ENTRY_RETIRE: {
+      uint8_t wid = code[pc + 2];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_entry_retire && !ctx->hooks.on_entry_retire(ctx->hooks_user, wid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_KERNEL_RETIRE: {
+      uint64_t kernel_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_kernel_retire && !ctx->hooks.on_kernel_retire(ctx->hooks_user, kernel_uid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
     // Interrupt / debug
     case EPA_OP_BREAK: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
@@ -1137,6 +1151,122 @@ case EPA_OP_G_ALLOC_L: {
   w->vm.csc[1] = (int32_t)epa_ghs_handle_gen(h);
   w->vm.csc[2] = 1;
   w->vm.csc[3] = 0;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_RGM_PUBLISH_L: {
+  uint64_t name_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+  uint32_t off = (uint32_t)w->vm.csc[2];
+  uint32_t size_b = (uint32_t)w->vm.csc[3];
+  epa_rgm_handle_t h = 0;
+  epa_rgm_err_t re;
+
+  if (!k->impl.rgm) {
+    snprintf(err, EPA_MAX_ERR, "RGM_PUBLISH_L: RGM not initialized");
+    return EPA_FLOW_ERR;
+  }
+  if (!w->vm.lbytes || off > w->vm.lbytes_top || size_b > w->vm.lbytes_top - off) {
+    snprintf(err, EPA_MAX_ERR, "RGM_PUBLISH_L local range out of bounds off=%u size=%u top=%u",
+             (unsigned)off, (unsigned)size_b, (unsigned)w->vm.lbytes_top);
+    return EPA_FLOW_ERR;
+  }
+
+  re = epa_rgm_publish_copy(k->impl.rgm, name_uid, w->vm.lbytes + off, size_b, &h);
+  if (re != EPA_RGM_OK) {
+    snprintf(err, EPA_MAX_ERR, "RGM_PUBLISH_L failed name=0x%016llx size=%u err=%d",
+             (unsigned long long)name_uid, (unsigned)size_b, re);
+    return EPA_FLOW_ERR;
+  }
+
+  w->vm.csc[0] = (int32_t)epa_rgm_handle_index(h);
+  w->vm.csc[1] = (int32_t)epa_rgm_handle_gen(h);
+  w->vm.csc[2] = (int32_t)size_b;
+  w->vm.csc[3] = 1;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_RGM_GET: {
+  uint64_t name_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+  epa_rgm_handle_t h = 0;
+  epa_rgm_meta_t meta;
+  epa_rgm_err_t re;
+
+  if (!k->impl.rgm) {
+    snprintf(err, EPA_MAX_ERR, "RGM_GET: RGM not initialized");
+    return EPA_FLOW_ERR;
+  }
+  re = epa_rgm_get_by_name(k->impl.rgm, name_uid, &h);
+  if (re == EPA_RGM_ERR_NOT_FOUND) {
+    w->vm.csc[0] = 0;
+    w->vm.csc[1] = 0;
+    w->vm.csc[2] = 0;
+    w->vm.csc[3] = 0;
+    eip->rel_pc = (uint32_t)(pc + need);
+    return EPA_FLOW_YIELDED;
+  }
+  if (re != EPA_RGM_OK) {
+    snprintf(err, EPA_MAX_ERR, "RGM_GET failed name=0x%016llx err=%d",
+             (unsigned long long)name_uid, re);
+    return EPA_FLOW_ERR;
+  }
+  re = epa_rgm_get_meta(k->impl.rgm, h, &meta);
+  if (re != EPA_RGM_OK) {
+    snprintf(err, EPA_MAX_ERR, "RGM_GET meta failed err=%d", re);
+    return EPA_FLOW_ERR;
+  }
+
+  w->vm.csc[0] = (int32_t)epa_rgm_handle_index(h);
+  w->vm.csc[1] = (int32_t)epa_rgm_handle_gen(h);
+  w->vm.csc[2] = (int32_t)meta.size_bytes;
+  w->vm.csc[3] = 1;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_RGM_META: {
+  epa_rgm_handle_t h = epa_rgm_make_handle((uint32_t)w->vm.csc[0], (uint32_t)w->vm.csc[1]);
+  epa_rgm_meta_t meta;
+  epa_rgm_err_t re;
+  if (!k->impl.rgm) {
+    snprintf(err, EPA_MAX_ERR, "RGM_META: RGM not initialized");
+    return EPA_FLOW_ERR;
+  }
+  re = epa_rgm_get_meta(k->impl.rgm, h, &meta);
+  if (re != EPA_RGM_OK) {
+    snprintf(err, EPA_MAX_ERR, "RGM_META failed err=%d", re);
+    return EPA_FLOW_ERR;
+  }
+  w->vm.csc[0] = (int32_t)(meta.name_uid & 0xffffffffu);
+  w->vm.csc[1] = (int32_t)((meta.name_uid >> 32) & 0xffffffffu);
+  w->vm.csc[2] = (int32_t)meta.size_bytes;
+  w->vm.csc[3] = (int32_t)meta.generation;
+
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_RGM_READ4: {
+  uint32_t rid = code[pc + 2];
+  epa_rgm_handle_t h = epa_rgm_make_handle((uint32_t)w->vm.csc[0], (uint32_t)w->vm.csc[1]);
+  epa_rgm_err_t re;
+  if (rid >= 4u) {
+    snprintf(err, EPA_MAX_ERR, "RGM_READ4: invalid register r%u", (unsigned)rid);
+    return EPA_FLOW_ERR;
+  }
+  if (!k->impl.rgm) {
+    snprintf(err, EPA_MAX_ERR, "RGM_READ4: RGM not initialized");
+    return EPA_FLOW_ERR;
+  }
+  re = epa_rgm_read_bytes(k->impl.rgm, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4u);
+  if (re != EPA_RGM_OK) {
+    snprintf(err, EPA_MAX_ERR, "RGM_READ4 failed off=%u err=%d", (unsigned)w->vm.csc[2], re);
+    return EPA_FLOW_ERR;
+  }
 
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;

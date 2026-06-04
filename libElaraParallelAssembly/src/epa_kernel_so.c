@@ -266,6 +266,13 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
      TRACE("GHS init failed");
      return 0; // or your init fail path
   }
+  k->impl.rgm = epa_rgm_global();
+  if (!k->impl.rgm) {
+     TRACE("RGM init failed");
+     epa_ghs_destroy(k->impl.ghs);
+     k->impl.ghs = NULL;
+     return 0;
+  }
 
   epa_kernel_set_scheduler(k, EPA_SCHED_WAVE, err);
 
@@ -289,6 +296,7 @@ void epa_kernel_destroy(EpaKernel *k) {
   	  epa_ghs_destroy(k->impl.ghs);
   	  k->impl.ghs = NULL;
   }
+  k->impl.rgm = NULL;
 
   epa_ring_free(&k->impl.syncq);
   pthread_mutex_lock(&k->impl.atq_mu);
@@ -468,6 +476,55 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
   return 1;
 }
 
+int epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
+  EpaKernel *target;
+  if (err) err[0] = 0;
+  if (kernel_uid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "retire_kernel: bad kernel uid");
+    return 0;
+  }
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  target = registry_find_kernel_by_uid_locked(kernel_uid);
+  if (target) registry_remove_kernel_locked(target);
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+
+  if (!target) {
+    if (err) snprintf(err, EPA_MAX_ERR, "retire_kernel: target kernel 0x%016llx not found",
+                      (unsigned long long)kernel_uid);
+    return 0;
+  }
+
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    EpaWorkerState *w = &target->impl.workers[wid];
+    if (!w->inited) continue;
+    w->retired = 1;
+    w->halted = 1;
+    w->blocked = 1;
+    epa_ring_clear(&w->inq);
+    epa_ring_clear(&w->outq);
+  }
+  target->impl.worker_head = EPA_MAX_WORKERS;
+  target->impl.n_workers = 0u;
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    target->impl.worker_next[wid] = EPA_MAX_WORKERS;
+  }
+  memset(&target->ingress, 0, sizeof(target->ingress));
+  kernel_atq_clear(target);
+  kernel_memq_clear(target);
+  epa_kernel_set_status_text(target, EPA_KERNEL_STATUS_UNLOADED, NULL);
+  epa_kernel_request_interrupt(target);
+  return 1;
+}
+
+int epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]) {
+  if (!kernel_id || !kernel_id[0]) {
+    if (err) snprintf(err, EPA_MAX_ERR, "retire_kernel: bad kernel id");
+    return 0;
+  }
+  return epa_kernel_retire_by_uid(fnv1a64_bytes(kernel_id), err);
+}
+
 int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
                                 const void *payload, uint32_t payload_len, uint32_t payload_tag,
                                 char err[EPA_MAX_ERR]) {
@@ -596,9 +653,11 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
 
   // Build flow ctx + hooks
   memset(&k->hooks, 0, sizeof(k->hooks));
-  k->hooks.on_entry_exec   = hook_entry_exec;
-  k->hooks.on_entry_halt   = hook_entry_halt;
-  k->hooks.on_sync         = hook_sync;
+  k->hooks.on_entry_exec    = hook_entry_exec;
+  k->hooks.on_entry_halt    = hook_entry_halt;
+  k->hooks.on_entry_retire  = hook_entry_retire;
+  k->hooks.on_kernel_retire = hook_kernel_retire;
+  k->hooks.on_sync          = hook_sync;
   k->hooks.on_wait_on_sync = hook_wait_on_sync;
   k->hooks.get_worker      = hook_get_worker;
 
@@ -670,6 +729,8 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   memset(&k->hooks, 0, sizeof(k->hooks));
   k->hooks.on_entry_exec   = hook_entry_exec;
   k->hooks.on_entry_halt   = hook_entry_halt;
+  k->hooks.on_entry_retire = hook_entry_retire;
+  k->hooks.on_kernel_retire = hook_kernel_retire;
   k->hooks.on_sync         = hook_sync;
   k->hooks.on_wait_on_sync = hook_wait_on_sync;
   k->hooks.get_worker      = hook_get_worker;
@@ -987,8 +1048,14 @@ int epa_kernel_run(EpaKernel *k,
     if (err) snprintf(err, EPA_MAX_ERR, "scheduler not set");
     return 0;
   }
+  if (epa_kernel_get_status(k) == EPA_KERNEL_STATUS_UNLOADED) {
+    return 1;
+  }
   epa_kernel_set_status_only(k, EPA_KERNEL_STATUS_RUNNING);
   rc = k->sched_vt->run(k, &k->sched_state, max_ticks, debug, err);
+  if (epa_kernel_get_status(k) == EPA_KERNEL_STATUS_UNLOADED) {
+    return rc;
+  }
   if (rc == 1) {
     if (k->impl.workers[0].faulted) {
       epa_kernel_set_status_text(k, EPA_KERNEL_STATUS_FAULTED, err && err[0] ? err : NULL);

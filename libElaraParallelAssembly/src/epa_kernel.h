@@ -8,6 +8,7 @@
 #include "epa_instruct_common.h"
 
 #include "memory/epa_ring_buffer.h"
+#include "memory/epa_rgm.h"
 #include "vm/epa_worker_state.h"
 
 #include "epa_scheduler.h"
@@ -81,6 +82,7 @@ typedef struct {
   uint32_t worker_next[EPA_MAX_WORKERS];   // next active wid per slot
 
   epa_ghs_t* ghs;
+  epa_rgm_t* rgm;
   EpaSystemAtRequestRing atq;
   EpaSystemMemoryRequestRing memq;
 

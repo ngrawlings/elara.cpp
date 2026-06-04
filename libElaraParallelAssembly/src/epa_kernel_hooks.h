@@ -10,6 +10,8 @@ void kdbg_emit(EpaKernel *k, EpaKernelDbgKind kind, uint8_t wid, uint32_t code, 
 void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, const char *detail);
 int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_kernel_retire(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 int hook_sync(void *user, char err[EPA_MAX_ERR]);
 int hook_wait_on_sync(void *user, char err[EPA_MAX_ERR]);
 EpaWorkerState* hook_get_worker(void *user, uint8_t wid);

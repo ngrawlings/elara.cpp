@@ -44,6 +44,7 @@ typedef struct {
 
   int inited;
   int halted;
+  int retired;
 
   // scheduling
   uint8_t blocked;   // 1 = do not tick

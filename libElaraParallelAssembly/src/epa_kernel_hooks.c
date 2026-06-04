@@ -53,6 +53,7 @@ int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   KernelImpl *k = (KernelImpl*)user;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_exec: impl null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) return 1; // ignore if missing
+  if (k->workers[wid].retired) return 1;
 
   k->workers[wid].inited = 1;
   k->workers[wid].halted = 0;
@@ -67,6 +68,45 @@ int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   k->workers[wid].halted = 1;
   k->workers[wid].blocked = 1;
   return 1;
+}
+
+static void unlink_active_worker(KernelImpl *k, uint8_t wid) {
+  uint32_t prev = EPA_MAX_WORKERS;
+  uint32_t cur;
+  if (!k) return;
+  cur = k->worker_head;
+  while (cur < EPA_MAX_WORKERS) {
+    uint32_t next = k->worker_next[cur];
+    if (cur == (uint32_t)wid) {
+      if (prev >= EPA_MAX_WORKERS) {
+        k->worker_head = next;
+      } else {
+        k->worker_next[prev] = next;
+      }
+      k->worker_next[cur] = EPA_MAX_WORKERS;
+      if (k->n_workers > 0u) k->n_workers--;
+      if (k->rr_cursor == cur) k->rr_cursor = next < EPA_MAX_WORKERS ? next : k->worker_head;
+      return;
+    }
+    prev = cur;
+    cur = next;
+  }
+}
+
+int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
+  KernelImpl *k = (KernelImpl*)user;
+  if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_retire: impl null"); return 0; }
+  if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) return 1;
+  k->workers[wid].retired = 1;
+  k->workers[wid].halted = 1;
+  k->workers[wid].blocked = 1;
+  unlink_active_worker(k, wid);
+  return 1;
+}
+
+int hook_kernel_retire(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
+  (void)user;
+  return epa_kernel_retire_by_uid(kernel_uid, err);
 }
 
 int hook_sync(void *user, char err[EPA_MAX_ERR]) {

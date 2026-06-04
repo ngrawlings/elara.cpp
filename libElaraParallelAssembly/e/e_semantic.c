@@ -1783,6 +1783,187 @@ static int validate_kernel_get_ghs_usage(const EProgram *program, const ESemanti
   return 1;
 }
 
+static int is_rgm_publish_call(const EExpr *expr) {
+  return expr && expr->kind == E_EXPR_CALL && strcmp(expr->as.call.callee, "rgm_publish") == 0;
+}
+
+static int rgm_name_arg_is_valid(const EExpr *expr) {
+  if (!expr) return 0;
+  if (expr->kind == E_EXPR_STRING || expr->kind == E_EXPR_IDENT) return 1;
+  if (expr->kind == E_EXPR_INT && expr->as.int_lit > 0) return 1;
+  return 0;
+}
+
+static int validate_rgm_usage_in_expr(const EExpr *expr,
+                                      const EFunctionFrame *frame,
+                                      int in_worker_static_block,
+                                      int publish_as_statement,
+                                      char err[256]) {
+  size_t i;
+  if (!expr) return 1;
+  if (is_rgm_publish_call(expr)) {
+    const EExpr *payload;
+    const ELocalBinding *binding;
+    if (!publish_as_statement) {
+      snprintf(err, 256, "rgm_publish is a registration statement and cannot be used as a value");
+      return 0;
+    }
+    if (!in_worker_static_block) {
+      snprintf(err, 256, "rgm_publish is only valid inside a worker static block");
+      return 0;
+    }
+    if (expr->as.call.arg_count != 2u) {
+      snprintf(err, 256, "rgm_publish expects exactly 2 args: (name, static_payload)");
+      return 0;
+    }
+    if (!rgm_name_arg_is_valid(expr->as.call.args[0])) {
+      snprintf(err, 256, "rgm_publish name must be a string, identifier, or positive integer uid");
+      return 0;
+    }
+    payload = expr->as.call.args[1];
+    if (!payload || payload->kind != E_EXPR_IDENT) {
+      snprintf(err, 256, "rgm_publish payload must be a declared-type static identifier");
+      return 0;
+    }
+    binding = find_local_binding_by_name(frame, payload->as.ident);
+    if (!binding || binding->storage != E_LOCAL_STACK_STATIC ||
+        binding->vm_local_words != E_TYPE_REF_ABI_WORDS ||
+        is_primitive_type(binding->type_name)) {
+      snprintf(err, 256, "rgm_publish payload '%s' must be a declared-type static binding",
+               payload->as.ident);
+      return 0;
+    }
+    return 1;
+  }
+
+  switch (expr->kind) {
+    case E_EXPR_CALL:
+      for (i = 0; i < expr->as.call.arg_count; i++) {
+        if (!validate_rgm_usage_in_expr(expr->as.call.args[i], frame, in_worker_static_block, 0, err)) return 0;
+      }
+      return 1;
+    case E_EXPR_BINARY:
+      return validate_rgm_usage_in_expr(expr->as.binary.lhs, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_expr(expr->as.binary.rhs, frame, in_worker_static_block, 0, err);
+    case E_EXPR_ASSIGN:
+      return validate_rgm_usage_in_expr(expr->as.assign.lhs, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_expr(expr->as.assign.rhs, frame, in_worker_static_block, 0, err);
+    case E_EXPR_FIELD:
+      return validate_rgm_usage_in_expr(expr->as.field.base, frame, in_worker_static_block, 0, err);
+    case E_EXPR_INDEX:
+      return validate_rgm_usage_in_expr(expr->as.index.base, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_expr(expr->as.index.index, frame, in_worker_static_block, 0, err);
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+    case E_EXPR_STRING:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_rgm_usage_in_stmt(const EStmt *stmt,
+                                      const EFunctionFrame *frame,
+                                      const EWorker *worker,
+                                      int in_worker_static_block,
+                                      char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_rgm_usage_in_stmt(stmt->as.block.items[i], frame, worker, in_worker_static_block, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      return validate_rgm_usage_in_expr(stmt->as.if_stmt.cond, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_stmt(stmt->as.if_stmt.then_branch, frame, worker, in_worker_static_block, err) &&
+             validate_rgm_usage_in_stmt(stmt->as.if_stmt.else_branch, frame, worker, in_worker_static_block, err);
+    case E_STMT_WHILE:
+      return validate_rgm_usage_in_expr(stmt->as.while_stmt.cond, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_stmt(stmt->as.while_stmt.body, frame, worker, in_worker_static_block, err);
+    case E_STMT_FOR:
+      if (!validate_rgm_usage_in_stmt(stmt->as.for_stmt.init, frame, worker, in_worker_static_block, err)) return 0;
+      if (!validate_rgm_usage_in_expr(stmt->as.for_stmt.cond, frame, in_worker_static_block, 0, err)) return 0;
+      if (!validate_rgm_usage_in_expr(stmt->as.for_stmt.step, frame, in_worker_static_block, 0, err)) return 0;
+      return validate_rgm_usage_in_stmt(stmt->as.for_stmt.body, frame, worker, in_worker_static_block, err);
+    case E_STMT_FOREACH:
+      return validate_rgm_usage_in_stmt(stmt->as.foreach_stmt.var_decl, frame, worker, in_worker_static_block, err) &&
+             validate_rgm_usage_in_stmt(stmt->as.foreach_stmt.body, frame, worker, in_worker_static_block, err);
+    case E_STMT_SWITCH:
+      if (!validate_rgm_usage_in_expr(stmt->as.switch_stmt.target, frame, in_worker_static_block, 0, err)) return 0;
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_rgm_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], frame, worker, in_worker_static_block, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_DECL:
+      return validate_rgm_usage_in_expr(stmt->as.decl.init, frame, in_worker_static_block, 0, err);
+    case E_STMT_RETURN:
+      return validate_rgm_usage_in_expr(stmt->as.ret.value, frame, in_worker_static_block, 0, err);
+    case E_STMT_EXPR:
+      return validate_rgm_usage_in_expr(stmt->as.expr, frame, in_worker_static_block, is_rgm_publish_call(stmt->as.expr), err);
+    case E_STMT_STATIC_BLOCK:
+      if (!worker) {
+        in_worker_static_block = 0;
+      } else {
+        in_worker_static_block = 1;
+      }
+      for (i = 0; i < stmt->as.static_block.count; i++) {
+        if (!validate_rgm_usage_in_stmt(stmt->as.static_block.items[i], frame, worker, in_worker_static_block, err)) return 0;
+      }
+      return 1;
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_rgm_usage(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    const EFunctionFrame *frame = NULL;
+    const EWorker *worker = NULL;
+    switch (top->kind) {
+      case E_TOP_KERNEL:
+        body = top->as.kernel.body;
+        frame = find_frame(model, "kernel");
+        break;
+      case E_TOP_WORKER:
+        body = top->as.worker.body;
+        frame = find_frame(model, top->as.worker.name);
+        worker = &top->as.worker;
+        break;
+      case E_TOP_FUNCTION:
+        body = top->as.func.body;
+        frame = find_frame(model, top->as.func.name);
+        break;
+      case E_TOP_AT_ENTRY:
+        body = top->as.at_entry.body;
+        frame = find_frame(model, top->as.at_entry.name);
+        break;
+      case E_TOP_TYPE:
+        body = top->as.tdecl.body;
+        frame = find_frame(model, top->as.tdecl.name);
+        break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
+        break;
+    }
+    if (body && !validate_rgm_usage_in_stmt(body, frame, worker, 0, err)) return 0;
+  }
+  return 1;
+}
+
 static void free_temp_frame(EFunctionFrame *frame) {
   size_t i;
   for (i = 0; i < frame->local_count; i++) {
@@ -1922,6 +2103,10 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_kernel_get_ghs_usage(program, out_model, err)) {
+    return semantic_fail_cleanup(out_model, err);
+  }
+
+  if (!validate_rgm_usage(program, out_model, err)) {
     return semantic_fail_cleanup(out_model, err);
   }
 

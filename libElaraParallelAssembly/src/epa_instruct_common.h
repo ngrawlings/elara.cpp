@@ -21,6 +21,8 @@
 
 int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+int hook_kernel_retire(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 int hook_sync(void *user, char err[EPA_MAX_ERR]);
 int hook_wait_on_sync(void *user, char err[EPA_MAX_ERR]);
 EpaWorkerState* hook_get_worker(void *user, uint8_t wid);
@@ -55,6 +57,8 @@ typedef struct {
   // Kernel scheduling: ENTRY_EXEC wid, ENTRY_HALT wid
   int (*on_entry_exec)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
   int (*on_entry_halt)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+  int (*on_entry_retire)(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
+  int (*on_kernel_retire)(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 
   // SYNC / WAIT_ON_SYNC hooks
   int (*on_sync)(void *user, char err[EPA_MAX_ERR]);

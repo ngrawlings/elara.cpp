@@ -58,10 +58,43 @@ Rules:
 
 - `start_worker(...)` emits `ENTRY_EXEC`
 - `stop_worker(...)` emits `ENTRY_HALT`
-- both are kernel-only
+- `retire_worker(...)` emits `ENTRY_RETIRE`
+- `start_worker(...)` and `stop_worker(...)` are kernel-only
 - the argument may be a worker name or numeric worker id
 - `worker_start(...)` and `worker_stop(...)` are accepted aliases
 - worker static state and queues remain allocated; this controls scheduler eligibility
+
+`retire_worker(...)` is the permanent form for init-only workers. From the
+kernel it accepts a worker name or id. From inside a worker, call it with no
+arguments:
+
+```c
+worker init_assets(AssetSeed seed) {
+  static AssetBlock block;
+
+  static {
+    rgm_publish("assets.main", block);
+    retire_worker();
+  }
+}
+```
+
+Retired workers are removed from the scheduler pool. Future `ENTRY_EXEC`
+requests for that worker are ignored for the current program load.
+
+`retire_kernel("kernel.id")` unloads an entire kernel by identity. The target
+kernel is removed from the global kernel registry, all of its workers are
+retired, its ingress/system queues are cleared, and its runtime status becomes
+`unloaded`. The kernel object remains owned by the host/module until normal
+destruction, so a running kernel can safely retire itself:
+
+```c
+kernel(VM vm) {
+  kernalId("elara.boot");
+  start_worker(init_services);
+  retire_kernel("elara.boot");
+}
+```
 
 ## `far_signal`
 

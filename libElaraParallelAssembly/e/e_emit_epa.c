@@ -51,6 +51,7 @@ struct EmitCtx {
   /* Source line map: translates flat preprocessed line → (file, original-line) */
   const ELineMap *line_map;
   const char *main_file;
+  int inside_worker_static_block;
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -344,10 +345,14 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
 static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_worker_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_kernel_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -502,12 +507,19 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"request_at", emit_request_at_builtin},
     {"ghs_alloc", emit_ghs_alloc_builtin},
     {"ghs_alloc_from_local", emit_ghs_alloc_from_local_builtin},
+    {"rgm_publish", emit_rgm_publish_builtin},
+    {"rgm_get", emit_rgm_get_builtin},
     {"ghs_store_i32", emit_ghs_store_i32_builtin},
     {"local_store_i32", emit_local_store_i32_builtin},
     {"start_worker", emit_worker_start_builtin},
     {"stop_worker", emit_worker_stop_builtin},
     {"worker_start", emit_worker_start_builtin},
     {"worker_stop", emit_worker_stop_builtin},
+    {"retire_worker", emit_worker_retire_builtin},
+    {"worker_retire", emit_worker_retire_builtin},
+    {"retire_self", emit_worker_retire_builtin},
+    {"retire_kernel", emit_kernel_retire_builtin},
+    {"kernel_retire", emit_kernel_retire_builtin},
     {"kernal_get_ghs", emit_kernel_get_ghs_builtin},
     {"kernel_get_ghs", emit_kernel_get_ghs_builtin},
     {"typeof", emit_typeof_builtin},
@@ -1336,6 +1348,89 @@ static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitC
   return 1;
 }
 
+static int emit_rgm_name_uid(FILE *out, const EExpr *name_expr, int depth, const char *builtin_name) {
+  uint64_t uid = 0u;
+  if (!name_expr) return 0;
+  if (name_expr->kind == E_EXPR_STRING) {
+    char norm[512];
+    uid = fnv1a64_bytes(normalized_string_token(name_expr->as.string_lit, norm, sizeof(norm)));
+  } else if (name_expr->kind == E_EXPR_IDENT) {
+    uid = fnv1a64_bytes(name_expr->as.ident);
+  } else if (name_expr->kind == E_EXPR_INT && name_expr->as.int_lit > 0) {
+    uid = (uint64_t)name_expr->as.int_lit;
+  } else {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects name as string, identifier, or positive integer uid\n", builtin_name);
+    return 0;
+  }
+  if (uid == 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s resolved name uid must not be zero\n", builtin_name);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %u\n", (unsigned int)(uid & 0xffffffffu));
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 1 %u\n", (unsigned int)((uid >> 32) & 0xffffffffu));
+  return 1;
+}
+
+static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ELocalBinding *binding;
+  const char *payload_name;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u ||
+      expr->as.call.args[1]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; rgm_publish expects (name, static_payload)\n", out);
+    return 0;
+  }
+  if (!ctx->inside_worker_static_block) {
+    emit_indent(out, depth);
+    fputs("; rgm_publish is only valid inside a worker static { } block\n", out);
+    return 0;
+  }
+
+  payload_name = expr->as.call.args[1]->as.ident;
+  binding = find_local_binding_by_name(active_frame_for_ctx(ctx), payload_name);
+  if (!binding || binding->storage != E_LOCAL_STACK_STATIC || binding->vm_local_words != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; rgm_publish payload '%s' must be a declared-type static binding\n", payload_name);
+    return 0;
+  }
+
+  if (!emit_rgm_name_uid(out, expr->as.call.args[0], depth, "rgm_publish")) return 0;
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("RGM_PUBLISH_L\n", out);
+  return 1;
+}
+
+static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fputs("; rgm_get expects (name)\n", out);
+    return 0;
+  }
+  if (!emit_rgm_name_uid(out, expr->as.call.args[0], depth, "rgm_get")) return 0;
+  emit_indent(out, depth);
+  fputs("RGM_GET\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  return 1;
+}
+
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 3u) {
@@ -1437,6 +1532,55 @@ static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx,
 
 static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   return emit_worker_control_builtin(out, expr, ctx, depth, "ENTRY_HALT");
+}
+
+static int emit_worker_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int wid = 0u;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+
+  if (expr->as.call.arg_count == 0u) {
+    if (!ctx->current_worker) {
+      emit_indent(out, depth);
+      fprintf(out, "; %s with no args is only valid in a worker\n", expr->as.call.callee);
+      return 0;
+    }
+    wid = worker_entry_id_for_name(ctx->model, ctx->current_worker->name);
+    if (wid == 0u) {
+      emit_indent(out, depth);
+      fprintf(out, "; %s could not resolve current worker id\n", expr->as.call.callee);
+      return 0;
+    }
+    emit_indent(out, depth);
+    fprintf(out, "ENTRY_RETIRE %u\n", wid);
+    return 1;
+  }
+
+  if (expr->as.call.arg_count == 1u) {
+    return emit_worker_control_builtin(out, expr, ctx, depth, "ENTRY_RETIRE");
+  }
+
+  emit_indent(out, depth);
+  fprintf(out, "; %s expects 0 args in a worker or 1 arg in kernel, got %zu\n",
+          expr->as.call.callee, expr->as.call.arg_count);
+  return 0;
+}
+
+static int emit_kernel_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects 1 kernel id arg, got %zu\n",
+            expr->as.call.callee, expr->as.call.arg_count);
+    return 0;
+  }
+  if (!emit_target_kernel_uid_to_regs(out, expr->as.call.args[0], ctx, depth)) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s target kernel id must be a string literal\n", expr->as.call.callee);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fputs("KERNEL_RETIRE\n", out);
+  return 1;
 }
 
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
@@ -2138,10 +2282,13 @@ static void emit_static_blocks_in_stmt(FILE *out, const EStmt *stmt, EmitCtx *ct
   size_t i;
   if (!stmt) return;
   if (stmt->kind == E_STMT_STATIC_BLOCK) {
+    int prev_static = ctx->inside_worker_static_block;
     emit_indent(out, depth);
     fputs("; static { }\n", out);
+    ctx->inside_worker_static_block = ctx->current_worker != NULL;
     for (i = 0; i < stmt->as.static_block.count; i++)
       emit_stmt(out, stmt->as.static_block.items[i], ctx, depth, NULL, NULL);
+    ctx->inside_worker_static_block = prev_static;
     return;
   }
   if (stmt->kind == E_STMT_BLOCK) {

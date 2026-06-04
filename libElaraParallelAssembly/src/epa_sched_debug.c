@@ -68,7 +68,7 @@ static int debug_run(EpaKernel *k,
         wid = order[oi];
         EpaWorkerState *w = &k->impl.workers[wid];
 
-        if (!w->inited || w->halted || w->faulted || w->blocked) continue;
+        if (!w->inited || w->retired || w->halted || w->faulted || w->blocked) continue;
 
         any_ran = 1;
         k->impl.cur_wid = wid;
