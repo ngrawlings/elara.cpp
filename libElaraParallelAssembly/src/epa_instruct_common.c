@@ -1436,6 +1436,21 @@ case EPA_OP_DYN_ALLOC: {
     snprintf(err, EPA_MAX_ERR, "DYN_ALLOC: invalid pool_id=%u", (unsigned)pool_id);
     return EPA_FLOW_ERR;
   }
+  if (pool->count >= pool->cap) {
+    uint32_t requested_cap = pool->cap ? pool->cap + pool->grow_by : pool->grow_by;
+    int submit_rc;
+    if (requested_cap <= pool->count) requested_cap = pool->count + 1u;
+    if (!ctx->hooks.on_request_dynamic_pool_capacity) {
+      snprintf(err, EPA_MAX_ERR, "DYN_ALLOC: dynamic capacity hook not installed");
+      return EPA_FLOW_ERR;
+    }
+    submit_rc = ctx->hooks.on_request_dynamic_pool_capacity(ctx->hooks_user, (uint8_t)w->id, pool_id, requested_cap, 1, err);
+    if (submit_rc == 2) {
+      if (err) err[0] = 0;
+      return EPA_FLOW_YIELDED;
+    }
+    if (!submit_rc) return EPA_FLOW_ERR;
+  }
   if (!epa_dynamic_pool_alloc(pool, &ordinal, err)) return EPA_FLOW_ERR;
   w->vm.csc[0] = (int32_t)ordinal;
   w->vm.csc[1] = 1;
@@ -1451,6 +1466,11 @@ case EPA_OP_DYN_FREE: {
     return EPA_FLOW_ERR;
   }
   if (!epa_dynamic_pool_release(pool, (uint32_t)w->vm.csc[0], err)) return EPA_FLOW_ERR;
+  if (ctx->hooks.on_request_dynamic_pool_capacity && pool->cap > pool->count + pool->max_free) {
+    uint32_t suggested_cap = pool->count + pool->min_free;
+    (void)ctx->hooks.on_request_dynamic_pool_capacity(ctx->hooks_user, (uint8_t)w->id, pool_id, suggested_cap, 0, err);
+    if (err) err[0] = 0;
+  }
   w->vm.csc[1] = 1;
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;

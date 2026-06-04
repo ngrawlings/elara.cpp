@@ -15,6 +15,7 @@
 
 #define EPA_INGRESS_QMAX  16
 #define EPA_SYSTEM_AT_QMAX 64
+#define EPA_SYSTEM_MEM_QMAX 64
 
 // Event kinds
 typedef enum {
@@ -41,6 +42,27 @@ typedef struct {
   uint64_t next_request_id;
 } EpaSystemAtRequestRing;
 
+typedef enum {
+  EPA_SYSTEM_MEM_REQ_DYNAMIC_POOL_CAPACITY = 1
+} EpaSystemMemoryRequestKind;
+
+typedef struct {
+  uint64_t request_id;
+  uint32_t wid;
+  EpaSystemMemoryRequestKind kind;
+  uint32_t pool_id;
+  uint32_t requested_capacity;
+  uint32_t hard_order;
+} EpaSystemMemoryRequestRecord;
+
+typedef struct {
+  EpaSystemMemoryRequestRecord q[EPA_SYSTEM_MEM_QMAX];
+  uint32_t head;
+  uint32_t tail;
+  uint32_t count;
+  uint64_t next_request_id;
+} EpaSystemMemoryRequestRing;
+
 typedef struct {
   // same impl you have today
   IdRing syncq;
@@ -60,10 +82,12 @@ typedef struct {
 
   epa_ghs_t* ghs;
   EpaSystemAtRequestRing atq;
+  EpaSystemMemoryRequestRing memq;
 
   int interrupt_requested;
   pthread_mutex_t syncq_mu;
   pthread_mutex_t atq_mu;
+  pthread_mutex_t memq_mu;
 } KernelImpl;
 
 typedef void (*EpaKernelDbgCallback)(

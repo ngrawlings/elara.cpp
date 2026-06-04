@@ -21,6 +21,8 @@ int  epa_dynamic_pool_init(EpaDynamicPool *pool, uint32_t min_free, uint32_t max
 void epa_dynamic_pool_free(EpaDynamicPool *pool);
 
 int  epa_dynamic_pool_round_enter(EpaDynamicPool *pool, char err[256]);
+int  epa_dynamic_pool_request_capacity(EpaDynamicPool *pool, uint32_t requested_cap,
+                                       int hard_order, char err[256]);
 int  epa_dynamic_pool_alloc(EpaDynamicPool *pool, uint32_t *out_ordinal, char err[256]);
 int  epa_dynamic_pool_release(EpaDynamicPool *pool, uint32_t ordinal, char err[256]);
 int  epa_dynamic_pool_read(const EpaDynamicPool *pool, uint32_t ordinal, void *dst, uint32_t dst_len, char err[256]);

@@ -71,6 +71,39 @@ int epa_dynamic_pool_round_enter(EpaDynamicPool *pool, char err[256])
   return 1;
 }
 
+int epa_dynamic_pool_request_capacity(EpaDynamicPool *pool, uint32_t requested_cap,
+                                      int hard_order, char err[256])
+{
+  uint8_t *next;
+  if (!pool) { set_err(err, "epa_dynamic_pool_request_capacity: null pool"); return 0; }
+
+  if (requested_cap < pool->count) {
+    if (hard_order) {
+      set_err(err, "epa_dynamic_pool_request_capacity: requested capacity below live count");
+      return 0;
+    }
+    return 1;
+  }
+
+  if (requested_cap == pool->cap) return 1;
+
+  if (requested_cap > pool->cap) {
+    return dyn_ensure_cap(pool, requested_cap, err);
+  }
+
+  next = (uint8_t*)realloc(pool->data, (size_t)requested_cap * (size_t)pool->element_size);
+  if (!next && requested_cap != 0u) {
+    if (hard_order) {
+      set_err(err, "epa_dynamic_pool_request_capacity: shrink realloc failed");
+      return 0;
+    }
+    return 1;
+  }
+  pool->data = next;
+  pool->cap = requested_cap;
+  return 1;
+}
+
 int epa_dynamic_pool_alloc(EpaDynamicPool *pool, uint32_t *out_ordinal, char err[256])
 {
   if (!pool || !out_ordinal) { set_err(err, "epa_dynamic_pool_alloc: bad args"); return 0; }

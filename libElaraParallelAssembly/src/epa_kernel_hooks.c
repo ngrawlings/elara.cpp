@@ -338,6 +338,111 @@ int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, u
   return epa_kernel_dispatch_at_requests_cpu(k, err);
 }
 
+int epa_kernel_dispatch_memory_requests_cpu(EpaKernel *k, char err[EPA_MAX_ERR]) {
+  EpaSystemMemoryRequestRecord req;
+  EpaWorkerState *w;
+  EpaDynamicPool *pool;
+
+  if (err) err[0] = 0;
+  if (!k) {
+    if (err) snprintf(err, EPA_MAX_ERR, "memory_dispatch_cpu: kernel null");
+    return 0;
+  }
+
+  for (;;) {
+    memset(&req, 0, sizeof(req));
+    pthread_mutex_lock(&k->impl.memq_mu);
+    if (k->impl.memq.count == 0u) {
+      pthread_mutex_unlock(&k->impl.memq_mu);
+      return 1;
+    }
+    req = k->impl.memq.q[k->impl.memq.head];
+    k->impl.memq.q[k->impl.memq.head].request_id = 0u;
+    k->impl.memq.head = (k->impl.memq.head + 1u) % EPA_SYSTEM_MEM_QMAX;
+    k->impl.memq.count--;
+    pthread_mutex_unlock(&k->impl.memq_mu);
+
+    if (req.kind != EPA_SYSTEM_MEM_REQ_DYNAMIC_POOL_CAPACITY) {
+      if (err) snprintf(err, EPA_MAX_ERR, "memory_dispatch_cpu: unknown request kind=%u", (unsigned)req.kind);
+      return 0;
+    }
+
+    if (req.wid >= EPA_MAX_WORKERS || !k->impl.workers[req.wid].inited) {
+      if (err) snprintf(err, EPA_MAX_ERR, "dynamic pool capacity request bad wid=%u", (unsigned)req.wid);
+      return 0;
+    }
+    w = &k->impl.workers[req.wid];
+    if (req.pool_id >= w->dynamic_pool_count || !w->dynamic_pools) {
+      if (err) snprintf(err, EPA_MAX_ERR, "dynamic pool capacity request bad pool_id=%u", (unsigned)req.pool_id);
+      return 0;
+    }
+    pool = &w->dynamic_pools[req.pool_id];
+
+    /*
+      Dynamic allocation remains invisible to E. Growth requests are hard
+      orders because forward progress depends on them. Shrink requests are
+      suggestions: the host may keep the capacity if that is cheaper.
+    */
+    if (!epa_dynamic_pool_request_capacity(pool, req.requested_capacity, req.hard_order ? 1 : 0, err)) {
+      if (err && !err[0]) {
+        snprintf(err, EPA_MAX_ERR, "dynamic pool capacity request failed pool_id=%u requested=%u",
+                 (unsigned)req.pool_id, (unsigned)req.requested_capacity);
+      }
+      return 0;
+    }
+  }
+}
+
+int hook_request_dynamic_pool_capacity(void *user, uint8_t wid, uint32_t pool_id, uint32_t requested_capacity, int hard_order, char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  EpaSystemMemoryRequestRecord *slot;
+  EpaWorkerState *w;
+  uint64_t request_id;
+
+  if (err) err[0] = 0;
+  if (!k) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_dynamic_pool_capacity: kernel null");
+    return 0;
+  }
+  if (wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_dynamic_pool_capacity: bad wid %u", (unsigned)wid);
+    return 0;
+  }
+  w = &k->impl.workers[wid];
+  if (pool_id >= w->dynamic_pool_count || !w->dynamic_pools) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_dynamic_pool_capacity: bad pool_id %u", (unsigned)pool_id);
+    return 0;
+  }
+  if (hard_order && requested_capacity < w->dynamic_pools[pool_id].count) {
+    snprintf(err, EPA_MAX_ERR, "hook_request_dynamic_pool_capacity: hard request below live count");
+    return 0;
+  }
+
+  pthread_mutex_lock(&k->impl.memq_mu);
+  if (k->impl.memq.count >= EPA_SYSTEM_MEM_QMAX) {
+    pthread_mutex_unlock(&k->impl.memq_mu);
+    if (err) err[0] = 0;
+    return 2;
+  }
+
+  request_id = k->impl.memq.next_request_id++;
+  if (k->impl.memq.next_request_id == 0u) k->impl.memq.next_request_id = 1u;
+  slot = &k->impl.memq.q[k->impl.memq.tail];
+  memset(slot, 0, sizeof(*slot));
+  slot->request_id = request_id;
+  slot->wid = wid;
+  slot->kind = EPA_SYSTEM_MEM_REQ_DYNAMIC_POOL_CAPACITY;
+  slot->pool_id = pool_id;
+  slot->requested_capacity = requested_capacity;
+  slot->hard_order = hard_order ? 1u : 0u;
+  k->impl.memq.tail = (k->impl.memq.tail + 1u) % EPA_SYSTEM_MEM_QMAX;
+  k->impl.memq.count++;
+  pthread_mutex_unlock(&k->impl.memq_mu);
+
+  kdbg_emit(k, EPA_KDBG_SIGNAL, wid, (uint32_t)(request_id & 0xffffffffu), &w->vm.eip, "request_dynamic_pool_capacity");
+  return epa_kernel_dispatch_memory_requests_cpu(k, err);
+}
+
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   EpaKernel *k = (EpaKernel*)user;
   EpaWorkerState *w;

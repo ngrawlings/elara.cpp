@@ -87,6 +87,12 @@ static void kernel_atq_clear(EpaKernel *k) {
   if (k->impl.atq.next_request_id == 0u) k->impl.atq.next_request_id = 1u;
 }
 
+static void kernel_memq_clear(EpaKernel *k) {
+  if (!k) return;
+  memset(&k->impl.memq, 0, sizeof(k->impl.memq));
+  k->impl.memq.next_request_id = 1u;
+}
+
 static void kernel_fault_worker(EpaKernel *k, uint32_t wid, const char *fmt, ...) {
   va_list ap;
   if (!k || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) return;
@@ -248,8 +254,10 @@ EpaKernel* epa_kernel_create(char err[EPA_MAX_ERR]) {
   }
   pthread_mutex_init(&k->impl.syncq_mu, NULL);
   pthread_mutex_init(&k->impl.atq_mu, NULL);
+  pthread_mutex_init(&k->impl.memq_mu, NULL);
   pthread_mutex_init(&k->state_mu, NULL);
   k->impl.atq.next_request_id = 1u;
+  k->impl.memq.next_request_id = 1u;
   k->runtime_status = EPA_KERNEL_STATUS_UNLOADED;
   k->last_error[0] = 0;
 
@@ -286,8 +294,12 @@ void epa_kernel_destroy(EpaKernel *k) {
   pthread_mutex_lock(&k->impl.atq_mu);
   kernel_atq_clear(k);
   pthread_mutex_unlock(&k->impl.atq_mu);
+  pthread_mutex_lock(&k->impl.memq_mu);
+  kernel_memq_clear(k);
+  pthread_mutex_unlock(&k->impl.memq_mu);
   pthread_mutex_destroy(&k->impl.syncq_mu);
   pthread_mutex_destroy(&k->impl.atq_mu);
+  pthread_mutex_destroy(&k->impl.memq_mu);
   pthread_mutex_destroy(&k->state_mu);
 
   if (k->prog_loaded) epa_program_free(&k->prog);
@@ -598,6 +610,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->hooks.on_host_signal  = hook_host_signal;
   k->hooks.on_request_threads = hook_request_threads;
   k->hooks.on_request_at   = hook_request_at;
+  k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
 
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
@@ -668,6 +681,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->hooks.on_host_signal  = hook_host_signal;
   k->hooks.on_request_threads = hook_request_threads;
   k->hooks.on_request_at   = hook_request_at;
+  k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
   k->nf = epa_null_nf_backend;
 
