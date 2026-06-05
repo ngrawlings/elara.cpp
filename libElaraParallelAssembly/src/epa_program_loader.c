@@ -29,15 +29,15 @@ static int skip_entry(
   size_t pc = pc_at_entry_start;
   int depth = 0;
 
-  while (pc + 2 <= blob_len) {
-    uint16_t op = EPA_READ_U16_LE(blob, pc);
+  while (pc + EPA_OPCODE_BYTES <= blob_len) {
+    uint8_t op = blob[pc];
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
       return 0;
     }
 
-    size_t need = 2u + (size_t)def->param_len;
+    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -74,15 +74,15 @@ static int skip_func(
   size_t pc = pc_at_func_start;
   int depth = 0;
 
-  while (pc + 2 <= blob_len) {
-    uint16_t op = EPA_READ_U16_LE(blob, pc);
+  while (pc + EPA_OPCODE_BYTES <= blob_len) {
+    uint8_t op = blob[pc];
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
       return 0;
     }
 
-    size_t need = 2u + (size_t)def->param_len;
+    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -117,15 +117,15 @@ static int skip_at_entry(
   size_t pc = pc_at_at_entry_start;
   int depth = 0;
 
-  while (pc + 2 <= blob_len) {
-    uint16_t op = EPA_READ_U16_LE(blob, pc);
+  while (pc + EPA_OPCODE_BYTES <= blob_len) {
+    uint8_t op = blob[pc];
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
       return 0;
     }
 
-    size_t need = 2u + (size_t)def->param_len;
+    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -159,7 +159,7 @@ static int parse_data_block(
     char err[EPA_MAX_ERR]
 ) {
   // DATA_BLOCK v2 (chunked):
-  //   u16 opcode = DATA_BLOCK
+  //   u8 opcode = DATA_BLOCK
   //   u16 chunk_count
   //   chunk_count * {
   //     u16 kind
@@ -169,15 +169,15 @@ static int parse_data_block(
   //   }
   //   (optional padding to 4-byte alignment between chunks / at end)
 
-  if (pc_at_data_block + 2 + 2 > blob_len) {
+  if (pc_at_data_block + EPA_OPCODE_BYTES + 2 > blob_len) {
     snprintf(err, EPA_MAX_ERR, "program_loader: truncated DATA_BLOCK header at pc=%zu", pc_at_data_block);
     return 0;
   }
 
   size_t pc = pc_at_data_block;
 
-  // u16 opcode already known by caller; skip it
-  pc += 2;
+  // u8 opcode already known by caller; skip it
+  pc += EPA_OPCODE_BYTES;
 
   uint16_t chunk_count = EPA_READ_U16_LE(blob, pc);
   pc += 2;
@@ -317,8 +317,8 @@ int epa_program_parse(
   out->image_size = blob_len;
 
   size_t pc = 0;
-  while (pc + 2 <= blob_len) {
-    uint16_t op = EPA_READ_U16_LE(blob, pc);
+  while (pc + EPA_OPCODE_BYTES <= blob_len) {
+    uint8_t op = blob[pc];
 
     // Handle variable-length opcodes FIRST (they cannot use def->param_len)
     if (op == EPA_OP_DATA_BLOCK) {
@@ -330,11 +330,11 @@ int epa_program_parse(
 
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
       return 0;
     }
 
-    size_t need = 2u + (size_t)def->param_len;
+    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -342,10 +342,10 @@ int epa_program_parse(
 
     if (op == EPA_OP_ENTRY_START) {
       // ENTRY_START: u32 id, u16 in_words, u16 out_words (param_len=8)
-      uint32_t id = EPA_READ_U32_LE(blob, pc + 2);
-      uint16_t in_words  = EPA_READ_U16_LE(blob, pc + 6);
-      uint16_t out_words = EPA_READ_U16_LE(blob, pc + 8);
-      uint32_t signal_mail_box_size = EPA_READ_U32_LE(blob, pc + 10);
+      uint32_t id = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint16_t in_words  = EPA_READ_U16_LE(blob, pc + EPA_OPCODE_BYTES + 4);
+      uint16_t out_words = EPA_READ_U16_LE(blob, pc + EPA_OPCODE_BYTES + 6);
+      uint32_t signal_mail_box_size = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 8);
 
       if (id >= 256) {
         snprintf(err, EPA_MAX_ERR, "program_loader: ENTRY_START id=%u out of range", (unsigned)id);
@@ -356,7 +356,7 @@ int epa_program_parse(
       if (!skip_entry(blob, blob_len, pc, &pc_after, err)) return 0;
 
       size_t body_start = pc + need;
-      size_t body_end   = pc_after - 2; // start of ENTRY_END
+      size_t body_end   = pc_after - EPA_OPCODE_BYTES; // start of ENTRY_END
       if (body_end < body_start) {
         snprintf(err, EPA_MAX_ERR, "program_loader: malformed ENTRY id=%u", (unsigned)id);
         return 0;
@@ -379,17 +379,17 @@ int epa_program_parse(
     }
 
     if (op == EPA_OP_KERNEL_ID) {
-      uint32_t lo = EPA_READ_U32_LE(blob, pc + 2u);
-      uint32_t hi = EPA_READ_U32_LE(blob, pc + 6u);
+      uint32_t lo = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint32_t hi = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 4u);
       out->kernel_uid = ((uint64_t)hi << 32) | (uint64_t)lo;
       pc += need;
       continue;
     }
 
     if (op == EPA_OP_ACL_ALLOW) {
-      uint32_t lo = EPA_READ_U32_LE(blob, pc + 2u);
-      uint32_t hi = EPA_READ_U32_LE(blob, pc + 6u);
-      uint32_t local_wid = EPA_READ_U32_LE(blob, pc + 10u);
+      uint32_t lo = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint32_t hi = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 4u);
+      uint32_t local_wid = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 8u);
       uint64_t remote_uid = ((uint64_t)hi << 32) | (uint64_t)lo;
       if (!push_acl_entry(out, remote_uid, local_wid, err)) return 0;
       pc += need;
@@ -397,11 +397,11 @@ int epa_program_parse(
     }
 
     if (op == EPA_OP_DYNAMIC_POOL) {
-      uint32_t pool_id = EPA_READ_U32_LE(blob, pc + 2);
-      uint32_t element_size = EPA_READ_U32_LE(blob, pc + 6);
-      uint32_t min_free = EPA_READ_U32_LE(blob, pc + 10);
-      uint32_t max_free = EPA_READ_U32_LE(blob, pc + 14);
-      uint32_t grow_by = EPA_READ_U32_LE(blob, pc + 18);
+      uint32_t pool_id = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint32_t element_size = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 4);
+      uint32_t min_free = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 8);
+      uint32_t max_free = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 12);
+      uint32_t grow_by = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 16);
       size_t i;
       EpaProgramDynamicPoolDesc *np;
 
@@ -449,8 +449,8 @@ int epa_program_parse(
 
     if (op == EPA_OP_FUNC_START) {
       // FUNC_START: u32 func_id, u16 frame_words (param_len=6)
-      uint32_t func_id = EPA_READ_U32_LE(blob, pc + 2);
-      uint16_t frame_words = EPA_READ_U16_LE(blob, pc + 6);
+      uint32_t func_id = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint16_t frame_words = EPA_READ_U16_LE(blob, pc + EPA_OPCODE_BYTES + 4);
 
       // disallow duplicate func_id
       for (size_t i = 0; i < out->nfuncs; i++) {
@@ -464,7 +464,7 @@ int epa_program_parse(
       if (!skip_func(blob, blob_len, pc, &pc_after, err)) return 0;
 
       size_t body_start = pc + need;
-      size_t body_end   = pc_after - 2; // start of FUNC_END
+      size_t body_end   = pc_after - EPA_OPCODE_BYTES; // start of FUNC_END
       if (body_end < body_start) {
         snprintf(err, EPA_MAX_ERR, "program_loader: malformed FUNC func_id=%u", (unsigned)func_id);
         return 0;
@@ -490,8 +490,8 @@ int epa_program_parse(
     }
 
     if (op == EPA_OP_AT_ENTRY_START) {
-      uint32_t at_id = EPA_READ_U32_LE(blob, pc + 2);
-      uint16_t frame_words = EPA_READ_U16_LE(blob, pc + 6);
+      uint32_t at_id = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
+      uint16_t frame_words = EPA_READ_U16_LE(blob, pc + EPA_OPCODE_BYTES + 4);
 
       for (size_t i = 0; i < out->nat_entries; i++) {
         if (out->at_entries[i].at_id == at_id) {
@@ -504,7 +504,7 @@ int epa_program_parse(
       if (!skip_at_entry(blob, blob_len, pc, &pc_after, err)) return 0;
 
       size_t body_start = pc + need;
-      size_t body_end   = pc_after - 2; // start of AT_ENTRY_END
+      size_t body_end   = pc_after - EPA_OPCODE_BYTES; // start of AT_ENTRY_END
       if (body_end < body_start) {
         snprintf(err, EPA_MAX_ERR, "program_loader: malformed AT_ENTRY at_id=%u", (unsigned)at_id);
         return 0;

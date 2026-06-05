@@ -205,24 +205,24 @@ EpaFlowRc epa_flow_step(
   }
 
   size_t pc = (size_t)eip->rel_pc;
-  if (pc + 2 > code_len) {
+  if (pc + EPA_OPCODE_BYTES > code_len) {
     snprintf(err, EPA_MAX_ERR, "EIP out of range pc=%zu len=%zu", pc, code_len);
     return EPA_FLOW_ERR;
   }
 
-  uint16_t op = EPA_READ_U16_LE(code, pc);
+  uint8_t op = code[pc];
   const EpaOpcodeDef *def = epa_find_opcode(op);
   if (!def) {
-    snprintf(err, EPA_MAX_ERR, "unknown opcode 0x%04x at pc=%zu", op, pc);
+    snprintf(err, EPA_MAX_ERR, "unknown opcode 0x%02x at pc=%zu", op, pc);
     return EPA_FLOW_ERR;
   }
-  size_t need = 2u + (size_t)def->param_len;
+  size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
   if (pc + need > code_len) {
     snprintf(err, EPA_MAX_ERR, "truncated %s at pc=%zu", def->name, pc);
     return EPA_FLOW_ERR;
   }
 
-  TRACE("[GL-NF] slot=%u %s[%u] pc=%zu op=0x%04x %s\n",
+  TRACE("[GL-NF] slot=%u %s[%u] pc=%zu op=0x%02x %s\n",
         (unsigned)w->id,
         (eip->block_type == EPA_BLOCK_ENTRY) ? "entry" :
         (eip->block_type == EPA_BLOCK_AT_ENTRY) ? "at_entry" : "func",
@@ -266,21 +266,21 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
 
     case EPA_OP_ENTRY_EXEC: {
-      uint8_t wid = code[pc + 2];
+      uint8_t wid = code[pc + EPA_OPCODE_BYTES];
       eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_entry_exec && !ctx->hooks.on_entry_exec(ctx->hooks_user, wid, err)) return EPA_FLOW_ERR;
       return EPA_FLOW_YIELDED;
     }
 
     case EPA_OP_ENTRY_HALT: {
-      uint8_t wid = code[pc + 2];
+      uint8_t wid = code[pc + EPA_OPCODE_BYTES];
       eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_entry_halt && !ctx->hooks.on_entry_halt(ctx->hooks_user, wid, err)) return EPA_FLOW_ERR;
       return EPA_FLOW_YIELDED;
     }
 
     case EPA_OP_ENTRY_RETIRE: {
-      uint8_t wid = code[pc + 2];
+      uint8_t wid = code[pc + EPA_OPCODE_BYTES];
       eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_entry_retire && !ctx->hooks.on_entry_retire(ctx->hooks_user, wid, err)) return EPA_FLOW_ERR;
       return EPA_FLOW_YIELDED;
@@ -294,8 +294,8 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_ENTRY_PRIVILEGE: {
-      uint8_t wid = code[pc + 2];
-      uint32_t privilege = EPA_READ_U32_LE(code, pc + 3);
+      uint8_t wid = code[pc + EPA_OPCODE_BYTES];
+      uint32_t privilege = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES + 1);
       if (!w || w->id != 0u) {
         snprintf(err, EPA_MAX_ERR, "ENTRY_PRIVILEGE only valid from kernel entry wid=0");
         return EPA_FLOW_ERR;
@@ -316,7 +316,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_ACL_GRANT: {
-      uint8_t local_wid = code[pc + 2];
+      uint8_t local_wid = code[pc + EPA_OPCODE_BYTES];
       uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
       uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
       eip->rel_pc = (uint32_t)(pc + need);
@@ -325,7 +325,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_ACL_REVOKE: {
-      uint8_t local_wid = code[pc + 2];
+      uint8_t local_wid = code[pc + EPA_OPCODE_BYTES];
       uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
       uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
       eip->rel_pc = (uint32_t)(pc + need);
@@ -361,7 +361,7 @@ EpaFlowRc epa_flow_step(
 
     // Interrupt / debug
     case EPA_OP_BREAK: {
-      uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
+      uint32_t code_u = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
       EpaEip at = *eip;
       eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_break && !ctx->hooks.on_break(ctx->hooks_user, (uint8_t)w->id, code_u, &at, err)) {
@@ -476,7 +476,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_TRAP: {
-      uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
+      uint32_t code_u = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
       EpaEip at = *eip;
       // TRAP fires only when r0 == 0 (assert-false)
       if (w->vm.csc[0] == 0u) {
@@ -492,7 +492,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_EXCEPT: {
-      uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);
+      uint32_t code_u = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
       EpaEip at = *eip;
       int ret = 0;
       if (ctx->hooks.on_except) {
@@ -546,11 +546,11 @@ EpaFlowRc epa_flow_step(
       }
 
       // param is right after opcode (opcode=2 bytes, then u8 wid)
-      if (pc + 2 + 1 > (int)code_len) {
+      if (pc + EPA_OPCODE_BYTES + 1 > (int)code_len) {
         snprintf(err, EPA_MAX_ERR, "DATA_READY truncated");
         return EPA_FLOW_ERR;
       }
-      uint8_t wid = code[pc + 2];
+      uint8_t wid = code[pc + EPA_OPCODE_BYTES];
 
       int ok = ctx->hooks.on_data_ready(ctx->hooks_user, wid, err);
       if (!ok) return EPA_FLOW_ERR;
@@ -642,17 +642,17 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_MV: {
-      uint8_t dst = code[pc + 2];
-      uint8_t src = code[pc + 3];
+      uint8_t dst = code[pc + EPA_OPCODE_BYTES];
+      uint8_t src = code[pc + EPA_OPCODE_BYTES + 1];
       w->vm.csc[dst] = w->vm.csc[src];
       eip->rel_pc = pc + need;
       return EPA_FLOW_YIELDED;
     }
 
     case EPA_OP_SET_R: {
-        uint8_t reg = code[pc + 2];
+        uint8_t reg = code[pc + EPA_OPCODE_BYTES];
         int32_t val;
-        memcpy(&val, code + pc + 3, sizeof(int32_t));
+        memcpy(&val, code + pc + EPA_OPCODE_BYTES + 1, sizeof(int32_t));
 
         if (reg >= EPA_VM_REGS_MAX) {
             snprintf(err, EPA_MAX_ERR, "SET_R invalid register");
@@ -666,7 +666,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_INC: {
-        uint8_t reg = code[pc + 2];
+        uint8_t reg = code[pc + EPA_OPCODE_BYTES];
 
         if (reg >= EPA_VM_REGS_MAX) {
             snprintf(err, EPA_MAX_ERR, "INC invalid register");
@@ -680,7 +680,7 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_DEC: {
-        uint8_t reg = code[pc + 2];
+        uint8_t reg = code[pc + EPA_OPCODE_BYTES];
 
         if (reg >= EPA_VM_REGS_MAX) {
             snprintf(err, EPA_MAX_ERR, "DEC invalid register");
@@ -694,8 +694,8 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_RLB_MOV1: {
-      uint8_t reg    = code[pc + 2];
-      uint8_t lb_reg = code[pc + 3];
+      uint8_t reg    = code[pc + EPA_OPCODE_BYTES];
+      uint8_t lb_reg = code[pc + EPA_OPCODE_BYTES + 1];
 
       uint32_t off = w->vm.csc[lb_reg];
       if (off >= w->vm.lbytes_top) {
@@ -709,8 +709,8 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_LBR_MOV1: {
-      uint8_t reg    = code[pc + 2];
-      uint8_t lb_reg = code[pc + 3];
+      uint8_t reg    = code[pc + EPA_OPCODE_BYTES];
+      uint8_t lb_reg = code[pc + EPA_OPCODE_BYTES + 1];
 
       uint32_t off = w->vm.csc[lb_reg];
       if (off >= w->vm.lbytes_top) {
@@ -724,8 +724,8 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_RLB_MOV4: {
-      uint8_t reg    = code[pc + 2];
-      uint8_t lb_reg = code[pc + 3];
+      uint8_t reg    = code[pc + EPA_OPCODE_BYTES];
+      uint8_t lb_reg = code[pc + EPA_OPCODE_BYTES + 1];
       uint32_t off   = (uint32_t)w->vm.csc[lb_reg];
       uint32_t val   = (uint32_t)w->vm.csc[reg];
       if (!w->vm.lbytes || off + 3u >= w->vm.lbytes_top) {
@@ -741,8 +741,8 @@ EpaFlowRc epa_flow_step(
     }
 
     case EPA_OP_LBR_MOV4: {
-      uint8_t reg    = code[pc + 2];
-      uint8_t lb_reg = code[pc + 3];
+      uint8_t reg    = code[pc + EPA_OPCODE_BYTES];
+      uint8_t lb_reg = code[pc + EPA_OPCODE_BYTES + 1];
       uint32_t off   = (uint32_t)w->vm.csc[lb_reg];
       if (!w->vm.lbytes || off + 3u >= w->vm.lbytes_top) {
         snprintf(err, EPA_MAX_ERR, "LBR_MOV4: off out of range (%u)", (unsigned)off);
@@ -755,14 +755,14 @@ EpaFlowRc epa_flow_step(
 
 // ---- Common VM ops (backend-independent) ----
 case EPA_OP_PUSH_I32: {
-  int32_t v = (int32_t)EPA_READ_U32_LE(code, pc + 2);
+  int32_t v = (int32_t)EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   if (!epa_stack_push(st, (uint32_t)v)) { snprintf(err, EPA_MAX_ERR, "PUSH_I32: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
 
 case EPA_OP_PUSH_R: {
-  uint8_t ridx = code[pc + 2];
+  uint8_t ridx = code[pc + EPA_OPCODE_BYTES];
   if (ridx >= EPA_VM_REGS_MAX) { snprintf(err, EPA_MAX_ERR, "PUSH_R bad reg %u", (unsigned)ridx); return EPA_FLOW_ERR; }
   if (!epa_stack_push(st, (uint32_t)w->vm.csc[ridx])) { snprintf(err, EPA_MAX_ERR, "PUSH_R: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
@@ -770,7 +770,7 @@ case EPA_OP_PUSH_R: {
 }
 
 case EPA_OP_POP_R: {
-  uint8_t ridx = code[pc + 2];
+  uint8_t ridx = code[pc + EPA_OPCODE_BYTES];
   if (ridx >= EPA_VM_REGS_MAX) { snprintf(err, EPA_MAX_ERR, "POP_R bad reg %u", (unsigned)ridx); return EPA_FLOW_ERR; }
   uint32_t u = 0;
   if (!epa_stack_pop(st, &u)) { snprintf(err, EPA_MAX_ERR, "POP_R: stack underflow"); return EPA_FLOW_ERR; }
@@ -871,7 +871,7 @@ case EPA_OP_DIV_I32: {
 }
 
 case EPA_OP_STORE_L: {
-  uint8_t idx = code[pc + 2];
+  uint8_t idx = code[pc + EPA_OPCODE_BYTES];
   if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "STORE_L idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
   uint32_t u = 0;
   if (!epa_stack_pop(st, &u)) { snprintf(err, EPA_MAX_ERR, "STORE_L: stack underflow"); return EPA_FLOW_ERR; }
@@ -881,7 +881,7 @@ case EPA_OP_STORE_L: {
 }
 
 case EPA_OP_LOAD_L: {
-  uint8_t idx = code[pc + 2];
+  uint8_t idx = code[pc + EPA_OPCODE_BYTES];
   if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "LOAD_L idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
   if (!epa_stack_push(st, (uint32_t)w->vm.locals[idx])) { snprintf(err, EPA_MAX_ERR, "LOAD_L: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
@@ -889,7 +889,7 @@ case EPA_OP_LOAD_L: {
 }
 
 case EPA_OP_STORE_LW: {
-  uint32_t idx = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t idx = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "STORE_LW idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
   uint32_t u = 0;
   if (!epa_stack_pop(st, &u)) { snprintf(err, EPA_MAX_ERR, "STORE_LW: stack underflow"); return EPA_FLOW_ERR; }
@@ -899,7 +899,7 @@ case EPA_OP_STORE_LW: {
 }
 
 case EPA_OP_LOAD_LW: {
-  uint32_t idx = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t idx = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   if (idx >= EPA_VM_LOCALS_MAX) { snprintf(err, EPA_MAX_ERR, "LOAD_LW idx out of range: %u", (unsigned)idx); return EPA_FLOW_ERR; }
   if (!epa_stack_push(st, (uint32_t)w->vm.locals[idx])) { snprintf(err, EPA_MAX_ERR, "LOAD_LW: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
@@ -910,9 +910,9 @@ case EPA_OP_LOAD_LW: {
 case EPA_OP_KERNEL_TRX_IN_L: {
   if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_IN_L only valid in kernel"); return EPA_FLOW_ERR; }
   if (!ctx->hooks.get_worker) { snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_IN_L: get_worker hook not installed"); return EPA_FLOW_ERR; }
-  uint8_t wid8 = code[pc + 2];
-  uint32_t laddr = EPA_READ_U32_LE(code, pc + 3);
-  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + 7);
+  uint8_t wid8 = code[pc + EPA_OPCODE_BYTES];
+  uint32_t laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES + 1);
+  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + EPA_OPCODE_BYTES + 5);
   if (laddr > EPA_VM_LOCALS_MAX || (uint64_t)laddr + (uint64_t)len > (uint64_t)EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_IN_L locals range out of bounds laddr=%u len=%u", (unsigned)laddr, (unsigned)len);
     return EPA_FLOW_ERR;
@@ -936,9 +936,9 @@ case EPA_OP_KERNEL_TRX_IN_L: {
 case EPA_OP_KERNEL_TRX_OUT_L: {
   if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_OUT_L only valid in kernel"); return EPA_FLOW_ERR; }
   if (!ctx->hooks.get_worker) { snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_OUT_L: get_worker hook not installed"); return EPA_FLOW_ERR; }
-  uint8_t wid8 = code[pc + 2];
-  uint32_t laddr = EPA_READ_U32_LE(code, pc + 3);
-  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + 7);
+  uint8_t wid8 = code[pc + EPA_OPCODE_BYTES];
+  uint32_t laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES + 1);
+  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + EPA_OPCODE_BYTES + 5);
   if (laddr > EPA_VM_LOCALS_MAX || (uint64_t)laddr + (uint64_t)len > (uint64_t)EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "KERNEL_TRX_OUT_L locals range out of bounds laddr=%u len=%u", (unsigned)laddr, (unsigned)len);
     return EPA_FLOW_ERR;
@@ -960,8 +960,8 @@ case EPA_OP_KERNEL_TRX_OUT_L: {
 
 case EPA_OP_WORKER_TRX_IN_L: {
   if (w->id == 0) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX_IN_L only valid in workers"); return EPA_FLOW_ERR; }
-  uint32_t laddr = EPA_READ_U32_LE(code, pc + 2);
-  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + 6);
+  uint32_t laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
+  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + EPA_OPCODE_BYTES + 4);
   if (laddr > EPA_VM_LOCALS_MAX || (uint64_t)laddr + (uint64_t)len > (uint64_t)EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "WORKER_TRX_IN_L locals range out of bounds laddr=%u len=%u", (unsigned)laddr, (unsigned)len);
     return EPA_FLOW_ERR;
@@ -982,8 +982,8 @@ case EPA_OP_WORKER_TRX_IN_L: {
 
 case EPA_OP_WORKER_TRX_OUT_L: {
   if (w->id == 0) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX_OUT_L only valid in workers"); return EPA_FLOW_ERR; }
-  uint32_t laddr = EPA_READ_U32_LE(code, pc + 2);
-  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + 6);
+  uint32_t laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
+  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + EPA_OPCODE_BYTES + 4);
   if (laddr > EPA_VM_LOCALS_MAX || (uint64_t)laddr + (uint64_t)len > (uint64_t)EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "WORKER_TRX_OUT_L locals range out of bounds laddr=%u len=%u", (unsigned)laddr, (unsigned)len);
     return EPA_FLOW_ERR;
@@ -1008,7 +1008,7 @@ case EPA_OP_WORKER_TRX_IN_R: {
              4, (unsigned)epa_ring_count(&w->inq));
     return EPA_FLOW_ERR;
   }
-  uint8_t r = code[pc + 2];
+  uint8_t r = code[pc + EPA_OPCODE_BYTES];
   uint32_t v;
   if (!epa_ring_pop(&w->inq, &v)) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX_IN_L inq pop failed"); return EPA_FLOW_ERR; }
   w->vm.csc[r] = (int32_t)v;
@@ -1028,7 +1028,7 @@ case EPA_OP_WORKER_TRX_OUT_R: {
              4, (unsigned)epa_ring_space(&w->outq));
     return EPA_FLOW_ERR;
   }
-  uint8_t r = code[pc + 2];
+  uint8_t r = code[pc + EPA_OPCODE_BYTES];
   if (!epa_ring_push(&w->outq, r, 0, err)) return EPA_FLOW_ERR;
 
   eip->rel_pc = (uint32_t)(pc + need);
@@ -1041,9 +1041,9 @@ case EPA_OP_WORKER_TRX: {
   if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX only valid in kernel"); return EPA_FLOW_ERR; }
   if (!ctx->hooks.get_worker) { snprintf(err, EPA_MAX_ERR, "WORKER_TRX: get_worker hook not installed"); return EPA_FLOW_ERR; }
 
-  uint32_t src_laddr = EPA_READ_U32_LE(code, pc + 2);
-  uint32_t dst_laddr = EPA_READ_U32_LE(code, pc + 6);
-  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + 10);
+  uint32_t src_laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
+  uint32_t dst_laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES + 4);
+  uint16_t len = (uint16_t)EPA_READ_U16_LE(code, pc + EPA_OPCODE_BYTES + 8);
 
   if (src_laddr >= EPA_VM_LOCALS_MAX || dst_laddr >= EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "WORKER_TRX locals addr out of range src=%u dst=%u", (unsigned)src_laddr, (unsigned)dst_laddr);
@@ -1090,7 +1090,7 @@ case EPA_OP_KERNEL_GHS_IN_R: {
   if (w->id != 0) { snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R only valid in kernel"); return EPA_FLOW_ERR; }
   if (!ctx->hooks.get_worker) { snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R: get_worker hook not installed"); return EPA_FLOW_ERR; }
 
-  uint32_t wid_laddr = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t wid_laddr = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   if (wid_laddr >= EPA_VM_LOCALS_MAX) {
     snprintf(err, EPA_MAX_ERR, "KERNEL_GHS_IN_R local addr out of range wid_local=%u", (unsigned)wid_laddr);
     return EPA_FLOW_ERR;
@@ -1123,7 +1123,7 @@ case EPA_OP_KERNEL_GHS_IN_R: {
 case EPA_OP_CALL: {
   // CALL <func_id:u32>
   // encoding: [u16 op][u32 func_id]
-  uint32_t func_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t func_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
 
   uint32_t func_index = 0;
   uint16_t frame_words = 0;
@@ -1317,7 +1317,7 @@ case EPA_OP_RGM_META: {
 }
 
 case EPA_OP_RGM_READ4: {
-  uint32_t rid = code[pc + 2];
+  uint32_t rid = code[pc + EPA_OPCODE_BYTES];
   epa_rgm_handle_t h = epa_rgm_make_handle((uint32_t)w->vm.csc[0], (uint32_t)w->vm.csc[1]);
   epa_rgm_err_t re;
   if (rid >= 4u) {
@@ -1441,7 +1441,7 @@ case EPA_OP_G_XFERX: {
     uint32_t caller    = w->id;
     uint32_t new_owner = w->vm.csc[2];
 
-    uint32_t count = EPA_READ_U32_LE(code, pc + 2);
+    uint32_t count = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
 
     if (count == 0) {
         eip->rel_pc = (uint32_t)(pc + need);
@@ -1589,7 +1589,7 @@ case EPA_OP_G_TAG: {
 }
 
 case EPA_OP_GR_MOV4: {
-	uint32_t rid = code[pc + 2];
+	uint32_t rid = code[pc + EPA_OPCODE_BYTES];
 	epa_ghs_handle_t h = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
 	epa_ghs_err_t ge;
 	if (rid >= 4u) {
@@ -1607,7 +1607,7 @@ case EPA_OP_GR_MOV4: {
 }
 
 case EPA_OP_GW_MOV4: {
-	uint32_t rid = code[pc + 2];
+	uint32_t rid = code[pc + EPA_OPCODE_BYTES];
 	epa_ghs_handle_t h = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
 	epa_ghs_err_t ge;
 	if (rid >= 4u) {
@@ -1625,7 +1625,7 @@ case EPA_OP_GW_MOV4: {
 }
 
 case EPA_OP_DYN_ALLOC: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   uint32_t ordinal = 0u;
   if (!pool) {
@@ -1655,7 +1655,7 @@ case EPA_OP_DYN_ALLOC: {
 }
 
 case EPA_OP_DYN_FREE: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_FREE: invalid pool_id=%u", (unsigned)pool_id);
@@ -1673,7 +1673,7 @@ case EPA_OP_DYN_FREE: {
 }
 
 case EPA_OP_DYN_LOAD: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   uint32_t size;
   uint32_t top;
@@ -1699,7 +1699,7 @@ case EPA_OP_DYN_LOAD: {
 }
 
 case EPA_OP_DYN_STORE: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   uint32_t off;
   uint32_t size;
@@ -1720,7 +1720,7 @@ case EPA_OP_DYN_STORE: {
 }
 
 case EPA_OP_DYN_SWAP: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_SWAP: invalid pool_id=%u", (unsigned)pool_id);
@@ -1733,7 +1733,7 @@ case EPA_OP_DYN_SWAP: {
 }
 
 case EPA_OP_DYN_ITER_HEAD: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   if (!pool) {
     snprintf(err, EPA_MAX_ERR, "DYN_ITER_HEAD: invalid pool_id=%u", (unsigned)pool_id);
@@ -1745,7 +1745,7 @@ case EPA_OP_DYN_ITER_HEAD: {
 }
 
 case EPA_OP_DYN_ITER_NEXT: {
-  uint32_t pool_id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t pool_id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
   EpaDynamicPool *pool = worker_dynamic_pool_by_id(w, pool_id);
   uint32_t ordinal = (uint32_t)w->vm.csc[0];
   if (!pool) {
@@ -1777,7 +1777,7 @@ case EPA_OP_DYN_ITER_NEXT: {
 }
 
 case EPA_OP_LOAD_CONST: {
-  uint32_t id = EPA_READ_U32_LE(code, pc + 2);
+  uint32_t id = EPA_READ_U32_LE(code, pc + EPA_OPCODE_BYTES);
 
   uint32_t a = 0, b = 0;
   uint32_t kind = EPA_CONST_NONE;
@@ -1936,7 +1936,7 @@ case EPA_OP_L_SCOPE_ALLOC: {
 }
 
 case EPA_OP_FMT: {
-  uint16_t argc = code[pc + 2];
+  uint16_t argc = code[pc + EPA_OPCODE_BYTES];
 
   uint32_t tmpl_off  = (uint32_t)w->vm.csc[0];
   uint32_t tmpl_len  = (uint32_t)w->vm.csc[1];

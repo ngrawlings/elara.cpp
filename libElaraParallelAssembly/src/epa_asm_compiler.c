@@ -150,6 +150,10 @@ static int out_u16_le(Out *o, uint16_t v) {
   return 1;
 }
 
+static int out_opcode(Out *o, uint8_t op) {
+  return out_u8(o, op);
+}
+
 static int out_u32_le(Out *o, uint32_t v) {
   if (!out_reserve(o, 4)) return 0;
   o->buf[o->len++] = (uint8_t)(v & 0xFFu);
@@ -449,7 +453,7 @@ typedef int (*AsmEmitHelper)(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok
 
 struct AsmInsnDesc {
   const char     *mnemonic;
-  uint16_t        opcode;
+  uint8_t         opcode;
   uint8_t         min_args;     // excluding mnemonic
   uint8_t         max_args;     // excluding mnemonic
   uint8_t         nkinds;
@@ -504,7 +508,7 @@ static int emit_generic(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok[16],
     snprintf(err, EPA_MAX_ERR, "line %d: %s", line_no, d->usage ? d->usage : "wrong number of operands");
     return 0;
   }
-  if (!out_u16_le(o, d->opcode)) return 0;
+  if (!out_opcode(o, (uint8_t)d->opcode)) return 0;
 
   // Fixed packing driven by kinds[]
   for (uint8_t i = 0; i < d->nkinds; i++) {
@@ -570,7 +574,7 @@ static int helper_emit_jump_rel32(AsmCtx *ctx, Out *o, int line_no, int nt, char
     return 0;
   }
 
-  if (!out_u16_le(o, d->opcode)) { snprintf(err, EPA_MAX_ERR, "line %d: OOM", line_no); return 0; }
+  if (!out_opcode(o, (uint8_t)d->opcode)) { snprintf(err, EPA_MAX_ERR, "line %d: OOM", line_no); return 0; }
 
   // Reserve 4 bytes for rel32 (patch later if label)
   size_t imm_off = o->len;
@@ -622,7 +626,7 @@ static int helper_emit_yield(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok
     }
   }
 
-  if (!out_u16_le(o, EPA_OP_YIELD)) return 0;
+  if (!out_opcode(o, EPA_OP_YIELD)) return 0;
   if (!out_u8(o, pol)) return 0;
   return 1;
 }
@@ -638,14 +642,14 @@ static int helper_emit_push(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok[
   uint32_t ridx = 0;
   if (parse_reg_tok(tok[1], &ridx)) {
     if (ridx >= 4u) { snprintf(err, EPA_MAX_ERR, "line %d: PUSH reg out of range '%s'", line_no, tok[1]); return 0; }
-    if (!out_u16_le(o, EPA_OP_PUSH_R)) return 0;
+    if (!out_opcode(o, EPA_OP_PUSH_R)) return 0;
     if (!out_u8(o, (uint8_t)ridx)) return 0;
     return 1;
   }
 
   int32_t v = 0;
   if (!parse_i32(tok[1], &v)) { snprintf(err, EPA_MAX_ERR, "line %d: invalid i32 '%s'", line_no, tok[1]); return 0; }
-  if (!out_u16_le(o, EPA_OP_PUSH_I32)) return 0;
+  if (!out_opcode(o, EPA_OP_PUSH_I32)) return 0;
   if (!out_u32_le(o, (uint32_t)v)) return 0;
   return 1;
 }
@@ -657,11 +661,6 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"NOOP",       EPA_OP_NOOP,                  0,0, 0,{0}, NULL, "NOOP takes no params"},
     {"END",        EPA_OP_END,                   0,0, 0,{0}, NULL, "END takes no params"},
     {"SET_MODE",   EPA_OP_SET_MODE,              1,1, 1,{AK_MODE}, NULL, "SET_MODE <opengl|cuda|0|1>"},
-
-    // Render-ish
-    {"CLEAR",      EPA_OP_CLEAR_RGBA_DEPTH_F32,  5,5, 5,{AK_F32,AK_F32,AK_F32,AK_F32,AK_F32}, NULL, "CLEAR <r> <g> <b> <a> <depth>"},
-    {"VIEWPORT",   EPA_OP_VIEWPORT_I32,          4,4, 4,{AK_I32,AK_I32,AK_I32,AK_I32}, NULL, "VIEWPORT <x> <y> <w> <h>"},
-    {"DRAW",       EPA_OP_DRAW,                  3,3, 3,{AK_U32,AK_U32,AK_U32}, NULL, "DRAW <prim> <first> <count>"},
 
     // Flow
     {"YIELD",      EPA_OP_YIELD,                 0,1, 0,{0}, helper_emit_yield, "YIELD [soft|hard|0|1]"},
@@ -805,19 +804,19 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 
 int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg) {
   if (!mnemonic) return -1;
-  /* PUSH is ambiguous: PUSH Rn = 3 bytes, PUSH <i32> = 6 bytes */
+  /* PUSH is ambiguous: PUSH Rn = opcode + 1 reg, PUSH <i32> = opcode + 4 immediate */
   if (ieq(mnemonic, "PUSH")) {
     if (first_arg && (first_arg[0] == 'R' || first_arg[0] == 'r') &&
         isdigit((unsigned char)first_arg[1])) {
-      return 3; /* PUSH_R: 2 opcode + 1 reg */
+      return (int)EPA_OPCODE_BYTES + 1;
     }
-    return 6; /* PUSH_I32: 2 opcode + 4 immediate */
+    return (int)EPA_OPCODE_BYTES + 4;
   }
   const AsmInsnDesc *d = find_desc(mnemonic);
   if (!d) return -1;
   /* Helpers with known fixed sizes */
-  if (d->helper == helper_emit_jump_rel32) return 6; /* 2 opcode + 4 rel32 */
-  if (d->helper == helper_emit_yield)     return 3; /* 2 opcode + 1 param  */
+  if (d->helper == helper_emit_jump_rel32) return (int)EPA_OPCODE_BYTES + 4;
+  if (d->helper == helper_emit_yield)     return (int)EPA_OPCODE_BYTES + 1;
   if (d->helper) return -1; /* unknown helper */
   /* Descriptor-driven: sum arg sizes */
   int param = 0;
@@ -833,7 +832,7 @@ int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg) {
         return -1;
     }
   }
-  return 2 + param;
+  return (int)EPA_OPCODE_BYTES + param;
 }
 
 static int emit_line(AsmCtx *ctx, Out *o, int line_no, char *line, char err[EPA_MAX_ERR]) {
@@ -927,7 +926,7 @@ static uint8_t *compile_from_fp(FILE *f, size_t *out_len, char err[EPA_MAX_ERR])
       memcpy(str_payload.buf + str_payload.len, ssv.v[i].bytes, ssv.v[i].len);
       str_payload.len += ssv.v[i].len;
     }
-    if (!out_u16_le(&o, EPA_OP_DATA_BLOCK)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
+    if (!out_opcode(&o, EPA_OP_DATA_BLOCK)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     if (!out_u16_le(&o, 1)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     if (!out_u16_le(&o, DB_STR)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }
     if (!out_u16_le(&o, 0)) { snprintf(err, EPA_MAX_ERR, "OOM"); goto fail; }

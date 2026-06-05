@@ -4,16 +4,12 @@
 //
 // Address space policy unchanged
 //
-#define EPA_OP_COMMON_MIN   ((uint16_t)0x0000u)
-#define EPA_OP_COMMON_MAX   ((uint16_t)0x7FFFu)
-#define EPA_OP_GL_MIN       ((uint16_t)0x8000u)
-#define EPA_OP_GL_MAX       ((uint16_t)0xBFFFu)
-#define EPA_OP_CUDA_MIN     ((uint16_t)0xC000u)
-#define EPA_OP_CUDA_MAX     ((uint16_t)0xFFFFu)
+#define EPA_OP_RESERVED_MIN ((uint8_t)110u)
+#define EPA_OP_EXT_ESCAPE   ((uint8_t)255u)
 
-#define EPA_OP_IS_COMMON(op) ((uint16_t)(op) <= EPA_OP_COMMON_MAX)
-#define EPA_OP_IS_GL(op)     ((uint16_t)(op) >= EPA_OP_GL_MIN   && (uint16_t)(op) <= EPA_OP_GL_MAX)
-#define EPA_OP_IS_CUDA(op)   ((uint16_t)(op) >= EPA_OP_CUDA_MIN)
+#define EPA_OP_IS_COMMON(op) ((uint8_t)(op) < EPA_OP_RESERVED_MIN)
+#define EPA_OP_IS_GL(op)     (0)
+#define EPA_OP_IS_CUDA(op)   (0)
 
 // SET_MODE values
 #define EPA_MODE_OPENGL   ((uint8_t)0u)
@@ -24,7 +20,7 @@
 // Opcode numeric values
 //
 #define X(name, value, mnemonic, plen) \
-  enum { EPA_OP_##name = (uint16_t)(value) };
+  enum { EPA_OP_##name = (uint8_t)(value) };
 
 #include "epa_opcodes.x"
 
