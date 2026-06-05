@@ -28,6 +28,8 @@ int hook_privilege_lock(void *user, char err[EPA_MAX_ERR]);
 int hook_acl_grant(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]);
 int hook_acl_revoke(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]);
 int hook_acl_revoke_all(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, char err[EPA_MAX_ERR]);
+int hook_pid_self(void *user, uint8_t wid, uint32_t *out_pid, char err[EPA_MAX_ERR]);
+int hook_pid_retire(void *user, uint8_t wid, uint32_t pid, char err[EPA_MAX_ERR]);
 int hook_sync(void *user, char err[EPA_MAX_ERR]);
 int hook_wait_on_sync(void *user, char err[EPA_MAX_ERR]);
 EpaWorkerState* hook_get_worker(void *user, uint8_t wid);
@@ -69,6 +71,8 @@ typedef struct {
   int (*on_acl_grant)(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]);
   int (*on_acl_revoke)(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]);
   int (*on_acl_revoke_all)(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, char err[EPA_MAX_ERR]);
+  int (*on_pid_self)(void *user, uint8_t wid, uint32_t *out_pid, char err[EPA_MAX_ERR]);
+  int (*on_pid_retire)(void *user, uint8_t wid, uint32_t pid, char err[EPA_MAX_ERR]);
 
   // SYNC / WAIT_ON_SYNC hooks
   int (*on_sync)(void *user, char err[EPA_MAX_ERR]);

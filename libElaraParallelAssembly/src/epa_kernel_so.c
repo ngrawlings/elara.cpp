@@ -27,6 +27,7 @@ static EpaNonFlowRc epa_null_nf_exec_one(void *impl, const EpaProgramDesc *prog,
 }
 static const EpaNonFlowBackendVTable epa_null_nf_vt = { epa_null_nf_exec_one };
 static const EpaNonFlowBackend epa_null_nf_backend = { &epa_null_nf_vt, NULL };
+static void kernel_install_standard_hooks(EpaKernel *k);
 
 #define EPA_BUNDLE_MAGIC "EPABNDL1"
 #define EPA_BUNDLE_VERSION 1u
@@ -58,8 +59,17 @@ typedef struct KernelRegistryNode {
   struct KernelRegistryNode *next;
 } KernelRegistryNode;
 
+typedef struct EpaProcessRegistryNode {
+  uint32_t pid;
+  EpaKernel **kernels;
+  size_t count;
+  size_t cap;
+  struct EpaProcessRegistryNode *next;
+} EpaProcessRegistryNode;
+
 static pthread_mutex_t g_kernel_registry_mu = PTHREAD_MUTEX_INITIALIZER;
 static KernelRegistryNode *g_kernel_registry = NULL;
+static EpaProcessRegistryNode *g_process_registry = NULL;
 
 static char *kernel_strdup(const char *s) {
   size_t n;
@@ -171,6 +181,111 @@ static uint64_t fnv1a64_bytes(const char *s) {
     h *= 1099511628211ull;
   }
   return h;
+}
+
+static uint64_t fnv1a64_u32(uint64_t h, uint32_t v) {
+  for (uint32_t i = 0; i < 4u; i++) {
+    h ^= (uint8_t)((v >> (i * 8u)) & 0xFFu);
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
+static uint64_t fnv1a64_u64(uint64_t h, uint64_t v) {
+  for (uint32_t i = 0; i < 8u; i++) {
+    h ^= (uint8_t)((v >> (i * 8u)) & 0xFFu);
+    h *= 1099511628211ull;
+  }
+  return h;
+}
+
+uint64_t epa_kernel_namespace_uid(uint32_t pid, uint64_t local_uid) {
+  uint64_t h = 14695981039346656037ull;
+  h = fnv1a64_u32(h, pid);
+  h = fnv1a64_u64(h, local_uid);
+  return h ? h : 1u;
+}
+
+uint32_t epa_kernel_get_pid(const EpaKernel *k) {
+  return k ? k->pid : 0u;
+}
+
+uint64_t epa_kernel_local_uid(const EpaKernel *k) {
+  return k ? k->local_kernel_uid : 0u;
+}
+
+uint64_t epa_kernel_resolve_uid_for_sender(const EpaKernel *sender, uint64_t local_or_global_uid) {
+  uint64_t namespaced;
+  if (!sender || sender->pid == 0u || local_or_global_uid == 0u) return local_or_global_uid;
+  namespaced = epa_kernel_namespace_uid(sender->pid, local_or_global_uid);
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  if (registry_find_kernel_by_uid_locked(namespaced)) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    return namespaced;
+  }
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  return local_or_global_uid;
+}
+
+static EpaProcessRegistryNode *process_find_locked(uint32_t pid) {
+  EpaProcessRegistryNode *node = g_process_registry;
+  while (node) {
+    if (node->pid == pid) return node;
+    node = node->next;
+  }
+  return NULL;
+}
+
+static int process_add_kernel_locked(uint32_t pid, EpaKernel *kernel, char err[EPA_MAX_ERR]) {
+  EpaProcessRegistryNode *node;
+  EpaKernel **next;
+  if (pid == 0u || !kernel) {
+    if (err) snprintf(err, EPA_MAX_ERR, "process add: bad args");
+    return 0;
+  }
+  node = process_find_locked(pid);
+  if (!node) {
+    node = (EpaProcessRegistryNode*)calloc(1, sizeof(*node));
+    if (!node) {
+      if (err) snprintf(err, EPA_MAX_ERR, "process add: OOM");
+      return 0;
+    }
+    node->pid = pid;
+    node->next = g_process_registry;
+    g_process_registry = node;
+  }
+  if (node->count == node->cap) {
+    size_t next_cap = node->cap ? node->cap * 2u : 4u;
+    next = (EpaKernel**)realloc(node->kernels, sizeof(*next) * next_cap);
+    if (!next) {
+      if (err) snprintf(err, EPA_MAX_ERR, "process add: OOM");
+      return 0;
+    }
+    node->kernels = next;
+    node->cap = next_cap;
+  }
+  node->kernels[node->count++] = kernel;
+  return 1;
+}
+
+static void process_remove_kernel_locked(EpaKernel *kernel) {
+  EpaProcessRegistryNode **pp = &g_process_registry;
+  while (*pp) {
+    EpaProcessRegistryNode *node = *pp;
+    size_t write = 0u;
+    for (size_t read = 0u; read < node->count; read++) {
+      if (node->kernels[read] == kernel) continue;
+      node->kernels[write++] = node->kernels[read];
+    }
+    node->count = write;
+    if (node->count == 0u) {
+      *pp = node->next;
+      free(node->kernels);
+      free(node);
+      continue;
+    }
+    pp = &node->next;
+  }
 }
 
 static int epa_kernel_register_identity(EpaKernel *k, const char *kernel_id, uint64_t kernel_uid, char err[EPA_MAX_ERR]);
@@ -350,6 +465,7 @@ void epa_kernel_destroy(EpaKernel *k) {
 
   pthread_mutex_lock(&g_kernel_registry_mu);
   registry_remove_kernel_locked(k);
+  process_remove_kernel_locked(k);
   pthread_mutex_unlock(&g_kernel_registry_mu);
 
   // free workers
@@ -557,7 +673,10 @@ int epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
 
   pthread_mutex_lock(&g_kernel_registry_mu);
   target = registry_find_kernel_by_uid_locked(kernel_uid);
-  if (target) registry_remove_kernel_locked(target);
+  if (target) {
+    registry_remove_kernel_locked(target);
+    process_remove_kernel_locked(target);
+  }
   registry_remove_dynamic_routes_for_remote_locked(kernel_uid);
   pthread_mutex_unlock(&g_kernel_registry_mu);
 
@@ -598,19 +717,24 @@ int epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]) {
   return epa_kernel_retire_by_uid(fnv1a64_bytes(kernel_id), err);
 }
 
-static int kernel_actor_has_acl_admin(EpaKernel *actor, uint32_t source_wid, char err[EPA_MAX_ERR]) {
+static int kernel_actor_has_privilege(EpaKernel *actor, uint32_t source_wid, uint32_t min_privilege, const char *op, char err[EPA_MAX_ERR]) {
   if (!actor || source_wid >= EPA_MAX_WORKERS || !actor->impl.workers[source_wid].inited) {
-    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL: bad actor worker %u", (unsigned)source_wid);
+    if (err) snprintf(err, EPA_MAX_ERR, "%s: bad actor worker %u", op ? op : "privileged op", (unsigned)source_wid);
     return 0;
   }
-  if (actor->impl.workers[source_wid].privilege < EPA_PRIVILEGE_ACL_ADMIN) {
-    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL: worker %u privilege %u below admin threshold %u",
+  if (actor->impl.workers[source_wid].privilege < min_privilege) {
+    if (err) snprintf(err, EPA_MAX_ERR, "%s: worker %u privilege %u below threshold %u",
+                      op ? op : "privileged op",
                       (unsigned)source_wid,
                       (unsigned)actor->impl.workers[source_wid].privilege,
-                      (unsigned)EPA_PRIVILEGE_ACL_ADMIN);
+                      (unsigned)min_privilege);
     return 0;
   }
   return 1;
+}
+
+static int kernel_actor_has_acl_admin(EpaKernel *actor, uint32_t source_wid, char err[EPA_MAX_ERR]) {
+  return kernel_actor_has_privilege(actor, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "dynamic ACL", err);
 }
 
 int epa_kernel_acl_grant_by_uid(EpaKernel *actor, uint32_t source_wid,
@@ -846,29 +970,10 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   if (!init_workers_from_prog(&k->impl, &k->prog, err)) return 0;
 
   // Build flow ctx + hooks
-  memset(&k->hooks, 0, sizeof(k->hooks));
-  k->hooks.on_entry_exec    = hook_entry_exec;
-  k->hooks.on_entry_halt    = hook_entry_halt;
-  k->hooks.on_entry_retire  = hook_entry_retire;
-  k->hooks.on_kernel_retire = hook_kernel_retire;
-  k->hooks.on_entry_privilege = hook_entry_privilege;
-  k->hooks.on_privilege_lock = hook_privilege_lock;
-  k->hooks.on_acl_grant     = hook_acl_grant;
-  k->hooks.on_acl_revoke    = hook_acl_revoke;
-  k->hooks.on_acl_revoke_all = hook_acl_revoke_all;
-  k->hooks.on_sync          = hook_sync;
-  k->hooks.on_wait_on_sync = hook_wait_on_sync;
-  k->hooks.get_worker      = hook_get_worker;
-
-  k->hooks.on_break        = hook_break;
-  k->hooks.on_trap         = hook_trap;
-  k->hooks.on_except       = hook_except;
-  k->hooks.on_signal	   = hook_signal;
-  k->hooks.on_far_signal   = hook_far_signal;
-  k->hooks.on_host_signal  = hook_host_signal;
-  k->hooks.on_request_threads = hook_request_threads;
-  k->hooks.on_request_at   = hook_request_at;
-  k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
+  k->local_kernel_uid = k->prog.kernel_uid;
+  k->pid = 0u;
+  k->child_cluster = 0u;
+  kernel_install_standard_hooks(k);
 
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
 
@@ -881,7 +986,36 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   return 1;
 }
 
-int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]) {
+static void kernel_install_standard_hooks(EpaKernel *k) {
+  memset(&k->hooks, 0, sizeof(k->hooks));
+  k->hooks.on_entry_exec   = hook_entry_exec;
+  k->hooks.on_entry_halt   = hook_entry_halt;
+  k->hooks.on_entry_retire = hook_entry_retire;
+  k->hooks.on_kernel_retire = hook_kernel_retire;
+  k->hooks.on_entry_privilege = hook_entry_privilege;
+  k->hooks.on_privilege_lock = hook_privilege_lock;
+  k->hooks.on_acl_grant     = hook_acl_grant;
+  k->hooks.on_acl_revoke    = hook_acl_revoke;
+  k->hooks.on_acl_revoke_all = hook_acl_revoke_all;
+  k->hooks.on_pid_self      = hook_pid_self;
+  k->hooks.on_pid_retire    = hook_pid_retire;
+  k->hooks.on_sync         = hook_sync;
+  k->hooks.on_wait_on_sync = hook_wait_on_sync;
+  k->hooks.get_worker      = hook_get_worker;
+  k->hooks.on_break        = hook_break;
+  k->hooks.on_trap         = hook_trap;
+  k->hooks.on_except       = hook_except;
+  k->hooks.on_signal       = hook_signal;
+  k->hooks.on_far_signal   = hook_far_signal;
+  k->hooks.on_host_signal  = hook_host_signal;
+  k->hooks.on_request_threads = hook_request_threads;
+  k->hooks.on_request_at   = hook_request_at;
+  k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
+}
+
+static int epa_kernel_load_blob_internal(EpaKernel *k, const uint8_t *blob, size_t blob_len,
+                                         uint32_t pid, uint64_t override_kernel_uid,
+                                         char err[EPA_MAX_ERR]) {
   uint8_t *owned;
   if (!k || !blob || blob_len == 0u) {
     if (err) snprintf(err, EPA_MAX_ERR, "load_blob: bad args");
@@ -909,7 +1043,13 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
     return 0;
   }
   k->prog_loaded = 1;
-  if (k->prog.kernel_uid != 0u && !epa_kernel_register_uid_only(k, k->prog.kernel_uid, err)) {
+  k->local_kernel_uid = k->prog.kernel_uid;
+  k->pid = pid;
+  k->child_cluster = pid != 0u ? 1u : 0u;
+  if (pid != 0u && k->prog.kernel_uid != 0u && override_kernel_uid == 0u) {
+    override_kernel_uid = epa_kernel_namespace_uid(pid, k->prog.kernel_uid);
+  }
+  if (k->prog.kernel_uid != 0u && !epa_kernel_register_uid_only(k, override_kernel_uid ? override_kernel_uid : k->prog.kernel_uid, err)) {
     epa_program_free(&k->prog);
     k->prog_loaded = 0;
     free(owned);
@@ -925,28 +1065,7 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
     return 0;
   }
 
-  memset(&k->hooks, 0, sizeof(k->hooks));
-  k->hooks.on_entry_exec   = hook_entry_exec;
-  k->hooks.on_entry_halt   = hook_entry_halt;
-  k->hooks.on_entry_retire = hook_entry_retire;
-  k->hooks.on_kernel_retire = hook_kernel_retire;
-  k->hooks.on_entry_privilege = hook_entry_privilege;
-  k->hooks.on_privilege_lock = hook_privilege_lock;
-  k->hooks.on_acl_grant     = hook_acl_grant;
-  k->hooks.on_acl_revoke    = hook_acl_revoke;
-  k->hooks.on_acl_revoke_all = hook_acl_revoke_all;
-  k->hooks.on_sync         = hook_sync;
-  k->hooks.on_wait_on_sync = hook_wait_on_sync;
-  k->hooks.get_worker      = hook_get_worker;
-  k->hooks.on_break        = hook_break;
-  k->hooks.on_trap         = hook_trap;
-  k->hooks.on_except       = hook_except;
-  k->hooks.on_signal       = hook_signal;
-  k->hooks.on_far_signal   = hook_far_signal;
-  k->hooks.on_host_signal  = hook_host_signal;
-  k->hooks.on_request_threads = hook_request_threads;
-  k->hooks.on_request_at   = hook_request_at;
-  k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
+  kernel_install_standard_hooks(k);
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
   k->nf = epa_null_nf_backend;
 
@@ -954,6 +1073,10 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->owned_blob_len = blob_len;
   epa_kernel_set_status_text(k, EPA_KERNEL_STATUS_LOADED, NULL);
   return 1;
+}
+
+int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]) {
+  return epa_kernel_load_blob_internal(k, blob, blob_len, 0u, 0u, err);
 }
 
 static uint32_t pad4(uint32_t n) { return (n + 3u) & ~3u; }
@@ -1359,15 +1482,131 @@ static void* module_kernel_thread_main(void *arg) {
   return NULL;
 }
 
+static EpaKernelModule* epa_kernel_module_load_bundle_bytes_internal(const uint8_t *buf, size_t file_len,
+                                                                     uint32_t pid, char err[EPA_MAX_ERR]) {
+  EpaKernelModule *module = NULL;
+  uint32_t version;
+  uint32_t count;
+  uint32_t i;
+
+  if (err) err[0] = 0;
+  if (file_len < 16u || memcmp(buf, EPA_BUNDLE_MAGIC, 8u) != 0) {
+    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: invalid magic");
+    return NULL;
+  }
+  version = read_u32_le(buf + 8u);
+  count = read_u32_le(buf + 12u);
+  if (version != EPA_BUNDLE_VERSION) {
+    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: unsupported version %u", (unsigned)version);
+    return NULL;
+  }
+  if (file_len < 16u + (size_t)count * 24u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: truncated index");
+    return NULL;
+  }
+
+  module = (EpaKernelModule*)calloc(1, sizeof(*module));
+  if (!module) {
+    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
+    return NULL;
+  }
+  module->count = (size_t)count;
+  module->entries = (EpaKernelModuleEntry*)calloc(module->count, sizeof(EpaKernelModuleEntry));
+  if (!module->entries) {
+    free(module);
+    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
+    return NULL;
+  }
+
+  for (i = 0; i < count; i++) {
+    const uint8_t *ent = buf + 16u + (size_t)i * 24u;
+    uint32_t path_off = read_u32_le(ent + 0u);
+    uint32_t path_len = read_u32_le(ent + 4u);
+    uint32_t blob_off = read_u32_le(ent + 8u);
+    uint32_t blob_len = read_u32_le(ent + 12u);
+    uint32_t flags = read_u32_le(ent + 16u);
+    EpaKernelModuleEntry *dst = &module->entries[i];
+    char *path_id;
+    EpaKernel *kernel;
+
+    if ((size_t)path_off + (size_t)path_len > file_len || (size_t)blob_off + (size_t)blob_len > file_len) {
+      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: entry %u out of range", (unsigned)i);
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+
+    path_id = (char*)malloc((size_t)path_len + 1u);
+    if (!path_id) {
+      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    memcpy(path_id, buf + path_off, path_len);
+    path_id[path_len] = 0;
+
+    dst->blob = (uint8_t*)malloc(blob_len ? (size_t)blob_len : 1u);
+    if (!dst->blob) {
+      free(path_id);
+      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    if (blob_len) memcpy(dst->blob, buf + blob_off, blob_len);
+    dst->blob_len = blob_len;
+    dst->path_id = path_id;
+    dst->flags = flags;
+
+    kernel = epa_kernel_create(err);
+    if (!kernel) {
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    if (!epa_kernel_load_blob_internal(kernel, dst->blob, dst->blob_len, pid, 0u, err)) {
+      epa_kernel_destroy(kernel);
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    if (!epa_kernel_get_id(kernel) && !epa_kernel_set_id(kernel, path_id, err)) {
+      epa_kernel_destroy(kernel);
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    if (pid != 0u) {
+      pthread_mutex_lock(&g_kernel_registry_mu);
+      if (!process_add_kernel_locked(pid, kernel, err)) {
+        pthread_mutex_unlock(&g_kernel_registry_mu);
+        epa_kernel_destroy(kernel);
+        module_free_entries(module);
+        free(module);
+        return NULL;
+      }
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+    }
+    if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_CPU_THREAD, err)) {
+      epa_kernel_destroy(kernel);
+      module_free_entries(module);
+      free(module);
+      return NULL;
+    }
+    dst->kernel = kernel;
+    dst->last_error[0] = 0;
+  }
+
+  return module;
+}
+
 EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err[EPA_MAX_ERR]) {
   FILE *f;
   long file_len_long;
   size_t file_len;
   uint8_t *buf = NULL;
-  EpaKernelModule *module = NULL;
-  uint32_t version;
-  uint32_t count;
-  uint32_t i;
+  EpaKernelModule *module;
 
   if (err) err[0] = 0;
   if (!bundle_path || !bundle_path[0]) {
@@ -1390,117 +1629,109 @@ EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err
   if (file_len && fread(buf, 1, file_len, f) != file_len) { fclose(f); free(buf); if (err) snprintf(err, EPA_MAX_ERR, "bundle load: read failed"); return NULL; }
   fclose(f);
 
-  if (file_len < 16u || memcmp(buf, EPA_BUNDLE_MAGIC, 8u) != 0) {
-    free(buf);
-    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: invalid magic");
-    return NULL;
-  }
-  version = read_u32_le(buf + 8u);
-  count = read_u32_le(buf + 12u);
-  if (version != EPA_BUNDLE_VERSION) {
-    free(buf);
-    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: unsupported version %u", (unsigned)version);
-    return NULL;
-  }
-  if (file_len < 16u + (size_t)count * 24u) {
-    free(buf);
-    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: truncated index");
-    return NULL;
-  }
-
-  module = (EpaKernelModule*)calloc(1, sizeof(*module));
-  if (!module) {
-    free(buf);
-    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
-    return NULL;
-  }
-  module->count = (size_t)count;
-  module->entries = (EpaKernelModuleEntry*)calloc(module->count, sizeof(EpaKernelModuleEntry));
-  if (!module->entries) {
-    free(buf);
-    free(module);
-    if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
-    return NULL;
-  }
-
-  for (i = 0; i < count; i++) {
-    const uint8_t *ent = buf + 16u + (size_t)i * 24u;
-    uint32_t path_off = read_u32_le(ent + 0u);
-    uint32_t path_len = read_u32_le(ent + 4u);
-    uint32_t blob_off = read_u32_le(ent + 8u);
-    uint32_t blob_len = read_u32_le(ent + 12u);
-    uint32_t flags = read_u32_le(ent + 16u);
-    EpaKernelModuleEntry *dst = &module->entries[i];
-    char *path_id;
-    EpaKernel *kernel;
-
-    if ((size_t)path_off + (size_t)path_len > file_len || (size_t)blob_off + (size_t)blob_len > file_len) {
-      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: entry %u out of range", (unsigned)i);
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-
-    path_id = (char*)malloc((size_t)path_len + 1u);
-    if (!path_id) {
-      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    memcpy(path_id, buf + path_off, path_len);
-    path_id[path_len] = 0;
-
-    dst->blob = (uint8_t*)malloc(blob_len ? (size_t)blob_len : 1u);
-    if (!dst->blob) {
-      free(path_id);
-      if (err) snprintf(err, EPA_MAX_ERR, "bundle load: OOM");
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    if (blob_len) memcpy(dst->blob, buf + blob_off, blob_len);
-    dst->blob_len = blob_len;
-    dst->path_id = path_id;
-    dst->flags = flags;
-
-    kernel = epa_kernel_create(err);
-    if (!kernel) {
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    if (!epa_kernel_load_blob(kernel, dst->blob, dst->blob_len, err)) {
-      epa_kernel_destroy(kernel);
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    if (!epa_kernel_get_id(kernel) && !epa_kernel_set_id(kernel, path_id, err)) {
-      epa_kernel_destroy(kernel);
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_CPU_THREAD, err)) {
-      epa_kernel_destroy(kernel);
-      module_free_entries(module);
-      free(module);
-      free(buf);
-      return NULL;
-    }
-    dst->kernel = kernel;
-    dst->last_error[0] = 0;
-  }
-
+  module = epa_kernel_module_load_bundle_bytes_internal(buf, file_len, 0u, err);
   free(buf);
   return module;
+}
+
+EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t source_wid,
+                                                      const uint8_t *bundle, size_t bundle_len,
+                                                      uint32_t requested_pid, uint32_t *out_pid,
+                                                      char err[EPA_MAX_ERR]) {
+  EpaKernelModule *module;
+  if (err) err[0] = 0;
+  if (out_pid) *out_pid = 0u;
+  if (!bundle || bundle_len == 0u || requested_pid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "process load: bad args");
+    return NULL;
+  }
+  if (!kernel_actor_has_privilege(actor, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "process load", err)) {
+    return NULL;
+  }
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  if (process_find_locked(requested_pid)) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "process load: PID %u already exists", (unsigned)requested_pid);
+    return NULL;
+  }
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+
+  module = epa_kernel_module_load_bundle_bytes_internal(bundle, bundle_len, requested_pid, err);
+  if (!module) return NULL;
+  if (out_pid) *out_pid = requested_pid;
+  return module;
+}
+
+int epa_kernel_pid_retire(EpaKernel *actor, uint32_t source_wid, uint32_t pid, char err[EPA_MAX_ERR]) {
+  EpaKernel **targets = NULL;
+  size_t count = 0u;
+  if (err) err[0] = 0;
+  if (!actor || source_wid >= EPA_MAX_WORKERS || !actor->impl.workers[source_wid].inited || pid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "pid retire: bad args");
+    return 0;
+  }
+  if (actor->pid != pid &&
+      !kernel_actor_has_privilege(actor, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "pid retire", err)) {
+    return 0;
+  }
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  {
+    EpaProcessRegistryNode *node = process_find_locked(pid);
+    if (!node) {
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+      if (err) snprintf(err, EPA_MAX_ERR, "pid retire: PID %u not found", (unsigned)pid);
+      return 0;
+    }
+    count = node->count;
+    targets = (EpaKernel**)malloc(sizeof(*targets) * (count ? count : 1u));
+    if (!targets) {
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+      if (err) snprintf(err, EPA_MAX_ERR, "pid retire: OOM");
+      return 0;
+    }
+    for (size_t i = 0; i < count; i++) targets[i] = node->kernels[i];
+    for (size_t i = 0; i < count; i++) {
+      if (targets[i]) {
+        registry_remove_kernel_locked(targets[i]);
+        registry_remove_dynamic_routes_for_remote_locked(targets[i]->kernel_uid);
+      }
+    }
+    while (node->count > 0u) {
+      process_remove_kernel_locked(node->kernels[0]);
+      node = process_find_locked(pid);
+      if (!node) break;
+    }
+  }
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+
+  for (size_t i = 0; i < count; i++) {
+    EpaKernel *target = targets[i];
+    if (!target) continue;
+    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+      EpaWorkerState *w = &target->impl.workers[wid];
+      if (!w->inited) continue;
+      w->retired = 1;
+      w->halted = 1;
+      w->blocked = 1;
+      epa_ring_clear(&w->inq);
+      epa_ring_clear(&w->outq);
+    }
+    target->impl.worker_head = EPA_MAX_WORKERS;
+    target->impl.n_workers = 0u;
+    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+      target->impl.worker_next[wid] = EPA_MAX_WORKERS;
+    }
+    memset(&target->ingress, 0, sizeof(target->ingress));
+    kernel_dynamic_acl_clear(target);
+    kernel_atq_clear(target);
+    kernel_memq_clear(target);
+    epa_kernel_set_status_text(target, EPA_KERNEL_STATUS_UNLOADED, NULL);
+    epa_kernel_request_interrupt(target);
+  }
+  free(targets);
+  return 1;
 }
 
 void epa_kernel_module_destroy(EpaKernelModule *module) {

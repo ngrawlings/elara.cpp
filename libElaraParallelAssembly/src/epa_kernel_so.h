@@ -35,6 +35,15 @@ void       epa_kernel_set_signal_callback(EpaKernel *k, EpaKernelSignal cb);
 EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
 int        epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 int        epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]);
+uint32_t   epa_kernel_get_pid(const EpaKernel *k);
+uint64_t   epa_kernel_namespace_uid(uint32_t pid, uint64_t local_uid);
+uint64_t   epa_kernel_local_uid(const EpaKernel *k);
+uint64_t   epa_kernel_resolve_uid_for_sender(const EpaKernel *sender, uint64_t local_or_global_uid);
+EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t source_wid,
+                                                      const uint8_t *bundle, size_t bundle_len,
+                                                      uint32_t requested_pid, uint32_t *out_pid,
+                                                      char err[EPA_MAX_ERR]);
+int        epa_kernel_pid_retire(EpaKernel *actor, uint32_t source_wid, uint32_t pid, char err[EPA_MAX_ERR]);
 int        epa_kernel_acl_grant_by_uid(EpaKernel *actor, uint32_t source_wid,
                                        uint64_t target_kernel_uid, uint64_t remote_kernel_uid,
                                        uint32_t local_wid, char err[EPA_MAX_ERR]);

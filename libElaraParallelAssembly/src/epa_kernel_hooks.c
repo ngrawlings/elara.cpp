@@ -108,7 +108,8 @@ int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
 }
 
 int hook_kernel_retire(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
-  (void)user;
+  EpaKernel *kernel = (EpaKernel*)user;
+  kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, kernel_uid);
   return epa_kernel_retire_by_uid(kernel_uid, err);
 }
 
@@ -138,17 +139,39 @@ int hook_privilege_lock(void *user, char err[EPA_MAX_ERR]) {
 
 int hook_acl_grant(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]) {
   EpaKernel *kernel = (EpaKernel*)user;
+  target_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, target_kernel_uid);
+  remote_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, remote_kernel_uid);
   return epa_kernel_acl_grant_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, local_wid, err);
 }
 
 int hook_acl_revoke(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]) {
   EpaKernel *kernel = (EpaKernel*)user;
+  target_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, target_kernel_uid);
+  remote_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, remote_kernel_uid);
   return epa_kernel_acl_revoke_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, local_wid, err);
 }
 
 int hook_acl_revoke_all(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, char err[EPA_MAX_ERR]) {
   EpaKernel *kernel = (EpaKernel*)user;
+  target_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, target_kernel_uid);
+  remote_kernel_uid = epa_kernel_resolve_uid_for_sender(kernel, remote_kernel_uid);
   return epa_kernel_acl_revoke_all_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, err);
+}
+
+int hook_pid_self(void *user, uint8_t wid, uint32_t *out_pid, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  (void)wid;
+  if (!kernel || !out_pid) {
+    if (err) snprintf(err, EPA_MAX_ERR, "PID_SELF: bad args");
+    return 0;
+  }
+  *out_pid = epa_kernel_get_pid(kernel);
+  return 1;
+}
+
+int hook_pid_retire(void *user, uint8_t wid, uint32_t pid, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  return epa_kernel_pid_retire(kernel, wid, pid, err);
 }
 
 int hook_sync(void *user, char err[EPA_MAX_ERR]) {
@@ -554,6 +577,7 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   }
 
   target_uid = ((uint64_t)target_uid_hi << 32) | (uint64_t)target_uid_lo;
+  target_uid = epa_kernel_resolve_uid_for_sender(k, target_uid);
   if (target_uid == 0u) {
     snprintf(err, EPA_MAX_ERR, "hook_far_signal: empty target kernel uid");
     return 0;

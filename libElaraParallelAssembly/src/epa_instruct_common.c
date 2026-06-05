@@ -341,6 +341,24 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_PID_SELF: {
+      uint32_t pid = 0u;
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_pid_self && !ctx->hooks.on_pid_self(ctx->hooks_user, (uint8_t)w->id, &pid, err)) return EPA_FLOW_ERR;
+      w->vm.csc[0] = (int32_t)pid;
+      w->vm.csc[1] = 0;
+      w->vm.csc[2] = 0;
+      w->vm.csc[3] = 1;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_PID_RETIRE: {
+      uint32_t pid = (uint32_t)w->vm.csc[0];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_pid_retire && !ctx->hooks.on_pid_retire(ctx->hooks_user, (uint8_t)w->id, pid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
     // Interrupt / debug
     case EPA_OP_BREAK: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);

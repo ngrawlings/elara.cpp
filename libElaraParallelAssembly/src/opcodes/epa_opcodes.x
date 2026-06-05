@@ -44,6 +44,8 @@ X(PRIVILEGE_LOCK, 0x012Au, "PRIVILEGE_LOCK", 0) // Seal privilege grants for thi
 X(ACL_GRANT,      0x012Bu, "ACL_GRANT",     1) // Privileged dynamic ACL grant: r0/r1 target uid, r2/r3 remote uid, u8 local wid
 X(ACL_REVOKE,     0x012Cu, "ACL_REVOKE",    1) // Privileged dynamic ACL revoke: r0/r1 target uid, r2/r3 remote uid, u8 local wid
 X(ACL_REVOKE_ALL, 0x012Du, "ACL_REVOKE_ALL",0) // Privileged revoke all target routes for remote uid: r0/r1 target uid, r2/r3 remote uid
+X(PID_SELF,       0x012Eu, "PID_SELF",      0) // Return current PID in r0; 0 means root/host-launched
+X(PID_RETIRE,     0x012Fu, "PID_RETIRE",    0) // Retire PID in r0; self allowed, external requires privilege
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker
 X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives

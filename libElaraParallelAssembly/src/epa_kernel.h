@@ -154,6 +154,9 @@ typedef struct EpaKernel {
   EpaKernelSignal signal_cb;
   char *kernel_id;
   uint64_t kernel_uid;
+  uint64_t local_kernel_uid;
+  uint32_t pid;
+  uint8_t child_cluster;
   EpaDynamicAclEntry *dynamic_acl_entries;
   size_t dynamic_acl_count;
   size_t dynamic_acl_cap;

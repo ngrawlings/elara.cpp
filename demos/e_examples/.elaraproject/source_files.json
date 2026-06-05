@@ -1,6 +1,10 @@
 {
   "epa": [
     "epa/entry.e",
-    "epa/dynamic_memory.e"
+    "epa/dynamic_memory.e",
+    "epa/privileged_workers.e",
+    "epa/dynamic_whitelist.e",
+    "epa/dynamic_whitelist_target.e",
+    "epa/dynamic_whitelist_app.e"
   ]
 }
