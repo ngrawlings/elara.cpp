@@ -120,6 +120,8 @@ typedef struct {
   uint8_t *buf;     // owned heap buffer (malloc)
   uint32_t len;     // bytes (already padded to 4 if you want)
   uint32_t tag;     // GHS tag/type id for runtime routing
+  uint64_t source_kernel_uid;
+  uint32_t source_worker_id;
 } EpaIngressMsg;
 
 typedef struct {

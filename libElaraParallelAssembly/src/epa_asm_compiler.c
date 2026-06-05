@@ -726,6 +726,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"ACL_REVOKE_ALL", EPA_OP_ACL_REVOKE_ALL,    0,0, 0,{0}, NULL, "ACL_REVOKE_ALL (r0/r1 target uid, r2/r3 remote uid)"},
     {"PID_SELF",       EPA_OP_PID_SELF,          0,0, 0,{0}, NULL, "PID_SELF (returns current PID in r0)"},
     {"PID_RETIRE",     EPA_OP_PID_RETIRE,        0,0, 0,{0}, NULL, "PID_RETIRE (uses r0 target PID)"},
+    {"VM_STATE",       EPA_OP_VM_STATE,          1,1, 1,{AK_U8}, NULL, "VM_STATE <selector:u8> (r0/r1=value, r2=selector, r3=ok)"},
     {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         5,5, 5,{AK_U32, AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <element_size:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
     {"KERNEL_ID",EPA_OP_KERNEL_ID,               2,2, 2,{AK_U32, AK_U32}, NULL, "KERNEL_ID <lo:u32> <hi:u32>"},
     {"ACL_ALLOW", EPA_OP_ACL_ALLOW,              3,3, 3,{AK_U32, AK_U32, AK_U32}, NULL, "ACL_ALLOW <remote_id_lo:u32> <remote_id_hi:u32> <local_wid:u32>"},

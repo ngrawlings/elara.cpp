@@ -56,6 +56,10 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   w->waiting_for_data = 0;
   w->has_current_ghs = 0;
   w->current_ghs = 0;
+  w->current_kernel_uid = 0u;
+  w->current_worker_id = block_id;
+  w->ingress_source_kernel_uid = EPA_HOST_KERNEL_UID;
+  w->ingress_source_worker_id = EPA_HOST_WORKER_ID;
 
   if (!epa_ring_init(&w->inq, in_words ? in_words : 1)) {
     snprintf(err, EPA_MAX_ERR, "worker %u: in ring init failed", (unsigned)block_id);
@@ -121,6 +125,9 @@ void epa_worker_reset(EpaWorkerState *w) {
   w->waiting_for_data = 0;
   w->has_current_ghs = 0;
   w->current_ghs = 0;
+  w->current_worker_id = w->id;
+  w->ingress_source_kernel_uid = EPA_HOST_KERNEL_UID;
+  w->ingress_source_worker_id = EPA_HOST_WORKER_ID;
 
   // Preserve current E worker model on reset as well.
   w->blocked = 0;

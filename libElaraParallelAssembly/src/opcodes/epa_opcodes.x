@@ -164,3 +164,4 @@ X(L_SCOPE_ALLOC,         107u, "L_SCOPE_ALLOC", 0) // like L_ALLOC, intended for
 
 X(FMT,                   108u, "FMT", 1) // u8 argc
 X(LOG,                   109u, "LOG", 0) // consumes (r0=off, r1=len, r2=kind)
+X(VM_STATE,              110u, "VM_STATE", 1) // u8 selector -> r0/r1 value, r3=ok

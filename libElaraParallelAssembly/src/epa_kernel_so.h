@@ -105,6 +105,10 @@ typedef struct {
 void epa_kernel_set_debug_hooks(EpaKernel *k, const EpaKernelDbgHooks *hooks);
 
 int epa_kernel_deliver_ghs_handles(EpaKernel *k, uint32_t dst_wid, const uint64_t *ghs_handles, uint32_t ghs_handle_count, char err[EPA_MAX_ERR]);
+int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k, uint32_t dst_wid,
+                                          const uint64_t *ghs_handles, uint32_t ghs_handle_count,
+                                          uint64_t source_kernel_uid, uint32_t source_worker_id,
+                                          char err[EPA_MAX_ERR]);
 
 EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err[EPA_MAX_ERR]);
 void epa_kernel_module_destroy(EpaKernelModule *module);

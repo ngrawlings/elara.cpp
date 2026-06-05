@@ -15,11 +15,13 @@
 
 #include "epa_kernel.h"
 
-int epa_kernel_deliver_ghs_handles(EpaKernel *k,
-                                   uint32_t dst_wid,
-                                   const uint64_t *ghs_handles,
-                                   uint32_t ghs_handle_count,
-                                   char err[EPA_MAX_ERR]);
+int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k,
+                                          uint32_t dst_wid,
+                                          const uint64_t *ghs_handles,
+                                          uint32_t ghs_handle_count,
+                                          uint64_t source_kernel_uid,
+                                          uint32_t source_worker_id,
+                                          char err[EPA_MAX_ERR]);
 
 int epa_flow_push_ret_frame(EpaStack *st, const EpaEip *ret, uint16_t argc, char err[EPA_MAX_ERR]) {
   if (!epa_stack_push(st, EPA_CALL_MAGIC0) ||
@@ -356,6 +358,44 @@ EpaFlowRc epa_flow_step(
       uint32_t pid = (uint32_t)w->vm.csc[0];
       eip->rel_pc = (uint32_t)(pc + need);
       if (ctx->hooks.on_pid_retire && !ctx->hooks.on_pid_retire(ctx->hooks_user, (uint8_t)w->id, pid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_VM_STATE: {
+      uint8_t selector = code[pc + EPA_OPCODE_BYTES];
+      uint64_t u64 = 0u;
+      uint32_t u32 = 0u;
+      int ok = 1;
+      switch (selector) {
+        case EPA_VM_STATE_CURRENT_KERNEL_UID:
+          u64 = w->current_kernel_uid;
+          w->vm.csc[0] = (uint32_t)(u64 & 0xFFFFFFFFu);
+          w->vm.csc[1] = (uint32_t)(u64 >> 32);
+          break;
+        case EPA_VM_STATE_CURRENT_WORKER_ID:
+          u32 = w->current_worker_id;
+          w->vm.csc[0] = u32;
+          w->vm.csc[1] = 0u;
+          break;
+        case EPA_VM_STATE_SOURCE_KERNEL_UID:
+          u64 = w->ingress_source_kernel_uid;
+          w->vm.csc[0] = (uint32_t)(u64 & 0xFFFFFFFFu);
+          w->vm.csc[1] = (uint32_t)(u64 >> 32);
+          break;
+        case EPA_VM_STATE_SOURCE_WORKER_ID:
+          u32 = w->ingress_source_worker_id;
+          w->vm.csc[0] = u32;
+          w->vm.csc[1] = 0u;
+          break;
+        default:
+          w->vm.csc[0] = 0u;
+          w->vm.csc[1] = 0u;
+          ok = 0;
+          break;
+      }
+      w->vm.csc[2] = selector;
+      w->vm.csc[3] = ok ? 1u : 0u;
+      eip->rel_pc = (uint32_t)(pc + need);
       return EPA_FLOW_YIELDED;
     }
 
@@ -1417,7 +1457,8 @@ case EPA_OP_G_XFER: {
     }
 
     // Notify receiver (kernel-owned ingress queue -> worker wakes on it)
-    if (!epa_kernel_deliver_ghs_handles(k, new_owner, msg, n, err)) {
+    if (!epa_kernel_deliver_ghs_handles_framed(k, new_owner, msg, n,
+                                               k->kernel_uid, w->id, err)) {
         free(msg);
         w->faulted = 1;
         snprintf(w->fault_message, sizeof(w->fault_message),
@@ -1499,7 +1540,8 @@ case EPA_OP_G_XFERX: {
     }
 
     // Ring notify receiver
-    if (!epa_kernel_deliver_ghs_handles(k, new_owner, msg, count, err)) {
+    if (!epa_kernel_deliver_ghs_handles_framed(k, new_owner, msg, count,
+                                               k->kernel_uid, w->id, err)) {
         free(msg);
         snprintf(err, EPA_MAX_ERR, "G_XFERX failed: ingress full wid=%u", new_owner);
         return 0;

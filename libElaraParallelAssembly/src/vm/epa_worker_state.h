@@ -16,6 +16,14 @@
 #define EPA_CALLSTACK_MAX 256
 #endif
 
+#define EPA_VM_STATE_CURRENT_KERNEL_UID 0u
+#define EPA_VM_STATE_CURRENT_WORKER_ID  1u
+#define EPA_VM_STATE_SOURCE_KERNEL_UID  2u
+#define EPA_VM_STATE_SOURCE_WORKER_ID   3u
+
+#define EPA_HOST_KERNEL_UID UINT64_MAX
+#define EPA_HOST_WORKER_ID  UINT32_MAX
+
 // Flow layer gives us a resolved code view for "current EIP" already.
 // But for simplicity we re-resolve from descriptor table.
 typedef enum {
@@ -67,6 +75,10 @@ typedef struct {
 
   uint8_t  *signal_mailbox;      // A block of memory for passing data directly to the container via a signal interupt
   epa_ghs_handle_t current_ghs;  // Stable current ingress GHS for kernel-side inspection
+  uint64_t current_kernel_uid;
+  uint32_t current_worker_id;
+  uint64_t ingress_source_kernel_uid;
+  uint32_t ingress_source_worker_id;
 
   EpaDynamicPool *dynamic_pools;
   uint32_t dynamic_pool_count;

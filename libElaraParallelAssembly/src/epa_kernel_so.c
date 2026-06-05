@@ -28,6 +28,10 @@ static EpaNonFlowRc epa_null_nf_exec_one(void *impl, const EpaProgramDesc *prog,
 static const EpaNonFlowBackendVTable epa_null_nf_vt = { epa_null_nf_exec_one };
 static const EpaNonFlowBackend epa_null_nf_backend = { &epa_null_nf_vt, NULL };
 static void kernel_install_standard_hooks(EpaKernel *k);
+static int epa_kernel_ingress_push_framed(EpaKernel *k, uint32_t wid, uint32_t tag,
+                                          const void *data, uint32_t len,
+                                          uint64_t source_kernel_uid,
+                                          uint32_t source_worker_id);
 
 #define EPA_BUNDLE_MAGIC "EPABNDL1"
 #define EPA_BUNDLE_VERSION 1u
@@ -382,6 +386,16 @@ static void epa_kernel_set_status_text(EpaKernel *k, EpaKernelStatus status, con
   pthread_mutex_unlock(&k->state_mu);
 }
 
+static void kernel_refresh_worker_vm_identity(EpaKernel *k) {
+  if (!k) return;
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    EpaWorkerState *w = &k->impl.workers[wid];
+    if (!w->inited) continue;
+    w->current_kernel_uid = k->kernel_uid;
+    w->current_worker_id = wid;
+  }
+}
+
 static void epa_kernel_set_status_only(EpaKernel *k, EpaKernelStatus status) {
   if (!k) return;
   pthread_mutex_lock(&k->state_mu);
@@ -564,6 +578,7 @@ static int epa_kernel_register_identity(EpaKernel *k, const char *kernel_id, uin
     return 0;
   }
   k->kernel_uid = kernel_uid;
+  kernel_refresh_worker_vm_identity(k);
   return 1;
 }
 
@@ -648,7 +663,8 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
     return 0;
   }
 
-  if (!epa_kernel_ingress_push_tagged(target, target_wid, payload_tag, payload, payload_len)) {
+  if (!epa_kernel_ingress_push_framed(target, target_wid, payload_tag, payload, payload_len,
+                                      sender->kernel_uid, source_wid)) {
     EpaWorkerState *sw = &sender->impl.workers[source_wid];
     sw->faulted = 1;
     snprintf(sw->fault_message, sizeof(sw->fault_message),
@@ -968,6 +984,7 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   }
 
   if (!init_workers_from_prog(&k->impl, &k->prog, err)) return 0;
+  kernel_refresh_worker_vm_identity(k);
 
   // Build flow ctx + hooks
   k->local_kernel_uid = k->prog.kernel_uid;
@@ -1064,6 +1081,7 @@ static int epa_kernel_load_blob_internal(EpaKernel *k, const uint8_t *blob, size
     epa_kernel_set_status_text(k, EPA_KERNEL_STATUS_ERROR, err);
     return 0;
   }
+  kernel_refresh_worker_vm_identity(k);
 
   kernel_install_standard_hooks(k);
   k->flow = epa_flow_ctx_make(&k->prog, k->hooks, k);
@@ -1081,7 +1099,10 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
 
 static uint32_t pad4(uint32_t n) { return (n + 3u) & ~3u; }
 
-int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len) {
+static int epa_kernel_ingress_push_framed(EpaKernel *k, uint32_t wid, uint32_t tag,
+                                          const void *data, uint32_t len,
+                                          uint64_t source_kernel_uid,
+                                          uint32_t source_worker_id) {
 	if (!k || wid >= EPA_MAX_WORKERS) return 0;
 
 	EpaIngressQ *q = &k->ingress.inq[wid];
@@ -1100,6 +1121,8 @@ int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, con
 	q->q[q->tail].buf = b;
 	q->q[q->tail].len = plen;
 	q->q[q->tail].tag = tag;
+	q->q[q->tail].source_kernel_uid = source_kernel_uid;
+	q->q[q->tail].source_worker_id = source_worker_id;
 	q->tail = (q->tail + 1) % EPA_INGRESS_QMAX;
 	q->count++;
 
@@ -1108,6 +1131,10 @@ int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, con
   }
 
 	return 1;
+}
+
+int epa_kernel_ingress_push_tagged(EpaKernel *k, uint32_t wid, uint32_t tag, const void *data, uint32_t len) {
+  return epa_kernel_ingress_push_framed(k, wid, tag, data, len, EPA_HOST_KERNEL_UID, EPA_HOST_WORKER_ID);
 }
 
 int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len) {
@@ -1119,6 +1146,8 @@ static void ingress_free_msg(EpaIngressMsg *m) {
   m->buf = NULL;
   m->len = 0;
   m->tag = 0u;
+  m->source_kernel_uid = EPA_HOST_KERNEL_UID;
+  m->source_worker_id = EPA_HOST_WORKER_ID;
 }
 
 // Ring message kinds (keep tiny + fixed-size)
@@ -1137,6 +1166,8 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
                                          const uint8_t *bytes,
                                          uint32_t tag,
                                          uint32_t len_bytes,
+                                         uint64_t source_kernel_uid,
+                                         uint32_t source_worker_id,
                                          char err[EPA_MAX_ERR]) {
   if (!k || !bytes || len_bytes == 0) {
     snprintf(err, EPA_MAX_ERR, "ingress: bad args");
@@ -1182,6 +1213,8 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
 
   // 4) Ring notify: push 4 words to dst worker input ring
   EpaWorkerState *dst = &k->impl.workers[dst_wid];
+  dst->ingress_source_kernel_uid = source_kernel_uid;
+  dst->ingress_source_worker_id = source_worker_id;
 
   if (epa_ring_space(&dst->inq) < 4) {
     kernel_fault_worker(k, dst_wid, "INGRESS FAULT: ring buffer full for wid=%u (need 4 words)", dst_wid);
@@ -1207,10 +1240,12 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
   return 1;
 }
 
-int epa_kernel_deliver_ghs_handles(EpaKernel *k,
+int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k,
                                          uint32_t dst_wid,
                                          const uint64_t *ghs_handles,
                                          uint32_t ghs_handle_count,
+                                         uint64_t source_kernel_uid,
+                                         uint32_t source_worker_id,
                                          char err[EPA_MAX_ERR]) {
   if (!k || !ghs_handles || ghs_handle_count == 0) {
     snprintf(err, EPA_MAX_ERR, "ingress: bad args");
@@ -1248,6 +1283,8 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
 
   // 4) Ring notify: push count + handle lo/gen pairs to dst worker input ring.
   EpaWorkerState *dst = &k->impl.workers[dst_wid];
+  dst->ingress_source_kernel_uid = source_kernel_uid;
+  dst->ingress_source_worker_id = source_worker_id;
   uint32_t needed_words = 1u + (ghs_handle_count * 2u);
 
   if (epa_ring_space(&dst->inq) < needed_words) {
@@ -1277,6 +1314,15 @@ int epa_kernel_deliver_ghs_handles(EpaKernel *k,
   return 1;
 }
 
+int epa_kernel_deliver_ghs_handles(EpaKernel *k,
+                                         uint32_t dst_wid,
+                                         const uint64_t *ghs_handles,
+                                         uint32_t ghs_handle_count,
+                                         char err[EPA_MAX_ERR]) {
+  return epa_kernel_deliver_ghs_handles_framed(k, dst_wid, ghs_handles, ghs_handle_count,
+                                               EPA_HOST_KERNEL_UID, EPA_HOST_WORKER_ID, err);
+}
+
 // Called at the start of epa_kernel_run() (i.e., "reentry boundary")
 int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
   if (err) err[0] = 0;
@@ -1292,6 +1338,8 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
       const uint8_t *buf = (const uint8_t*)m->buf;
       uint32_t len = (uint32_t)m->len;
       uint32_t tag = m->tag;
+      uint64_t source_kernel_uid = m->source_kernel_uid;
+      uint32_t source_worker_id = m->source_worker_id;
 
       if (!buf || len == 0) {
         // consume malformed msg so we don't deadlock the queue
@@ -1301,7 +1349,8 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
         continue;
       }
 
-      if (!epa_kernel_deliver_ingress_msg(k, wid, buf, tag, len, err)) {
+      if (!epa_kernel_deliver_ingress_msg(k, wid, buf, tag, len,
+                                          source_kernel_uid, source_worker_id, err)) {
         // do NOT consume the message if delivery failed: keeps behavior deterministic
         // (host can retry / expand rings / etc)
         return 0;
