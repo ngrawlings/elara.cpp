@@ -1,0 +1,13 @@
+{
+  "name": "elara-os",
+  "technologies": [
+    "epa"
+  ],
+  "ui_template": "epa-os",
+  "rpc_host": "127.0.0.1",
+  "rpc_port": 18820,
+  "python_multi_cpu": false,
+  "cpp_epa_vm_host": false,
+  "cpp_epa_debug_rpc": true,
+  "created": "2026-06-04T00:00:00Z"
+}
