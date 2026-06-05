@@ -52,6 +52,7 @@ struct EmitCtx {
   const ELineMap *line_map;
   const char *main_file;
   int inside_worker_static_block;
+  int inside_kernel_static_block;
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -353,6 +354,10 @@ static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx,
 static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_acl_grant_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_acl_revoke_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_acl_revoke_all_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -520,6 +525,11 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"retire_self", emit_worker_retire_builtin},
     {"retire_kernel", emit_kernel_retire_builtin},
     {"kernel_retire", emit_kernel_retire_builtin},
+    {"set_worker_privilege", emit_worker_privilege_builtin},
+    {"worker_privilege", emit_worker_privilege_builtin},
+    {"grant_kernel_route", emit_acl_grant_builtin},
+    {"revoke_kernel_route", emit_acl_revoke_builtin},
+    {"revoke_kernel_routes", emit_acl_revoke_all_builtin},
     {"kernal_get_ghs", emit_kernel_get_ghs_builtin},
     {"kernel_get_ghs", emit_kernel_get_ghs_builtin},
     {"typeof", emit_typeof_builtin},
@@ -1583,6 +1593,124 @@ static int emit_kernel_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx
   return 1;
 }
 
+static int emit_kernel_uid_to_regs(FILE *out, const EExpr *expr, int depth, unsigned int lo_reg, unsigned int hi_reg, const char *name) {
+  uint64_t uid;
+  char normalized[512];
+  if (!expr || expr->kind != E_EXPR_STRING) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s kernel id must be a string literal\n", name);
+    return 0;
+  }
+  uid = fnv1a64_bytes(normalized_string_token(expr->as.string_lit, normalized, sizeof(normalized)));
+  emit_indent(out, depth);
+  fprintf(out, "SET_R %u %u\n", lo_reg, (unsigned int)(uid & 0xffffffffu));
+  emit_indent(out, depth);
+  fprintf(out, "SET_R %u %u\n", hi_reg, (unsigned int)((uid >> 32) & 0xffffffffu));
+  return 1;
+}
+
+static int emit_acl_worker_arg(FILE *out, const EExpr *expr, const EExpr *target_kernel_expr, EmitCtx *ctx, int depth, unsigned int *out_wid, const char *name) {
+  if (!expr || !out_wid) return 0;
+  if (expr->kind == E_EXPR_INT && expr->as.int_lit >= 0 && expr->as.int_lit <= 255) {
+    *out_wid = (unsigned int)expr->as.int_lit;
+    return 1;
+  }
+  if (expr->kind == E_EXPR_IDENT) {
+    unsigned int wid = worker_entry_id_for_name(ctx->model, expr->as.ident);
+    if (wid == 0u && target_kernel_expr && target_kernel_expr->kind == E_EXPR_STRING) {
+      char norm_kernel[512];
+      wid = e_cross_kernel_lookup(&ctx->model->cross_kernel,
+                                  normalized_string_token(target_kernel_expr->as.string_lit, norm_kernel, sizeof(norm_kernel)),
+                                  expr->as.ident);
+    }
+    if (wid != 0u) {
+      *out_wid = wid;
+      return 1;
+    }
+  }
+  emit_indent(out, depth);
+  fprintf(out, "; %s worker must be an integer worker id or resolvable worker name\n", name);
+  return 0;
+}
+
+static int emit_acl_route_common(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, const char *opname, int needs_worker) {
+  unsigned int wid = 0u;
+  size_t expected = needs_worker ? 3u : 2u;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != expected) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects %zu args\n", expr->as.call.callee, expected);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid in workers\n", expr->as.call.callee);
+    return 0;
+  }
+  if (!emit_kernel_uid_to_regs(out, expr->as.call.args[0], depth, 0u, 1u, expr->as.call.callee)) return 0;
+  if (!emit_kernel_uid_to_regs(out, expr->as.call.args[1], depth, 2u, 3u, expr->as.call.callee)) return 0;
+  if (needs_worker) {
+    if (!emit_acl_worker_arg(out, expr->as.call.args[2], expr->as.call.args[0], ctx, depth, &wid, expr->as.call.callee)) return 0;
+    emit_indent(out, depth);
+    fprintf(out, "%s %u\n", opname, wid);
+  } else {
+    emit_indent(out, depth);
+    fprintf(out, "%s\n", opname);
+  }
+  return 1;
+}
+
+static int emit_acl_grant_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  return emit_acl_route_common(out, expr, ctx, depth, "ACL_GRANT", 1);
+}
+
+static int emit_acl_revoke_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  return emit_acl_route_common(out, expr, ctx, depth, "ACL_REVOKE", 1);
+}
+
+static int emit_acl_revoke_all_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  return emit_acl_route_common(out, expr, ctx, depth, "ACL_REVOKE_ALL", 0);
+}
+
+static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int wid = 0u;
+  uint32_t privilege = 0u;
+  const EExpr *worker_arg;
+  const EExpr *priv_arg;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (!ctx->inside_kernel_static_block) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid inside kernel static { }\n", expr->as.call.callee);
+    return 0;
+  }
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects (worker, privilege)\n", expr->as.call.callee);
+    return 0;
+  }
+  worker_arg = expr->as.call.args[0];
+  priv_arg = expr->as.call.args[1];
+  if (worker_arg->kind == E_EXPR_IDENT) {
+    wid = worker_entry_id_for_name(ctx->model, worker_arg->as.ident);
+  } else if (worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit >= 0 && worker_arg->as.int_lit <= 255) {
+    wid = (unsigned int)worker_arg->as.int_lit;
+  }
+  if (wid == 0u && !(worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit == 0)) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s unknown worker\n", expr->as.call.callee);
+    return 0;
+  }
+  if (priv_arg->kind != E_EXPR_INT || priv_arg->as.int_lit < 0) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s privilege must be a non-negative integer literal\n", expr->as.call.callee);
+    return 0;
+  }
+  privilege = (uint32_t)priv_arg->as.int_lit;
+  emit_indent(out, depth);
+  fprintf(out, "ENTRY_PRIVILEGE %u %u\n", wid, privilege);
+  return 1;
+}
+
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   uint64_t uid;
   char normalized[512];
@@ -2297,6 +2425,25 @@ static void emit_static_blocks_in_stmt(FILE *out, const EStmt *stmt, EmitCtx *ct
   }
 }
 
+static void emit_kernel_static_blocks_in_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!stmt) return;
+  if (stmt->kind == E_STMT_STATIC_BLOCK) {
+    int prev_static = ctx->inside_kernel_static_block;
+    emit_indent(out, depth);
+    fputs("; kernel static { }\n", out);
+    ctx->inside_kernel_static_block = 1;
+    for (i = 0; i < stmt->as.static_block.count; i++)
+      emit_stmt(out, stmt->as.static_block.items[i], ctx, depth, NULL, NULL);
+    ctx->inside_kernel_static_block = prev_static;
+    return;
+  }
+  if (stmt->kind == E_STMT_BLOCK) {
+    for (i = 0; i < stmt->as.block.count; i++)
+      emit_kernel_static_blocks_in_stmt(out, stmt->as.block.items[i], ctx, depth);
+  }
+}
+
 static int pool_is_in_worker_body(const char *pool_name, const EStmt *stmt) {
   size_t i;
   if (!stmt) return 0;
@@ -2632,6 +2779,9 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.current_function = NULL;
         ctx.current_worker = NULL;
         ctx.current_frame = find_frame(model, "kernel");
+        emit_kernel_static_blocks_in_stmt(out, top->as.kernel.body, &ctx, 1);
+        emit_indent(out, 1);
+        fputs("PRIVILEGE_LOCK\n", out);
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
         ctx.current_frame = NULL;
         fputs("  END\n", out);

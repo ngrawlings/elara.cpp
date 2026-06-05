@@ -80,6 +80,7 @@ typedef struct {
   uint32_t n_workers;                      // count of initialized workers
   uint32_t worker_head;                    // first active wid
   uint32_t worker_next[EPA_MAX_WORKERS];   // next active wid per slot
+  uint8_t privilege_locked;                // first EPA image may grant worker privilege once from kernel static
 
   epa_ghs_t* ghs;
   epa_rgm_t* rgm;
@@ -132,6 +133,11 @@ typedef struct {
   EpaIngressQ inq[EPA_MAX_WORKERS]; // one queue per worker/entry id
 } EpaIngress;
 
+typedef struct {
+  uint64_t remote_kernel_uid;
+  uint32_t local_wid;
+} EpaDynamicAclEntry;
+
 typedef struct EpaKernel {
   KernelImpl impl;
 
@@ -148,6 +154,9 @@ typedef struct EpaKernel {
   EpaKernelSignal signal_cb;
   char *kernel_id;
   uint64_t kernel_uid;
+  EpaDynamicAclEntry *dynamic_acl_entries;
+  size_t dynamic_acl_count;
+  size_t dynamic_acl_cap;
   uint8_t *owned_blob;
   size_t owned_blob_len;
 

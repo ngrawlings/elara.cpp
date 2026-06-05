@@ -32,6 +32,7 @@ static const EpaNonFlowBackend epa_null_nf_backend = { &epa_null_nf_vt, NULL };
 #define EPA_BUNDLE_VERSION 1u
 #define EPA_BUNDLE_FLAG_ROOT    0x00000001u
 #define EPA_BUNDLE_FLAG_STARTED 0x00000002u
+#define EPA_PRIVILEGE_ACL_ADMIN 100u
 
 typedef struct {
   char *path_id;
@@ -189,6 +190,71 @@ static uint32_t kernel_default_ingress_wid(const EpaKernel *k) {
   return 0u;
 }
 
+static int kernel_acl_route_matches(uint64_t route_remote_uid, uint32_t route_wid,
+                                    uint64_t remote_uid, uint32_t local_wid) {
+  if (route_wid != local_wid) return 0;
+  if (route_remote_uid != 0u && route_remote_uid != remote_uid) return 0;
+  return 1;
+}
+
+static int kernel_acl_has_entries(const EpaKernel *target) {
+  return target && (target->prog.acl_count > 0u || target->dynamic_acl_count > 0u);
+}
+
+static int kernel_acl_allows(const EpaKernel *target, uint64_t remote_uid, uint32_t local_wid) {
+  size_t i;
+  if (!target) return 0;
+  if (!kernel_acl_has_entries(target)) return 1;
+  for (i = 0; i < target->prog.acl_count; i++) {
+    const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
+    if (kernel_acl_route_matches(acl->remote_kernel_uid, acl->local_wid, remote_uid, local_wid)) return 1;
+  }
+  for (i = 0; i < target->dynamic_acl_count; i++) {
+    const EpaDynamicAclEntry *acl = &target->dynamic_acl_entries[i];
+    if (kernel_acl_route_matches(acl->remote_kernel_uid, acl->local_wid, remote_uid, local_wid)) return 1;
+  }
+  return 0;
+}
+
+static uint32_t kernel_acl_first_route_for_remote(const EpaKernel *target, uint64_t remote_uid) {
+  size_t i;
+  if (!target) return 0u;
+  for (i = 0; i < target->prog.acl_count; i++) {
+    const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
+    if (acl->remote_kernel_uid == 0u || acl->remote_kernel_uid == remote_uid) return acl->local_wid;
+  }
+  for (i = 0; i < target->dynamic_acl_count; i++) {
+    const EpaDynamicAclEntry *acl = &target->dynamic_acl_entries[i];
+    if (acl->remote_kernel_uid == 0u || acl->remote_kernel_uid == remote_uid) return acl->local_wid;
+  }
+  return 0u;
+}
+
+static void kernel_dynamic_acl_clear(EpaKernel *k) {
+  if (!k) return;
+  free(k->dynamic_acl_entries);
+  k->dynamic_acl_entries = NULL;
+  k->dynamic_acl_count = 0u;
+  k->dynamic_acl_cap = 0u;
+}
+
+static void registry_remove_dynamic_routes_for_remote_locked(uint64_t remote_uid) {
+  KernelRegistryNode *node = g_kernel_registry;
+  while (node) {
+    EpaKernel *target = node->kernel;
+    if (target && target->dynamic_acl_count > 0u) {
+      size_t write = 0u;
+      size_t read;
+      for (read = 0u; read < target->dynamic_acl_count; read++) {
+        if (target->dynamic_acl_entries[read].remote_kernel_uid == remote_uid) continue;
+        target->dynamic_acl_entries[write++] = target->dynamic_acl_entries[read];
+      }
+      target->dynamic_acl_count = write;
+    }
+    node = node->next;
+  }
+}
+
 static void epa_kernel_set_status_text(EpaKernel *k, EpaKernelStatus status, const char *detail) {
   if (!k) return;
   pthread_mutex_lock(&k->state_mu);
@@ -322,6 +388,7 @@ void epa_kernel_destroy(EpaKernel *k) {
 
   free(k->kernel_id);
   k->kernel_id = NULL;
+  kernel_dynamic_acl_clear(k);
 
   free(k);
 }
@@ -412,7 +479,6 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
                                  char err[EPA_MAX_ERR]) {
   EpaKernel *target;
   uint32_t target_wid;
-  size_t i;
   if (err) err[0] = 0;
   if (!sender || target_kernel_uid == 0u || !payload || payload_len == 0u) {
     if (err) snprintf(err, EPA_MAX_ERR, "far_signal_by_uid: bad args");
@@ -434,14 +500,19 @@ int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_
 
   if (target_wid_hint != 0u) {
     target_wid = target_wid_hint;
-  } else if (target->prog.acl_count > 0u) {
-    target_wid = 0u;
-    for (i = 0; i < target->prog.acl_count; i++) {
-      const EpaProgramAclEntry *acl = &target->prog.acl_entries[i];
-      if (acl->remote_kernel_uid != 0u && acl->remote_kernel_uid != sender->kernel_uid) continue;
-      target_wid = acl->local_wid;
-      break;
+    if (!kernel_acl_allows(target, sender->kernel_uid, target_wid)) {
+      EpaWorkerState *sw = &sender->impl.workers[source_wid];
+      sw->faulted = 1;
+      snprintf(sw->fault_message, sizeof(sw->fault_message),
+               "ACL FAULT: kernel '%s' cannot route to target kernel 0x%016llx wid=%u",
+               sender->kernel_id ? sender->kernel_id : "(unnamed)",
+               (unsigned long long)target_kernel_uid,
+               (unsigned)target_wid);
+      if (err) snprintf(err, EPA_MAX_ERR, "%s", sw->fault_message);
+      return 0;
     }
+  } else if (kernel_acl_has_entries(target)) {
+    target_wid = kernel_acl_first_route_for_remote(target, sender->kernel_uid);
     if (target_wid == 0u) {
       EpaWorkerState *sw = &sender->impl.workers[source_wid];
       sw->faulted = 1;
@@ -487,6 +558,7 @@ int epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
   pthread_mutex_lock(&g_kernel_registry_mu);
   target = registry_find_kernel_by_uid_locked(kernel_uid);
   if (target) registry_remove_kernel_locked(target);
+  registry_remove_dynamic_routes_for_remote_locked(kernel_uid);
   pthread_mutex_unlock(&g_kernel_registry_mu);
 
   if (!target) {
@@ -510,6 +582,7 @@ int epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
     target->impl.worker_next[wid] = EPA_MAX_WORKERS;
   }
   memset(&target->ingress, 0, sizeof(target->ingress));
+  kernel_dynamic_acl_clear(target);
   kernel_atq_clear(target);
   kernel_memq_clear(target);
   epa_kernel_set_status_text(target, EPA_KERNEL_STATUS_UNLOADED, NULL);
@@ -523,6 +596,126 @@ int epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]) {
     return 0;
   }
   return epa_kernel_retire_by_uid(fnv1a64_bytes(kernel_id), err);
+}
+
+static int kernel_actor_has_acl_admin(EpaKernel *actor, uint32_t source_wid, char err[EPA_MAX_ERR]) {
+  if (!actor || source_wid >= EPA_MAX_WORKERS || !actor->impl.workers[source_wid].inited) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL: bad actor worker %u", (unsigned)source_wid);
+    return 0;
+  }
+  if (actor->impl.workers[source_wid].privilege < EPA_PRIVILEGE_ACL_ADMIN) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL: worker %u privilege %u below admin threshold %u",
+                      (unsigned)source_wid,
+                      (unsigned)actor->impl.workers[source_wid].privilege,
+                      (unsigned)EPA_PRIVILEGE_ACL_ADMIN);
+    return 0;
+  }
+  return 1;
+}
+
+int epa_kernel_acl_grant_by_uid(EpaKernel *actor, uint32_t source_wid,
+                                uint64_t target_kernel_uid, uint64_t remote_kernel_uid,
+                                uint32_t local_wid, char err[EPA_MAX_ERR]) {
+  EpaKernel *target;
+  EpaDynamicAclEntry *next;
+  size_t i;
+  if (err) err[0] = 0;
+  if (!kernel_actor_has_acl_admin(actor, source_wid, err)) return 0;
+  if (target_kernel_uid == 0u || remote_kernel_uid == 0u || local_wid >= EPA_MAX_WORKERS) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL grant: bad args");
+    return 0;
+  }
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  target = registry_find_kernel_by_uid_locked(target_kernel_uid);
+  if (!target) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL grant: target kernel 0x%016llx not found",
+                      (unsigned long long)target_kernel_uid);
+    return 0;
+  }
+  if (!target->impl.workers[local_wid].inited) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL grant: target worker %u missing", (unsigned)local_wid);
+    return 0;
+  }
+  for (i = 0; i < target->dynamic_acl_count; i++) {
+    EpaDynamicAclEntry *entry = &target->dynamic_acl_entries[i];
+    if (entry->remote_kernel_uid == remote_kernel_uid && entry->local_wid == local_wid) {
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+      return 1;
+    }
+  }
+  if (target->dynamic_acl_count == target->dynamic_acl_cap) {
+    size_t next_cap = target->dynamic_acl_cap ? target->dynamic_acl_cap * 2u : 8u;
+    next = (EpaDynamicAclEntry*)realloc(target->dynamic_acl_entries, sizeof(*next) * next_cap);
+    if (!next) {
+      pthread_mutex_unlock(&g_kernel_registry_mu);
+      if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL grant: OOM");
+      return 0;
+    }
+    target->dynamic_acl_entries = next;
+    target->dynamic_acl_cap = next_cap;
+  }
+  target->dynamic_acl_entries[target->dynamic_acl_count].remote_kernel_uid = remote_kernel_uid;
+  target->dynamic_acl_entries[target->dynamic_acl_count].local_wid = local_wid;
+  target->dynamic_acl_count++;
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  return 1;
+}
+
+int epa_kernel_acl_revoke_by_uid(EpaKernel *actor, uint32_t source_wid,
+                                 uint64_t target_kernel_uid, uint64_t remote_kernel_uid,
+                                 uint32_t local_wid, char err[EPA_MAX_ERR]) {
+  EpaKernel *target;
+  size_t read;
+  size_t write = 0u;
+  if (err) err[0] = 0;
+  if (!kernel_actor_has_acl_admin(actor, source_wid, err)) return 0;
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  target = registry_find_kernel_by_uid_locked(target_kernel_uid);
+  if (!target) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL revoke: target kernel 0x%016llx not found",
+                      (unsigned long long)target_kernel_uid);
+    return 0;
+  }
+  for (read = 0u; read < target->dynamic_acl_count; read++) {
+    EpaDynamicAclEntry entry = target->dynamic_acl_entries[read];
+    if (entry.remote_kernel_uid == remote_kernel_uid && entry.local_wid == local_wid) continue;
+    target->dynamic_acl_entries[write++] = entry;
+  }
+  target->dynamic_acl_count = write;
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  return 1;
+}
+
+int epa_kernel_acl_revoke_all_by_uid(EpaKernel *actor, uint32_t source_wid,
+                                     uint64_t target_kernel_uid, uint64_t remote_kernel_uid,
+                                     char err[EPA_MAX_ERR]) {
+  EpaKernel *target;
+  size_t read;
+  size_t write = 0u;
+  if (err) err[0] = 0;
+  if (!kernel_actor_has_acl_admin(actor, source_wid, err)) return 0;
+
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  target = registry_find_kernel_by_uid_locked(target_kernel_uid);
+  if (!target) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic ACL revoke_all: target kernel 0x%016llx not found",
+                      (unsigned long long)target_kernel_uid);
+    return 0;
+  }
+  for (read = 0u; read < target->dynamic_acl_count; read++) {
+    EpaDynamicAclEntry entry = target->dynamic_acl_entries[read];
+    if (entry.remote_kernel_uid == remote_kernel_uid) continue;
+    target->dynamic_acl_entries[write++] = entry;
+  }
+  target->dynamic_acl_count = write;
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  return 1;
 }
 
 int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const char *target_kernel_id,
@@ -547,6 +740,7 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
   }
   k->n_workers   = 0;
   k->worker_head = EPA_MAX_WORKERS; // empty list
+  k->privilege_locked = 0u;
 
   // tail tracks the last inserted wid for O(1) append.
   // IDs are scanned in ascending order so each new wid > tail.
@@ -657,6 +851,11 @@ int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR
   k->hooks.on_entry_halt    = hook_entry_halt;
   k->hooks.on_entry_retire  = hook_entry_retire;
   k->hooks.on_kernel_retire = hook_kernel_retire;
+  k->hooks.on_entry_privilege = hook_entry_privilege;
+  k->hooks.on_privilege_lock = hook_privilege_lock;
+  k->hooks.on_acl_grant     = hook_acl_grant;
+  k->hooks.on_acl_revoke    = hook_acl_revoke;
+  k->hooks.on_acl_revoke_all = hook_acl_revoke_all;
   k->hooks.on_sync          = hook_sync;
   k->hooks.on_wait_on_sync = hook_wait_on_sync;
   k->hooks.get_worker      = hook_get_worker;
@@ -731,6 +930,11 @@ int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, cha
   k->hooks.on_entry_halt   = hook_entry_halt;
   k->hooks.on_entry_retire = hook_entry_retire;
   k->hooks.on_kernel_retire = hook_kernel_retire;
+  k->hooks.on_entry_privilege = hook_entry_privilege;
+  k->hooks.on_privilege_lock = hook_privilege_lock;
+  k->hooks.on_acl_grant     = hook_acl_grant;
+  k->hooks.on_acl_revoke    = hook_acl_revoke;
+  k->hooks.on_acl_revoke_all = hook_acl_revoke_all;
   k->hooks.on_sync         = hook_sync;
   k->hooks.on_wait_on_sync = hook_wait_on_sync;
   k->hooks.get_worker      = hook_get_worker;

@@ -293,6 +293,54 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_ENTRY_PRIVILEGE: {
+      uint8_t wid = code[pc + 2];
+      uint32_t privilege = EPA_READ_U32_LE(code, pc + 3);
+      if (!w || w->id != 0u) {
+        snprintf(err, EPA_MAX_ERR, "ENTRY_PRIVILEGE only valid from kernel entry wid=0");
+        return EPA_FLOW_ERR;
+      }
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_entry_privilege && !ctx->hooks.on_entry_privilege(ctx->hooks_user, wid, privilege, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_PRIVILEGE_LOCK: {
+      if (!w || w->id != 0u) {
+        snprintf(err, EPA_MAX_ERR, "PRIVILEGE_LOCK only valid from kernel entry wid=0");
+        return EPA_FLOW_ERR;
+      }
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_privilege_lock && !ctx->hooks.on_privilege_lock(ctx->hooks_user, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_ACL_GRANT: {
+      uint8_t local_wid = code[pc + 2];
+      uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_acl_grant && !ctx->hooks.on_acl_grant(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_ACL_REVOKE: {
+      uint8_t local_wid = code[pc + 2];
+      uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_acl_revoke && !ctx->hooks.on_acl_revoke(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_ACL_REVOKE_ALL: {
+      uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_acl_revoke_all && !ctx->hooks.on_acl_revoke_all(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, err)) return EPA_FLOW_ERR;
+      return EPA_FLOW_YIELDED;
+    }
+
     // Interrupt / debug
     case EPA_OP_BREAK: {
       uint32_t code_u = EPA_READ_U32_LE(code, pc + 2);

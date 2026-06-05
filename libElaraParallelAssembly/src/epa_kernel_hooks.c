@@ -50,7 +50,8 @@ void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, con
 }
 
 int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
-  KernelImpl *k = (KernelImpl*)user;
+  EpaKernel *kernel = (EpaKernel*)user;
+  KernelImpl *k = kernel ? &kernel->impl : NULL;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_exec: impl null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) return 1; // ignore if missing
   if (k->workers[wid].retired) return 1;
@@ -62,7 +63,8 @@ int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
 }
 
 int hook_entry_halt(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
-  KernelImpl *k = (KernelImpl*)user;
+  EpaKernel *kernel = (EpaKernel*)user;
+  KernelImpl *k = kernel ? &kernel->impl : NULL;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_halt: impl null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) return 1;
   k->workers[wid].halted = 1;
@@ -94,7 +96,8 @@ static void unlink_active_worker(KernelImpl *k, uint8_t wid) {
 }
 
 int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
-  KernelImpl *k = (KernelImpl*)user;
+  EpaKernel *kernel = (EpaKernel*)user;
+  KernelImpl *k = kernel ? &kernel->impl : NULL;
   if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_retire: impl null"); return 0; }
   if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) return 1;
   k->workers[wid].retired = 1;
@@ -107,6 +110,45 @@ int hook_entry_retire(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
 int hook_kernel_retire(void *user, uint64_t kernel_uid, char err[EPA_MAX_ERR]) {
   (void)user;
   return epa_kernel_retire_by_uid(kernel_uid, err);
+}
+
+int hook_entry_privilege(void *user, uint8_t wid, uint32_t privilege, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  KernelImpl *k = kernel ? &kernel->impl : NULL;
+  if (!k) { snprintf(err, EPA_MAX_ERR, "hook_entry_privilege: impl null"); return 0; }
+  if (k->privilege_locked) {
+    snprintf(err, EPA_MAX_ERR, "ENTRY_PRIVILEGE rejected: privilege table locked");
+    return 0;
+  }
+  if (wid >= EPA_MAX_WORKERS || !k->workers[wid].inited) {
+    snprintf(err, EPA_MAX_ERR, "ENTRY_PRIVILEGE bad worker id %u", (unsigned)wid);
+    return 0;
+  }
+  k->workers[wid].privilege = privilege;
+  return 1;
+}
+
+int hook_privilege_lock(void *user, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  KernelImpl *k = kernel ? &kernel->impl : NULL;
+  if (!k) { snprintf(err, EPA_MAX_ERR, "hook_privilege_lock: impl null"); return 0; }
+  k->privilege_locked = 1u;
+  return 1;
+}
+
+int hook_acl_grant(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  return epa_kernel_acl_grant_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, local_wid, err);
+}
+
+int hook_acl_revoke(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, uint8_t local_wid, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  return epa_kernel_acl_revoke_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, local_wid, err);
+}
+
+int hook_acl_revoke_all(void *user, uint8_t wid, uint64_t target_kernel_uid, uint64_t remote_kernel_uid, char err[EPA_MAX_ERR]) {
+  EpaKernel *kernel = (EpaKernel*)user;
+  return epa_kernel_acl_revoke_all_by_uid(kernel, wid, target_kernel_uid, remote_kernel_uid, err);
 }
 
 int hook_sync(void *user, char err[EPA_MAX_ERR]) {

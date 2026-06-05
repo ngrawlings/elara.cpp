@@ -39,6 +39,11 @@ X(KERNEL_ID,      0x0125u, "KERNEL_ID",    8) // Program-level kernel 64-bit id 
 X(ACL_ALLOW,      0x0126u, "ACL_ALLOW",   12) // Program-level ACL allow (remote_id_lo, remote_id_hi, local_wid)
 X(ENTRY_RETIRE,   0x0127u, "ENTRY_RETIRE", 1) // Permanently remove worker from scheduler pool (u8 wid)
 X(KERNEL_RETIRE,  0x0128u, "KERNEL_RETIRE",0) // Unload kernel by uid in r0/r1
+X(ENTRY_PRIVILEGE,0x0129u, "ENTRY_PRIVILEGE", 5) // Initial privilege grant: u8 wid, u32 privilege
+X(PRIVILEGE_LOCK, 0x012Au, "PRIVILEGE_LOCK", 0) // Seal privilege grants for this loaded image
+X(ACL_GRANT,      0x012Bu, "ACL_GRANT",     1) // Privileged dynamic ACL grant: r0/r1 target uid, r2/r3 remote uid, u8 local wid
+X(ACL_REVOKE,     0x012Cu, "ACL_REVOKE",    1) // Privileged dynamic ACL revoke: r0/r1 target uid, r2/r3 remote uid, u8 local wid
+X(ACL_REVOKE_ALL, 0x012Du, "ACL_REVOKE_ALL",0) // Privileged revoke all target routes for remote uid: r0/r1 target uid, r2/r3 remote uid
 
 X(SYNC,           0x0130u, "SYNC",         0) // Signal kernel from worker
 X(WAIT_ON_SYNC,   0x0131u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives

@@ -82,6 +82,20 @@ worker init_assets(AssetSeed seed) {
 Retired workers are removed from the scheduler pool. Future `ENTRY_EXEC`
 requests for that worker are ignored for the current program load.
 
+Privileged workers may mutate dynamic ACL routes at runtime:
+
+```c
+worker security_root(SecurityRequest request) {
+  grant_kernel_route("elara.os.compositor", "elara.app.notes", 1);
+  revoke_kernel_route("elara.os.compositor", "elara.app.notes", 1);
+  revoke_kernel_routes("elara.os.compositor", "elara.app.notes");
+}
+```
+
+These emit `ACL_GRANT`, `ACL_REVOKE`, and `ACL_REVOKE_ALL`. The VM host only
+accepts them from workers with ACL-admin privilege. Dynamic routes are stored on
+the target kernel and are checked alongside manifest `acl { ... }` routes.
+
 `retire_kernel("kernel.id")` unloads an entire kernel by identity. The target
 kernel is removed from the global kernel registry, all of its workers are
 retired, its ingress/system queues are cleared, and its runtime status becomes

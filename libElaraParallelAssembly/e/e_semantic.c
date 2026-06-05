@@ -1964,6 +1964,139 @@ static int validate_rgm_usage(const EProgram *program, const ESemanticModel *mod
   return 1;
 }
 
+static int is_worker_privilege_call(const EExpr *expr) {
+  return expr && expr->kind == E_EXPR_CALL &&
+         (strcmp(expr->as.call.callee, "set_worker_privilege") == 0 ||
+          strcmp(expr->as.call.callee, "worker_privilege") == 0);
+}
+
+static int validate_privilege_usage_in_expr(const EExpr *expr, int in_kernel_static_block, int as_statement, char err[256]) {
+  size_t i;
+  if (!expr) return 1;
+  if (is_worker_privilege_call(expr)) {
+    if (!as_statement) {
+      snprintf(err, 256, "%s is a privilege declaration statement and cannot be used as a value", expr->as.call.callee);
+      return 0;
+    }
+    if (!in_kernel_static_block) {
+      snprintf(err, 256, "%s is only valid inside kernel static block", expr->as.call.callee);
+      return 0;
+    }
+    if (expr->as.call.arg_count != 2u) {
+      snprintf(err, 256, "%s expects exactly 2 args: (worker, privilege)", expr->as.call.callee);
+      return 0;
+    }
+    if (expr->as.call.args[1]->kind != E_EXPR_INT || expr->as.call.args[1]->as.int_lit < 0) {
+      snprintf(err, 256, "%s privilege must be a non-negative integer literal", expr->as.call.callee);
+      return 0;
+    }
+    return 1;
+  }
+  switch (expr->kind) {
+    case E_EXPR_CALL:
+      for (i = 0; i < expr->as.call.arg_count; i++) {
+        if (!validate_privilege_usage_in_expr(expr->as.call.args[i], in_kernel_static_block, 0, err)) return 0;
+      }
+      return 1;
+    case E_EXPR_BINARY:
+      return validate_privilege_usage_in_expr(expr->as.binary.lhs, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_expr(expr->as.binary.rhs, in_kernel_static_block, 0, err);
+    case E_EXPR_ASSIGN:
+      return validate_privilege_usage_in_expr(expr->as.assign.lhs, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_expr(expr->as.assign.rhs, in_kernel_static_block, 0, err);
+    case E_EXPR_FIELD:
+      return validate_privilege_usage_in_expr(expr->as.field.base, in_kernel_static_block, 0, err);
+    case E_EXPR_INDEX:
+      return validate_privilege_usage_in_expr(expr->as.index.base, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_expr(expr->as.index.index, in_kernel_static_block, 0, err);
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+    case E_EXPR_STRING:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_privilege_usage_in_stmt(const EStmt *stmt, int in_kernel, int in_kernel_static_block, char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_privilege_usage_in_stmt(stmt->as.block.items[i], in_kernel, in_kernel_static_block, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      return validate_privilege_usage_in_expr(stmt->as.if_stmt.cond, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_stmt(stmt->as.if_stmt.then_branch, in_kernel, in_kernel_static_block, err) &&
+             validate_privilege_usage_in_stmt(stmt->as.if_stmt.else_branch, in_kernel, in_kernel_static_block, err);
+    case E_STMT_WHILE:
+      return validate_privilege_usage_in_expr(stmt->as.while_stmt.cond, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_stmt(stmt->as.while_stmt.body, in_kernel, in_kernel_static_block, err);
+    case E_STMT_FOR:
+      if (!validate_privilege_usage_in_stmt(stmt->as.for_stmt.init, in_kernel, in_kernel_static_block, err)) return 0;
+      if (!validate_privilege_usage_in_expr(stmt->as.for_stmt.cond, in_kernel_static_block, 0, err)) return 0;
+      if (!validate_privilege_usage_in_expr(stmt->as.for_stmt.step, in_kernel_static_block, 0, err)) return 0;
+      return validate_privilege_usage_in_stmt(stmt->as.for_stmt.body, in_kernel, in_kernel_static_block, err);
+    case E_STMT_FOREACH:
+      return validate_privilege_usage_in_stmt(stmt->as.foreach_stmt.var_decl, in_kernel, in_kernel_static_block, err) &&
+             validate_privilege_usage_in_stmt(stmt->as.foreach_stmt.body, in_kernel, in_kernel_static_block, err);
+    case E_STMT_SWITCH:
+      if (!validate_privilege_usage_in_expr(stmt->as.switch_stmt.target, in_kernel_static_block, 0, err)) return 0;
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_privilege_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], in_kernel, in_kernel_static_block, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_DECL:
+      return validate_privilege_usage_in_expr(stmt->as.decl.init, in_kernel_static_block, 0, err);
+    case E_STMT_RETURN:
+      return validate_privilege_usage_in_expr(stmt->as.ret.value, in_kernel_static_block, 0, err);
+    case E_STMT_EXPR:
+      return validate_privilege_usage_in_expr(stmt->as.expr, in_kernel_static_block, is_worker_privilege_call(stmt->as.expr), err);
+    case E_STMT_STATIC_BLOCK:
+      if (!in_kernel) in_kernel_static_block = 0;
+      else in_kernel_static_block = 1;
+      for (i = 0; i < stmt->as.static_block.count; i++) {
+        if (!validate_privilege_usage_in_stmt(stmt->as.static_block.items[i], in_kernel, in_kernel_static_block, err)) return 0;
+      }
+      return 1;
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_privilege_usage(const EProgram *program, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    int in_kernel = 0;
+    if (top->kind == E_TOP_KERNEL) {
+      body = top->as.kernel.body;
+      in_kernel = 1;
+    } else if (top->kind == E_TOP_WORKER) {
+      body = top->as.worker.body;
+    } else if (top->kind == E_TOP_FUNCTION) {
+      body = top->as.func.body;
+    } else if (top->kind == E_TOP_AT_ENTRY) {
+      body = top->as.at_entry.body;
+    } else if (top->kind == E_TOP_TYPE) {
+      body = top->as.tdecl.body;
+    }
+    if (body && !validate_privilege_usage_in_stmt(body, in_kernel, 0, err)) return 0;
+  }
+  return 1;
+}
+
 static void free_temp_frame(EFunctionFrame *frame) {
   size_t i;
   for (i = 0; i < frame->local_count; i++) {
@@ -2107,6 +2240,10 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_rgm_usage(program, out_model, err)) {
+    return semantic_fail_cleanup(out_model, err);
+  }
+
+  if (!validate_privilege_usage(program, err)) {
     return semantic_fail_cleanup(out_model, err);
   }
 
