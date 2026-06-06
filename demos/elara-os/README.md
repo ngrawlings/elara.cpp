@@ -4,6 +4,12 @@ Placeholder E kernels for an Elara-native operating system.
 
 The goal is to grow this demo into a desktop-shaped proof that the EPA/E ISA can support an operating system without adopting the traditional Unix/process/address-space model.
 
+## Technologies
+
+- `epa/`: OS authority kernels and app-surface patterns.
+- `cpp/`: simple Vulkan surface host that registers with the IDE status interconnect.
+- `python/`: first draft virtual IO chipset for host-side device emulation.
+
 ## Shape
 
 - `boot.e`: init-only boot kernel. Starts core services, publishes globals, then retires.

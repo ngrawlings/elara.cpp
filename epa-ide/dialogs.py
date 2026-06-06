@@ -281,6 +281,7 @@ def build_new_project_wizard(initial_path: str):
         items=[
             {"id": "tabbed-control-panel", "label": "Tabbed Control Panel"},
             {"id": "rich-editor", "label": "Rich Editor"},
+            {"id": "vulkan-surface", "label": "Simple Vulkan Surface"},
         ],
         selected_id="tabbed-control-panel",
     )
@@ -1209,6 +1210,71 @@ def build_project_add_menu_dialog(items: list[dict]):
         ui.set_property_number(button_id, "font_size", 12)
         ui.place_grid_child("project_add.shell", button_id, 1, idx + 2)
     ui.set_root_content("project_add.shell")
+    return ui
+
+
+def build_cpp_technology_wizard(state: dict | None = None):
+    state = state or {}
+    selected_host = state.get("ui_template", "tabbed-control-panel")
+    ui = UiDocumentBuilder()
+    ui.create_window("Add C++ Technology", 460, 330, "org.elara.ui.epa-ide.add-cpp-technology")
+    ui.set_theme_mode("dark")
+    ui.create_grid("cpp_tech.shell")
+    ui.add_grid_column_exact("cpp_tech.shell", 18)
+    ui.add_grid_column_fill("cpp_tech.shell")
+    ui.add_grid_column_exact("cpp_tech.shell", 18)
+    ui.add_grid_row_exact("cpp_tech.shell", 18)
+    ui.add_grid_row_exact("cpp_tech.shell", 28)
+    ui.add_grid_row_exact("cpp_tech.shell", 16)
+    ui.add_grid_row_exact("cpp_tech.shell", 34)
+    ui.add_grid_row_exact("cpp_tech.shell", 34)
+    ui.add_grid_row_exact("cpp_tech.shell", 30)
+    ui.add_grid_row_fill("cpp_tech.shell")
+    ui.add_grid_row_exact("cpp_tech.shell", 24)
+    ui.add_grid_row_exact("cpp_tech.shell", 52)
+
+    ui.create_label("cpp_tech.title", "Add C++ Technology", 15)
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.title", 1, 1)
+
+    ui.create_grid("cpp_tech.host_row")
+    ui.add_grid_column_exact("cpp_tech.host_row", 120)
+    ui.add_grid_column_fill("cpp_tech.host_row")
+    ui.add_grid_row_fill("cpp_tech.host_row")
+    ui.create_label("cpp_tech.host_label", "Host kind:", 13)
+    ui.create_combo_box(
+        "cpp_tech.host_kind",
+        items=[
+            {"id": "vulkan-surface", "label": "Simple Vulkan Surface"},
+            {"id": "tabbed-control-panel", "label": "Tabbed Control Panel"},
+            {"id": "rich-editor", "label": "Rich Editor"},
+        ],
+        selected_id=selected_host,
+    )
+    ui.place_grid_child("cpp_tech.host_row", "cpp_tech.host_label", 0, 0)
+    ui.place_grid_child("cpp_tech.host_row", "cpp_tech.host_kind", 1, 0)
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.host_row", 1, 3)
+
+    ui.create_checkbox("cpp_tech.epa_vm_host", "EPA VM Host adapter", bool(state.get("cpp_epa_vm_host", False)))
+    ui.create_checkbox("cpp_tech.epa_debug_rpc", "EPA debug JSON-RPC target", bool(state.get("cpp_epa_debug_rpc", False)))
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.epa_vm_host", 1, 4)
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.epa_debug_rpc", 1, 5)
+
+    ui.create_label("cpp_tech.error", "", 12)
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.error", 1, 7)
+
+    ui.create_grid("cpp_tech.footer")
+    ui.add_grid_column_fill("cpp_tech.footer")
+    ui.add_grid_column_exact("cpp_tech.footer", 88)
+    ui.add_grid_column_exact("cpp_tech.footer", 10)
+    ui.add_grid_column_exact("cpp_tech.footer", 120)
+    ui.add_grid_row_fill("cpp_tech.footer")
+    ui.create_button("cpp_tech.cancel_btn", "Cancel", "cpp_tech.cancel")
+    ui.create_button("cpp_tech.create_btn", "Add C++", "cpp_tech.create")
+    ui.place_grid_child("cpp_tech.footer", "cpp_tech.cancel_btn", 1, 0)
+    ui.place_grid_child("cpp_tech.footer", "cpp_tech.create_btn", 3, 0)
+    ui.place_grid_child("cpp_tech.shell", "cpp_tech.footer", 1, 8)
+
+    ui.set_root_content("cpp_tech.shell")
     return ui
 
 

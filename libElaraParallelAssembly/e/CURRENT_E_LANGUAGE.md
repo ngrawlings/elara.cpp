@@ -2,6 +2,25 @@
 
 This note captures the current `E` language rules that matter when writing code by hand, generating templates, or wiring the IDE debugger.
 
+## EPA Slim-Core Opcode Boundary
+
+EPA v1 core opcodes are single-byte values below `128`. Bit 7 is reserved for
+the future extended/full-core opcode space.
+
+The final slim-core slots `111..127` are assigned to F32 arithmetic. F32 values
+are IEEE-754 binary32 bit patterns carried through the existing 32-bit
+stack/register/local/GHS paths:
+
+- `PUSH_F32`
+- `ADD_F32`, `SUB_F32`, `MUL_F32`, `DIV_F32`
+- `NEG_F32`, `SQRT_F32`
+- `LT_F32`, `LE_F32`, `GT_F32`, `GE_F32`, `EQ_F32`, `NE_F32`
+- `I32_TO_F32`, `F32_TO_I32`, `U32_TO_F32`, `F32_TO_U32`
+
+The current E expression emitter is still integer-first; these opcodes are
+available at EPA assembly/VM level and will become the target for typed E float
+expressions when that language layer is expanded.
+
 ## Kernel Identity
 
 Every kernel must declare exactly one kernel identity inside the kernel block:
@@ -127,6 +146,25 @@ Rules:
 - the target kernel must be a string literal
 - the payload must be a local declared custom-type value
 - the compiler hashes the target string and emits the uid as two `u32` immediates in EPA register setup
+
+## VM State Built-ins
+
+Workers can inspect their own VM identity and the provenance of the most recent
+ingress frame:
+
+```c
+int my_kernel_lo = current_kernel_uid_low();
+int my_kernel_hi = current_kernel_uid_high();
+int my_worker = current_worker_id();
+
+int sender_kernel_lo = ingress_source_kernel_uid_low();
+int sender_kernel_hi = ingress_source_kernel_uid_high();
+int sender_worker = ingress_source_worker_id();
+```
+
+The shorter aliases `source_kernel_uid_low()`, `source_kernel_uid_high()`, and
+`source_worker_id()` are also accepted. Host ingress reports all bits set for
+both source kernel and source worker, which is the VM form of `-1/-1`.
 
 The old pattern of filling a byte buffer with a target kernel id string is no longer the current path.
 

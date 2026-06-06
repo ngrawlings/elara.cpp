@@ -19,7 +19,8 @@ namespace elara {
 
         enum UiTemplate {
             UI_TEMPLATE_TABBED_CONTROL_PANEL,
-            UI_TEMPLATE_RICH_EDITOR
+            UI_TEMPLATE_RICH_EDITOR,
+            UI_TEMPLATE_VULKAN_SURFACE
         };
 
         enum SocketMode {

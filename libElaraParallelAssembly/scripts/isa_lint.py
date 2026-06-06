@@ -10,7 +10,7 @@ ASM_COMPILER = ROOT / "src" / "epa_asm_compiler.c"
 SRC_DIR = ROOT / "src"
 
 X_RE = re.compile(
-    r'^\s*X\(\s*([A-Z0-9_]+)\s*,\s*(0x[0-9A-Fa-f]+u?)\s*,\s*"([^"]+)"\s*,\s*(0x[0-9A-Fa-f]+|\d+)\s*\)'
+    r'^\s*X\(\s*([A-Z0-9_]+)\s*,\s*((?:0x[0-9A-Fa-f]+|\d+)u?)\s*,\s*"([^"]+)"\s*,\s*((?:0x[0-9A-Fa-f]+|\d+)u?)\s*\)'
 )
 
 DESC_RE = re.compile(

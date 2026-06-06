@@ -126,6 +126,7 @@ public:
     bool createListView(const String& id);
     bool createTreeView(const String& id);
     bool createRichTextEdit(const String& id, const String& text);
+    bool createVulkanSurface(const String& id, const String& kernel_name);
     bool createSurfacePanel(const String& id);
     bool createDensityMap(const String& id);
     bool createMultiAxisLineChart(const String& id);

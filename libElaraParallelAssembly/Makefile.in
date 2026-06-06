@@ -28,7 +28,7 @@ UNIT_DIR=./unittests
 E_DIR=./e
 
 SOURCES=$(shell @TOOLPATH@find $(SRC_DIR) -type f -name '*.c' ! -path './src/atomic_tasks/*' ! -path './src/threads/epa_thread_pool.c' -print)
-HEADERS=$(shell for file in `@TOOLPATH@find $(SRC_DIR) -type f -name '*.h' -print`; do echo $$file; done)
+HEADERS=$(shell for file in `@TOOLPATH@find $(SRC_DIR) -type f \( -name '*.h' -o -name '*.x' \) -print`; do echo $$file; done)
 DOCS=$(shell for file in `@TOOLPATH@find ./docs -type f -print`; do echo $$file; done)
 OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.o,$(SOURCES))
 
@@ -38,7 +38,7 @@ EPAASM_REPL_OBJS=$(TOOLS_BUILD)/epa_asm_repl.o $(TOOLS_BUILD)/epa_asm_compiler.o
 CUDA_BUILD=$(BUILDPATH)/cuda
 CUDA_SMOKE_OBJ=$(CUDA_BUILD)/epa_cuda_smoke.o
 
-SHARED_LDLIBS=-pthread -lglfw -lGL -ldl -lrt
+SHARED_LDLIBS=-pthread -lglfw -lGL -ldl -lrt -lm
 
 .PHONY: all install clean remove cleanconf isa-lint legacy-shared tools unit clean-unit e epa-build clean-e test cuda-build cuda-run
 

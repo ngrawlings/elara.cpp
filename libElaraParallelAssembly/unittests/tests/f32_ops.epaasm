@@ -1,0 +1,93 @@
+; Slim-core F32 opcode regression.
+; F32 values are carried as raw IEEE-754 u32 bits on the normal stack.
+
+ENTRY_START 0 0 0
+  ENTRY_EXEC 1
+ENTRY_END
+
+ENTRY_START 1 0 0
+  PUSH_F32 1.5
+  PUSH_F32 2.25
+  ADD_F32
+  PUSH_I32 0x40700000
+  EQ_I32
+  JNZ add_ok
+  TRAP 111
+add_ok:
+
+  PUSH_F32 9.0
+  SQRT_F32
+  PUSH_I32 0x40400000
+  EQ_I32
+  JNZ sqrt_ok
+  TRAP 112
+sqrt_ok:
+
+  PUSH_F32 7.0
+  NEG_F32
+  PUSH_I32 0xc0e00000
+  EQ_I32
+  JNZ neg_ok
+  TRAP 113
+neg_ok:
+
+  PUSH_F32 7.5
+  PUSH_F32 2.5
+  DIV_F32
+  PUSH_I32 0x40400000
+  EQ_I32
+  JNZ div_ok
+  TRAP 114
+div_ok:
+
+  PUSH_F32 2.0
+  PUSH_F32 3.0
+  LT_F32
+  PUSH_I32 1
+  EQ_I32
+  JNZ lt_ok
+  TRAP 115
+lt_ok:
+
+  PUSH_F32 3.0
+  PUSH_F32 3.0
+  GE_F32
+  PUSH_I32 1
+  EQ_I32
+  JNZ ge_ok
+  TRAP 116
+ge_ok:
+
+  PUSH_I32 -7
+  I32_TO_F32
+  PUSH_I32 0xc0e00000
+  EQ_I32
+  JNZ i32_to_f32_ok
+  TRAP 117
+i32_to_f32_ok:
+
+  PUSH_F32 42.75
+  F32_TO_I32
+  PUSH_I32 42
+  EQ_I32
+  JNZ f32_to_i32_ok
+  TRAP 118
+f32_to_i32_ok:
+
+  PUSH_I32 9
+  U32_TO_F32
+  PUSH_I32 0x41100000
+  EQ_I32
+  JNZ u32_to_f32_ok
+  TRAP 119
+u32_to_f32_ok:
+
+  PUSH_F32 12.75
+  F32_TO_U32
+  PUSH_I32 12
+  EQ_I32
+  JNZ f32_to_u32_ok
+  TRAP 120
+f32_to_u32_ok:
+
+ENTRY_END

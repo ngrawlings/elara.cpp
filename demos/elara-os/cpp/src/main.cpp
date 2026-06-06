@@ -1,12 +1,11 @@
->>>>>>>>>>main>>>>CLASS_NAME>SOCKET_ADDRESS>SOCKET_PORT
 #include <stdlib.h>
-#include "%CLASS_NAME%.h"
+#include "ElaraOsApp.h"
 
 using namespace elara;
 
 int main(int argc, const char *argv[]) {
-    String host("%SOCKET_ADDRESS%");
-    int port = %SOCKET_PORT%;
+    String host("127.0.0.1");
+    int port = 18820;
     String host_bridge_host("127.0.0.1");
     int host_bridge_port = 0;
     if (argc > 1) host = String(argv[1]);
@@ -19,7 +18,6 @@ int main(int argc, const char *argv[]) {
     if (bridge_port_env && bridge_port_env[0]) {
         host_bridge_port = atoi(bridge_port_env);
     }
-    %CLASS_NAME% app(host, port, host_bridge_host, host_bridge_port);
+    ElaraOsApp app(host, port, host_bridge_host, host_bridge_port);
     return app.run();
 }
-<<<<<<<<<<main

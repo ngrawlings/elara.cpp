@@ -358,6 +358,12 @@ static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *
 static int emit_acl_grant_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_acl_revoke_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_acl_revoke_all_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_current_kernel_uid_low_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_current_kernel_uid_high_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_current_worker_id_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_source_kernel_uid_low_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_source_kernel_uid_high_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_source_worker_id_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeof_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_typeid_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dyn_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -530,6 +536,15 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"grant_kernel_route", emit_acl_grant_builtin},
     {"revoke_kernel_route", emit_acl_revoke_builtin},
     {"revoke_kernel_routes", emit_acl_revoke_all_builtin},
+    {"current_kernel_uid_low", emit_current_kernel_uid_low_builtin},
+    {"current_kernel_uid_high", emit_current_kernel_uid_high_builtin},
+    {"current_worker_id", emit_current_worker_id_builtin},
+    {"source_kernel_uid_low", emit_source_kernel_uid_low_builtin},
+    {"source_kernel_uid_high", emit_source_kernel_uid_high_builtin},
+    {"source_worker_id", emit_source_worker_id_builtin},
+    {"ingress_source_kernel_uid_low", emit_source_kernel_uid_low_builtin},
+    {"ingress_source_kernel_uid_high", emit_source_kernel_uid_high_builtin},
+    {"ingress_source_worker_id", emit_source_worker_id_builtin},
     {"kernal_get_ghs", emit_kernel_get_ghs_builtin},
     {"kernel_get_ghs", emit_kernel_get_ghs_builtin},
     {"typeof", emit_typeof_builtin},
@@ -1709,6 +1724,55 @@ static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *
   emit_indent(out, depth);
   fprintf(out, "ENTRY_PRIVILEGE %u %u\n", wid, privilege);
   return 1;
+}
+
+static int emit_vm_state_word_builtin(FILE *out, const EExpr *expr, int depth,
+                                      unsigned int selector, int high_word) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects no args, got %zu\n", expr->as.call.callee, expr->as.call.arg_count);
+    return 0;
+  }
+  emit_indent(out, depth);
+  fprintf(out, "VM_STATE %u\n", selector);
+  if (high_word) {
+    emit_indent(out, depth);
+    fputs("MV 0 1\n", out);
+  }
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
+}
+
+static int emit_current_kernel_uid_low_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 0u, 0);
+}
+
+static int emit_current_kernel_uid_high_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 0u, 1);
+}
+
+static int emit_current_worker_id_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 1u, 0);
+}
+
+static int emit_source_kernel_uid_low_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 2u, 0);
+}
+
+static int emit_source_kernel_uid_high_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 2u, 1);
+}
+
+static int emit_source_worker_id_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  (void)ctx;
+  return emit_vm_state_word_builtin(out, expr, depth, 3u, 0);
 }
 
 static int emit_target_kernel_uid_to_regs(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {

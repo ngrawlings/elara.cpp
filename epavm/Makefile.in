@@ -26,7 +26,7 @@ STD_LDFLAGS=-L$(ELARA_LIB_DIR) \
     -lelarasockets -lelarathreads -lelaraevent \
     -lelaraformat -lelaraio -lelaradebug -lelaracore \
     -lelaraparallelassembly \
-    -ldl -lrt -levent -levent_pthreads -pthread
+    -ldl -lrt -lm -levent -levent_pthreads -pthread
 
 BUILDPATH=./build
 TARGET=$(NAME)

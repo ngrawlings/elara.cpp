@@ -86,6 +86,10 @@ static bool parseUiTemplateValue(const char *value, ProjectOptions::UiTemplate *
         *result = ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
         return true;
     }
+    if (!strcmp(value, "vulkan-surface") || !strcmp(value, "epa-os")) {
+        *result = ProjectOptions::UI_TEMPLATE_VULKAN_SURFACE;
+        return true;
+    }
     return false;
 }
 
@@ -156,7 +160,7 @@ static void printUsage(const char *program_name) {
     printf("  --output <path>             Output directory\n");
     printf("  --app-kind <console|ui>\n");
     printf("  --ui-client-language <cpp|python>\n");
-    printf("  --ui-template <tabbed-control-panel|rich-editor>\n");
+    printf("  --ui-template <tabbed-control-panel|rich-editor|vulkan-surface>\n");
     printf("  --multi-cpu-python <yes|no>  Enable the Python multi-core worker template for Python UI clients\n");
     printf("  --epa-vm-host <yes|no>      Enable the EPA VM host adapter scaffold for C++ UI clients\n");
     printf("  --epa-debug-rpc <yes|no>    Enable the EPA debug JSON-RPC target for C++ UI clients\n");

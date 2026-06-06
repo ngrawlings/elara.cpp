@@ -28,6 +28,9 @@ namespace elara {
         }
 
         String uiTemplateName(ProjectOptions::UiTemplate value) {
+            if (value == ProjectOptions::UI_TEMPLATE_VULKAN_SURFACE) {
+                return "vulkan-surface";
+            }
             if (value == ProjectOptions::UI_TEMPLATE_RICH_EDITOR) {
                 return "rich-editor";
             }
@@ -97,6 +100,12 @@ namespace elara {
             if (value == String("rich-editor")) {
                 if (result) {
                     *result = ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
+                }
+                return true;
+            }
+            if (value == String("vulkan-surface") || value == String("epa-os")) {
+                if (result) {
+                    *result = ProjectOptions::UI_TEMPLATE_VULKAN_SURFACE;
                 }
                 return true;
             }
@@ -377,7 +386,7 @@ namespace elara {
         char buffer[64];
 
         while (true) {
-            printf("UI template [t]abbed-control-panel/[r]ich-editor: ");
+            printf("UI template [t]abbed-control-panel/[r]ich-editor/[v]ulkan-surface: ");
             if (!fgets(buffer, sizeof(buffer), stdin)) {
                 return ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL;
             }
@@ -393,8 +402,11 @@ namespace elara {
             if (buffer[0] == 'r' || buffer[0] == 'R') {
                 return ProjectOptions::UI_TEMPLATE_RICH_EDITOR;
             }
+            if (buffer[0] == 'v' || buffer[0] == 'V') {
+                return ProjectOptions::UI_TEMPLATE_VULKAN_SURFACE;
+            }
 
-            printf("Please answer t or r.\n");
+            printf("Please answer t, r, or v.\n");
         }
     }
 
@@ -721,7 +733,7 @@ namespace elara {
             contents += " $(DEFS)\n";
             contents += "STD_LDFLAGS=-L$(ELARA_LIB_DIR) -lelaraui -lelarauirpc -lelarasockets -lelarathreads -lelaraevent -lelaravectorcpp -lelaravector -lelaraformat -lelaraio -lelaradebug -lelaracore";
             if (options.include_epa_vm_host) {
-                contents += " -lelaraparallelassembly -ldl -lrt";
+                contents += " -lelaraparallelassembly -ldl -lrt -lm";
             }
             if (options.include_epa_debug_rpc) {
                 contents += " -levent -levent_pthreads";
@@ -1177,6 +1189,13 @@ namespace elara {
             contents += "\" ]]; then\n";
             contents += "  ./build.sh\n";
             contents += "fi\n";
+            contents += "\n";
+            contents += "BRIDGE_INFO_FILE=\"${ELARA_DEBUG_BRIDGE_FILE:-/tmp/elara-debug-bridge.json}\"\n";
+            contents += "if [[ -f \"$BRIDGE_INFO_FILE\" ]]; then\n";
+            contents += "  export ELARA_IDE_HOST_BRIDGE_HOST=\"${ELARA_IDE_HOST_BRIDGE_HOST:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(\"host_debug_host\",\"127.0.0.1\"))' \"$BRIDGE_INFO_FILE\" 2>/dev/null || printf '127.0.0.1')}\"\n";
+            contents += "  export ELARA_IDE_HOST_BRIDGE_PORT=\"${ELARA_IDE_HOST_BRIDGE_PORT:-$(python3 -c 'import json,sys; value=json.load(open(sys.argv[1])).get(\"host_debug_port\",0); print(value if value else \"\")' \"$BRIDGE_INFO_FILE\" 2>/dev/null || true)}\"\n";
+            contents += "fi\n";
+            contents += "\n";
             contents += "exec ./build/";
             contents += options.target_name;
             contents += " \"$@\"\n";
@@ -1662,6 +1681,8 @@ namespace elara {
         attrs.append(backend_id);
         attrs.append(options.target_name);
         attrs.append(boolTemplateValue(options.ui_template == ProjectOptions::UI_TEMPLATE_RICH_EDITOR));
+        attrs.append(boolTemplateValue(options.ui_template == ProjectOptions::UI_TEMPLATE_VULKAN_SURFACE));
+        attrs.append(boolTemplateValue(options.ui_template == ProjectOptions::UI_TEMPLATE_TABBED_CONTROL_PANEL));
         return loadTemplate("UiApp.cpp", "main", attrs);
     }
 
@@ -2218,7 +2239,7 @@ namespace elara {
             if (options.ui_client_language == ProjectOptions::UI_CLIENT_CPP) {
                 flags += "-lelarauirpc -lelarasockets -lelaraformat -lelaraio -lelaradebug -lelaraevent -lelarathreads -lelaracore";
                 if (options.include_epa_vm_host) {
-                    flags += " -lelaraparallelassembly";
+                    flags += " -lelaraparallelassembly -lm";
                 }
             } else {
                 flags += "-lelaracore";

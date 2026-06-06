@@ -27,6 +27,7 @@ void ctest_register_test_hf_dump_state(void);
 void ctest_register_test_hf_lazy_loading(void);
 void ctest_register_test_dynamic_pool_fuzz(void);
 void ctest_register_test_dynamic_pool_runtime(void);
+void ctest_register_test_f32_opcodes(void);
 
 typedef void (*ctest_reg_fn)(void);
 
@@ -61,6 +62,7 @@ static const struct {
 	{ "test_hf_lazy_loading.c",     ctest_register_test_hf_lazy_loading }
    ,{ "test_dynamic_pool_fuzz.c",   ctest_register_test_dynamic_pool_fuzz }
    ,{ "test_dynamic_pool_runtime.c", ctest_register_test_dynamic_pool_runtime }
+   ,{ "test_f32_opcodes.c",        ctest_register_test_f32_opcodes }
 
 };
 

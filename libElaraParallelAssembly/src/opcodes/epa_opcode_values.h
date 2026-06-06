@@ -4,7 +4,7 @@
 //
 // Address space policy unchanged
 //
-#define EPA_OP_RESERVED_MIN ((uint8_t)111u)
+#define EPA_OP_RESERVED_MIN ((uint8_t)128u)
 #define EPA_OP_EXT_ESCAPE   ((uint8_t)255u)
 
 #define EPA_OP_IS_COMMON(op) ((uint8_t)(op) < EPA_OP_RESERVED_MIN)

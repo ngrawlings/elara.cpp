@@ -1,13 +1,26 @@
 {
   "epa": [
+    "epa/app_surface.e",
     "epa/boot.e",
     "epa/compositor.e",
     "epa/input_router.e",
     "epa/io_controller.e",
-    "epa/storage_controller.e",
     "epa/network_controller.e",
     "epa/security_authority.e",
     "epa/shell_desktop.e",
-    "epa/app_surface.e"
+    "epa/storage_controller.e"
+  ],
+  "cpp": [
+    "cpp/src/ElaraOsApp.cpp",
+    "cpp/src/ElaraOsApp.h",
+    "cpp/src/main.cpp"
+  ],
+  "python": [
+    "python/app.py",
+    "python/elara_io/__init__.py",
+    "python/elara_io/virtual_chipset.py",
+    "python/elara_ui/__init__.py",
+    "python/elara_ui/builder.py",
+    "python/elara_ui/rpc.py"
   ]
 }

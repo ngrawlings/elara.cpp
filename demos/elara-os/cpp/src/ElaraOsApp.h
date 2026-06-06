@@ -1,6 +1,5 @@
->>>>>>>>>>main>>>>CLASS_NAME>CLASS_NAME_UPPER
-#ifndef %CLASS_NAME_UPPER%_H
-#define %CLASS_NAME_UPPER%_H
+#ifndef ELARAOSAPP_H
+#define ELARAOSAPP_H
 
 #include <atomic>
 #include <libelaracore/memory/Ref.h>
@@ -16,10 +15,10 @@ namespace rpc {
 }
 }
 
-class %CLASS_NAME% {
+class ElaraOsApp {
 public:
-    %CLASS_NAME%(const String &host, int port, const String &host_bridge_host, int host_bridge_port);
-    ~%CLASS_NAME%();
+    ElaraOsApp(const String &host, int port, const String &host_bridge_host, int host_bridge_port);
+    ~ElaraOsApp();
     int run();
 
 private:
@@ -45,4 +44,3 @@ private:
 }
 
 #endif
-<<<<<<<<<<main

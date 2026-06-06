@@ -50,7 +50,7 @@ from ui_document import build_document
 from dialogs import (
     build_open_file_dialog, build_new_project_wizard, build_open_project_dialog,
     build_new_file_dialog, build_worker_fault_dialog, build_error_dialog,
-    build_project_add_menu_dialog, build_ingress_profile_editor,
+    build_project_add_menu_dialog, build_cpp_technology_wizard, build_ingress_profile_editor,
     start_background_worker,
     _to_class_name, _to_symbol_name, _e_template_items, _e_template_summary,
     _e_file_content, _file_content, _folder_items,
@@ -300,6 +300,7 @@ def main():
     app_state = {}               # persistent project state set after universal creation
     new_file_state = {}          # live state for the new-file dialog
     new_file_nav_state = {}      # current browse path in the new-file dialog
+    cpp_tech_state = {}          # live state for the add-C++ technology wizard
     editor_state = {}
     ingress_editor_state = {}    # live state for the ingress profile editor window
     app_state["active_editor_tab"] = INITIAL_E_TABS[0][0] if INITIAL_E_TABS else ""
@@ -1498,7 +1499,8 @@ def main():
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
-    def _project_add_technology(client, tech: str):
+    def _project_add_technology(client, tech: str, options: dict | None = None):
+        options = options or {}
         project_root_text = app_state.get("project_root", "")
         if not project_root_text:
             raise RuntimeError("No project open.")
@@ -1511,9 +1513,11 @@ def main():
         rpc_host = str(meta.get("rpc_host", "127.0.0.1"))
         rpc_port = int(meta.get("rpc_port", 18777))
         python_multi_cpu = bool(meta.get("python_multi_cpu", False))
-        cpp_epa_vm_host = bool(meta.get("cpp_epa_vm_host", False))
-        cpp_epa_debug_rpc = bool(meta.get("cpp_epa_debug_rpc", False))
-        ui_template = str(meta.get("ui_template", "plain"))
+        cpp_epa_vm_host = bool(options.get("cpp_epa_vm_host", meta.get("cpp_epa_vm_host", False)))
+        cpp_epa_debug_rpc = bool(options.get("cpp_epa_debug_rpc", meta.get("cpp_epa_debug_rpc", False)))
+        ui_template = str(options.get("ui_template", meta.get("ui_template", "tabbed-control-panel")))
+        if ui_template == "epa-os":
+            ui_template = "vulkan-surface"
         (project_root / "build").mkdir(parents=True, exist_ok=True)
         if tech == "epa":
             epa_root = _project_epa_root(project_root)
@@ -1578,8 +1582,46 @@ def main():
         if tech not in updated_techs:
             updated_techs.append(tech)
         meta["technologies"] = updated_techs
+        if tech == "cpp":
+            meta["ui_template"] = ui_template
+            meta["cpp_epa_vm_host"] = cpp_epa_vm_host
+            meta["cpp_epa_debug_rpc"] = cpp_epa_debug_rpc
         _write_project_meta(project_root, meta)
         _open_project(client, project_root)
+
+    def _default_cpp_tech_state() -> dict:
+        project_root_text = app_state.get("project_root", "")
+        project_root = Path(project_root_text) if project_root_text else None
+        meta = _project_meta(project_root) if project_root else {}
+        ui_template = str(meta.get("ui_template", "tabbed-control-panel"))
+        if ui_template == "epa-os":
+            ui_template = "vulkan-surface"
+        if ui_template not in ("vulkan-surface", "tabbed-control-panel", "rich-editor"):
+            ui_template = "tabbed-control-panel"
+        vm_host = bool(meta.get("cpp_epa_vm_host", False))
+        debug_rpc = bool(meta.get("cpp_epa_debug_rpc", False)) if vm_host else False
+        if ui_template == "vulkan-surface" and "cpp_epa_vm_host" not in meta:
+            vm_host = False
+            debug_rpc = False
+        return {
+            "ui_template": ui_template,
+            "cpp_epa_vm_host": vm_host,
+            "cpp_epa_debug_rpc": debug_rpc,
+        }
+
+    def _open_cpp_technology_wizard(client):
+        cpp_tech_state.clear()
+        cpp_tech_state.update(_default_cpp_tech_state())
+        if client is None:
+            return
+        client.close_window("project-add-menu")
+        client.open_window(
+            "add-cpp-technology",
+            "Add C++ Technology",
+            460,
+            330,
+            build_cpp_technology_wizard(cpp_tech_state),
+        )
 
     def _read_make_var(makefile: Path, name: str) -> str:
         try:
@@ -6047,6 +6089,17 @@ def main():
         if action == "valueChanged" and target == "wizard.cpp.epa_debug_rpc":
             wizard_state["cpp_epa_debug_rpc"] = payload.get("value", 0) > 0.5
 
+        if target == "cpp_tech.host_kind" and action in ("action", "valueChanged", "clicked"):
+            selected = payload.get("action") or payload.get("id") or payload.get("text") or ""
+            if selected in ("vulkan-surface", "tabbed-control-panel", "rich-editor"):
+                cpp_tech_state["ui_template"] = selected
+
+        if action == "valueChanged" and target == "cpp_tech.epa_vm_host":
+            cpp_tech_state["cpp_epa_vm_host"] = payload.get("value", 0) > 0.5
+
+        if action == "valueChanged" and target == "cpp_tech.epa_debug_rpc":
+            cpp_tech_state["cpp_epa_debug_rpc"] = payload.get("value", 0) > 0.5
+
         if target in ("wizard.ui_client", "wizard.ui_template") and action in ("action", "valueChanged", "clicked"):
             selected = payload.get("action") or payload.get("id") or payload.get("text") or ""
             if target == "wizard.ui_client" and selected in ("both", "cpp", "python"):
@@ -6060,7 +6113,7 @@ def main():
                 else:
                     wizard_state["tech_cpp"] = True
                     wizard_state["tech_python"] = True
-            if target == "wizard.ui_template" and selected in ("tabbed-control-panel", "rich-editor"):
+            if target == "wizard.ui_template" and selected in ("tabbed-control-panel", "rich-editor", "vulkan-surface"):
                 wizard_state["ui_template"] = selected
 
         if action == "textChanged" and target in ("wizard.project_name", "wizard.rpc_host", "wizard.rpc_port"):
@@ -6686,6 +6739,9 @@ def main():
 
             elif item_action and item_action.startswith("project_add.add_tech."):
                 tech = item_action[len("project_add.add_tech."):]
+                if tech == "cpp":
+                    _deferred(lambda: _open_cpp_technology_wizard(c))
+                    return {"received": True}
                 def _do_add_tech():
                     try:
                         _project_add_technology(c, tech)
@@ -6699,6 +6755,9 @@ def main():
 
             elif item_action and item_action.startswith("nav.add_tech."):
                 tech = item_action[len("nav.add_tech."):]
+                if tech == "cpp":
+                    _deferred(lambda: _open_cpp_technology_wizard(c))
+                    return {"received": True}
                 def _do_nav_add_tech(t=tech):
                     try:
                         _project_add_technology(c, t)
@@ -6717,6 +6776,26 @@ def main():
 
             elif item_action == "build.compile":
                 _deferred(lambda: _compile_current_file(c))
+
+            elif item_action == "cpp_tech.cancel":
+                _deferred(lambda: c.close_window("add-cpp-technology"))
+
+            elif item_action == "cpp_tech.create":
+                def _do_add_cpp_from_wizard():
+                    try:
+                        if bool(cpp_tech_state.get("cpp_epa_debug_rpc", False)) and not bool(cpp_tech_state.get("cpp_epa_vm_host", False)):
+                            c.set_text("cpp_tech.error", "EPA debug JSON-RPC requires the EPA VM Host adapter.")
+                            return
+                        _project_add_technology(c, "cpp", cpp_tech_state)
+                        c.close_window("add-cpp-technology")
+                    except subprocess.CalledProcessError as exc:
+                        message = (exc.stderr or exc.stdout or str(exc)).strip()
+                        c.set_text("cpp_tech.error", message or "Could not add C++ technology.")
+                        _append_build_output(c, f"[project-add-error] {message}\n")
+                    except Exception as exc:
+                        c.set_text("cpp_tech.error", str(exc))
+                        _append_build_output(c, f"[project-add-error] {exc}\n")
+                _deferred(_do_add_cpp_from_wizard)
 
             elif item_action == "build.rebuild_project":
                 _deferred(lambda: _build_project(c, rebuild=True))

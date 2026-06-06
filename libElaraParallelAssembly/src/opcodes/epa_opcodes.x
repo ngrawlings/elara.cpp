@@ -165,3 +165,27 @@ X(L_SCOPE_ALLOC,         107u, "L_SCOPE_ALLOC", 0) // like L_ALLOC, intended for
 X(FMT,                   108u, "FMT", 1) // u8 argc
 X(LOG,                   109u, "LOG", 0) // consumes (r0=off, r1=len, r2=kind)
 X(VM_STATE,              110u, "VM_STATE", 1) // u8 selector -> r0/r1 value, r3=ok
+
+//
+// ---------- COMMON: Slim-core floating point ----------
+//
+// F32 values are IEEE-754 binary32 bit patterns carried in the existing u32
+// stack/register/local/GHS paths. Opcodes 128..255 remain reserved for the
+// extended/full-core space.
+X(PUSH_F32,              111u, "PUSH_F32", 4) // Push immediate f32 bits/literal onto stack
+X(ADD_F32,               112u, "ADD_F32", 0) // Pop a,b -> push (a+b)
+X(SUB_F32,               113u, "SUB_F32", 0) // Pop a,b -> push (a-b)
+X(MUL_F32,               114u, "MUL_F32", 0) // Pop a,b -> push (a*b)
+X(DIV_F32,               115u, "DIV_F32", 0) // Pop a,b -> push (a/b)
+X(NEG_F32,               116u, "NEG_F32", 0) // Pop a -> push (-a)
+X(SQRT_F32,              117u, "SQRT_F32", 0) // Pop a -> push sqrt(a)
+X(LT_F32,                118u, "LT_F32", 0) // Pop a,b -> push (a<b ? 1 : 0)
+X(LE_F32,                119u, "LE_F32", 0) // Pop a,b -> push (a<=b ? 1 : 0)
+X(GT_F32,                120u, "GT_F32", 0) // Pop a,b -> push (a>b ? 1 : 0)
+X(GE_F32,                121u, "GE_F32", 0) // Pop a,b -> push (a>=b ? 1 : 0)
+X(EQ_F32,                122u, "EQ_F32", 0) // Pop a,b -> push (a==b ? 1 : 0)
+X(NE_F32,                123u, "NE_F32", 0) // Pop a,b -> push (a!=b ? 1 : 0)
+X(I32_TO_F32,            124u, "I32_TO_F32", 0) // Pop i32 -> push f32 bits
+X(F32_TO_I32,            125u, "F32_TO_I32", 0) // Pop f32 bits -> push i32
+X(U32_TO_F32,            126u, "U32_TO_F32", 0) // Pop u32 -> push f32 bits
+X(F32_TO_U32,            127u, "F32_TO_U32", 0) // Pop f32 bits -> push u32
