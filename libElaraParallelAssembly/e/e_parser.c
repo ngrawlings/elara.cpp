@@ -97,6 +97,7 @@ static int parse_type(Parser *p, ETypeRef *out) {
   if (!expect(p, E_TOK_IDENT, "expected type name")) return 0;
   out->name = xstrdup_local(p->tokens->items[p->pos - 1].text);
   out->array_len = 0u;
+  out->is_unsized_array = 0;
   out->union_names = NULL;
   out->union_count = 0u;
   while (match(p, E_TOK_PIPE)) {
@@ -104,6 +105,10 @@ static int parse_type(Parser *p, ETypeRef *out) {
     type_ref_add_union_name(out, p->tokens->items[p->pos - 1].text);
   }
   if (match(p, E_TOK_LBRACKET)) {
+    if (match(p, E_TOK_RBRACKET)) {
+      out->is_unsized_array = 1;
+      return 1;
+    }
     if (peek(p)->kind != E_TOK_INT_LIT) return set_err(p, "expected integer array length", peek(p));
     out->array_len = (unsigned int)strtoul(peek(p)->text, NULL, 10);
     p->pos++;
@@ -121,10 +126,14 @@ static int is_decl_start(const Parser *p) {
   pos++;
   if (p->tokens->items[pos].kind == E_TOK_LBRACKET) {
     pos++;
-    if (p->tokens->items[pos].kind != E_TOK_INT_LIT) return 0;
-    pos++;
-    if (p->tokens->items[pos].kind != E_TOK_RBRACKET) return 0;
-    pos++;
+    if (p->tokens->items[pos].kind == E_TOK_RBRACKET) {
+      pos++;
+    } else {
+      if (p->tokens->items[pos].kind != E_TOK_INT_LIT) return 0;
+      pos++;
+      if (p->tokens->items[pos].kind != E_TOK_RBRACKET) return 0;
+      pos++;
+    }
   }
   return p->tokens->items[pos].kind == E_TOK_IDENT;
 }

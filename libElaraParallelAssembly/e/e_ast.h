@@ -6,6 +6,7 @@
 typedef struct ETypeRef {
   char *name;
   unsigned int array_len;
+  int is_unsized_array;
   char **union_names;
   size_t union_count;
 } ETypeRef;

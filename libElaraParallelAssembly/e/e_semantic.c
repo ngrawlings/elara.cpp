@@ -99,6 +99,17 @@ static size_t primitive_size(const char *name) {
 
 static size_t type_ref_size(const ESemanticModel *model, const ETypeRef *type, char err[256]) {
   size_t elem_size = 0u;
+  if (type->is_unsized_array) {
+    if (type_ref_is_union(type)) {
+      snprintf(err, 256, "unsized array type '%s[]' cannot be a union", type->name);
+      return 0u;
+    }
+    if (strcmp(type->name, "byte") != 0) {
+      snprintf(err, 256, "only byte[] may be unsized");
+      return 0u;
+    }
+    return 0u;
+  }
   size_t count = (type->array_len == 0u) ? 1u : (size_t)type->array_len;
   if (type_ref_is_union(type)) {
     snprintf(err, 256, "union type '%s|...' does not have a fixed inline size", type->name);
@@ -248,7 +259,7 @@ static int push_check(ESemanticModel *model, const EFunction *fn, size_t param_i
 }
 
 static int type_layout_push_field(ETypeLayout *layout, const char *name, const char *type_name,
-                                  size_t ghs_offset, size_t ghs_size) {
+                                  size_t ghs_offset, size_t ghs_size, int is_flexible_tail) {
   EGhsField *next;
   next = (EGhsField*)realloc(layout->fields, sizeof(EGhsField) * (layout->field_count + 1u));
   if (!next) {
@@ -260,6 +271,7 @@ static int type_layout_push_field(ETypeLayout *layout, const char *name, const c
   layout->fields[layout->field_count].type_name = xstrdup_local(type_name);
   layout->fields[layout->field_count].ghs_offset = ghs_offset;
   layout->fields[layout->field_count].ghs_size = ghs_size;
+  layout->fields[layout->field_count].is_flexible_tail = is_flexible_tail;
   layout->field_count++;
   return 1;
 }
@@ -275,6 +287,8 @@ static int push_type_layout(ESemanticModel *model, const ETypeDecl *decl, size_t
   memset(&model->type_layouts[model->type_layout_count], 0, sizeof(ETypeLayout));
   model->type_layouts[model->type_layout_count].type_name = xstrdup_local(decl->name);
   model->type_layouts[model->type_layout_count].total_size = total_size;
+  model->type_layouts[model->type_layout_count].has_flexible_tail = 0;
+  model->type_layouts[model->type_layout_count].flexible_tail_offset = 0u;
   model->type_layout_count++;
   return 1;
 }
@@ -783,6 +797,7 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
     const ETopDecl *top = &program->items[i];
     size_t j;
     size_t next_offset = 0u;
+    int seen_flexible_tail = 0;
     ETypeLayout *layout;
     EValidatorBinding *binding;
 
@@ -790,6 +805,21 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
 
     for (j = 0; j < top->as.tdecl.param_count; j++) {
       size_t field_size;
+      const EParam *param = &top->as.tdecl.params[j];
+      if (param->type.is_unsized_array) {
+        if (strcmp(param->type.name, "byte") != 0) {
+          snprintf(err, 256, "type '%s' field '%s' unsized array must be byte[]",
+                   top->as.tdecl.name, param->name);
+          return 0;
+        }
+        if (j + 1u != top->as.tdecl.param_count) {
+          snprintf(err, 256, "type '%s' field '%s' byte[] must be the final field",
+                   top->as.tdecl.name, param->name);
+          return 0;
+        }
+        seen_flexible_tail = 1;
+        continue;
+      }
       field_size = type_ref_size(model, &top->as.tdecl.params[j].type, err);
       if (field_size == 0u && top->as.tdecl.params[j].type.array_len == 0u &&
           primitive_size(top->as.tdecl.params[j].type.name) == 0u &&
@@ -801,16 +831,22 @@ static int collect_type_layouts(const EProgram *program, ESemanticModel *model, 
 
     push_type_layout(model, &top->as.tdecl, next_offset);
     layout = &model->type_layouts[model->type_layout_count - 1u];
+    if (seen_flexible_tail) {
+      layout->has_flexible_tail = 1;
+      layout->flexible_tail_offset = next_offset;
+    }
 
     next_offset = 0u;
     for (j = 0; j < top->as.tdecl.param_count; j++) {
       size_t field_size;
-      field_size = type_ref_size(model, &top->as.tdecl.params[j].type, err);
+      int is_flexible_tail = top->as.tdecl.params[j].type.is_unsized_array ? 1 : 0;
+      field_size = is_flexible_tail ? 0u : type_ref_size(model, &top->as.tdecl.params[j].type, err);
       type_layout_push_field(layout,
                              top->as.tdecl.params[j].name,
                              top->as.tdecl.params[j].type.name,
                              next_offset,
-                             field_size);
+                             field_size,
+                             is_flexible_tail);
       next_offset += field_size;
     }
 
@@ -851,14 +887,20 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
       }
       return 1;
     case E_STMT_DECL: {
+      const ETypeLayout *decl_layout = NULL;
       if (type_ref_is_union(&stmt->as.decl.type)) {
         snprintf(err, 256, "decl '%s' cannot use union type '%s|...' outside a worker ingress parameter",
                  stmt->as.decl.name, stmt->as.decl.type.name);
         return 0;
       }
       size_t byte_size = type_ref_size(model, &stmt->as.decl.type, err);
+      decl_layout = find_type_layout(model, stmt->as.decl.type.name);
+      if (stmt->as.decl.type.is_unsized_array) {
+        snprintf(err, 256, "decl '%s' cannot use unsized array type directly", stmt->as.decl.name);
+        return 0;
+      }
       if (byte_size == 0u && stmt->as.decl.type.array_len == 0u && primitive_size(stmt->as.decl.type.name) == 0u &&
-          !find_type_layout(model, stmt->as.decl.type.name)) {
+          !decl_layout) {
         return 0;
       }
       if (stmt->as.decl.is_reg) {
@@ -915,7 +957,12 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
             }
             binding->vm_local_words = 1u;
             frame->vm_local_count += 1u;
-          } else if (find_type_layout(model, stmt->as.decl.type.name)) {
+          } else if (decl_layout) {
+            if (decl_layout->has_flexible_tail) {
+              snprintf(err, 256, "static decl '%s' cannot use flexible-tail type '%s'",
+                       stmt->as.decl.name, stmt->as.decl.type.name);
+              return 0;
+            }
             /* Declared type: L_ALLOC from local memory once before the loop, persist the reference. */
             binding->vm_local_words = E_TYPE_REF_ABI_WORDS;
             frame->vm_local_count += E_TYPE_REF_ABI_WORDS;
@@ -930,7 +977,7 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
             snprintf(err, 256, "local decl '%s' using byte must be byte[N]", stmt->as.decl.name);
             return 0;
           }
-        } else if (!find_type_layout(model, stmt->as.decl.type.name)) {
+        } else if (!decl_layout) {
           snprintf(err, 256, "local decl '%s' must be byte[N] or a declared type", stmt->as.decl.name);
           return 0;
         }
@@ -943,6 +990,11 @@ static int collect_local_decls_in_stmt(const EStmt *stmt, const ESemanticModel *
           frame->vm_local_count += E_TYPE_REF_ABI_WORDS;
         }
       } else {
+        if (decl_layout && decl_layout->has_flexible_tail) {
+          snprintf(err, 256, "decl '%s' using flexible-tail type '%s' must be local",
+                   stmt->as.decl.name, stmt->as.decl.type.name);
+          return 0;
+        }
         push_local_binding(frame, stmt, stmt->as.decl.name, &stmt->as.decl.type, byte_size,
                            E_LOCAL_STACK, frame->stack_local_size, 0u, 0u);
         if (frame->local_count > 0u) {

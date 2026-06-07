@@ -42,11 +42,14 @@ typedef struct {
   char *type_name;
   size_t ghs_offset;
   size_t ghs_size;
+  int is_flexible_tail;
 } EGhsField;
 
 typedef struct {
   char *type_name;
   size_t total_size;
+  int has_flexible_tail;
+  size_t flexible_tail_offset;
   EGhsField *fields;
   size_t field_count;
 } ETypeLayout;

@@ -1247,6 +1247,87 @@ static int emit_field_store(FILE *out, const EExpr *lhs, EmitCtx *ctx, int depth
     const ELocalBinding *binding = find_local_binding_by_name(frame, base_name);
     if (binding && binding->vm_local_words == 2u && binding->storage == E_LOCAL_ARENA_SCOPED) {
       const EGhsField *field = find_field_layout(ctx->model, binding->type_name, field_name);
+      const ETypeLayout *layout = find_type_layout(ctx->model, binding->type_name);
+      if (field && field->is_flexible_tail && layout) {
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);                         /* R1 = source size */
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);                         /* R0 = source off */
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R3\n", out);                         /* R3 = old object base */
+        emit_indent(out, depth);
+        fputs("PUSH R1\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 3\n", out);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 4\n", out);
+        emit_indent(out, depth);
+        fputs("DIV_I32\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 4\n", out);
+        emit_indent(out, depth);
+        fputs("MUL_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);                        /* R2 = aligned total size */
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);                       /* save source off */
+        emit_indent(out, depth);
+        fputs("PUSH R1\n", out);                       /* save source size */
+        emit_indent(out, depth);
+        fputs("PUSH R3\n", out);                       /* save old object base */
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        fputs("L_ALLOC\n", out);                       /* R0 = new off, R1 = new size */
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        emit_indent(out, depth);
+        EMIT_STORE_L(out, ctx, binding->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("PUSH R1\n", out);
+        emit_indent(out, depth);
+        EMIT_STORE_L(out, ctx, binding->vm_local_slot + 1u);
+        if (field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fputs("POP R2\n", out);                      /* src old object base */
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+          emit_indent(out, depth);
+          fputs("POP R1\n", out);                      /* dst prefix base */
+          emit_indent(out, depth);
+          fprintf(out, "SET_R 3 %zu\n", field->ghs_offset);
+          emit_lbytes_copy_loop(out, ctx, depth, 1u, 2u, 3u);
+        } else {
+          emit_indent(out, depth);
+          fputs("POP 0\n", out);                       /* discard old object base */
+        }
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);                        /* R1 = source size */
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);                        /* R0 = source off */
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);                        /* dst object base */
+        if (field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fprintf(out, "PUSH R2\nPUSH %zu\nADD_I32\nPOP R2\n", field->ghs_offset);
+        }
+        emit_indent(out, depth);
+        fprintf(out, "SET_R 3 0\n");
+        emit_lbytes_copy_loop(out, ctx, depth, 2u, 0u, 1u);
+        return 1;
+      }
       if (field && field->ghs_size == 4u) {
         emit_indent(out, depth);
         fputs("POP R0\n", out);                        /* R0 = value to store */
@@ -1291,7 +1372,126 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
     const EWorker *worker = ctx->current_worker;
     if (worker && worker->param_count == 1u &&
         strcmp(worker->params[0].name, base_name) == 0) {
+      const EFunctionParamCheck *param = find_param_check_by_name(ctx, base_name);
       field = find_field_layout(ctx->model, worker->params[0].type.name, field_name);
+      if (field && field->is_flexible_tail && param && param->vm_local_words == 2u) {
+        unsigned int loop_id = next_label(ctx);
+        unsigned int done_id = next_label(ctx);
+        unsigned int fail_id = next_label(ctx);
+        emit_indent(out, depth);
+        fputs("SET_R 0 12\n", out);
+        emit_indent(out, depth);
+        fputs("L_ALLOC\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);                      /* scratch sentinel */
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);
+        emit_indent(out, depth);
+        fputs("G_META\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH R2\nPUSH %zu\nSUB_I32\nPOP R3\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("PUSH R3\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 0\n", out);
+        emit_indent(out, depth);
+        fputs("LT_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "JNZ E_GHS_TAIL_FAIL_%u\n", fail_id);
+        emit_indent(out, depth);
+        emit_scratch_store_reg(out, depth, 3u, 0u);   /* tail size */
+        emit_indent(out, depth);
+        fputs("SET_R 2 0\n", out);
+        emit_scratch_store_reg(out, depth, 2u, 4u);   /* cursor */
+        emit_indent(out, depth);
+        fputs("PUSH R3\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 3\n", out);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 4\n", out);
+        emit_indent(out, depth);
+        fputs("DIV_I32\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 4\n", out);
+        emit_indent(out, depth);
+        fputs("MUL_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);                        /* padded tail bytes */
+        emit_indent(out, depth);
+        fputs("L_ALLOC\n", out);
+        emit_scratch_store_reg(out, depth, 0u, 8u);   /* dst off */
+        emit_indent(out, depth);
+        fprintf(out, "E_GHS_TAIL_COPY_%u:\n", loop_id);
+        emit_scratch_load_reg(out, depth, 2u, 4u);    /* cursor */
+        emit_scratch_load_reg(out, depth, 3u, 0u);    /* tail size */
+        emit_indent(out, depth);
+        fputs("PUSH R2\nPUSH R3\nLT_I32\nPOP R1\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "JZ E_GHS_TAIL_DONE_%u\n", done_id);
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);
+        emit_indent(out, depth);
+        fputs("GR_MOV4 3\n", out);
+        emit_scratch_load_reg(out, depth, 0u, 8u);    /* dst off */
+        emit_scratch_load_reg(out, depth, 2u, 4u);    /* cursor */
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        fputs("RLB_MOV4 R3 R0\n", out);
+        emit_scratch_load_reg(out, depth, 2u, 4u);
+        emit_indent(out, depth);
+        fputs("PUSH R2\nPUSH 4\nADD_I32\nPOP R2\n", out);
+        emit_scratch_store_reg(out, depth, 2u, 4u);
+        emit_indent(out, depth);
+        fprintf(out, "JMP E_GHS_TAIL_COPY_%u\n", loop_id);
+        emit_indent(out, depth);
+        fprintf(out, "E_GHS_TAIL_FAIL_%u:\n", fail_id);
+        emit_indent(out, depth);
+        fputs("SET_R 0 0\n", out);
+        emit_scratch_store_reg(out, depth, 0u, 8u);
+        emit_indent(out, depth);
+        fputs("SET_R 3 0\n", out);
+        emit_scratch_store_reg(out, depth, 3u, 0u);
+        emit_indent(out, depth);
+        fprintf(out, "JMP E_GHS_TAIL_DONE_%u\n", done_id);
+        emit_indent(out, depth);
+        fprintf(out, "E_GHS_TAIL_DONE_%u:\n", done_id);
+        emit_scratch_load_reg(out, depth, 0u, 8u);
+        emit_scratch_load_reg(out, depth, 3u, 0u);
+        emit_indent(out, depth);
+        fputs("POP 0\n", out);
+        return 1;
+      }
       if (field && field->ghs_size == 4u) {
         emit_indent(out, depth);
         fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
@@ -1310,6 +1510,23 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
     const ELocalBinding *binding = find_local_binding_by_name(active_frame_for_ctx(ctx), base_name);
     if (binding && binding->vm_local_words == 2u) {
       field = find_field_layout(ctx->model, binding->type_name, field_name);
+      if (field && field->is_flexible_tail) {
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+        if (field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fprintf(out, "PUSH %zu\n", field->ghs_offset);
+          emit_indent(out, depth);
+          fputs("ADD_I32\n", out);
+        }
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("SUB_I32\n", out);
+        return 1;
+      }
       if (field && field->ghs_size == 4u) {
         emit_indent(out, depth);
         EMIT_LOAD_L(out, ctx, binding->vm_local_slot);  /* push element base off */
@@ -1614,7 +1831,7 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   emit_indent(out, depth);
   fprintf(out, "PUSH %u\n", validator ? validator->validator_id : 0u);
   emit_indent(out, depth);
-  fprintf(out, "PUSH %zu\n", binding->byte_size);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
   emit_indent(out, depth);
   if (target_wid_placeholder) {
     fprintf(out, "PUSH <<%s>>\n", target_wid_placeholder);
@@ -4051,6 +4268,19 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
           fputs("WORKER_TRX_IN_R 0\n", out);
           emit_indent(out, 1);
           fputs("WORKER_TRX_IN_R 1\n", out);
+          if (top->as.worker.param_count == 1u) {
+            const EFunctionParamCheck *worker_param = find_param_check_by_name(&ctx, top->as.worker.params[0].name);
+            if (worker_param && worker_param->vm_local_words == 2u) {
+              emit_indent(out, 1);
+              fputs("PUSH R0\n", out);
+              emit_indent(out, 1);
+              fprintf(out, "STORE_LW %u\n", worker_param->vm_local_slot);
+              emit_indent(out, 1);
+              fputs("PUSH R1\n", out);
+              emit_indent(out, 1);
+              fprintf(out, "STORE_LW %u\n", worker_param->vm_local_slot + 1u);
+            }
+          }
           /* Emit maintenance comment for each pool declared inline in this worker. */
           {
             size_t pi;

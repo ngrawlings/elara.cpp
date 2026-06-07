@@ -217,6 +217,8 @@ static void dump_type_ref(FILE *out, const ETypeRef *type) {
   }
   if (type->array_len != 0u) {
     fprintf(out, "[%u]", type->array_len);
+  } else if (type->is_unsized_array) {
+    fputs("[]", out);
   }
 }
 
