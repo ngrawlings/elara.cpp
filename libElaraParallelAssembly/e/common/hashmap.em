@@ -195,3 +195,64 @@ function int hashmap_u64_remove(int root_id, HashMapKey64 key) {
   hashmap_u64_value_set(node_id, hashmap_empty_id());
   return 1;
 }
+
+function int hashmap_u64_serialized_size() {
+  return 20
+       + dynamic_serialized_size(hashmap_bytes_values)
+       + dynamic_serialized_size(hashmap_u64_nodes);
+}
+
+function int hashmap_u64_restore_root_id(byte[1] blob, int blob_offset) {
+  return local_load_i32(blob, blob_offset + 4);
+}
+
+function int hashmap_u64_restore_count(byte[1] blob, int blob_offset) {
+  return local_load_i32(blob, blob_offset + 8);
+}
+
+function int hashmap_u64_serialize(int root_id, int count, byte[1] blob, int blob_offset) {
+  int values_bytes = 0;
+  int nodes_bytes = 0;
+
+  local_store_i32(blob, blob_offset + 0, 1);
+  local_store_i32(blob, blob_offset + 4, root_id);
+  local_store_i32(blob, blob_offset + 8, count);
+
+  values_bytes = dynamic_serialize(hashmap_bytes_values, blob, blob_offset + 20);
+  if (values_bytes == 0) {
+    return 0;
+  }
+
+  local_store_i32(blob, blob_offset + 12, values_bytes);
+
+  nodes_bytes = dynamic_serialize(hashmap_u64_nodes, blob, blob_offset + 20 + values_bytes);
+  if (nodes_bytes == 0) {
+    return 0;
+  }
+
+  local_store_i32(blob, blob_offset + 16, nodes_bytes);
+  return 20 + values_bytes + nodes_bytes;
+}
+
+function int hashmap_u64_restore(byte[1] blob, int blob_offset) {
+  int version = local_load_i32(blob, blob_offset + 0);
+  int values_bytes = 0;
+  int nodes_bytes = 0;
+
+  if (version != 1) {
+    return 0;
+  }
+
+  values_bytes = local_load_i32(blob, blob_offset + 12);
+  nodes_bytes = local_load_i32(blob, blob_offset + 16);
+
+  if (dynamic_restore(hashmap_bytes_values, blob, blob_offset + 20) == 0) {
+    return 0;
+  }
+
+  if (dynamic_restore(hashmap_u64_nodes, blob, blob_offset + 20 + values_bytes) == 0) {
+    return 0;
+  }
+
+  return 20 + values_bytes + nodes_bytes;
+}

@@ -457,6 +457,9 @@ static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int 
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dynamic_serialized_size_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dynamic_serialize_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dynamic_restore_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_vararg_count_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_vararg_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -489,6 +492,10 @@ static unsigned int next_label(EmitCtx *ctx);
 static unsigned int worker_entry_id_for_name(const ESemanticModel *model, const char *name);
 static int emit_dynamic_index_load(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rhs, EmitCtx *ctx, int depth);
+static void emit_scratch_load_reg(FILE *out, int depth, unsigned int reg, unsigned int byte_offset);
+static void emit_scratch_store_reg(FILE *out, int depth, unsigned int reg, unsigned int byte_offset);
+static void emit_lbytes_copy_loop(FILE *out, EmitCtx *ctx, int depth,
+                                  unsigned int dst_reg, unsigned int src_reg, unsigned int len_reg);
 static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 
 static void emit_field_path(FILE *out, const EExpr *expr, const ESemanticModel *model) {
@@ -854,6 +861,9 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"ghs_store_i32", emit_ghs_store_i32_builtin},
     {"local_load_i32", emit_local_load_i32_builtin},
     {"local_store_i32", emit_local_store_i32_builtin},
+    {"dynamic_serialized_size", emit_dynamic_serialized_size_builtin},
+    {"dynamic_serialize", emit_dynamic_serialize_builtin},
+    {"dynamic_restore", emit_dynamic_restore_builtin},
     {"vararg_count", emit_vararg_count_builtin},
     {"vararg_i32", emit_vararg_i32_builtin},
     {"start_worker", emit_worker_start_builtin},
@@ -1927,6 +1937,586 @@ static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
   return 1;
 }
 
+static int emit_dynamic_serialized_size_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  unsigned int head_id;
+  unsigned int done_id;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; dynamic_serialized_size expects 1 dynamic pool identifier\n", out);
+    return 0;
+  }
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) {
+    emit_indent(out, depth);
+    fputs("; dynamic_serialized_size target is not a dynamic pool\n", out);
+    return 0;
+  }
+  head_id = next_label(ctx);
+  done_id = next_label(ctx);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_indent(out, depth);
+  fputs("SET_R 0 8\n", out);
+  emit_indent(out, depth);
+  fputs("L_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out); /* scratch sentinel */
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_HEAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 4u); /* iter */
+  emit_indent(out, depth);
+  fputs("SET_R 2 0\n", out);
+  emit_scratch_store_reg(out, depth, 2u, 0u); /* count */
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SIZE_HEAD_%u:\n", head_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 4u);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_NEXT %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 4u);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_SIZE_DONE_%u\n", done_id);
+  emit_scratch_load_reg(out, depth, 2u, 0u);
+  emit_indent(out, depth);
+  fputs("INC R2\n", out);
+  emit_scratch_store_reg(out, depth, 2u, 0u);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_SIZE_HEAD_%u\n", head_id);
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SIZE_DONE_%u:\n", done_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("MUL_I32\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  return 1;
+}
+
+static int emit_dynamic_serialize_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  unsigned int loop_id;
+  unsigned int iter_done_id;
+  unsigned int fail_id;
+  unsigned int done_id;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u && expr->as.call.arg_count != 3u) return 0;
+  if (expr->as.call.args[0]->kind != E_EXPR_IDENT) return 0;
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) return 0;
+  loop_id = next_label(ctx);
+  iter_done_id = next_label(ctx);
+  fail_id = next_label(ctx);
+  done_id = next_label(ctx);
+
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  if (expr->as.call.arg_count == 3u) emit_expr(out, expr->as.call.args[2], ctx, depth);
+  else { emit_indent(out, depth); fputs("PUSH 0\n", out); }
+  emit_indent(out, depth);
+  fputs("POP R2\n", out); /* start */
+  emit_indent(out, depth);
+  fputs("POP R1\n", out); /* blob size */
+  emit_indent(out, depth);
+  fputs("POP R0\n", out); /* blob off */
+
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_indent(out, depth);
+  fputs("SET_R 0 24\n", out);
+  emit_indent(out, depth);
+  fputs("L_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out); /* scratch sentinel */
+  emit_scratch_store_reg(out, depth, 0u, 0u); /* blob off */
+  emit_scratch_store_reg(out, depth, 1u, 4u); /* blob cap */
+  emit_scratch_store_reg(out, depth, 2u, 8u); /* start */
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 12u); /* cursor rel */
+  emit_indent(out, depth);
+  fputs("SET_R 3 0\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 16u); /* count */
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("GT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JNZ E_DYN_SER_FAIL_%u\n", fail_id);
+
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 3 %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("RLB_MOV4 R3 R2\n", out);
+
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 4\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("SET_R 3 0\n", out);
+  emit_indent(out, depth);
+  fputs("RLB_MOV4 R3 R2\n", out);
+
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_HEAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 20u); /* iter */
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SER_LOOP_%u:\n", loop_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 20u);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_NEXT %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 20u);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_SER_ITER_DONE_%u\n", iter_done_id);
+
+  emit_scratch_load_reg(out, depth, 0u, 12u); /* cursor rel */
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_scratch_load_reg(out, depth, 1u, 4u); /* cap */
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("GT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JNZ E_DYN_SER_FAIL_%u\n", fail_id);
+
+  emit_scratch_load_reg(out, depth, 0u, 0u);  /* blob off */
+  emit_scratch_load_reg(out, depth, 1u, 12u); /* cursor rel */
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out); /* dst abs */
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out); /* dst reg */
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out); /* src abs from DYN_ITER_NEXT */
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 3 %zu\n", pool->element_size);
+  emit_lbytes_copy_loop(out, ctx, depth, 1u, 2u, 3u);
+
+  emit_scratch_load_reg(out, depth, 0u, 16u);
+  emit_indent(out, depth);
+  fputs("INC R0\n", out);
+  emit_scratch_store_reg(out, depth, 0u, 16u);
+  emit_scratch_load_reg(out, depth, 0u, 12u);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_scratch_store_reg(out, depth, 0u, 12u);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_SER_LOOP_%u\n", loop_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SER_ITER_DONE_%u:\n", iter_done_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 4\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_scratch_load_reg(out, depth, 3u, 16u);
+  emit_indent(out, depth);
+  fputs("RLB_MOV4 R3 R2\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 12u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("SUB_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_SER_DONE_%u\n", done_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SER_FAIL_%u:\n", fail_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fputs("SET_R 2 0\n", out);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_SER_DONE_%u:\n", done_id);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  return 1;
+}
+
+static int emit_dynamic_restore_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  unsigned int count_loop_id;
+  unsigned int count_done_id;
+  unsigned int free_loop_id;
+  unsigned int alloc_loop_id;
+  unsigned int fail_id;
+  unsigned int done_id;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u && expr->as.call.arg_count != 3u) return 0;
+  if (expr->as.call.args[0]->kind != E_EXPR_IDENT) return 0;
+  pool = find_dynamic_pool(ctx->model, expr->as.call.args[0]->as.ident);
+  if (!pool) return 0;
+  count_loop_id = next_label(ctx);
+  count_done_id = next_label(ctx);
+  free_loop_id = next_label(ctx);
+  alloc_loop_id = next_label(ctx);
+  fail_id = next_label(ctx);
+  done_id = next_label(ctx);
+
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  if (expr->as.call.arg_count == 3u) emit_expr(out, expr->as.call.args[2], ctx, depth);
+  else { emit_indent(out, depth); fputs("PUSH 0\n", out); }
+  emit_indent(out, depth);
+  fputs("POP R2\n", out); /* start */
+  emit_indent(out, depth);
+  fputs("POP R1\n", out); /* blob size */
+  emit_indent(out, depth);
+  fputs("POP R0\n", out); /* blob off */
+
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_indent(out, depth);
+  fputs("SET_R 0 28\n", out);
+  emit_indent(out, depth);
+  fputs("L_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out); /* scratch sentinel */
+  emit_scratch_store_reg(out, depth, 0u, 0u); /* base */
+  emit_scratch_store_reg(out, depth, 1u, 4u); /* cap */
+  emit_scratch_store_reg(out, depth, 2u, 8u); /* start */
+
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("GT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JNZ E_DYN_RESTORE_FAIL_%u\n", fail_id);
+
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV4 R3 R2\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("EQ_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_RESTORE_FAIL_%u\n", fail_id);
+
+  emit_scratch_load_reg(out, depth, 0u, 0u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 4\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV4 R3 R2\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 12u); /* target count */
+
+  emit_scratch_load_reg(out, depth, 2u, 8u);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("MUL_I32\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_scratch_load_reg(out, depth, 1u, 4u);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("GT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JNZ E_DYN_RESTORE_FAIL_%u\n", fail_id);
+
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 8\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_scratch_store_reg(out, depth, 0u, 16u); /* cursor rel */
+
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_HEAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 24u); /* iter */
+  emit_indent(out, depth);
+  fputs("SET_R 3 0\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 20u); /* current count */
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_COUNT_%u:\n", count_loop_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_scratch_load_reg(out, depth, 0u, 24u);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ITER_NEXT %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_store_reg(out, depth, 0u, 24u);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_RESTORE_COUNT_DONE_%u\n", count_done_id);
+  emit_scratch_load_reg(out, depth, 3u, 20u);
+  emit_indent(out, depth);
+  fputs("INC R3\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 20u);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_RESTORE_COUNT_%u\n", count_loop_id);
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_COUNT_DONE_%u:\n", count_done_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_FREE_%u:\n", free_loop_id);
+  emit_scratch_load_reg(out, depth, 3u, 20u);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  emit_indent(out, depth);
+  fputs("GT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_RESTORE_ALLOC_%u\n", alloc_loop_id);
+  emit_indent(out, depth);
+  fputs("DEC R3\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 20u);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_FREE %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_RESTORE_FREE_%u\n", free_loop_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_ALLOC_%u:\n", alloc_loop_id);
+  emit_indent(out, depth);
+  fputs("SET_R 3 0\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 20u); /* reuse as i */
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_ALLOC_LOOP_%u:\n", alloc_loop_id);
+  emit_scratch_load_reg(out, depth, 3u, 20u);
+  emit_scratch_load_reg(out, depth, 2u, 12u); /* target count */
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_DYN_RESTORE_DONE_%u\n", done_id);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_ALLOC %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_load_reg(out, depth, 0u, 0u);  /* blob off */
+  emit_scratch_load_reg(out, depth, 1u, 16u); /* cursor rel */
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out); /* src off */
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 2 %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_STORE %u\n", dynamic_pool_id(ctx, pool));
+  emit_scratch_load_reg(out, depth, 3u, 20u);
+  emit_indent(out, depth);
+  fputs("INC R3\n", out);
+  emit_scratch_store_reg(out, depth, 3u, 20u);
+  emit_scratch_load_reg(out, depth, 0u, 16u);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_scratch_store_reg(out, depth, 0u, 16u);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_RESTORE_ALLOC_LOOP_%u\n", alloc_loop_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_FAIL_%u:\n", fail_id);
+  emit_indent(out, depth);
+  fputs("SET_R 2 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_DYN_RESTORE_EXIT_%u\n", done_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_DONE_%u:\n", done_id);
+  emit_scratch_load_reg(out, depth, 0u, 16u);
+  emit_scratch_load_reg(out, depth, 1u, 8u);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("SUB_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_DYN_RESTORE_EXIT_%u:\n", done_id);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  return 1;
+}
+
 static int emit_vararg_count_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 0u) {
@@ -2468,6 +3058,86 @@ static unsigned int find_iter_pool_id(const EmitCtx *ctx, const char *iter_name,
 
 static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
+}
+
+static void emit_scratch_load_reg(FILE *out, int depth, unsigned int reg, unsigned int byte_offset) {
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", byte_offset);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "LBR_MOV4 R%u R1\n", reg);
+}
+
+static void emit_scratch_store_reg(FILE *out, int depth, unsigned int reg, unsigned int byte_offset) {
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", byte_offset);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "RLB_MOV4 R%u R1\n", reg);
+}
+
+static void emit_lbytes_copy_loop(FILE *out, EmitCtx *ctx, int depth,
+                                  unsigned int dst_reg, unsigned int src_reg, unsigned int len_reg) {
+  unsigned int loop_id = next_label(ctx);
+  unsigned int done_id = next_label(ctx);
+  emit_indent(out, depth);
+  fputs("SET_R 0 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "E_LBYTES_COPY_LOOP_%u:\n", loop_id);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH R%u\n", len_reg);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_LBYTES_COPY_DONE_%u\n", done_id);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH R%u\n", src_reg);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV1 R1 R1\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH R%u\n", dst_reg);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("RLB_MOV1 R1 R2\n", out);
+  emit_indent(out, depth);
+  fputs("INC R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_LBYTES_COPY_LOOP_%u\n", loop_id);
+  emit_indent(out, depth);
+  fprintf(out, "E_LBYTES_COPY_DONE_%u:\n", done_id);
 }
 
 static unsigned int worker_entry_id_for_name(const ESemanticModel *model, const char *name) {

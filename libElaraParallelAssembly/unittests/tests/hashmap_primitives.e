@@ -12,7 +12,8 @@ kernel(VM vm) {
 worker main(HashMapPrimitiveIngress msg) {
   local HashMap64 map;
   map.root_id = hashmap_u64_init();
-  map.count = 0;
+  map.count = 2;
+  local byte[4096] blob;
 
   int payload_a = hashmap_bytes_alloc();
   int payload_b = hashmap_bytes_alloc();
@@ -39,7 +40,18 @@ worker main(HashMapPrimitiveIngress msg) {
   int read_a0 = hashmap_bytes_load_i32(found_a, 0);
   int read_a1 = hashmap_bytes_load_i32(found_a, 4);
   int read_b0 = hashmap_bytes_load_i32(found_b, 0);
+  int blob_need = hashmap_u64_serialized_size();
+  int blob_written = hashmap_u64_serialize(map.root_id, map.count, blob, 0);
   int removed_b = hashmap_u64_remove(map.root_id, key_b);
   int has_b_after = hashmap_u64_contains(map.root_id, key_b);
+  int blob_restored = hashmap_u64_restore(blob, 0);
+  map.root_id = hashmap_u64_restore_root_id(blob, 0);
+  map.count = hashmap_u64_restore_count(blob, 0);
+  int restored_has_a = hashmap_u64_contains(map.root_id, key_a);
+  int restored_has_b = hashmap_u64_contains(map.root_id, key_b);
+  int restored_found_a = hashmap_u64_find(map.root_id, key_a);
+  int restored_found_b = hashmap_u64_find(map.root_id, key_b);
+  int restored_read_a0 = hashmap_bytes_load_i32(restored_found_a, 0);
+  int restored_read_b0 = hashmap_bytes_load_i32(restored_found_b, 0);
   int freed_b = hashmap_bytes_free(payload_b);
 }
