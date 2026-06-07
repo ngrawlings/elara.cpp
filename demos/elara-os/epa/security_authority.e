@@ -16,7 +16,7 @@ kernel(VM vm) {
 acl {
   "elara.os.boot" -> security_ingress;
   "elara.os.shell" -> security_ingress;
-  "elara.os.compositor" -> security_ingress;
+  "elara.os.frame_authority" -> security_ingress;
   "elara.os.storage" -> security_ingress;
 }
 

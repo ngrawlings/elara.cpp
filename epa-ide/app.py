@@ -2695,10 +2695,10 @@ def main():
         r"\btype\s+([A-Za-z_]\w*)\s*\(([^)]*)\)",
         re.DOTALL,
     )
-    _FIELD_RE = re.compile(r"\b([A-Za-z_]\w*)\s+([A-Za-z_]\w*)\s*(?:,|$)")
+    _FIELD_RE = re.compile(r"\b([A-Za-z_]\w*(?:\[\])?)\s+([A-Za-z_]\w*)\s*(?:,|$)")
 
     def _parse_type_defs() -> dict:
-        """Scan all .e/.em files in epa/ and open editor buffers, returning {TypeName: [field_name, ...]}."""
+        """Scan all .e/.em files in epa/ and open editor buffers, returning {TypeName: [{type,name}, ...]}."""
         project_root = app_state.get("project_root", "")
         epa_root = Path(project_root) / "epa" if project_root else None
         result: dict = {}
@@ -2709,7 +2709,7 @@ def main():
                 params_str = m.group(2)
                 fields = []
                 for fm in _FIELD_RE.finditer(params_str):
-                    fields.append(fm.group(2))
+                    fields.append({"type": fm.group(1), "name": fm.group(2)})
                 if type_name not in result:
                     result[type_name] = fields
 
@@ -2727,6 +2727,81 @@ def main():
             if src:
                 _collect_src(src)
         return result
+
+    def _type_field_names(type_defs: dict, type_name: str) -> list[str]:
+        return [str(f.get("name", "")) for f in (type_defs.get(type_name, []) or []) if str(f.get("name", ""))]
+
+    def _encode_profile_byte_field(field_name: str, spec: object) -> tuple[bytes, dict]:
+        import struct as _struct
+
+        if isinstance(spec, str):
+            text = spec.strip()
+            if text.startswith("hex:"):
+                return bytes.fromhex(text[4:]), {}
+            return text.encode("utf-8"), {}
+
+        if not isinstance(spec, dict):
+            return b"", {}
+
+        fmt = str(spec.get("format", "") or "")
+        if fmt == "raw_hex":
+            return bytes.fromhex(str(spec.get("hex", "") or "")), {}
+
+        if fmt == "flat_v1":
+            items = spec.get("items", []) or []
+            computed = dict(spec.get("computed_fields", {}) or {})
+            blob = bytearray()
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                item_type = str(item.get("type", "") or "")
+                if item_type == "i32":
+                    value = int(item.get("value", 0) or 0)
+                    blob.extend(_struct.pack("<I", value & 0xFFFFFFFF))
+                    continue
+                if item_type == "bytes_utf8":
+                    text = str(item.get("value", "") or "")
+                    data = text.encode("utf-8")
+                    if bool(item.get("length_prefix", False)):
+                        blob.extend(_struct.pack("<I", len(data) & 0xFFFFFFFF))
+                    blob.extend(data)
+                    if bool(item.get("pad4", False)):
+                        padded_size = (len(data) + 3) & ~3
+                        if padded_size > len(data):
+                            blob.extend(b"\x00" * (padded_size - len(data)))
+                    continue
+                if item_type == "raw_hex":
+                    blob.extend(bytes.fromhex(str(item.get("hex", "") or "")))
+                    continue
+            if f"{field_name}_size" not in computed:
+                computed[f"{field_name}_size"] = len(blob)
+            if field_name == "payload" and "payload_size" not in computed:
+                computed["payload_size"] = len(blob)
+            return bytes(blob), computed
+
+        if fmt == "boot_block_devices_v1":
+            devices = spec.get("devices", []) or []
+            blob = bytearray()
+            blob.extend(_struct.pack("<I", 1))
+            blob.extend(_struct.pack("<I", len(devices)))
+            for device in devices:
+                drive_id = int(device.get("drive_id", 0) or 0)
+                mount_path = str(device.get("mount_path", "") or "")
+                mount_bytes = mount_path.encode("utf-8")
+                padded_size = (len(mount_bytes) + 3) & ~3
+                blob.extend(_struct.pack("<I", drive_id & 0xFFFFFFFF))
+                blob.extend(_struct.pack("<I", len(mount_bytes) & 0xFFFFFFFF))
+                blob.extend(mount_bytes)
+                if padded_size > len(mount_bytes):
+                    blob.extend(b"\x00" * (padded_size - len(mount_bytes)))
+            return bytes(blob), {
+                "version": 1,
+                "device_count": len(devices),
+                f"{field_name}_size": len(blob),
+                "payload_size": len(blob) if field_name == "payload" else len(blob),
+            }
+
+        return b"", {}
 
     def _profiles_dir(type_name: str) -> Path | None:
         project_root = app_state.get("project_root", "")
@@ -3753,7 +3828,7 @@ def main():
     def _open_ingress_profile_editor(client, type_name: str):
         try:
             type_defs = _parse_type_defs()
-            fields = type_defs.get(type_name, [])
+            fields = _type_field_names(type_defs, type_name)
             ingress_editor_state.clear()
             ingress_editor_state["type_name"] = type_name
             ingress_editor_state["fields"] = fields
@@ -7593,15 +7668,39 @@ def main():
                 except Exception:
                     return
                 field_values = profile_data.get("fields", profile_data)
-                # Encode fields as little-endian uint32 words (little-endian)
                 import struct as _struct
-                parts = []
-                for v in field_values.values():
+                type_defs = _parse_type_defs()
+                field_defs = type_defs.get(tn, []) or []
+                byte_specs = profile_data.get("serialized_byte_fields", {}) or {}
+                computed_values = {}
+                field_bytes = bytearray()
+
+                for field_def in field_defs:
+                    field_type = str(field_def.get("type", "") or "")
+                    field_name = str(field_def.get("name", "") or "")
+                    if not field_name:
+                        continue
+                    if field_type == "byte[]":
+                        raw_bytes, computed = _encode_profile_byte_field(field_name, byte_specs.get(field_name))
+                        computed_values.update(computed or {})
+                        field_bytes.extend(raw_bytes)
+                        continue
+                    value = computed_values.get(field_name, field_values.get(field_name, 0))
                     try:
-                        parts.append(int(v, 0) if isinstance(v, str) else int(v))
+                        int_value = int(value, 0) if isinstance(value, str) else int(value)
                     except Exception:
-                        parts.append(0)
-                hex_bytes = "".join(_struct.pack("<I", p & 0xFFFFFFFF).hex() for p in parts)
+                        int_value = 0
+                    field_bytes.extend(_struct.pack("<I", int_value & 0xFFFFFFFF))
+
+                if not field_defs:
+                    for v in field_values.values():
+                        try:
+                            int_value = int(v, 0) if isinstance(v, str) else int(v)
+                        except Exception:
+                            int_value = 0
+                        field_bytes.extend(_struct.pack("<I", int_value & 0xFFFFFFFF))
+
+                hex_bytes = bytes(field_bytes).hex()
                 dbg_c = _epa_dbg_client()
                 if not _epa_dbg_running() or not dbg_c:
                     if not _start_debug_vm(c, force_restart=False):

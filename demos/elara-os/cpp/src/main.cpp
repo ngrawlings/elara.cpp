@@ -1,13 +1,99 @@
 #include <stdlib.h>
+#include <stdio.h>
+#include <string>
+#include <fstream>
+#include <sstream>
+#include <regex>
+#include <unistd.h>
 #include "ElaraOsApp.h"
 
 using namespace elara;
 
+namespace {
+
+struct ElaraOsDebugSessionConfig {
+    bool enabled;
+    String session_path;
+    String ui_rpc_host;
+    int ui_rpc_port;
+    String host_debug_host;
+    int host_debug_port;
+
+    ElaraOsDebugSessionConfig()
+        : enabled(false),
+          session_path(""),
+          ui_rpc_host(""),
+          ui_rpc_port(0),
+          host_debug_host(""),
+          host_debug_port(0) {
+    }
+};
+
+static std::string read_file_text(const char *path) {
+    if (!path || !path[0]) return std::string();
+    std::ifstream in(path);
+    if (!in) return std::string();
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    return ss.str();
+}
+
+static std::string json_string_field(const std::string &json, const char *key) {
+    std::regex re(std::string("\"") + key + "\"\\s*:\\s*\"([^\"]*)\"");
+    std::smatch m;
+    if (std::regex_search(json, m, re) && m.size() > 1) return m[1].str();
+    return std::string();
+}
+
+static int json_int_field(const std::string &json, const char *key, int fallback) {
+    std::regex re(std::string("\"") + key + "\"\\s*:\\s*([0-9]+)");
+    std::smatch m;
+    if (std::regex_search(json, m, re) && m.size() > 1) return atoi(m[1].str().c_str());
+    return fallback;
+}
+
+static ElaraOsDebugSessionConfig load_debug_session_from_env() {
+    ElaraOsDebugSessionConfig cfg;
+    const char *session_path = getenv("ELARA_DEBUG_SESSION");
+    std::string text = read_file_text(session_path);
+    if (text.empty()) {
+        return cfg;
+    }
+    cfg.enabled = true;
+    cfg.session_path = String(session_path ? session_path : "");
+    cfg.ui_rpc_host = String(json_string_field(text, "ui_rpc_host").c_str());
+    cfg.ui_rpc_port = json_int_field(text, "ui_rpc_port", 18820);
+    cfg.host_debug_host = String(json_string_field(text, "host_debug_host").c_str());
+    cfg.host_debug_port = json_int_field(text, "host_debug_port", 0);
+    return cfg;
+}
+
+}
+
 int main(int argc, const char *argv[]) {
-    String host("127.0.0.1");
-    int port = 18820;
-    String host_bridge_host("127.0.0.1");
-    int host_bridge_port = 0;
+    const char *stdout_fd_str = getenv("ELARA_STDOUT_FD");
+    if (stdout_fd_str) {
+        int fd = atoi(stdout_fd_str);
+        if (fd > 0) {
+            dup2(fd, STDOUT_FILENO);
+            dup2(fd, STDERR_FILENO);
+            close(fd);
+            setvbuf(stdout, NULL, _IONBF, 0);
+            setvbuf(stderr, NULL, _IONBF, 0);
+        }
+    }
+
+    ElaraOsDebugSessionConfig debug_session = load_debug_session_from_env();
+    String host(debug_session.enabled && debug_session.ui_rpc_host.length()
+        ? debug_session.ui_rpc_host
+        : String("127.0.0.1"));
+    int port = debug_session.enabled && debug_session.ui_rpc_port > 0
+        ? debug_session.ui_rpc_port
+        : 18820;
+    String host_bridge_host(debug_session.enabled && debug_session.host_debug_host.length()
+        ? debug_session.host_debug_host
+        : String("127.0.0.1"));
+    int host_bridge_port = debug_session.enabled ? debug_session.host_debug_port : 0;
     if (argc > 1) host = String(argv[1]);
     if (argc > 2) port = atoi(argv[2]);
     const char *bridge_host_env = getenv("ELARA_IDE_HOST_BRIDGE_HOST");
@@ -17,6 +103,9 @@ int main(int argc, const char *argv[]) {
     }
     if (bridge_port_env && bridge_port_env[0]) {
         host_bridge_port = atoi(bridge_port_env);
+    }
+    if (debug_session.enabled) {
+        printf("Loaded IDE debug session: %s\n", debug_session.session_path.operator char *());
     }
     ElaraOsApp app(host, port, host_bridge_host, host_bridge_port);
     return app.run();

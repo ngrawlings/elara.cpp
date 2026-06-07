@@ -1,12 +1,14 @@
 import argparse
 import json
 import os
+import random
+import struct
 import time
 from pathlib import Path
 
 from elara_ui.builder import UiDocumentBuilder
 from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
-from elara_io import IoOp, build_default_chipset
+from elara_io import IoOp, build_block_request, build_default_chipset
 
 
 def build_document():
@@ -53,12 +55,74 @@ def _run_as_external_logic(session_path: str) -> None:
     client.register(name="elara-os-python")
     print("[ext-logic] Registered with IDE", flush=True)
     try:
+        result = run_io_chipset_self_test()
+        print("[ext-logic] IO chipset self-test", flush=True)
+        print(json.dumps(result, indent=2), flush=True)
+    except Exception as exc:
+        print(f"[ext-logic] IO chipset self-test failed: {exc}", flush=True)
+    try:
         while True:
+            try:
+                pong = client.ping()
+            except Exception as exc:
+                print(f"[ext-logic] Frontend shutdown or bridge disconnect detected; exiting cleanly: {exc}", flush=True)
+                return
+            if pong != "pong":
+                print(f"[ext-logic] Unexpected bridge ping response {pong!r}; exiting cleanly", flush=True)
+                return
             time.sleep(1.0)
     except KeyboardInterrupt:
         pass
     finally:
         client.close()
+
+
+def run_io_chipset_self_test() -> dict:
+    chipset = build_default_chipset()
+    seed = time.time_ns()
+    rng = random.Random(seed)
+    test_block = bytes(rng.getrandbits(8) for _ in range(4096))
+    write_frame = chipset.request_from_host("block_io", IoOp.WRITE, build_block_request(1, 0, 1, test_block))
+    read_frame = chipset.request_from_host("block_io", IoOp.READ, build_block_request(1, 0, 1))
+    clock_frame = chipset.request_from_host("clock", IoOp.READ)
+    for frame in (write_frame, read_frame, clock_frame):
+        chipset.submit(frame)
+    chipset.pump_all()
+    replies = []
+    block_roundtrip_ok = False
+    while not chipset.egress.empty():
+        reply = chipset.egress.get_nowait()
+        payload_view = reply.payload
+        if reply.device == "block_io" and reply.sequence == 2:
+            block_roundtrip_ok = reply.payload == test_block
+        if reply.device == "clock" and reply.op.name == "ACK" and len(reply.payload) == 16:
+            year, month, day, hour, minute, second, weekday, epoch_ns = struct.unpack("<HBBBBBBQ", reply.payload)
+            payload_view = json.dumps({
+                "year": year,
+                "month": month,
+                "day": day,
+                "hour": hour,
+                "minute": minute,
+                "second": second,
+                "weekday": weekday,
+                "epoch_ns": epoch_ns,
+            }).encode("utf-8")
+        replies.append({
+            "device": reply.device,
+            "op": reply.op.name,
+            "sequence": reply.sequence,
+            "payload": (
+                payload_view[:16].hex() + "..."
+                if reply.device == "block_io" and reply.sequence == 2 and len(payload_view) > 32
+                else payload_view.decode("utf-8", errors="replace")
+            ),
+        })
+    return {
+        "devices": list(chipset.device_names()),
+        "seed": seed,
+        "block_write_read_match": block_roundtrip_ok,
+        "replies": replies,
+    }
 
 
 def main():
@@ -78,23 +142,7 @@ def main():
     args = parser.parse_args()
 
     if args.io_chipset_self_test:
-        chipset = build_default_chipset()
-        write_frame = chipset.request_from_host("storage", IoOp.WRITE, b"boot-sector\0elara-os")
-        read_frame = chipset.request_from_host("storage", IoOp.READ, b"boot-sector")
-        clock_frame = chipset.request_from_host("clock", IoOp.READ)
-        for frame in (write_frame, read_frame, clock_frame):
-            chipset.submit(frame)
-        chipset.pump_all()
-        replies = []
-        while not chipset.egress.empty():
-            reply = chipset.egress.get_nowait()
-            replies.append({
-                "device": reply.device,
-                "op": reply.op.name,
-                "sequence": reply.sequence,
-                "payload": reply.payload.decode("utf-8", errors="replace"),
-            })
-        print(json.dumps({"devices": list(chipset.device_names()), "replies": replies}, indent=2))
+        print(json.dumps(run_io_chipset_self_test(), indent=2))
         return
 
     def on_ui_event(params):

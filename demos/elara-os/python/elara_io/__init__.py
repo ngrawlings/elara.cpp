@@ -3,7 +3,10 @@ from .virtual_chipset import (
     IoFrame,
     IoOp,
     IoRoute,
+    PersistentBlockIoController,
     VirtualIoChipset,
+    VirtualDrive,
+    build_block_request,
     build_default_chipset,
 )
 
@@ -12,6 +15,9 @@ __all__ = [
     "IoFrame",
     "IoOp",
     "IoRoute",
+    "PersistentBlockIoController",
     "VirtualIoChipset",
+    "VirtualDrive",
+    "build_block_request",
     "build_default_chipset",
 ]

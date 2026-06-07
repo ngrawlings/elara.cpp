@@ -23,5 +23,6 @@ Notes:
 - override that with `ELARA_UI_SERVER=/path/to/elaraui-server ./run-ui-head.sh`
 - the Python client vendors a local copy of the flat builder and RPC client helpers
 - `python -m py_compile app.py elara_io/*.py` checks the virtual IO chipset draft
-- `python3 app.py --io-chipset-self-test` exercises storage and clock routing without the UI head
+- `python3 app.py --io-chipset-self-test` exercises raw block IO and clock routing without the UI head
+- on first block-IO use, the host creates `~/.elaraos/root` as a 1 GiB zeroed virtual drive file if it does not already exist
 Use `ELARA_AGENT_API.md` as the local reference document for AI-driven edits and code generation.

@@ -15,7 +15,7 @@ kernel(VM vm) {
 
 acl {
   "elara.os.input" -> shell_ingress;
-  "elara.os.compositor" -> shell_ingress;
+  "elara.os.frame_authority" -> shell_ingress;
   "elara.app.example" -> shell_ingress;
 }
 

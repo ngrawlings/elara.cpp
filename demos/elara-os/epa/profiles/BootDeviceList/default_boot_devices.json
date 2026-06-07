@@ -1,0 +1,49 @@
+{
+  "type": "BootDeviceList",
+  "name": "default_boot_devices",
+  "fields": {
+    "version": "1",
+    "device_count": "2",
+    "payload_size": "0",
+    "payload": "0"
+  },
+  "serialized_byte_fields": {
+    "payload": {
+      "format": "flat_v1",
+      "computed_fields": {
+        "version": 1,
+        "device_count": 2
+      },
+      "items": [
+        {
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "type": "i32",
+          "value": 1
+        },
+        {
+          "type": "bytes_utf8",
+          "value": "/",
+          "length_prefix": true,
+          "pad4": true
+        },
+        {
+          "type": "i32",
+          "value": 2
+        },
+        {
+          "type": "bytes_utf8",
+          "value": "/data",
+          "length_prefix": true,
+          "pad4": true
+        }
+      ]
+    }
+  }
+}

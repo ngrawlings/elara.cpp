@@ -2,13 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
+import os
+from pathlib import Path
 from queue import Empty, Queue
-from time import monotonic_ns
+import struct
+from time import monotonic_ns, time_ns
+from datetime import datetime, timezone
 from typing import Dict, Iterable, Optional
 
 
 HOST_KERNEL_ID = -1
 HOST_WORKER_ID = -1
+DEFAULT_BLOCK_SIZE = 4096
+DEFAULT_DRIVE_SIZE_BYTES = 1024 * 1024 * 1024
 
 
 class IoOp(IntEnum):
@@ -71,20 +77,87 @@ class IoDevice:
         return frame.error(f"{self.name} does not implement {frame.op.name}")
 
 
-class StorageController(IoDevice):
-    def __init__(self) -> None:
-        super().__init__("storage")
-        self.blocks: Dict[bytes, bytes] = {}
+@dataclass(frozen=True)
+class VirtualDrive:
+    drive_id: int
+    path: Path
+    size_bytes: int
+    block_size: int = DEFAULT_BLOCK_SIZE
+
+    @property
+    def block_count(self) -> int:
+        return self.size_bytes // self.block_size
+
+
+def build_block_request(drive_id: int, block_index: int, block_count: int, body: bytes = b"") -> bytes:
+    return struct.pack("<IQI", drive_id, block_index, block_count) + body
+
+
+class PersistentBlockIoController(IoDevice):
+    def __init__(self, drives: Optional[Iterable[VirtualDrive]] = None) -> None:
+        super().__init__("block_io")
+        if drives is None:
+            root_drive_path = Path(
+                os.environ.get(
+                    "ELARA_OS_ROOT_DRIVE",
+                    str(Path.home() / ".elaraos" / "root"),
+                )
+            )
+            drives = (
+                VirtualDrive(
+                    drive_id=1,
+                    path=root_drive_path,
+                    size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
+                ),
+            )
+        self.drives: Dict[int, VirtualDrive] = {drive.drive_id: drive for drive in drives}
+        for drive in self.drives.values():
+            self._ensure_drive_exists(drive)
+
+    def _ensure_drive_exists(self, drive: VirtualDrive) -> None:
+        drive.path.parent.mkdir(parents=True, exist_ok=True)
+        if drive.path.exists():
+            if not drive.path.is_file():
+                raise ValueError(f"virtual drive path is not a file: {drive.path}")
+            return
+        with drive.path.open("wb") as handle:
+            handle.truncate(drive.size_bytes)
+
+    def _parse_request(self, frame: IoFrame) -> tuple[VirtualDrive, int, int, bytes]:
+        if len(frame.payload) < 16:
+            raise ValueError("block request must contain drive_id, block_index, and block_count")
+        drive_id, block_index, block_count = struct.unpack("<IQI", frame.payload[:16])
+        drive = self.drives.get(drive_id)
+        if drive is None:
+            raise ValueError(f"unknown block drive id: {drive_id}")
+        byte_offset = block_index * drive.block_size
+        byte_count = block_count * drive.block_size
+        if byte_count < 0 or byte_offset < 0:
+            raise ValueError("negative block window is invalid")
+        if byte_offset + byte_count > drive.size_bytes:
+            raise ValueError("block window exceeds virtual drive bounds")
+        return drive, byte_offset, byte_count, frame.payload[16:]
 
     def handle(self, frame: IoFrame) -> IoFrame:
-        if frame.op == IoOp.WRITE:
-            key, _, body = frame.payload.partition(b"\0")
-            if not key:
-                return frame.error("storage write requires a key")
-            self.blocks[key] = body
-            return frame.ack(b"stored")
+        try:
+            drive, byte_offset, byte_count, body = self._parse_request(frame)
+        except ValueError as exc:
+            return frame.error(str(exc))
+
         if frame.op == IoOp.READ:
-            return frame.ack(self.blocks.get(frame.payload, b""))
+            with drive.path.open("rb") as handle:
+                handle.seek(byte_offset)
+                return frame.ack(handle.read(byte_count))
+        if frame.op == IoOp.WRITE:
+            if len(body) != byte_count:
+                return frame.error(
+                    f"block write body size mismatch: expected {byte_count} bytes, got {len(body)}"
+                )
+            with drive.path.open("r+b") as handle:
+                handle.seek(byte_offset)
+                handle.write(body)
+                handle.flush()
+            return frame.ack(struct.pack("<III", drive.drive_id, drive.block_size, byte_count))
         return super().handle(frame)
 
 
@@ -137,7 +210,19 @@ class ClockController(IoDevice):
 
     def handle(self, frame: IoFrame) -> IoFrame:
         if frame.op == IoOp.READ:
-            return frame.ack(str(monotonic_ns()).encode("ascii"))
+            now = datetime.now(timezone.utc)
+            payload = struct.pack(
+                "<HBBBBBBQ",
+                now.year,
+                now.month,
+                now.day,
+                now.hour,
+                now.minute,
+                now.second,
+                now.weekday(),
+                time_ns(),
+            )
+            return frame.ack(payload)
         return super().handle(frame)
 
 
@@ -197,7 +282,7 @@ class VirtualIoChipset:
 
 def build_default_chipset() -> VirtualIoChipset:
     chipset = VirtualIoChipset()
-    chipset.register(StorageController())
+    chipset.register(PersistentBlockIoController())
     chipset.register(DisplayController())
     chipset.register(InputController())
     chipset.register(NetworkController())

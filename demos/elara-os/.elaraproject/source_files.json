@@ -1,14 +1,15 @@
 {
   "epa": [
     "epa/app_surface.e",
+    "epa/block_io_authority.e",
     "epa/boot.e",
-    "epa/compositor.e",
+    "epa/frame_authority.e",
+    "epa/filesystem_authority.e",
     "epa/input_router.e",
-    "epa/io_controller.e",
     "epa/network_controller.e",
     "epa/security_authority.e",
     "epa/shell_desktop.e",
-    "epa/storage_controller.e"
+    "epa/storage_protocol.em"
   ],
   "cpp": [
     "cpp/src/ElaraOsApp.cpp",
