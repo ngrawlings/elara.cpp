@@ -6,9 +6,11 @@ ROOT_BUILD_DIR?=$(abspath ../build)
 STAGE_INCLUDE_DIR=$(ROOT_BUILD_DIR)/include
 STAGE_LIB_DIR=$(ROOT_BUILD_DIR)/lib
 STAGE_SHARE_DIR=$(ROOT_BUILD_DIR)/share/$(NAME)
+STAGE_E_DIR=$(ROOT_BUILD_DIR)/e
 BUILDPATH=./build
 INSTALL_HEADER_PATH=$(STAGE_INCLUDE_DIR)/$(NAME)
 INSTALL_LIB_PATH=$(STAGE_LIB_DIR)
+INSTALL_E_PATH=$(STAGE_E_DIR)
 STATIC_LIBRARY=$(NAME).a
 LEGACY_SHARED=libepa_kernel.so
 
@@ -30,6 +32,7 @@ E_DIR=./e
 SOURCES=$(shell @TOOLPATH@find $(SRC_DIR) -type f -name '*.c' ! -path './src/atomic_tasks/*' ! -path './src/threads/epa_thread_pool.c' -print)
 HEADERS=$(shell for file in `@TOOLPATH@find $(SRC_DIR) -type f \( -name '*.h' -o -name '*.x' \) -print`; do echo $$file; done)
 DOCS=$(shell for file in `@TOOLPATH@find ./docs -type f -print`; do echo $$file; done)
+E_STDLIB=$(shell for file in `@TOOLPATH@find $(E_DIR)/common -type f -name '*.em' -print 2>/dev/null`; do echo $$file; done)
 OBJECTS=$(patsubst ./src/%.c,$(BUILDPATH)/src/%.o,$(SOURCES))
 
 TOOLS_BUILD=$(BUILDPATH)/tools
@@ -147,12 +150,21 @@ install: all
 			cp "$$doc" "$$dst" || exit $$?; \
 		done; \
 	fi
+	@if [ -n "$(E_STDLIB)" ]; then \
+		for module in $(E_STDLIB); do \
+			rel="$${module#$(E_DIR)/}"; \
+			dst="$(INSTALL_E_PATH)/$$rel"; \
+			[ -d "$$(dirname "$$dst")" ] || mkdir -p "$$(dirname "$$dst")"; \
+			cp "$$module" "$$dst" || exit $$?; \
+		done; \
+	fi
 
 clean:
 	rm -rf $(BUILDPATH)
 
 remove:
 	rm -rf $(INSTALL_HEADER_PATH)
+	rm -rf $(INSTALL_E_PATH)
 	rm -f $(INSTALL_LIB_PATH)/$(STATIC_LIBRARY)
 	rm -rf $(STAGE_SHARE_DIR)
 

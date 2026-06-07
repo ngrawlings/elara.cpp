@@ -102,7 +102,12 @@ char *e_load_translation_unit(const char *path, char err[256]) {
     dup2(fds[1], STDERR_FILENO);
     close(fds[0]);
     close(fds[1]);
-    execlp("cc", "cc", "-E", "-P", "-undef", "-x", "c", path, (char*)NULL);
+    execlp("cc", "cc", "-E", "-P", "-undef", "-x", "c",
+           "-I", ".",
+           "-I", "libElaraParallelAssembly/e",
+           "-I", "./libElaraParallelAssembly/e",
+           "-I", "/usr/local/e",
+           path, (char*)NULL);
     _exit(127);
   }
 
@@ -278,6 +283,7 @@ char *e_load_translation_unit_with_map(const char *path, ELineMap *line_map, cha
            "-I", ".",
            "-I", "libElaraParallelAssembly/e",
            "-I", "./libElaraParallelAssembly/e",
+           "-I", "/usr/local/e",
            path, (char*)NULL);
     _exit(127);
   }
