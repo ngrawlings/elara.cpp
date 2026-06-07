@@ -539,6 +539,17 @@ bool ElaraUiDocumentBuilder::createRichTextEdit(const String& id, const String& 
     return true;
 }
 
+bool ElaraUiDocumentBuilder::createVulkanSurface(const String& id, const String& kernel_name) {
+    if(!createWidget(id, "elara.widgets.vulkan_surface")) {
+        return false;
+    }
+
+    if(kernel_name.length()) {
+        setPropertyString(id, "kernel_name", kernel_name);
+    }
+    return true;
+}
+
 bool ElaraUiDocumentBuilder::createSurfacePanel(const String& id) {
     return createWidget(id, "elara.widgets.surface_panel");
 }

@@ -95,81 +95,6 @@ static uint32_t epa_f32_to_bits(float value) {
   return bits;
 }
 
-static int epa_resolve_string(
-    const EpaProgramDesc *prog,
-    const EpaWorkerState *w,
-    uint32_t kind,
-    uint32_t off,
-    uint32_t len,
-    const uint8_t **out_ptr,
-    uint32_t *out_len
-) {
-  if (len == 0) {
-    *out_ptr = (const uint8_t*)"";
-    *out_len = 0;
-    return 1;
-  }
-
-  if (kind == EPA_CONST_STR) {
-    if (!prog->image_base) return 0;
-    if ((size_t)off > prog->image_size) return 0;
-    if ((size_t)off + (size_t)len > prog->image_size) return 0;
-    *out_ptr = prog->image_base + off;
-    *out_len = len;
-    return 1;
-  }
-
-  if (kind == EPA_CONST_TMP_STR) {
-    if (!w->vm.lbytes || off + len > w->vm.lbytes_top) return 0;
-    *out_ptr = w->vm.lbytes + off;
-    *out_len = len;
-    return 1;
-  }
-
-  return 0;
-}
-
-static uint32_t epa_u32_to_dec(char *dst, uint32_t cap, uint32_t v) {
-  char tmp[16];
-  uint32_t n = 0;
-  do {
-    tmp[n++] = (char)('0' + (v % 10u));
-    v /= 10u;
-  } while (v && n < sizeof(tmp));
-  uint32_t out = 0;
-  while (n && out < cap) dst[out++] = tmp[--n];
-  return out;
-}
-
-static uint32_t epa_i32_to_dec(char *dst, uint32_t cap, int32_t v) {
-  if (cap == 0) return 0;
-  uint32_t out = 0;
-  uint32_t uv;
-  if (v < 0) {
-    dst[out++] = '-';
-    uv = (uint32_t)(-(int64_t)v);
-  } else {
-    uv = (uint32_t)v;
-  }
-  if (out >= cap) return out;
-  out += epa_u32_to_dec(dst + out, cap - out, uv);
-  return out;
-}
-
-static uint32_t epa_u32_to_hex(char *dst, uint32_t cap, uint32_t v) {
-  static const char *hex = "0123456789abcdef";
-  char tmp[8];
-  for (int i = 0; i < 8; i++) {
-    tmp[7 - i] = hex[(v >> (i * 4)) & 0xFu];
-  }
-  // trim leading zeros but keep at least 1 digit
-  int start = 0;
-  while (start < 7 && tmp[start] == '0') start++;
-  uint32_t out = 0;
-  for (int i = start; i < 8 && out < cap; i++) dst[out++] = tmp[i];
-  return out;
-}
-
 static EpaDynamicPool *worker_dynamic_pool_by_id(EpaWorkerState *w, uint32_t pool_id) {
   if (!w || !w->dynamic_pools) return NULL;
   if (pool_id >= w->dynamic_pool_count) return NULL;
@@ -330,47 +255,51 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
-    case EPA_OP_ACL_GRANT: {
-      uint8_t local_wid = code[pc + EPA_OPCODE_BYTES];
+    case EPA_OP_ACL: {
+      uint8_t acl_kind = code[pc + EPA_OPCODE_BYTES];
+      uint8_t local_wid = code[pc + EPA_OPCODE_BYTES + 1u];
       uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
       uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
       eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_acl_grant && !ctx->hooks.on_acl_grant(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
+      switch (acl_kind) {
+        case 1u:
+          if (ctx->hooks.on_acl_grant && !ctx->hooks.on_acl_grant(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
+          break;
+        case 2u:
+          if (ctx->hooks.on_acl_revoke && !ctx->hooks.on_acl_revoke(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
+          break;
+        case 3u:
+          if (ctx->hooks.on_acl_revoke_all && !ctx->hooks.on_acl_revoke_all(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, err)) return EPA_FLOW_ERR;
+          break;
+        default:
+          snprintf(err, EPA_MAX_ERR, "ACL unknown kind %u", (unsigned)acl_kind);
+          return EPA_FLOW_ERR;
+      }
       return EPA_FLOW_YIELDED;
     }
 
-    case EPA_OP_ACL_REVOKE: {
-      uint8_t local_wid = code[pc + EPA_OPCODE_BYTES];
-      uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
-      uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
+    case EPA_OP_PID: {
+      uint8_t pid_kind = code[pc + EPA_OPCODE_BYTES];
       eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_acl_revoke && !ctx->hooks.on_acl_revoke(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, local_wid, err)) return EPA_FLOW_ERR;
-      return EPA_FLOW_YIELDED;
-    }
-
-    case EPA_OP_ACL_REVOKE_ALL: {
-      uint64_t target_uid = ((uint64_t)(uint32_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
-      uint64_t remote_uid = ((uint64_t)(uint32_t)w->vm.csc[3] << 32) | (uint64_t)(uint32_t)w->vm.csc[2];
-      eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_acl_revoke_all && !ctx->hooks.on_acl_revoke_all(ctx->hooks_user, (uint8_t)w->id, target_uid, remote_uid, err)) return EPA_FLOW_ERR;
-      return EPA_FLOW_YIELDED;
-    }
-
-    case EPA_OP_PID_SELF: {
-      uint32_t pid = 0u;
-      eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_pid_self && !ctx->hooks.on_pid_self(ctx->hooks_user, (uint8_t)w->id, &pid, err)) return EPA_FLOW_ERR;
-      w->vm.csc[0] = (int32_t)pid;
-      w->vm.csc[1] = 0;
-      w->vm.csc[2] = 0;
-      w->vm.csc[3] = 1;
-      return EPA_FLOW_YIELDED;
-    }
-
-    case EPA_OP_PID_RETIRE: {
-      uint32_t pid = (uint32_t)w->vm.csc[0];
-      eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_pid_retire && !ctx->hooks.on_pid_retire(ctx->hooks_user, (uint8_t)w->id, pid, err)) return EPA_FLOW_ERR;
+      switch (pid_kind) {
+        case 1u: {
+          uint32_t pid = 0u;
+          if (ctx->hooks.on_pid_self && !ctx->hooks.on_pid_self(ctx->hooks_user, (uint8_t)w->id, &pid, err)) return EPA_FLOW_ERR;
+          w->vm.csc[0] = (int32_t)pid;
+          w->vm.csc[1] = 0;
+          w->vm.csc[2] = 0;
+          w->vm.csc[3] = 1;
+          break;
+        }
+        case 2u: {
+          uint32_t pid = (uint32_t)w->vm.csc[0];
+          if (ctx->hooks.on_pid_retire && !ctx->hooks.on_pid_retire(ctx->hooks_user, (uint8_t)w->id, pid, err)) return EPA_FLOW_ERR;
+          break;
+        }
+        default:
+          snprintf(err, EPA_MAX_ERR, "PID unknown kind %u", (unsigned)pid_kind);
+          return EPA_FLOW_ERR;
+      }
       return EPA_FLOW_YIELDED;
     }
 
@@ -460,43 +389,49 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
-    case EPA_OP_REQUEST_THREADS: {
-      eip->rel_pc = (uint32_t)(pc + need);
-      if (ctx->hooks.on_request_threads) {
-        if (!ctx->hooks.on_request_threads(ctx->hooks_user, (uint8_t)w->id, (uint32_t)w->vm.csc[0], err)) {
-          return EPA_FLOW_ERR;
-        }
-      }
-      return EPA_FLOW_YIELDED;
-    }
-
-    case EPA_OP_REQUEST_AT: {
+    case EPA_OP_REQUEST: {
+      uint8_t request_kind = code[pc + EPA_OPCODE_BYTES];
       uint32_t descriptor_word_count;
       uint32_t *descriptor_words;
       uint32_t request_id = 0u;
       int submit_rc;
       size_t descriptor_start;
 
+      if (request_kind == 1u) {
+        eip->rel_pc = (uint32_t)(pc + need);
+        if (ctx->hooks.on_request_threads) {
+          if (!ctx->hooks.on_request_threads(ctx->hooks_user, (uint8_t)w->id, (uint32_t)w->vm.csc[0], err)) {
+            return EPA_FLOW_ERR;
+          }
+        }
+        return EPA_FLOW_YIELDED;
+      }
+
+      if (request_kind != 2u) {
+        snprintf(err, EPA_MAX_ERR, "REQUEST unknown kind %u", (unsigned)request_kind);
+        return EPA_FLOW_ERR;
+      }
+
       if (!ctx->hooks.on_request_at) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT hook not installed");
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2 AT hook not installed");
         return EPA_FLOW_ERR;
       }
       if (!st->words || st->sp < 1u) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: stack underflow reading descriptor size");
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2: stack underflow reading descriptor size");
         return EPA_FLOW_ERR;
       }
 
       descriptor_word_count = st->words[st->sp - 1u];
       if (descriptor_word_count < 6u) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: descriptor too small (%u words)", (unsigned)descriptor_word_count);
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2: descriptor too small (%u words)", (unsigned)descriptor_word_count);
         return EPA_FLOW_ERR;
       }
       if (descriptor_word_count > 1024u) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: descriptor too large (%u words)", (unsigned)descriptor_word_count);
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2: descriptor too large (%u words)", (unsigned)descriptor_word_count);
         return EPA_FLOW_ERR;
       }
       if (st->sp < (size_t)descriptor_word_count + 1u) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: stack underflow need=%u have=%zu",
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2: stack underflow need=%u have=%zu",
                  (unsigned)(descriptor_word_count + 1u), st->sp);
         return EPA_FLOW_ERR;
       }
@@ -504,7 +439,7 @@ EpaFlowRc epa_flow_step(
       descriptor_start = st->sp - 1u - (size_t)descriptor_word_count;
       descriptor_words = (uint32_t*)malloc((size_t)descriptor_word_count * sizeof(uint32_t));
       if (!descriptor_words) {
-        snprintf(err, EPA_MAX_ERR, "REQUEST_AT: OOM copying descriptor");
+        snprintf(err, EPA_MAX_ERR, "REQUEST kind=2: OOM copying descriptor");
         return EPA_FLOW_ERR;
       }
       memcpy(descriptor_words, st->words + descriptor_start, (size_t)descriptor_word_count * sizeof(uint32_t));
@@ -919,6 +854,60 @@ case EPA_OP_DIV_I32: {
   int32_t a = (int32_t)ua, b = (int32_t)ub;
   int32_t result = (b == 0) ? 0 : (a / b);
   if (!epa_stack_push(st, (uint32_t)result)) { snprintf(err, EPA_MAX_ERR, "DIV_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_AND_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "AND_I32: stack underflow"); return EPA_FLOW_ERR; }
+  if (!epa_stack_push(st, ua & ub)) { snprintf(err, EPA_MAX_ERR, "AND_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_OR_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "OR_I32: stack underflow"); return EPA_FLOW_ERR; }
+  if (!epa_stack_push(st, ua | ub)) { snprintf(err, EPA_MAX_ERR, "OR_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_XOR_I32: {
+  uint32_t ub=0, ua=0;
+  if (!epa_stack_pop(st, &ub) || !epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "XOR_I32: stack underflow"); return EPA_FLOW_ERR; }
+  if (!epa_stack_push(st, ua ^ ub)) { snprintf(err, EPA_MAX_ERR, "XOR_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_NOT_I32: {
+  uint32_t ua=0;
+  if (!epa_stack_pop(st, &ua)) { snprintf(err, EPA_MAX_ERR, "NOT_I32: stack underflow"); return EPA_FLOW_ERR; }
+  if (!epa_stack_push(st, ~ua)) { snprintf(err, EPA_MAX_ERR, "NOT_I32: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_ROL_BYTE: {
+  uint32_t ucount=0, uvalue=0;
+  if (!epa_stack_pop(st, &ucount) || !epa_stack_pop(st, &uvalue)) { snprintf(err, EPA_MAX_ERR, "ROL_BYTE: stack underflow"); return EPA_FLOW_ERR; }
+  uint32_t value = uvalue & 0xFFu;
+  uint32_t count = ucount & 7u;
+  uint32_t result = count ? (((value << count) | (value >> (8u - count))) & 0xFFu) : value;
+  if (!epa_stack_push(st, result)) { snprintf(err, EPA_MAX_ERR, "ROL_BYTE: stack overflow"); return EPA_FLOW_ERR; }
+  eip->rel_pc = (uint32_t)(pc + need);
+  return EPA_FLOW_YIELDED;
+}
+
+case EPA_OP_ROR_BYTE: {
+  uint32_t ucount=0, uvalue=0;
+  if (!epa_stack_pop(st, &ucount) || !epa_stack_pop(st, &uvalue)) { snprintf(err, EPA_MAX_ERR, "ROR_BYTE: stack underflow"); return EPA_FLOW_ERR; }
+  uint32_t value = uvalue & 0xFFu;
+  uint32_t count = ucount & 7u;
+  uint32_t result = count ? (((value >> count) | (value << (8u - count))) & 0xFFu) : value;
+  if (!epa_stack_push(st, result)) { snprintf(err, EPA_MAX_ERR, "ROR_BYTE: stack overflow"); return EPA_FLOW_ERR; }
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;
 }
@@ -2132,136 +2121,6 @@ case EPA_OP_L_SCOPE_ALLOC: {
     w->vm.csc[2] = 1;
     w->vm.csc[3] = 0;
   }
-
-  eip->rel_pc = (uint32_t)(pc + need);
-  return EPA_FLOW_YIELDED;
-}
-
-case EPA_OP_FMT: {
-  uint16_t argc = code[pc + EPA_OPCODE_BYTES];
-
-  uint32_t tmpl_off  = (uint32_t)w->vm.csc[0];
-  uint32_t tmpl_len  = (uint32_t)w->vm.csc[1];
-  uint32_t tmpl_kind = (uint32_t)w->vm.csc[2];
-
-  // Pop args (reverse because stack)
-  uint32_t args[256];
-  if (argc > 255) argc = 255;
-
-  for (uint32_t i = 0; i < argc; i++) {
-    uint32_t v = 0;
-    if (!epa_stack_pop(st, &v)) {
-      // stack underflow -> treat missing as 0
-      v = 0;
-    }
-    args[argc - 1 - i] = v;
-  }
-
-  const uint8_t *tp = NULL;
-  uint32_t tlen = 0;
-  if (!epa_resolve_string(ctx->prog, w, tmpl_kind, tmpl_off, tmpl_len, &tp, &tlen)) {
-    // Not a valid string template -> return empty tmp string
-    w->vm.csc[0] = 0; w->vm.csc[1] = 0; w->vm.csc[2] = EPA_CONST_TMP_STR; w->vm.csc[3] = 0;
-    eip->rel_pc = (uint32_t)(pc + need);
-    return EPA_FLOW_YIELDED;
-  }
-
-  // Scratch buffer (keeps v1 simple). If you want unbounded later,
-  // we can do a 2-pass length calc then L_ALLOC exact.
-  char scratch[4096];
-  uint32_t si = 0;
-  uint32_t ai = 0;
-
-  for (uint32_t i = 0; i < tlen && si < (uint32_t)sizeof(scratch) - 1u; ) {
-    uint8_t c = tp[i++];
-
-    if (c == '{' && i < tlen) {
-      uint8_t n = tp[i];
-
-      if (n == '{') { // "{{" -> "{"
-        scratch[si++] = '{';
-        i++;
-        continue;
-      }
-
-      // placeholder must be "{x}" style
-      if ((n == 'd' || n == 'u' || n == 'x' || n == 'c') && (i + 1 < tlen) && tp[i + 1] == '}') {
-        uint32_t v = (ai < argc) ? args[ai++] : 0;
-        if (n == 'd') {
-          si += epa_i32_to_dec(scratch + si, (uint32_t)sizeof(scratch) - 1u - si, (int32_t)v);
-        } else if (n == 'u') {
-          si += epa_u32_to_dec(scratch + si, (uint32_t)sizeof(scratch) - 1u - si, v);
-        } else if (n == 'x') {
-          si += epa_u32_to_hex(scratch + si, (uint32_t)sizeof(scratch) - 1u - si, v);
-        } else { // 'c'
-          scratch[si++] = (char)(v & 0xFFu);
-        }
-        i += 2; // skip type + '}'
-        continue;
-      }
-
-      // malformed "{...": treat '{' literally
-      scratch[si++] = '{';
-      continue;
-    }
-
-    if (c == '}' && i < tlen && tp[i] == '}') { // "}}" -> "}"
-      scratch[si++] = '}';
-      i++;
-      continue;
-    }
-
-    scratch[si++] = (char)c;
-  }
-
-  uint32_t out_len = si;
-
-  // Allocate from worker local byte heap (same behavior as L_ALLOC)
-  if (!w->vm.lbytes || w->vm.lbytes_cap == 0) {
-    w->vm.csc[0] = 0; w->vm.csc[1] = 0; w->vm.csc[2] = EPA_CONST_TMP_STR; w->vm.csc[3] = 0;
-    eip->rel_pc = (uint32_t)(pc + need);
-    return EPA_FLOW_YIELDED;
-  }
-
-  const uint32_t align = 4;
-  uint32_t top = w->vm.lbytes_top;
-  uint32_t off = (top + (align - 1u)) & ~(align - 1u);
-
-  if (out_len > w->vm.lbytes_cap || off > w->vm.lbytes_cap - out_len) {
-    // out of local heap space -> return empty
-    w->vm.csc[0] = 0; w->vm.csc[1] = 0; w->vm.csc[2] = EPA_CONST_TMP_STR; w->vm.csc[3] = 0;
-    eip->rel_pc = (uint32_t)(pc + need);
-    return EPA_FLOW_YIELDED;
-  }
-
-  memcpy(w->vm.lbytes + off, scratch, out_len);
-  w->vm.lbytes_top = off + out_len;
-
-  // Return tmp string ref
-  w->vm.csc[0] = off;
-  w->vm.csc[1] = out_len;
-  w->vm.csc[2] = EPA_CONST_TMP_STR;
-  w->vm.csc[3] = 0;
-
-  eip->rel_pc = (uint32_t)(pc + need);
-  return EPA_FLOW_YIELDED;
-}
-
-case EPA_OP_LOG: {
-  uint32_t off  = (uint32_t)w->vm.csc[0];
-  uint32_t len  = (uint32_t)w->vm.csc[1];
-  uint32_t kind = (uint32_t)w->vm.csc[2];
-
-  const uint8_t *ptr = NULL;
-  uint32_t plen = 0;
-
-  if (epa_resolve_string(ctx->prog, w, kind, off, len, &ptr, &plen)) {
-    if (plen > 0 && ptr) {
-      fwrite(ptr, 1, plen, stdout);
-      fflush(stdout);
-    }
-  }
-  // LOG must never fail, trap, or modify state
 
   eip->rel_pc = (uint32_t)(pc + need);
   return EPA_FLOW_YIELDED;

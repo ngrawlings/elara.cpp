@@ -642,11 +642,26 @@ static int top_push(EProgram *prog, ETopDecl *d) {
   return 1;
 }
 
-static int parse_param_list(Parser *p, EParam **out_params, size_t *out_count) {
+static int match_ellipsis(Parser *p) {
+  if (peek(p)->kind != E_TOK_DOT) return 0;
+  if (p->pos + 2u >= p->tokens->count) return 0;
+  if (p->tokens->items[p->pos + 1u].kind != E_TOK_DOT ||
+      p->tokens->items[p->pos + 2u].kind != E_TOK_DOT) return 0;
+  p->pos += 3u;
+  return 1;
+}
+
+static int parse_param_list_ex(Parser *p, EParam **out_params, size_t *out_count, int allow_variadic, int *out_variadic) {
+  if (out_variadic) *out_variadic = 0;
   if (match(p, E_TOK_RPAREN)) return 1;
   for (;;) {
     EParam param;
     memset(&param, 0, sizeof(param));
+    if (allow_variadic && match_ellipsis(p)) {
+      if (out_variadic) *out_variadic = 1;
+      if (!expect(p, E_TOK_RPAREN, "expected ')' after variadic marker")) return 0;
+      return 1;
+    }
     if (!parse_type(p, &param.type)) return 0;
     if (!expect(p, E_TOK_IDENT, "expected parameter name")) return 0;
     param.name = xstrdup_local(p->tokens->items[p->pos - 1].text);
@@ -660,6 +675,10 @@ static int parse_param_list(Parser *p, EParam **out_params, size_t *out_count) {
     if (!expect(p, E_TOK_COMMA, "expected ',' or ')'")) return 0;
   }
   return 1;
+}
+
+static int parse_param_list(Parser *p, EParam **out_params, size_t *out_count) {
+  return parse_param_list_ex(p, out_params, out_count, 0, NULL);
 }
 
 static int parse_type_param_list(Parser *p, ETypeDecl *decl) {
@@ -869,7 +888,7 @@ int e_parse_program(const ETokenVec *tokens, EProgram *out_program, char err[256
       if (!expect(&p, E_TOK_IDENT, "expected function name")) return 0;
       top.as.func.name = xstrdup_local(tokens->items[p.pos - 1].text);
       if (!expect(&p, E_TOK_LPAREN, "expected '('")) return 0;
-      if (!parse_param_list(&p, &top.as.func.params, &top.as.func.param_count)) return 0;
+      if (!parse_param_list_ex(&p, &top.as.func.params, &top.as.func.param_count, 1, &top.as.func.is_variadic)) return 0;
       top.as.func.body = parse_block(&p);
       if (!top.as.func.body) return 0;
       top_push(out_program, &top);

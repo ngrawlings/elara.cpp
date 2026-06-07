@@ -1,0 +1,43 @@
+; Slim-core bitwise opcode regression.
+
+ENTRY_START 0 0 0 0
+  ENTRY_EXEC 1
+ENTRY_END
+
+ENTRY_START 1 0 0 0
+  PUSH 0xf0
+  PUSH 0x3c
+  AND_I32
+  PUSH 0x30
+  EQ_I32
+  JNZ and_ok
+  TRAP 122
+and_ok:
+
+  PUSH 0xf0
+  PUSH 0x0f
+  OR_I32
+  PUSH 0xff
+  EQ_I32
+  JNZ or_ok
+  TRAP 123
+or_ok:
+
+  PUSH 0xaa
+  PUSH 0x0f
+  XOR_I32
+  PUSH 0xa5
+  EQ_I32
+  JNZ xor_ok
+  TRAP 125
+xor_ok:
+
+  PUSH 0
+  NOT_I32
+  PUSH -1
+  EQ_I32
+  JNZ not_ok
+  TRAP 102
+not_ok:
+
+ENTRY_END

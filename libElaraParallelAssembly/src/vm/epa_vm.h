@@ -41,7 +41,7 @@ typedef struct {
 
   int32_t locals[EPA_VM_LOCALS_MAX];
 
-  // Byte-addressable local arena for transient buffers (FMT, serialization, temp arrays, etc.)
+  // Byte-addressable local arena for transient buffers, serialization, temp arrays, etc.
   uint8_t  *lbytes;      // base pointer (owned by worker)
   uint32_t  lbytes_cap;  // capacity in bytes
   uint32_t  lbytes_top;  // bump allocator head in bytes

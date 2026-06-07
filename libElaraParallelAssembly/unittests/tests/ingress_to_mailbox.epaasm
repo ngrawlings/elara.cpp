@@ -35,10 +35,6 @@ ENTRY_START 1 256 256 128
   GR_MOV4 0
   SM_PUT
 
-  ; Log marker so we know we reached this point
-  ;LOAD_CONST 0
-  ;LOG r0
-
   ; Notify kernel
   SIGNAL
 

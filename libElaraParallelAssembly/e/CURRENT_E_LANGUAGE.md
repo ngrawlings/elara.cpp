@@ -21,6 +21,86 @@ The current E expression emitter is still integer-first; these opcodes are
 available at EPA assembly/VM level and will become the target for typed E float
 expressions when that language layer is expanded.
 
+Slots `108..109` are byte rotate operations:
+
+- `ROL_BYTE`
+- `ROR_BYTE`
+
+Both pop `(value, count)` from the stack, rotate the low byte by `count & 7`,
+and push the rotated byte as a normal `u32`. E wrappers live in
+`common/bytes.em` as `byte_rol(value, count)` and `byte_ror(value, count)`.
+
+Bitwise integer operations are slim-core opcodes:
+
+- `AND_I32`
+- `OR_I32`
+- `XOR_I32`
+- `NOT_I32`
+
+Until E expression syntax grows `&`, `|`, `^`, and `~`, use the wrappers in
+`common/bytes.em`: `bit_and_i32`, `bit_or_i32`, `bit_xor_i32`,
+`bit_not_i32`, plus byte-masked variants `byte_and`, `byte_or`, `byte_xor`,
+and `byte_not`.
+
+Formatting and logging are not core opcodes. Use:
+
+```c
+#include "common/egress.em"
+```
+
+That module defines `fmt_len(...)`, `fmt_into(...)`, and `log(...)` as ordinary
+E functions with `EPA { ... }` implementation blocks. The egress frame protocol
+can evolve there without changing the slim-core ISA.
+
+## Variadic E Functions
+
+E supports variadic functions as a language convention, not an EPA opcode:
+
+```c
+function int size(int format_off, int format_len, ...) {
+  int argc = vararg_count();
+  int first = vararg_i32(0);
+  return format_len + argc + first;
+}
+```
+
+Rules:
+
+- `...` is only valid at the end of an ordinary `function` parameter list
+- fixed parameters are passed through the normal function ABI
+- extra arguments are packed by the caller into a local-byte `u32[]` block
+- the callee receives hidden `vararg_off` and `vararg_count` frame locals
+- `vararg_count()` returns the number of extra arguments
+- `vararg_i32(index)` reads one packed `u32/i32` argument
+
+The vararg block is an E compiler convention over existing local-byte memory.
+EPA only sees ordinary `L_ALLOC`, `RLB_MOV4`, `LBR_MOV4`, and `CALL`
+instructions.
+
+## Unicode String Convention
+
+E does not return strings directly. String-like values are explicit UTF-8 byte
+spans:
+
+```c
+(offset, length)
+```
+
+Common string helpers live in:
+
+```c
+#include "common/string.em"
+```
+
+Formatting follows a two-pass/reference pattern:
+
+- call a sizing function such as `unicode_format_len(...)`
+- allocate caller-owned local bytes of that final size
+- call an `_into(...)` function with `(out_off, out_cap, ...)`
+
+Lengths are byte lengths. UTF-8 codepoint-aware behavior belongs in the common
+module EPA bodies, not in the slim-core ISA.
+
 ## Kernel Identity
 
 Every kernel must declare exactly one kernel identity inside the kernel block:
@@ -111,9 +191,10 @@ worker security_root(SecurityRequest request) {
 }
 ```
 
-These emit `ACL_GRANT`, `ACL_REVOKE`, and `ACL_REVOKE_ALL`. The VM host only
-accepts them from workers with ACL-admin privilege. Dynamic routes are stored on
-the target kernel and are checked alongside manifest `acl { ... }` routes.
+These emit `ACL 1`, `ACL 2`, and `ACL 3`. `PID 1` returns the current PID;
+`PID 2` retires the PID in `r0`. The VM host only accepts privileged external
+ACL/PID mutations from authorized workers. Dynamic ACL routes are stored on the
+target kernel and are checked alongside manifest `acl { ... }` routes.
 
 `retire_kernel("kernel.id")` unloads an entire kernel by identity. The target
 kernel is removed from the global kernel registry, all of its workers are

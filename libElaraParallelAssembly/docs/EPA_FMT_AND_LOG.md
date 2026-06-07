@@ -1,60 +1,43 @@
-# EPA Formatting and Logging Semantics
+# EPA Egress Formatting and Logging
 
-This document defines the current EPA contract for strings, formatting, and logging.
+EPA no longer has core `FMT` or `LOG` opcodes.
 
-## Canonical String Representation
+Formatting and human-readable logging are intentionally library/protocol
+features. They are too expensive and policy-heavy for the slim-core ISA.
 
-EPA still treats strings as an explicit pair:
+## Standard Module
 
-- `r0` = offset
-- `r1` = length
+Use the common E include:
 
-No null terminator is implied.
+```c
+#include "common/egress.em"
+```
 
-## String Sources
+It defines the first library-level helpers:
 
-Strings may come from:
+```c
+function int fmt(int payload_off, int payload_len);
+function int log(int payload_off, int payload_len);
+```
 
-- `DATA_BLOCK` constants loaded with `LOAD_CONST`
-- formatting operations
-- future worker-local or kernel-owned arenas
+The function bodies are ordinary E functions with `EPA { ... }` blocks. This
+keeps the implementation portable and replaceable without spending opcode
+slots.
 
-Kernel identity is not represented as a runtime string in the current cross-kernel routing path. Kernel ids are compiled into manifest uids via `KERNEL_ID` and `ACL_ALLOW`.
+## Egress Frame V1
 
-## `LOAD_CONST`
+The standard egress frame is four `u32` words:
 
-For string constants:
+- `word0`: kind
+- `word1`: payload offset
+- `word2`: payload length
+- `word3`: payload type
 
-- `r0` = offset
-- `r1` = length
-- `r2` = constant kind
+Payload bytes live in caller-owned local memory, GHS, or another explicit
+handle-backed storage path. The host/OS egress router interprets the frame.
 
-## Formatting
+## ISA Boundary
 
-`FMT` conceptually:
-
-- consumes a template string in `(r0, r1)`
-- consumes arguments from the stack
-- produces a new string reference in `(r0, r1)`
-
-The resulting string is transient worker-local data.
-
-## Logging
-
-`LOG` conceptually:
-
-- consumes a string in `(r0, r1)`
-- emits it to the host logging facility
-- may degrade to a no-op on constrained targets
-
-Logging must never mutate VM semantics and must never crash execution.
-
-## Current Design Direction
-
-The language/runtime has evolved in one important way around strings:
-
-- `far_signal` no longer depends on building a target kernel id string at runtime
-- `kernalId("...")` is hashed by the E compiler
-- cross-kernel routing uses the compiled 64-bit uid split across two `u32` values
-
-So string formatting remains a regular data feature, but cross-kernel identity is now manifest-driven rather than string-buffer-driven.
+The slim core only supplies primitive movement/signalling operations. It does
+not know about decimal formatting, string interpolation, log levels, encodings,
+or host stdout.

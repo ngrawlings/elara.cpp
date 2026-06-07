@@ -303,6 +303,7 @@ static int push_local_binding(EFunctionFrame *frame, const EStmt *decl_stmt, con
 static int push_frame(ESemanticModel *model, const char *owner_name, const EFunction *fn,
                       size_t param_size, size_t stack_local_size,
                       unsigned int reserved_reg_words, unsigned int vm_local_count,
+                      int has_varargs, unsigned int vararg_off_slot, unsigned int vararg_count_slot,
                       ELocalBinding *locals,
                       size_t local_count) {
   EFunctionFrame *next;
@@ -318,6 +319,9 @@ static int push_frame(ESemanticModel *model, const char *owner_name, const EFunc
   model->frames[model->frame_count].stack_local_size = stack_local_size;
   model->frames[model->frame_count].reserved_reg_words = reserved_reg_words;
   model->frames[model->frame_count].vm_local_count = vm_local_count;
+  model->frames[model->frame_count].has_varargs = has_varargs;
+  model->frames[model->frame_count].vararg_off_slot = vararg_off_slot;
+  model->frames[model->frame_count].vararg_count_slot = vararg_count_slot;
   model->frames[model->frame_count].total_size = param_size + stack_local_size;
   model->frames[model->frame_count].locals = locals;
   model->frames[model->frame_count].local_count = local_count;
@@ -1017,12 +1021,19 @@ static int collect_callable_checks(const EFunction *fn, ESemanticModel *model, c
       next_offset += abi_size;
     }
     frame.param_size = next_offset;
+    if (fn->is_variadic) {
+      frame.has_varargs = 1;
+      frame.vararg_off_slot = next_vm_local_slot++;
+      frame.vararg_count_slot = next_vm_local_slot++;
+    }
     frame.vm_local_count = next_vm_local_slot;
     if (!collect_local_decls_in_stmt(fn->body, model, &frame, 0, err)) {
       return 0;
     }
     push_frame(model, fn->name, fn, frame.param_size, frame.stack_local_size,
-               frame.reserved_reg_words, frame.vm_local_count, frame.locals, frame.local_count);
+               frame.reserved_reg_words, frame.vm_local_count,
+               frame.has_varargs, frame.vararg_off_slot, frame.vararg_count_slot,
+               frame.locals, frame.local_count);
     return 1;
 }
 
@@ -2145,7 +2156,9 @@ static int validate_non_function_local_decls(const EProgram *program, const ESem
       return 0;
     }
     push_frame((ESemanticModel*)model, owner_name, NULL, frame.param_size, frame.stack_local_size,
-               frame.reserved_reg_words, frame.vm_local_count, frame.locals, frame.local_count);
+               frame.reserved_reg_words, frame.vm_local_count,
+               0, 0u, 0u,
+               frame.locals, frame.local_count);
     memset(&frame, 0, sizeof(frame));
     free_temp_frame(&frame);
   }
@@ -2215,7 +2228,9 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
       }
       push_frame(out_model, top->as.tdecl.name, NULL, 0,
                  frame.stack_local_size, frame.reserved_reg_words,
-                 frame.vm_local_count, frame.locals, frame.local_count);
+                 frame.vm_local_count,
+                 0, 0u, 0u,
+                 frame.locals, frame.local_count);
     }
   }
 

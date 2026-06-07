@@ -86,17 +86,16 @@ No implicit allocation exists.
 
 ---
 
-## 5. Service Opcodes
+## 5. Service Protocols
 
-Service opcodes include:
-- FMT
-- LOG
-- Future: hashing, serialization, crypto, tensor ops
+Formatting, logging, serialization, crypto, tensor helpers, and similar
+high-level services are not slim-core opcodes by default.
 
-They may be implemented:
-- in software
-- as GPU routines
-- via kernel interrupts
+They should be implemented:
+- as common E modules
+- as EPA library functions using `EPA { ... }` blocks
+- as AT requests when parallel execution is appropriate
+- as standardized ingress/egress protocols
 
 They never mutate program semantics.
 

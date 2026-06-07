@@ -274,7 +274,11 @@ char *e_load_translation_unit_with_map(const char *path, ELineMap *line_map, cha
     dup2(fds[1], STDERR_FILENO);
     close(fds[0]); close(fds[1]);
     /* No -P: keep linemarkers so we can build the source map */
-    execlp("cc", "cc", "-E", "-undef", "-x", "c", path, (char*)NULL);
+    execlp("cc", "cc", "-E", "-undef", "-x", "c",
+           "-I", ".",
+           "-I", "libElaraParallelAssembly/e",
+           "-I", "./libElaraParallelAssembly/e",
+           path, (char*)NULL);
     _exit(127);
   }
 

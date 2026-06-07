@@ -1,0 +1,49 @@
+; Slim-core byte rotate opcode regression.
+; ROL_BYTE/ROR_BYTE operate on the low byte and mask count with 7.
+
+ENTRY_START 0 0 0 0
+  ENTRY_EXEC 1
+ENTRY_END
+
+ENTRY_START 1 0 0 0
+  ; 0b10000001 rol 1 -> 0b00000011
+  PUSH 0x81
+  PUSH 1
+  ROL_BYTE
+  PUSH 0x03
+  EQ_I32
+  JNZ rol_one_ok
+  TRAP 108
+rol_one_ok:
+
+  ; 0b00000011 ror 1 -> 0b10000001
+  PUSH 0x03
+  PUSH 1
+  ROR_BYTE
+  PUSH 0x81
+  EQ_I32
+  JNZ ror_one_ok
+  TRAP 109
+ror_one_ok:
+
+  ; count is masked to 3 here: 0x12 rol 11 -> 0x90
+  PUSH 0x12
+  PUSH 11
+  ROL_BYTE
+  PUSH 0x90
+  EQ_I32
+  JNZ rol_mask_ok
+  TRAP 110
+rol_mask_ok:
+
+  ; high bits of input are discarded: 0x1ff ror 4 -> 0xff
+  PUSH 0x1ff
+  PUSH 4
+  ROR_BYTE
+  PUSH 0xff
+  EQ_I32
+  JNZ ror_low_byte_ok
+  TRAP 111
+ror_low_byte_ok:
+
+ENTRY_END

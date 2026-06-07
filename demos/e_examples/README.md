@@ -58,7 +58,7 @@ block, matching the OS boot rule.
 - `security_root` emits grant/revoke calls for `e.examples.dynamic_whitelist.app` into the target kernel.
 - `epa/dynamic_whitelist_target.e` is the closed target kernel whose static ACL does not admit the app.
 - `epa/dynamic_whitelist_app.e` is the app kernel that becomes reachable only after a dynamic grant.
-- The generated EPA includes `ACL_GRANT`, `ACL_REVOKE`, and `ACL_REVOKE_ALL`.
+- The generated EPA includes `ACL 1`, `ACL 2`, and `ACL 3`.
 
 Build the EPA assembly:
 

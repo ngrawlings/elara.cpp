@@ -332,7 +332,6 @@ static void collect_program_strings(EmitCtx *ctx, const EProgram *prog) {
 }
 
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
-static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -350,6 +349,8 @@ static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, 
 static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_vararg_count_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_vararg_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_start_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -504,7 +505,6 @@ static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rh
 
 static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   static const EmitBuiltinEntry kBuiltins[] = {
-    {"log", emit_log_builtin},
     {"kernel_wait_signal", emit_kernel_wait_signal_builtin},
     {"signal", emit_signal_builtin},
     {"kernel_signal", emit_signal_builtin},
@@ -522,6 +522,8 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"rgm_get", emit_rgm_get_builtin},
     {"ghs_store_i32", emit_ghs_store_i32_builtin},
     {"local_store_i32", emit_local_store_i32_builtin},
+    {"vararg_count", emit_vararg_count_builtin},
+    {"vararg_i32", emit_vararg_i32_builtin},
     {"start_worker", emit_worker_start_builtin},
     {"stop_worker", emit_worker_stop_builtin},
     {"worker_start", emit_worker_start_builtin},
@@ -607,15 +609,40 @@ static int user_func_has_return_value(const EmitCtx *ctx, const char *name) {
   return 0;
 }
 
+static const EFunction *find_user_func_decl(const EmitCtx *ctx, const char *name) {
+  size_t i;
+  if (!ctx || !ctx->prog || !name) return NULL;
+  for (i = 0; i < ctx->prog->count; i++) {
+    const ETopDecl *top = &ctx->prog->items[i];
+    if (top->kind != E_TOP_FUNCTION) continue;
+    if (strcmp(top->as.func.name, name) == 0) return &top->as.func;
+  }
+  return NULL;
+}
+
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 
 static int emit_user_func_call(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   unsigned int func_id = 0u;
+  const EFunction *callee_decl;
   const EFunctionFrame *callee_frame;
   size_t i;
   if (!find_user_func_id(ctx, expr->as.call.callee, &func_id)) return 0;
+  callee_decl = find_user_func_decl(ctx, expr->as.call.callee);
   callee_frame = find_frame(ctx->model, expr->as.call.callee);
-  for (i = 0; i < expr->as.call.arg_count; i++) {
+  if (callee_decl && !callee_decl->is_variadic && expr->as.call.arg_count != callee_decl->param_count) {
+    emit_indent(out, depth);
+    fprintf(out, "// error: call to '%s' expects %zu args, got %zu\n",
+            expr->as.call.callee, callee_decl->param_count, expr->as.call.arg_count);
+    return 1;
+  }
+  if (callee_decl && callee_decl->is_variadic && expr->as.call.arg_count < callee_decl->param_count) {
+    emit_indent(out, depth);
+    fprintf(out, "// error: variadic call to '%s' expects at least %zu args, got %zu\n",
+            expr->as.call.callee, callee_decl->param_count, expr->as.call.arg_count);
+    return 1;
+  }
+  for (i = 0; i < expr->as.call.arg_count && (!callee_decl || i < callee_decl->param_count); i++) {
     size_t j;
     int stored = 0;
     for (j = 0; j < ctx->model->check_count; j++) {
@@ -645,6 +672,40 @@ static int emit_user_func_call(FILE *out, const EExpr *expr, EmitCtx *ctx, int d
       emit_expr(out, expr->as.call.args[i], ctx, depth);
       emit_indent(out, depth);
       fprintf(out, "; arg %zu no param check\n", i);
+    }
+  }
+  if (callee_decl && callee_decl->is_variadic && callee_frame && callee_frame->has_varargs) {
+    size_t extra_count = expr->as.call.arg_count - callee_decl->param_count;
+    emit_indent(out, depth);
+    fprintf(out, "SET_R 0 %zu\n", extra_count * 4u);
+    emit_indent(out, depth);
+    fputs("L_ALLOC\n", out);
+    emit_indent(out, depth);
+    fputs("PUSH R0\n", out);
+    emit_indent(out, depth);
+    EMIT_STORE_L(out, ctx, callee_frame->vararg_off_slot);
+    emit_indent(out, depth);
+    fprintf(out, "PUSH %zu\n", extra_count);
+    emit_indent(out, depth);
+    EMIT_STORE_L(out, ctx, callee_frame->vararg_count_slot);
+    for (i = 0; i < extra_count; i++) {
+      emit_expr(out, expr->as.call.args[callee_decl->param_count + i], ctx, depth);
+      emit_indent(out, depth);
+      fputs("POP R3\n", out);
+      emit_indent(out, depth);
+      EMIT_LOAD_L(out, ctx, callee_frame->vararg_off_slot);
+      emit_indent(out, depth);
+      fputs("PUSH 4\n", out);
+      emit_indent(out, depth);
+      fprintf(out, "PUSH %zu\n", i);
+      emit_indent(out, depth);
+      fputs("MUL_I32\n", out);
+      emit_indent(out, depth);
+      fputs("ADD_I32\n", out);
+      emit_indent(out, depth);
+      fputs("POP R2\n", out);
+      emit_indent(out, depth);
+      fputs("RLB_MOV4 R3 R2\n", out);
     }
   }
   emit_indent(out, depth);
@@ -960,44 +1021,6 @@ static void emit_zero_fill_static_type(FILE *out, const ELocalBinding *binding, 
   fputs("POP R1\n", out);
 }
 
-static unsigned int find_string_const_id(const EmitCtx *ctx, const char *literal) {
-  size_t i;
-  for (i = 0; i < ctx->string_count; i++) {
-    if (strcmp(ctx->strings[i].literal, literal) == 0) return ctx->strings[i].id;
-  }
-  return 0u;
-}
-
-static int emit_log_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
-  size_t i;
-  unsigned int string_id;
-  if (expr->as.call.arg_count < 1u) {
-    emit_indent(out, depth);
-    fputs("; log requires at least a format string\n", out);
-    return 1;
-  }
-  if (expr->as.call.args[0]->kind != E_EXPR_STRING) {
-    emit_indent(out, depth);
-    fputs("; log requires a string literal as the first argument\n", out);
-    return 1;
-  }
-  string_id = find_string_const_id(ctx, expr->as.call.args[0]->as.string_lit);
-  emit_indent(out, depth);
-  fputs("PUSH R3\n", out);
-  emit_indent(out, depth);
-  fprintf(out, "LOAD_CONST %u\n", string_id);
-  for (i = 1; i < expr->as.call.arg_count; i++) {
-    emit_expr(out, expr->as.call.args[i], ctx, depth);
-  }
-  emit_indent(out, depth);
-  fprintf(out, "FMT %zu\n", expr->as.call.arg_count - 1u);
-  emit_indent(out, depth);
-  fputs("LOG\n", out);
-  emit_indent(out, depth);
-  fputs("POP R3\n", out);
-  return 1;
-}
-
 static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 0u) {
@@ -1248,7 +1271,7 @@ static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   emit_indent(out, depth);
   fputs("POP R0\n", out);
   emit_indent(out, depth);
-  fputs("REQUEST_THREADS\n", out);
+  fputs("REQUEST 1\n", out);
   return 1;
 }
 
@@ -1300,7 +1323,7 @@ static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   emit_indent(out, depth);
   fputs("PUSH 8\n", out);
   emit_indent(out, depth);
-  fputs("REQUEST_AT\n", out);
+  fputs("REQUEST 2\n", out);
   return 1;
 }
 
@@ -1512,6 +1535,60 @@ static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   return 1;
 }
 
+static int emit_vararg_count_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 0u) {
+    emit_indent(out, depth);
+    fprintf(out, "; vararg_count expects 0 args, got %zu\n", expr->as.call.arg_count);
+    fputs("PUSH 0\n", out);
+    return 1;
+  }
+  if (!ctx->current_frame || !ctx->current_frame->has_varargs) {
+    emit_indent(out, depth);
+    fputs("; vararg_count used outside a variadic function\n", out);
+    emit_indent(out, depth);
+    fputs("PUSH 0\n", out);
+    return 1;
+  }
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, ctx->current_frame->vararg_count_slot);
+  return 1;
+}
+
+static int emit_vararg_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; vararg_i32 expects 1 arg, got %zu\n", expr->as.call.arg_count);
+    emit_indent(out, depth);
+    fputs("PUSH 0\n", out);
+    return 1;
+  }
+  if (!ctx->current_frame || !ctx->current_frame->has_varargs) {
+    emit_indent(out, depth);
+    fputs("; vararg_i32 used outside a variadic function\n", out);
+    emit_indent(out, depth);
+    fputs("PUSH 0\n", out);
+    return 1;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_indent(out, depth);
+  fputs("PUSH 4\n", out);
+  emit_indent(out, depth);
+  fputs("MUL_I32\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, ctx->current_frame->vararg_off_slot);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV4 R0 R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  return 1;
+}
+
 static int emit_worker_control_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, const char *opname) {
   unsigned int wid = 0u;
   const EExpr *arg;
@@ -1648,7 +1725,7 @@ static int emit_acl_worker_arg(FILE *out, const EExpr *expr, const EExpr *target
   return 0;
 }
 
-static int emit_acl_route_common(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, const char *opname, int needs_worker) {
+static int emit_acl_route_common(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth, unsigned int acl_kind, int needs_worker) {
   unsigned int wid = 0u;
   size_t expected = needs_worker ? 3u : 2u;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
@@ -1666,25 +1743,22 @@ static int emit_acl_route_common(FILE *out, const EExpr *expr, EmitCtx *ctx, int
   if (!emit_kernel_uid_to_regs(out, expr->as.call.args[1], depth, 2u, 3u, expr->as.call.callee)) return 0;
   if (needs_worker) {
     if (!emit_acl_worker_arg(out, expr->as.call.args[2], expr->as.call.args[0], ctx, depth, &wid, expr->as.call.callee)) return 0;
-    emit_indent(out, depth);
-    fprintf(out, "%s %u\n", opname, wid);
-  } else {
-    emit_indent(out, depth);
-    fprintf(out, "%s\n", opname);
   }
+  emit_indent(out, depth);
+  fprintf(out, "ACL %u %u\n", acl_kind, wid);
   return 1;
 }
 
 static int emit_acl_grant_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
-  return emit_acl_route_common(out, expr, ctx, depth, "ACL_GRANT", 1);
+  return emit_acl_route_common(out, expr, ctx, depth, 1u, 1);
 }
 
 static int emit_acl_revoke_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
-  return emit_acl_route_common(out, expr, ctx, depth, "ACL_REVOKE", 1);
+  return emit_acl_route_common(out, expr, ctx, depth, 2u, 1);
 }
 
 static int emit_acl_revoke_all_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
-  return emit_acl_route_common(out, expr, ctx, depth, "ACL_REVOKE_ALL", 0);
+  return emit_acl_route_common(out, expr, ctx, depth, 3u, 0);
 }
 
 static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {

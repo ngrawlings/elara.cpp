@@ -516,6 +516,10 @@ void e_program_dump(FILE *out, const EProgram *p) {
           dump_type_ref(out, &d->as.func.params[j].type);
           fprintf(out, " %s", d->as.func.params[j].name);
         }
+        if (d->as.func.is_variadic) {
+          if (d->as.func.param_count) fputs(", ", out);
+          fputs("...", out);
+        }
         fputs(")\n", out);
         dump_stmt(out, d->as.func.body, 1);
         break;

@@ -162,7 +162,7 @@ int hook_pid_self(void *user, uint8_t wid, uint32_t *out_pid, char err[EPA_MAX_E
   EpaKernel *kernel = (EpaKernel*)user;
   (void)wid;
   if (!kernel || !out_pid) {
-    if (err) snprintf(err, EPA_MAX_ERR, "PID_SELF: bad args");
+    if (err) snprintf(err, EPA_MAX_ERR, "PID kind=1: bad args");
     return 0;
   }
   *out_pid = epa_kernel_get_pid(kernel);

@@ -37,11 +37,11 @@ X(ENTRY_RETIRE,           17u, "ENTRY_RETIRE", 1) // Permanently remove worker f
 X(KERNEL_RETIRE,          18u, "KERNEL_RETIRE", 0) // Unload kernel by uid in r0/r1
 X(ENTRY_PRIVILEGE,        19u, "ENTRY_PRIVILEGE", 5) // Initial privilege grant: u8 wid, u32 privilege
 X(PRIVILEGE_LOCK,         20u, "PRIVILEGE_LOCK", 0) // Seal privilege grants for this loaded image
-X(ACL_GRANT,              21u, "ACL_GRANT", 1) // Privileged dynamic ACL grant: r0/r1 target uid, r2/r3 remote uid, u8 local wid
-X(ACL_REVOKE,             22u, "ACL_REVOKE", 1) // Privileged dynamic ACL revoke: r0/r1 target uid, r2/r3 remote uid, u8 local wid
-X(ACL_REVOKE_ALL,         23u, "ACL_REVOKE_ALL", 0) // Privileged revoke all target routes for remote uid: r0/r1 target uid, r2/r3 remote uid
-X(PID_SELF,               24u, "PID_SELF", 0) // Return current PID in r0; 0 means root/host-launched
-X(PID_RETIRE,             25u, "PID_RETIRE", 0) // Retire PID in r0; self allowed, external requires privilege
+X(ACL,                    21u, "ACL", 2) // u8 kind,u8 wid: 1=grant, 2=revoke, 3=revoke_all; uid args in r0..r3
+X(AND_I32,                22u, "AND_I32", 0) // Pop a,b -> push (a & b)
+X(OR_I32,                 23u, "OR_I32", 0) // Pop a,b -> push (a | b)
+X(PID,                    24u, "PID", 1) // u8 kind: 1=self -> r0 pid/r3 ok, 2=retire pid in r0
+X(XOR_I32,                25u, "XOR_I32", 0) // Pop a,b -> push (a ^ b)
 
 X(SYNC,                   26u, "SYNC", 0) // Signal kernel from worker
 X(WAIT_ON_SYNC,           27u, "WAIT_ON_SYNC", 0) // Kernel blocks until any SYNC arrives
@@ -152,8 +152,8 @@ X(EXCEPT,                 97u, "EXCEPT", 4) // Raise exception (fatal by policy)
 X(SIGNAL,                 98u, "SIGNAL", 0)
 X(FAR_SIGNAL,             99u, "FAR_SIGNAL", 0)
 X(HOST_SIGNAL,           100u, "HOST_SIGNAL", 0)
-X(REQUEST_THREADS,       101u, "REQUEST_THREADS", 0) // kernel-only, uses r0=desired_total_threads
-X(REQUEST_AT,            102u, "REQUEST_AT", 0) // copy stack AT descriptor, issue system AT request
+X(REQUEST,               101u, "REQUEST", 1) // u8 kind: 1=threads(r0 desired), 2=AT(stack descriptor)
+X(NOT_I32,               102u, "NOT_I32", 0) // Pop a -> push (~a)
 
 // Local byte arena allocation (worker-local, byte-addressable)
 X(L_ALLOC,               103u, "L_ALLOC", 0) // in: r0=size_bytes  out: r0=off, r1=size, r2=ok(1/0), r3=0
@@ -161,9 +161,9 @@ X(L_RESET,               104u, "L_RESET", 0) // reset worker local byte arena he
 X(L_SCOPE_ENTER,         105u, "L_SCOPE_ENTER", 0) // push current local byte arena head onto scope stack
 X(L_SCOPE_LEAVE,         106u, "L_SCOPE_LEAVE", 0) // restore local byte arena head from scope stack
 X(L_SCOPE_ALLOC,         107u, "L_SCOPE_ALLOC", 0) // like L_ALLOC, intended for scoped allocations
+X(ROL_BYTE,              108u, "ROL_BYTE", 0) // Pop value,count -> push rotate-left low byte by count&7
+X(ROR_BYTE,              109u, "ROR_BYTE", 0) // Pop value,count -> push rotate-right low byte by count&7
 
-X(FMT,                   108u, "FMT", 1) // u8 argc
-X(LOG,                   109u, "LOG", 0) // consumes (r0=off, r1=len, r2=kind)
 X(VM_STATE,              110u, "VM_STATE", 1) // u8 selector -> r0/r1 value, r3=ok
 
 //

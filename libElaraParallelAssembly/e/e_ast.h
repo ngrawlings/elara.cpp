@@ -184,6 +184,7 @@ typedef struct {
   char *name;
   EParam *params;
   size_t param_count;
+  int is_variadic;
   EStmt *body;
 } EFunction;
 

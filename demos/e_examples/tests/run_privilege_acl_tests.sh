@@ -17,16 +17,16 @@ grep -q "ENTRY_PRIVILEGE 1 100" "$BUILD/privileged_workers_entry.epaasm"
 grep -q "PRIVILEGE_LOCK" "$BUILD/privileged_workers_entry.epaasm"
 grep -q "ENTRY_PRIVILEGE 1 100" "$BUILD/dynamic_whitelist_entry.epaasm"
 grep -q "PRIVILEGE_LOCK" "$BUILD/dynamic_whitelist_entry.epaasm"
-grep -q "ACL_GRANT 1" "$BUILD/dynamic_whitelist_entry.epaasm"
-grep -q "ACL_REVOKE 1" "$BUILD/dynamic_whitelist_entry.epaasm"
-grep -q "ACL_REVOKE_ALL" "$BUILD/dynamic_whitelist_entry.epaasm"
+grep -q "ACL 1 1" "$BUILD/dynamic_whitelist_entry.epaasm"
+grep -q "ACL 2 1" "$BUILD/dynamic_whitelist_entry.epaasm"
+grep -q "ACL 3 0" "$BUILD/dynamic_whitelist_entry.epaasm"
 
 gcc -std=gnu11 \
   -I"$ROOT/libElaraParallelAssembly" \
   -I"$ROOT/libElaraParallelAssembly/src" \
   "$ROOT/demos/e_examples/tests/privilege_acl_check.c" \
   "$ROOT/libElaraParallelAssembly/build/libelaraparallelassembly.a" \
-  -lpthread \
+  -lm -lpthread \
   -o "$HARNESS"
 
 "$HARNESS"

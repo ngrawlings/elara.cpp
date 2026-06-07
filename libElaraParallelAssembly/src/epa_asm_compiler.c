@@ -691,6 +691,12 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"GT_I32",     EPA_OP_GT_I32,                0,0, 0,{0}, NULL, "GT_I32 takes no params"},
     {"GE_I32",     EPA_OP_GE_I32,                0,0, 0,{0}, NULL, "GE_I32 takes no params"},
     {"DIV_I32",    EPA_OP_DIV_I32,               0,0, 0,{0}, NULL, "DIV_I32 takes no params"},
+    {"AND_I32",    EPA_OP_AND_I32,               0,0, 0,{0}, NULL, "AND_I32 takes no params"},
+    {"OR_I32",     EPA_OP_OR_I32,                0,0, 0,{0}, NULL, "OR_I32 takes no params"},
+    {"XOR_I32",    EPA_OP_XOR_I32,               0,0, 0,{0}, NULL, "XOR_I32 takes no params"},
+    {"NOT_I32",    EPA_OP_NOT_I32,               0,0, 0,{0}, NULL, "NOT_I32 takes no params"},
+    {"ROL_BYTE",   EPA_OP_ROL_BYTE,              0,0, 0,{0}, NULL, "ROL_BYTE takes no params"},
+    {"ROR_BYTE",   EPA_OP_ROR_BYTE,              0,0, 0,{0}, NULL, "ROR_BYTE takes no params"},
     {"PUSH_F32",   EPA_OP_PUSH_F32,              1,1, 1,{AK_F32}, NULL, "PUSH_F32 <f32>"},
     {"ADD_F32",    EPA_OP_ADD_F32,               0,0, 0,{0}, NULL, "ADD_F32 takes no params"},
     {"SUB_F32",    EPA_OP_SUB_F32,               0,0, 0,{0}, NULL, "SUB_F32 takes no params"},
@@ -738,11 +744,8 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"KERNEL_RETIRE", EPA_OP_KERNEL_RETIRE,      0,0, 0,{0}, NULL, "KERNEL_RETIRE (uses r0/r1 target kernel uid)"},
     {"ENTRY_PRIVILEGE", EPA_OP_ENTRY_PRIVILEGE,  2,2, 2,{AK_U8, AK_U32}, NULL, "ENTRY_PRIVILEGE <worker_id:u8> <privilege:u32>"},
     {"PRIVILEGE_LOCK", EPA_OP_PRIVILEGE_LOCK,    0,0, 0,{0}, NULL, "PRIVILEGE_LOCK"},
-    {"ACL_GRANT",      EPA_OP_ACL_GRANT,         1,1, 1,{AK_U8}, NULL, "ACL_GRANT <local_wid:u8> (r0/r1 target uid, r2/r3 remote uid)"},
-    {"ACL_REVOKE",     EPA_OP_ACL_REVOKE,        1,1, 1,{AK_U8}, NULL, "ACL_REVOKE <local_wid:u8> (r0/r1 target uid, r2/r3 remote uid)"},
-    {"ACL_REVOKE_ALL", EPA_OP_ACL_REVOKE_ALL,    0,0, 0,{0}, NULL, "ACL_REVOKE_ALL (r0/r1 target uid, r2/r3 remote uid)"},
-    {"PID_SELF",       EPA_OP_PID_SELF,          0,0, 0,{0}, NULL, "PID_SELF (returns current PID in r0)"},
-    {"PID_RETIRE",     EPA_OP_PID_RETIRE,        0,0, 0,{0}, NULL, "PID_RETIRE (uses r0 target PID)"},
+    {"ACL",            EPA_OP_ACL,               2,2, 2,{AK_U8, AK_U8}, NULL, "ACL <kind:u8> <local_wid:u8>  ; 1=grant,2=revoke,3=revoke_all"},
+    {"PID",            EPA_OP_PID,               1,1, 1,{AK_U8}, NULL, "PID <kind:u8>  ; 1=self,2=retire"},
     {"VM_STATE",       EPA_OP_VM_STATE,          1,1, 1,{AK_U8}, NULL, "VM_STATE <selector:u8> (r0/r1=value, r2=selector, r3=ok)"},
     {"DYNAMIC_POOL",EPA_OP_DYNAMIC_POOL,         5,5, 5,{AK_U32, AK_U32, AK_U32, AK_U32, AK_U32}, NULL, "DYNAMIC_POOL <pool_id:u32> <element_size:u32> <min_free:u32> <max_free:u32> <grow_by:u32>"},
     {"KERNEL_ID",EPA_OP_KERNEL_ID,               2,2, 2,{AK_U32, AK_U32}, NULL, "KERNEL_ID <lo:u32> <hi:u32>"},
@@ -796,8 +799,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"SIGNAL",     EPA_OP_SIGNAL,                0,0, 0,{0}, NULL, "SIGNAL"},
 	{"FAR_SIGNAL", EPA_OP_FAR_SIGNAL,            0,0, 0,{0}, NULL, "FAR_SIGNAL"},
 	{"HOST_SIGNAL",EPA_OP_HOST_SIGNAL,           0,0, 0,{0}, NULL, "HOST_SIGNAL"},
-	{"REQUEST_THREADS",EPA_OP_REQUEST_THREADS,   0,0, 0,{0}, NULL, "REQUEST_THREADS   ; kernel-only, r0=desired_total_threads"},
-	{"REQUEST_AT", EPA_OP_REQUEST_AT,            0,0, 0,{0}, NULL, "REQUEST_AT   ; consumes stack: descriptor words, descriptor_word_count"},
+	{"REQUEST",    EPA_OP_REQUEST,               1,1, 1,{AK_U8}, NULL, "REQUEST <kind:u8>  ; 1=threads(r0 desired), 2=AT(stack descriptor)"},
 
 	{"LOAD_CONST", EPA_OP_LOAD_CONST, 1,1, 1,{AK_U32}, NULL, "LOAD_CONST <id:u32>"},
 
@@ -806,9 +808,6 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 	{"L_SCOPE_ENTER", EPA_OP_L_SCOPE_ENTER, 0,0, 0,{0}, NULL, "L_SCOPE_ENTER   ; push local byte arena mark"},
 	{"L_SCOPE_LEAVE", EPA_OP_L_SCOPE_LEAVE, 0,0, 0,{0}, NULL, "L_SCOPE_LEAVE   ; restore local byte arena mark"},
 	{"L_SCOPE_ALLOC", EPA_OP_L_SCOPE_ALLOC, 0,0, 0,{0}, NULL, "L_SCOPE_ALLOC   ; r0=size_bytes -> r0=off,r1=size,r2=ok"},
-
-	{"FMT", EPA_OP_FMT, 1,1, 1,{AK_U8}, NULL, "FMT <argc:u8>"},
-	{"LOG", EPA_OP_LOG, 0,0, 0,{0}, NULL, "LOG   ; log string (r0,r1,r2)"},
 
 	{"SM_PUT", EPA_OP_SM_PUT, 0, 0, 0, {0}, NULL, "SM_PUT: write u32 from r0 to signal mailbox at r3; r3 += 4"},
 

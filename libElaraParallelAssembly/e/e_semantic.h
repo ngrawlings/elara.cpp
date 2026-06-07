@@ -59,6 +59,9 @@ typedef struct {
   size_t stack_local_size;
   unsigned int reserved_reg_words;
   unsigned int vm_local_count;
+  int has_varargs;
+  unsigned int vararg_off_slot;
+  unsigned int vararg_count_slot;
   struct ELocalBinding *locals;
   size_t local_count;
 } EFunctionFrame;
