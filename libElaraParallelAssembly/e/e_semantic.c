@@ -148,12 +148,18 @@ static int validate_typeof_typeid_expr(const EExpr *expr, const ESemanticModel *
     case E_EXPR_INDEX:
       return validate_typeof_typeid_expr(expr->as.index.base, model, err) &&
              validate_typeof_typeid_expr(expr->as.index.index, model, err);
+    case E_EXPR_SLICE:
+      return validate_typeof_typeid_expr(expr->as.slice.base, model, err) &&
+             validate_typeof_typeid_expr(expr->as.slice.start, model, err) &&
+             validate_typeof_typeid_expr(expr->as.slice.end, model, err);
     case E_EXPR_ASSIGN:
       return validate_typeof_typeid_expr(expr->as.assign.lhs, model, err) &&
              validate_typeof_typeid_expr(expr->as.assign.rhs, model, err);
     case E_EXPR_BINARY:
       return validate_typeof_typeid_expr(expr->as.binary.lhs, model, err) &&
              validate_typeof_typeid_expr(expr->as.binary.rhs, model, err);
+    case E_EXPR_UNARY:
+      return validate_typeof_typeid_expr(expr->as.unary.operand, model, err);
     case E_EXPR_CALL:
       if (strcmp(expr->as.call.callee, "typeid") == 0) {
         if (expr->as.call.arg_count != 1u || expr->as.call.args[0]->kind != E_EXPR_IDENT) {
@@ -342,6 +348,15 @@ static const ELocalBinding *find_local_binding_by_name(const EFunctionFrame *fra
   if (!frame || !name) return NULL;
   for (i = 0; i < frame->local_count; i++) {
     if (strcmp(frame->locals[i].name, name) == 0) return &frame->locals[i];
+  }
+  return NULL;
+}
+
+static const ELocalBinding *find_local_binding_by_stmt(const EFunctionFrame *frame, const EStmt *decl_stmt) {
+  size_t i;
+  if (!frame || !decl_stmt) return NULL;
+  for (i = 0; i < frame->local_count; i++) {
+    if (frame->locals[i].decl_stmt == decl_stmt) return &frame->locals[i];
   }
   return NULL;
 }
@@ -1321,6 +1336,8 @@ static const char *infer_custom_expr_type(const EExpr *expr,
         }
       }
       return NULL;
+    case E_EXPR_SLICE:
+      return NULL;
     case E_EXPR_CALL:
       if (is_ghs_alloc_call(expr) || is_ghs_alloc_from_local_call(expr)) {
         if ((is_ghs_alloc_call(expr) && expr->as.call.arg_count != 1u) ||
@@ -1365,6 +1382,7 @@ static const char *infer_custom_expr_type(const EExpr *expr,
     case E_EXPR_STRING:
     case E_EXPR_INT:
     case E_EXPR_BINARY:
+    case E_EXPR_UNARY:
     case E_EXPR_ASSIGN:
       return NULL;
   }
@@ -1583,6 +1601,12 @@ static int validate_far_signal_expr(const EExpr *expr,
     case E_EXPR_BINARY:
       return validate_far_signal_expr(expr->as.binary.lhs, frame, worker, model, err) &&
              validate_far_signal_expr(expr->as.binary.rhs, frame, worker, model, err);
+    case E_EXPR_UNARY:
+      return validate_far_signal_expr(expr->as.unary.operand, frame, worker, model, err);
+    case E_EXPR_SLICE:
+      return validate_far_signal_expr(expr->as.slice.base, frame, worker, model, err) &&
+             validate_far_signal_expr(expr->as.slice.start, frame, worker, model, err) &&
+             validate_far_signal_expr(expr->as.slice.end, frame, worker, model, err);
     case E_EXPR_CALL:
       if (strcmp(expr->as.call.callee, "far_signal") == 0) {
         const ELocalBinding *payload_local;
@@ -1856,6 +1880,8 @@ static int validate_rgm_usage_in_expr(const EExpr *expr,
     case E_EXPR_BINARY:
       return validate_rgm_usage_in_expr(expr->as.binary.lhs, frame, in_worker_static_block, 0, err) &&
              validate_rgm_usage_in_expr(expr->as.binary.rhs, frame, in_worker_static_block, 0, err);
+    case E_EXPR_UNARY:
+      return validate_rgm_usage_in_expr(expr->as.unary.operand, frame, in_worker_static_block, 0, err);
     case E_EXPR_ASSIGN:
       return validate_rgm_usage_in_expr(expr->as.assign.lhs, frame, in_worker_static_block, 0, err) &&
              validate_rgm_usage_in_expr(expr->as.assign.rhs, frame, in_worker_static_block, 0, err);
@@ -1864,6 +1890,10 @@ static int validate_rgm_usage_in_expr(const EExpr *expr,
     case E_EXPR_INDEX:
       return validate_rgm_usage_in_expr(expr->as.index.base, frame, in_worker_static_block, 0, err) &&
              validate_rgm_usage_in_expr(expr->as.index.index, frame, in_worker_static_block, 0, err);
+    case E_EXPR_SLICE:
+      return validate_rgm_usage_in_expr(expr->as.slice.base, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_expr(expr->as.slice.start, frame, in_worker_static_block, 0, err) &&
+             validate_rgm_usage_in_expr(expr->as.slice.end, frame, in_worker_static_block, 0, err);
     case E_EXPR_IDENT:
     case E_EXPR_INT:
     case E_EXPR_STRING:
@@ -2012,6 +2042,8 @@ static int validate_privilege_usage_in_expr(const EExpr *expr, int in_kernel_sta
     case E_EXPR_BINARY:
       return validate_privilege_usage_in_expr(expr->as.binary.lhs, in_kernel_static_block, 0, err) &&
              validate_privilege_usage_in_expr(expr->as.binary.rhs, in_kernel_static_block, 0, err);
+    case E_EXPR_UNARY:
+      return validate_privilege_usage_in_expr(expr->as.unary.operand, in_kernel_static_block, 0, err);
     case E_EXPR_ASSIGN:
       return validate_privilege_usage_in_expr(expr->as.assign.lhs, in_kernel_static_block, 0, err) &&
              validate_privilege_usage_in_expr(expr->as.assign.rhs, in_kernel_static_block, 0, err);
@@ -2020,10 +2052,192 @@ static int validate_privilege_usage_in_expr(const EExpr *expr, int in_kernel_sta
     case E_EXPR_INDEX:
       return validate_privilege_usage_in_expr(expr->as.index.base, in_kernel_static_block, 0, err) &&
              validate_privilege_usage_in_expr(expr->as.index.index, in_kernel_static_block, 0, err);
+    case E_EXPR_SLICE:
+      return validate_privilege_usage_in_expr(expr->as.slice.base, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_expr(expr->as.slice.start, in_kernel_static_block, 0, err) &&
+             validate_privilege_usage_in_expr(expr->as.slice.end, in_kernel_static_block, 0, err);
     case E_EXPR_IDENT:
     case E_EXPR_INT:
     case E_EXPR_STRING:
       return 1;
+  }
+  return 1;
+}
+
+static int expr_is_dynamic_slice(const EExpr *expr, const ESemanticModel *model, const EDynamicPool **out_pool) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_SLICE) return 0;
+  if (!expr->as.slice.base || expr->as.slice.base->kind != E_EXPR_IDENT) return 0;
+  pool = find_dynamic_pool(model, expr->as.slice.base->as.ident);
+  if (!pool) return 0;
+  if (out_pool) *out_pool = pool;
+  return 1;
+}
+
+static int validate_dynamic_slice_target_binding(const ELocalBinding *binding, char err[256]) {
+  if (!binding || binding->storage != E_LOCAL_ARENA_SCOPED || binding->vm_local_words != E_TYPE_REF_ABI_WORDS) {
+    snprintf(err, 256, "dynamic slice target must be a local frame-backed binding");
+    return 0;
+  }
+  return 1;
+}
+
+static int validate_dynamic_slice_expr(const EExpr *expr,
+                                       const EFunctionFrame *frame,
+                                       const ESemanticModel *model,
+                                       int allow_value,
+                                       char err[256]) {
+  if (!expr) return 1;
+  switch (expr->kind) {
+    case E_EXPR_IDENT:
+    case E_EXPR_INT:
+    case E_EXPR_STRING:
+      return 1;
+    case E_EXPR_FIELD:
+      return validate_dynamic_slice_expr(expr->as.field.base, frame, model, 0, err);
+    case E_EXPR_INDEX:
+      return validate_dynamic_slice_expr(expr->as.index.base, frame, model, 0, err) &&
+             validate_dynamic_slice_expr(expr->as.index.index, frame, model, 0, err);
+    case E_EXPR_SLICE:
+      if (!allow_value) {
+        snprintf(err, 256, "dynamic slice may only initialize or assign to local frame-backed storage");
+        return 0;
+      }
+      if (!expr_is_dynamic_slice(expr, model, NULL)) {
+        snprintf(err, 256, "slice base must be a dynamic pool identifier");
+        return 0;
+      }
+      if (!expr->as.slice.end) {
+        snprintf(err, 256, "dynamic slice requires an explicit end bound");
+        return 0;
+      }
+      return validate_dynamic_slice_expr(expr->as.slice.start, frame, model, 0, err) &&
+             validate_dynamic_slice_expr(expr->as.slice.end, frame, model, 0, err);
+    case E_EXPR_ASSIGN:
+      if (expr->as.assign.rhs && expr->as.assign.rhs->kind == E_EXPR_SLICE) {
+        const ELocalBinding *binding = NULL;
+        if (!expr->as.assign.lhs || expr->as.assign.lhs->kind != E_EXPR_IDENT) {
+          snprintf(err, 256, "dynamic slice assignment target must be a local identifier");
+          return 0;
+        }
+        binding = find_local_binding_by_name(frame, expr->as.assign.lhs->as.ident);
+        if (!validate_dynamic_slice_target_binding(binding, err)) return 0;
+        return validate_dynamic_slice_expr(expr->as.assign.rhs, frame, model, 1, err);
+      }
+      return validate_dynamic_slice_expr(expr->as.assign.lhs, frame, model, 0, err) &&
+             validate_dynamic_slice_expr(expr->as.assign.rhs, frame, model, 0, err);
+    case E_EXPR_BINARY:
+      return validate_dynamic_slice_expr(expr->as.binary.lhs, frame, model, 0, err) &&
+             validate_dynamic_slice_expr(expr->as.binary.rhs, frame, model, 0, err);
+    case E_EXPR_UNARY:
+      return validate_dynamic_slice_expr(expr->as.unary.operand, frame, model, 0, err);
+    case E_EXPR_CALL: {
+      size_t i;
+      for (i = 0; i < expr->as.call.arg_count; i++) {
+        if (!validate_dynamic_slice_expr(expr->as.call.args[i], frame, model, 0, err)) return 0;
+      }
+      return 1;
+    }
+  }
+  return 1;
+}
+
+static int validate_dynamic_slice_usage_in_stmt(const EStmt *stmt,
+                                                const EFunctionFrame *frame,
+                                                const ESemanticModel *model,
+                                                char err[256]) {
+  size_t i;
+  if (!stmt) return 1;
+  switch (stmt->kind) {
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) {
+        if (!validate_dynamic_slice_usage_in_stmt(stmt->as.block.items[i], frame, model, err)) return 0;
+      }
+      return 1;
+    case E_STMT_IF:
+      return validate_dynamic_slice_expr(stmt->as.if_stmt.cond, frame, model, 0, err) &&
+             validate_dynamic_slice_usage_in_stmt(stmt->as.if_stmt.then_branch, frame, model, err) &&
+             validate_dynamic_slice_usage_in_stmt(stmt->as.if_stmt.else_branch, frame, model, err);
+    case E_STMT_WHILE:
+      return validate_dynamic_slice_expr(stmt->as.while_stmt.cond, frame, model, 0, err) &&
+             validate_dynamic_slice_usage_in_stmt(stmt->as.while_stmt.body, frame, model, err);
+    case E_STMT_FOR:
+      return validate_dynamic_slice_usage_in_stmt(stmt->as.for_stmt.init, frame, model, err) &&
+             validate_dynamic_slice_expr(stmt->as.for_stmt.cond, frame, model, 0, err) &&
+             validate_dynamic_slice_expr(stmt->as.for_stmt.step, frame, model, 0, err) &&
+             validate_dynamic_slice_usage_in_stmt(stmt->as.for_stmt.body, frame, model, err);
+    case E_STMT_FOREACH:
+      return validate_dynamic_slice_usage_in_stmt(stmt->as.foreach_stmt.var_decl, frame, model, err) &&
+             validate_dynamic_slice_usage_in_stmt(stmt->as.foreach_stmt.body, frame, model, err);
+    case E_STMT_SWITCH:
+      if (!validate_dynamic_slice_expr(stmt->as.switch_stmt.target, frame, model, 0, err)) return 0;
+      for (i = 0; i < stmt->as.switch_stmt.case_count; i++) {
+        size_t j;
+        for (j = 0; j < stmt->as.switch_stmt.cases[i].body.count; j++) {
+          if (!validate_dynamic_slice_usage_in_stmt(stmt->as.switch_stmt.cases[i].body.items[j], frame, model, err)) return 0;
+        }
+      }
+      return 1;
+    case E_STMT_DECL:
+      if (stmt->as.decl.init && stmt->as.decl.init->kind == E_EXPR_SLICE) {
+        const ELocalBinding *binding = find_local_binding_by_stmt(frame, stmt);
+        if (!validate_dynamic_slice_target_binding(binding, err)) return 0;
+        return validate_dynamic_slice_expr(stmt->as.decl.init, frame, model, 1, err);
+      }
+      return validate_dynamic_slice_expr(stmt->as.decl.init, frame, model, 0, err);
+    case E_STMT_RETURN:
+      return validate_dynamic_slice_expr(stmt->as.ret.value, frame, model, 0, err);
+    case E_STMT_EXPR:
+      return validate_dynamic_slice_expr(stmt->as.expr, frame, model, 0, err);
+    case E_STMT_STATIC_BLOCK:
+      for (i = 0; i < stmt->as.static_block.count; i++) {
+        if (!validate_dynamic_slice_usage_in_stmt(stmt->as.static_block.items[i], frame, model, err)) return 0;
+      }
+      return 1;
+    case E_STMT_BREAK:
+    case E_STMT_CONTINUE:
+    case E_STMT_NEXT:
+    case E_STMT_RAW_EPA:
+    case E_STMT_DYNAMIC:
+    case E_STMT_KERNAL_ID:
+      return 1;
+  }
+  return 1;
+}
+
+static int validate_dynamic_slice_usage(const EProgram *program, const ESemanticModel *model, char err[256]) {
+  size_t i;
+  for (i = 0; i < program->count; i++) {
+    const ETopDecl *top = &program->items[i];
+    const EStmt *body = NULL;
+    const EFunctionFrame *frame = NULL;
+    switch (top->kind) {
+      case E_TOP_KERNEL:
+        body = top->as.kernel.body;
+        frame = find_frame(model, "kernel");
+        break;
+      case E_TOP_WORKER:
+        body = top->as.worker.body;
+        frame = find_frame(model, top->as.worker.name);
+        break;
+      case E_TOP_FUNCTION:
+        body = top->as.func.body;
+        frame = find_frame(model, top->as.func.name);
+        break;
+      case E_TOP_AT_ENTRY:
+        body = top->as.at_entry.body;
+        frame = find_frame(model, top->as.at_entry.name);
+        break;
+      case E_TOP_TYPE:
+        body = top->as.tdecl.body;
+        frame = find_frame(model, top->as.tdecl.name);
+        break;
+      case E_TOP_STRUCT:
+      case E_TOP_DECLARE:
+      case E_TOP_DYNAMIC:
+        break;
+    }
+    if (body && !validate_dynamic_slice_usage_in_stmt(body, frame, model, err)) return 0;
   }
   return 1;
 }
@@ -2255,6 +2469,10 @@ int e_build_semantic_model(const EProgram *program, ESemanticModel *out_model, c
   }
 
   if (!validate_rgm_usage(program, out_model, err)) {
+    return semantic_fail_cleanup(out_model, err);
+  }
+
+  if (!validate_dynamic_slice_usage(program, out_model, err)) {
     return semantic_fail_cleanup(out_model, err);
   }
 

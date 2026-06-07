@@ -216,14 +216,47 @@ static EExpr *parse_primary(Parser *p) {
         continue;
       }
       if (match(p, E_TOK_LBRACKET)) {
-        EExpr *index_expr = parse_expr(p);
-        EExpr *sub_expr;
-        if (!index_expr) return NULL;
-        if (!expect(p, E_TOK_RBRACKET, "expected ']' after index expression")) return NULL;
-        sub_expr = new_expr(E_EXPR_INDEX);
-        sub_expr->as.index.base = e;
-        sub_expr->as.index.index = index_expr;
-        e = sub_expr;
+        EExpr *first_expr = NULL;
+        if (peek(p)->kind == E_TOK_COLON) {
+          EExpr *slice_expr;
+          p->pos++;
+          if (peek(p)->kind != E_TOK_RBRACKET) {
+            first_expr = parse_expr(p);
+            if (!first_expr) return NULL;
+          }
+          if (!expect(p, E_TOK_RBRACKET, "expected ']' after slice expression")) return NULL;
+          slice_expr = new_expr(E_EXPR_SLICE);
+          slice_expr->as.slice.base = e;
+          slice_expr->as.slice.start = NULL;
+          slice_expr->as.slice.end = first_expr;
+          e = slice_expr;
+          continue;
+        }
+        first_expr = parse_expr(p);
+        if (!first_expr) return NULL;
+        if (match(p, E_TOK_RBRACKET)) {
+          EExpr *sub_expr = new_expr(E_EXPR_INDEX);
+          sub_expr->as.index.base = e;
+          sub_expr->as.index.index = first_expr;
+          e = sub_expr;
+          continue;
+        }
+        if (match(p, E_TOK_COLON)) {
+          EExpr *end_expr = NULL;
+          EExpr *slice_expr;
+          if (peek(p)->kind != E_TOK_RBRACKET) {
+            end_expr = parse_expr(p);
+            if (!end_expr) return NULL;
+          }
+          if (!expect(p, E_TOK_RBRACKET, "expected ']' after slice expression")) return NULL;
+          slice_expr = new_expr(E_EXPR_SLICE);
+          slice_expr->as.slice.base = e;
+          slice_expr->as.slice.start = first_expr;
+          slice_expr->as.slice.end = end_expr;
+          e = slice_expr;
+          continue;
+        }
+        if (!expect(p, E_TOK_RBRACKET, "expected ']' or ':' after index expression")) return NULL;
         continue;
       }
       break;
@@ -250,17 +283,45 @@ static EExpr *parse_primary(Parser *p) {
   return NULL;
 }
 
+static EExpr *parse_unary(Parser *p) {
+  if (peek(p)->kind == E_TOK_PLUS ||
+      peek(p)->kind == E_TOK_MINUS ||
+      peek(p)->kind == E_TOK_TILDE) {
+    ETokenKind op = peek(p)->kind;
+    EExpr *operand;
+    EExpr *e;
+    p->pos++;
+    operand = parse_unary(p);
+    if (!operand) return NULL;
+    e = new_expr(E_EXPR_UNARY);
+    switch (op) {
+      case E_TOK_PLUS: e->as.unary.op = E_UN_PLUS; break;
+      case E_TOK_MINUS: e->as.unary.op = E_UN_MINUS; break;
+      case E_TOK_TILDE: e->as.unary.op = E_UN_BITNOT; break;
+      default: return NULL;
+    }
+    e->as.unary.operand = operand;
+    return e;
+  }
+  return parse_primary(p);
+}
+
 static EExpr *parse_mul(Parser *p) {
-  EExpr *lhs = parse_primary(p);
-  while (lhs && (peek(p)->kind == E_TOK_STAR || peek(p)->kind == E_TOK_SLASH)) {
+  EExpr *lhs = parse_unary(p);
+  while (lhs &&
+         (peek(p)->kind == E_TOK_STAR ||
+          peek(p)->kind == E_TOK_SLASH ||
+          peek(p)->kind == E_TOK_PERCENT)) {
     ETokenKind op = peek(p)->kind;
     EExpr *rhs;
     EExpr *e;
     p->pos++;
-    rhs = parse_primary(p);
+    rhs = parse_unary(p);
     if (!rhs) return NULL;
     e = new_expr(E_EXPR_BINARY);
-    e->as.binary.op = (op == E_TOK_STAR) ? E_BIN_MUL : E_BIN_DIV;
+    e->as.binary.op = (op == E_TOK_STAR)
+      ? E_BIN_MUL
+      : ((op == E_TOK_SLASH) ? E_BIN_DIV : E_BIN_MOD);
     e->as.binary.lhs = lhs;
     e->as.binary.rhs = rhs;
     lhs = e;

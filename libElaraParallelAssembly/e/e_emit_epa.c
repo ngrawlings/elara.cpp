@@ -225,6 +225,105 @@ static unsigned int intern_string_const(EmitCtx *ctx, const char *literal) {
 }
 
 static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr);
+static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static unsigned int next_label(EmitCtx *ctx);
+
+static void emit_python_mod_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int zero_label = next_label(ctx);
+  unsigned int push_label = next_label(ctx);
+  unsigned int done_label = next_label(ctx);
+  emit_expr(out, expr->as.binary.lhs, ctx, depth);
+  emit_expr(out, expr->as.binary.rhs, ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out); /* divisor */
+  emit_indent(out, depth);
+  fputs("POP R2\n", out); /* dividend */
+
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_MOD_ZERO_%u\n", zero_label);
+
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("DIV_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out); /* quotient */
+
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("MUL_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out); /* quotient * divisor */
+
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("SUB_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out); /* truncated remainder */
+
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_MOD_PUSH_%u\n", push_label);
+
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out); /* r < 0 */
+
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out); /* b < 0 */
+  emit_indent(out, depth);
+  fputs("NE_I32\n", out); /* sign mismatch */
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_MOD_PUSH_%u\n", push_label);
+
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+
+  fprintf(out, "E_MOD_PUSH_%u:\n", push_label);
+  emit_indent(out, depth);
+  fputs("PUSH R3\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_MOD_DONE_%u\n", done_label);
+
+  fprintf(out, "E_MOD_ZERO_%u:\n", zero_label);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  fprintf(out, "E_MOD_DONE_%u:\n", done_label);
+}
 
 static void collect_strings_in_stmt(EmitCtx *ctx, const EStmt *stmt) {
   size_t i;
@@ -293,6 +392,9 @@ static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr) {
       collect_strings_in_expr(ctx, expr->as.binary.lhs);
       collect_strings_in_expr(ctx, expr->as.binary.rhs);
       break;
+    case E_EXPR_UNARY:
+      collect_strings_in_expr(ctx, expr->as.unary.operand);
+      break;
     case E_EXPR_ASSIGN:
       collect_strings_in_expr(ctx, expr->as.assign.lhs);
       collect_strings_in_expr(ctx, expr->as.assign.rhs);
@@ -306,6 +408,11 @@ static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr) {
     case E_EXPR_INDEX:
       collect_strings_in_expr(ctx, expr->as.index.base);
       collect_strings_in_expr(ctx, expr->as.index.index);
+      break;
+    case E_EXPR_SLICE:
+      collect_strings_in_expr(ctx, expr->as.slice.base);
+      collect_strings_in_expr(ctx, expr->as.slice.start);
+      collect_strings_in_expr(ctx, expr->as.slice.end);
       break;
     case E_EXPR_IDENT:
     case E_EXPR_INT:
@@ -348,6 +455,7 @@ static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitC
 static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_vararg_count_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_vararg_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -432,6 +540,16 @@ static int expr_is_dynamic_index(const EExpr *expr, const ESemanticModel *model,
   return 1;
 }
 
+static int expr_is_dynamic_slice(const EExpr *expr, const ESemanticModel *model, const EDynamicPool **out_pool) {
+  const EDynamicPool *pool;
+  if (!expr || expr->kind != E_EXPR_SLICE) return 0;
+  if (!expr->as.slice.base || expr->as.slice.base->kind != E_EXPR_IDENT) return 0;
+  pool = find_dynamic_pool(model, expr->as.slice.base->as.ident);
+  if (!pool) return 0;
+  if (out_pool) *out_pool = pool;
+  return 1;
+}
+
 static unsigned int dynamic_pool_id(const EmitCtx *ctx, const EDynamicPool *pool) {
   return (unsigned int)(pool - ctx->model->dynamic_pools);
 }
@@ -458,6 +576,219 @@ static int emit_dynamic_index_load(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   fputs("PUSH R0\n", out);
   emit_indent(out, depth);
   fputs("PUSH R1\n", out);
+  return 1;
+}
+
+static int emit_dynamic_slice_load(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EDynamicPool *pool;
+  const EFunctionFrame *frame = active_frame_for_ctx(ctx);
+  unsigned int base_slot;
+  unsigned int start_slot;
+  unsigned int end_slot;
+  unsigned int idx_slot;
+  unsigned int dst_off_slot;
+  unsigned int dst_size_slot;
+  unsigned int dst_cur_slot;
+  unsigned int src_off_slot;
+  unsigned int byte_idx_slot;
+  unsigned int zero_id;
+  unsigned int outer_head_id;
+  unsigned int outer_done_id;
+  unsigned int copy_head_id;
+  unsigned int copy_done_id;
+
+  if (!expr_is_dynamic_slice(expr, ctx->model, &pool)) return 0;
+  if (!expr->as.slice.end) return 0;
+
+  base_slot = frame ? frame->vm_local_count : 0u;
+  start_slot = base_slot;
+  end_slot = base_slot + 1u;
+  idx_slot = base_slot + 2u;
+  dst_off_slot = base_slot + 3u;
+  dst_size_slot = base_slot + 4u;
+  dst_cur_slot = base_slot + 5u;
+  src_off_slot = base_slot + 6u;
+  byte_idx_slot = base_slot + 7u;
+  zero_id = next_label(ctx);
+  outer_head_id = next_label(ctx);
+  outer_done_id = next_label(ctx);
+  copy_head_id = next_label(ctx);
+  copy_done_id = next_label(ctx);
+
+  if (expr->as.slice.start) emit_expr(out, expr->as.slice.start, ctx, depth);
+  else {
+    emit_indent(out, depth);
+    fputs("PUSH 0\n", out);
+  }
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, start_slot);
+
+  emit_expr(out, expr->as.slice.end, ctx, depth);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, end_slot);
+
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, end_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, start_slot);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JNZ E_SLICE_ZERO_%u\n", zero_id);
+
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, end_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, start_slot);
+  emit_indent(out, depth);
+  fputs("SUB_I32\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("MUL_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("L_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_off_slot);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_size_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, dst_off_slot);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_cur_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, start_slot);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, idx_slot);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_SLICE_OUTER_%u\n", outer_head_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_SLICE_ZERO_%u:\n", zero_id);
+  emit_indent(out, depth);
+  fputs("SET_R 0 0\n", out);
+  emit_indent(out, depth);
+  fputs("L_ALLOC\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_off_slot);
+  emit_indent(out, depth);
+  fputs("PUSH R1\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_size_slot);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_SLICE_DONE_%u\n", outer_done_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_SLICE_OUTER_%u:\n", outer_head_id);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, idx_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, end_slot);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_SLICE_DONE_%u\n", outer_done_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_ENTER\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, idx_slot);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "DYN_LOAD %u\n", dynamic_pool_id(ctx, pool));
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, src_off_slot);
+  emit_indent(out, depth);
+  fputs("PUSH 0\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, byte_idx_slot);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_SLICE_COPY_%u:\n", copy_head_id);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, byte_idx_slot);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("LT_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP 0\n", out);
+  emit_indent(out, depth);
+  fprintf(out, "JZ E_SLICE_COPY_DONE_%u\n", copy_done_id);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, src_off_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, byte_idx_slot);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, dst_cur_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, byte_idx_slot);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV1 R2 R1\n", out);
+  emit_indent(out, depth);
+  fputs("RLB_MOV1 R2 R0\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, byte_idx_slot);
+  emit_indent(out, depth);
+  fputs("PUSH 1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, byte_idx_slot);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_SLICE_COPY_%u\n", copy_head_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_SLICE_COPY_DONE_%u:\n", copy_done_id);
+  emit_indent(out, depth);
+  fputs("L_SCOPE_LEAVE\n", out);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, dst_cur_slot);
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %zu\n", pool->element_size);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, dst_cur_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, idx_slot);
+  emit_indent(out, depth);
+  fputs("PUSH 1\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  EMIT_STORE_L(out, ctx, idx_slot);
+  emit_indent(out, depth);
+  fprintf(out, "JMP E_SLICE_OUTER_%u\n", outer_head_id);
+
+  emit_indent(out, depth);
+  fprintf(out, "E_SLICE_DONE_%u:\n", outer_done_id);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, dst_off_slot);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, dst_size_slot);
   return 1;
 }
 
@@ -521,6 +852,7 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"rgm_publish", emit_rgm_publish_builtin},
     {"rgm_get", emit_rgm_get_builtin},
     {"ghs_store_i32", emit_ghs_store_i32_builtin},
+    {"local_load_i32", emit_local_load_i32_builtin},
     {"local_store_i32", emit_local_store_i32_builtin},
     {"vararg_count", emit_vararg_count_builtin},
     {"vararg_i32", emit_vararg_i32_builtin},
@@ -769,6 +1101,10 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       fprintf(out, "; expr string %s\n", expr->as.string_lit);
       break;
     case E_EXPR_BINARY:
+      if (expr->as.binary.op == E_BIN_MOD) {
+        emit_python_mod_expr(out, expr, ctx, depth);
+        break;
+      }
       emit_expr(out, expr->as.binary.lhs, ctx, depth);
       emit_expr(out, expr->as.binary.rhs, ctx, depth);
       emit_indent(out, depth);
@@ -777,12 +1113,32 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
         case E_BIN_SUB: fputs("SUB_I32\n", out); break;
         case E_BIN_MUL: fputs("MUL_I32\n", out); break;
         case E_BIN_DIV: fputs("DIV_I32\n", out); break;
+        case E_BIN_MOD: break;
         case E_BIN_EQ: fputs("EQ_I32\n", out); break;
         case E_BIN_NE: fputs("NE_I32\n", out); break;
         case E_BIN_LT: fputs("LT_I32\n", out); break;
         case E_BIN_LE: fputs("LE_I32\n", out); break;
         case E_BIN_GT: fputs("GT_I32\n", out); break;
         case E_BIN_GE: fputs("GE_I32\n", out); break;
+      }
+      break;
+    case E_EXPR_UNARY:
+      switch (expr->as.unary.op) {
+        case E_UN_PLUS:
+          emit_expr(out, expr->as.unary.operand, ctx, depth);
+          break;
+        case E_UN_MINUS:
+          emit_indent(out, depth);
+          fputs("PUSH 0\n", out);
+          emit_expr(out, expr->as.unary.operand, ctx, depth);
+          emit_indent(out, depth);
+          fputs("SUB_I32\n", out);
+          break;
+        case E_UN_BITNOT:
+          emit_expr(out, expr->as.unary.operand, ctx, depth);
+          emit_indent(out, depth);
+          fputs("NOT_I32\n", out);
+          break;
       }
       break;
     case E_EXPR_ASSIGN:
@@ -846,6 +1202,11 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
       if (emit_dynamic_index_load(out, expr, ctx, depth)) break;
       emit_indent(out, depth);
       fputs("// error: unsupported index expression\n", out);
+      break;
+    case E_EXPR_SLICE:
+      if (emit_dynamic_slice_load(out, expr, ctx, depth)) break;
+      emit_indent(out, depth);
+      fputs("// error: unsupported slice expression\n", out);
       break;
   }
 }
@@ -1532,6 +1893,37 @@ static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *c
   fputs("POP R2\n", out);
   emit_indent(out, depth);
   fputs("RLB_MOV4 R3 R2\n", out);
+  return 1;
+}
+
+static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; local_load_i32 expects (local_ref, byte_offset), got %zu\n",
+            expr->as.call.arg_count);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV4 R2 R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
   return 1;
 }
 

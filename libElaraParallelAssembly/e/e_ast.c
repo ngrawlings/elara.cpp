@@ -30,6 +30,14 @@ static void free_expr(EExpr *e) {
       free_expr(e->as.binary.lhs);
       free_expr(e->as.binary.rhs);
       break;
+    case E_EXPR_UNARY:
+      free_expr(e->as.unary.operand);
+      break;
+    case E_EXPR_SLICE:
+      free_expr(e->as.slice.base);
+      free_expr(e->as.slice.start);
+      free_expr(e->as.slice.end);
+      break;
     case E_EXPR_ASSIGN:
       free_expr(e->as.assign.lhs);
       free_expr(e->as.assign.rhs);
@@ -218,12 +226,22 @@ static const char *bin_name(EBinaryOp op) {
     case E_BIN_SUB: return "-";
     case E_BIN_MUL: return "*";
     case E_BIN_DIV: return "/";
+    case E_BIN_MOD: return "%";
     case E_BIN_EQ: return "==";
     case E_BIN_NE: return "!=";
     case E_BIN_LT: return "<";
     case E_BIN_LE: return "<=";
     case E_BIN_GT: return ">";
     case E_BIN_GE: return ">=";
+  }
+  return "?";
+}
+
+static const char *un_name(EUnaryOp op) {
+  switch (op) {
+    case E_UN_PLUS: return "+";
+    case E_UN_MINUS: return "-";
+    case E_UN_BITNOT: return "~";
   }
   return "?";
 }
@@ -253,6 +271,28 @@ static void dump_expr(FILE *out, const EExpr *e, int depth) {
       fprintf(out, "binary %s\n", bin_name(e->as.binary.op));
       dump_expr(out, e->as.binary.lhs, depth + 1);
       dump_expr(out, e->as.binary.rhs, depth + 1);
+      break;
+    case E_EXPR_UNARY:
+      indent(out, depth);
+      fprintf(out, "unary %s\n", un_name(e->as.unary.op));
+      dump_expr(out, e->as.unary.operand, depth + 1);
+      break;
+    case E_EXPR_SLICE:
+      indent(out, depth);
+      fputs("slice\n", out);
+      indent(out, depth + 1);
+      fputs("base\n", out);
+      dump_expr(out, e->as.slice.base, depth + 2);
+      if (e->as.slice.start) {
+        indent(out, depth + 1);
+        fputs("start\n", out);
+        dump_expr(out, e->as.slice.start, depth + 2);
+      }
+      if (e->as.slice.end) {
+        indent(out, depth + 1);
+        fputs("end\n", out);
+        dump_expr(out, e->as.slice.end, depth + 2);
+      }
       break;
     case E_EXPR_ASSIGN:
       indent(out, depth);

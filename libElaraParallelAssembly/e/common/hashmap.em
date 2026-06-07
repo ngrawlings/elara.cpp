@@ -1,190 +1,197 @@
-// E stdlib HashMap.
-//
-// First concrete real-world map: i32 -> i32.
-//
-// Current E dynamic pools are compile-time named pools, not first-class values.
-// So this module exposes one process/kernel-local HashMapI32 store backed by a
-// stdlib-owned dynamic pool. A future generic macro or first-class pool handle
-// can layer multiple independently named maps over the same algorithms.
-
 #include "common/bytes.em"
 
-type HashMapI32Entry(int key, int value, int state, int chain) {
-  return key;
+type HashMapBytesHandle(int value_id) {
+  return value_id;
 }
 
-type HashMapI32(int buckets_off, int capacity, int count) {
-  return buckets_off;
+type HashMapKey64(
+  int b00, int b01, int b02, int b03,
+  int b04, int b05, int b06, int b07
+) {
+  return b00;
 }
 
-dynamic hashmap_i32_entries(HashMapI32Entry, 32, 128, 32);
+type HashMap64(int root_id, int count) {
+  return root_id;
+}
 
-function int hashmap_i32_empty_id() {
+dynamic hashmap_bytes_values(byte[64], 32, 128, 32);
+dynamic hashmap_u64_nodes(byte[1028], 32, 128, 32);
+
+function int hashmap_empty_id() {
   return 0 - 1;
 }
 
-function int hashmap_i32_required_bytes(int capacity) {
-  return capacity * 4;
+function int hashmap_bytes_value_size() {
+  return 64;
 }
 
-function int hashmap_i32_hash(int key) {
-  int hash = 0;
+function int hashmap_u64_node_value_off() {
+  return 1024;
+}
 
-  EPA {
-    LOAD_LW 0
-    PUSH 16
-    ROR_BYTE
-    PUSH 16777619
-    MUL_I32
-    LOAD_LW 0
-    XOR_I32
-    STORE_LW 1
+function int hashmap_key64_get_byte(HashMapKey64 key, int depth) {
+  if (depth == 0) { return bit_and_i32(key.b00, 255); }
+  if (depth == 1) { return bit_and_i32(key.b01, 255); }
+  if (depth == 2) { return bit_and_i32(key.b02, 255); }
+  if (depth == 3) { return bit_and_i32(key.b03, 255); }
+  if (depth == 4) { return bit_and_i32(key.b04, 255); }
+  if (depth == 5) { return bit_and_i32(key.b05, 255); }
+  if (depth == 6) { return bit_and_i32(key.b06, 255); }
+  return bit_and_i32(key.b07, 255);
+}
+
+function int hashmap_bytes_alloc() {
+  return dyn_alloc(hashmap_bytes_values);
+}
+
+function int hashmap_bytes_zero(int value_id) {
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
   }
 
-  hash = hash;
-  return hash;
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
 }
 
-function int hashmap_i32_init(int buckets_off, int capacity) {
-  byte_fill(buckets_off, capacity * 4, 255);
-  return capacity;
+function int hashmap_bytes_store_i32(int value_id, int byte_offset, int value) {
+  local byte[64] bytes;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(bytes, byte_offset, value);
+  hashmap_bytes_values[value_id] = bytes;
+  return value;
 }
 
-function int hashmap_i32_bucket_off(int buckets_off, int bucket_index) {
-  return buckets_off + (bucket_index * 4);
+function int hashmap_bytes_load_i32(int value_id, int byte_offset) {
+  local byte[64] bytes;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(bytes, byte_offset);
 }
 
-function int hashmap_i32_bucket_get(int buckets_off, int bucket_index) {
-  int off = hashmap_i32_bucket_off(buckets_off, bucket_index);
-  return u32_load_le(off);
+function int hashmap_bytes_free(int value_id) {
+  dyn_free(hashmap_bytes_values, value_id);
+  return value_id;
 }
 
-function int hashmap_i32_bucket_set(int buckets_off, int bucket_index, int entry_id) {
-  int off = hashmap_i32_bucket_off(buckets_off, bucket_index);
-  u32_store_le(off, entry_id);
-  return entry_id;
+function int hashmap_u64_node_child_off(int key_byte) {
+  return key_byte * 4;
 }
 
-function int hashmap_i32_find_in_bucket(int bucket_head, int key) {
-  int current = bucket_head;
+function int hashmap_u64_node_init(int node_id) {
+  local byte[1028] node;
+  int slot = 0;
+  node = hashmap_u64_nodes[node_id:node_id + 1];
 
-  while (current != hashmap_i32_empty_id()) {
-    HashMapI32Entry entry = hashmap_i32_entries[current];
-    if (entry.state == 1) {
-      if (entry.key == key) {
-        return current;
-      }
+  while (slot < 257) {
+    local_store_i32(node, slot * 4, hashmap_empty_id());
+    slot = slot + 1;
+  }
+
+  hashmap_u64_nodes[node_id] = node;
+  return node_id;
+}
+
+function int hashmap_u64_init() {
+  int root_id = dyn_alloc(hashmap_u64_nodes);
+  hashmap_u64_node_init(root_id);
+  return root_id;
+}
+
+function int hashmap_u64_child_get(int node_id, int key_byte) {
+  local byte[1028] node;
+  node = hashmap_u64_nodes[node_id:node_id + 1];
+  return local_load_i32(node, hashmap_u64_node_child_off(key_byte));
+}
+
+function int hashmap_u64_child_set(int node_id, int key_byte, int child_id) {
+  local byte[1028] node;
+  node = hashmap_u64_nodes[node_id:node_id + 1];
+  local_store_i32(node, hashmap_u64_node_child_off(key_byte), child_id);
+  hashmap_u64_nodes[node_id] = node;
+  return child_id;
+}
+
+function int hashmap_u64_value_get(int node_id) {
+  local byte[1028] node;
+  node = hashmap_u64_nodes[node_id:node_id + 1];
+  return local_load_i32(node, hashmap_u64_node_value_off());
+}
+
+function int hashmap_u64_value_set(int node_id, int value_id) {
+  local byte[1028] node;
+  node = hashmap_u64_nodes[node_id:node_id + 1];
+  local_store_i32(node, hashmap_u64_node_value_off(), value_id);
+  hashmap_u64_nodes[node_id] = node;
+  return value_id;
+}
+
+function int hashmap_u64_find(int root_id, HashMapKey64 key) {
+  int depth = 0;
+  int node_id = root_id;
+
+  while (depth < 8) {
+    int key_byte = hashmap_key64_get_byte(key, depth);
+    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    if (child_id == hashmap_empty_id()) {
+      return hashmap_empty_id();
     }
-    current = entry.chain;
+    node_id = child_id;
+    depth = depth + 1;
   }
 
-  return hashmap_i32_empty_id();
+  return hashmap_u64_value_get(node_id);
 }
 
-function int hashmap_i32_find(int buckets_off, int capacity, int key) {
-  int hash = hashmap_i32_hash(key);
-  int positive_hash = bit_and_i32(hash, 2147483647);
-  int bucket = positive_hash - ((positive_hash / capacity) * capacity);
-  int head = hashmap_i32_bucket_get(buckets_off, bucket);
-  return hashmap_i32_find_in_bucket(head, key);
-}
-
-function int hashmap_i32_contains(int buckets_off, int capacity, int key) {
-  int entry_id = hashmap_i32_find(buckets_off, capacity, key);
-  if (entry_id == hashmap_i32_empty_id()) {
+function int hashmap_u64_contains(int root_id, HashMapKey64 key) {
+  if (hashmap_u64_find(root_id, key) == hashmap_empty_id()) {
     return 0;
   }
   return 1;
 }
 
-function int hashmap_i32_get_or(int buckets_off, int capacity, int key, int fallback) {
-  int entry_id = hashmap_i32_find(buckets_off, capacity, key);
-  if (entry_id == hashmap_i32_empty_id()) {
-    return fallback;
-  }
+function int hashmap_u64_put(int root_id, HashMapKey64 key, int value_id) {
+  int depth = 0;
+  int node_id = root_id;
 
-  HashMapI32Entry entry = hashmap_i32_entries[entry_id];
-  return entry.value;
-}
-
-function int hashmap_i32_put(int buckets_off, int capacity, int key, int value) {
-  int hash = hashmap_i32_hash(key);
-  int positive_hash = bit_and_i32(hash, 2147483647);
-  int bucket = positive_hash - ((positive_hash / capacity) * capacity);
-  int head = hashmap_i32_bucket_get(buckets_off, bucket);
-  int existing = hashmap_i32_find_in_bucket(head, key);
-
-  if (existing != hashmap_i32_empty_id()) {
-    local HashMapI32Entry updated;
-    HashMapI32Entry old = hashmap_i32_entries[existing];
-    updated.key = key;
-    updated.value = value;
-    updated.state = 1;
-    updated.chain = old.chain;
-    hashmap_i32_entries[existing] = updated;
-    return existing;
-  }
-
-  int entry_id = dyn_alloc(hashmap_i32_entries);
-  local HashMapI32Entry entry;
-  entry.key = key;
-  entry.value = value;
-  entry.state = 1;
-  entry.chain = head;
-  hashmap_i32_entries[entry_id] = entry;
-  hashmap_i32_bucket_set(buckets_off, bucket, entry_id);
-  return entry_id;
-}
-
-function int hashmap_i32_remove(int buckets_off, int capacity, int key) {
-  int hash = hashmap_i32_hash(key);
-  int positive_hash = bit_and_i32(hash, 2147483647);
-  int bucket = positive_hash - ((positive_hash / capacity) * capacity);
-  int current = hashmap_i32_bucket_get(buckets_off, bucket);
-  int previous = hashmap_i32_empty_id();
-
-  while (current != hashmap_i32_empty_id()) {
-    HashMapI32Entry entry = hashmap_i32_entries[current];
-    if (entry.state == 1) {
-      if (entry.key == key) {
-        if (previous == hashmap_i32_empty_id()) {
-          hashmap_i32_bucket_set(buckets_off, bucket, entry.chain);
-        } else {
-          local HashMapI32Entry prev_entry;
-          HashMapI32Entry old_prev = hashmap_i32_entries[previous];
-          prev_entry.key = old_prev.key;
-          prev_entry.value = old_prev.value;
-          prev_entry.state = old_prev.state;
-          prev_entry.chain = entry.chain;
-          hashmap_i32_entries[previous] = prev_entry;
-        }
-        dyn_free(hashmap_i32_entries, current);
-        return 1;
-      }
+  while (depth < 8) {
+    int key_byte = hashmap_key64_get_byte(key, depth);
+    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    if (child_id == hashmap_empty_id()) {
+      child_id = dyn_alloc(hashmap_u64_nodes);
+      hashmap_u64_node_init(child_id);
+      hashmap_u64_child_set(node_id, key_byte, child_id);
     }
-    previous = current;
-    current = entry.chain;
+    node_id = child_id;
+    depth = depth + 1;
   }
 
-  return 0;
+  hashmap_u64_value_set(node_id, value_id);
+  return value_id;
 }
 
-function int hashmap_i32_clear(int buckets_off, int capacity) {
-  int bucket = 0;
-  int removed = 0;
+function int hashmap_u64_remove(int root_id, HashMapKey64 key) {
+  int depth = 0;
+  int node_id = root_id;
 
-  while (bucket < capacity) {
-    int current = hashmap_i32_bucket_get(buckets_off, bucket);
-    while (current != hashmap_i32_empty_id()) {
-      HashMapI32Entry entry = hashmap_i32_entries[current];
-      int chain = entry.chain;
-      dyn_free(hashmap_i32_entries, current);
-      removed = removed + 1;
-      current = chain;
+  while (depth < 8) {
+    int key_byte = hashmap_key64_get_byte(key, depth);
+    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    if (child_id == hashmap_empty_id()) {
+      return 0;
     }
-    hashmap_i32_bucket_set(buckets_off, bucket, hashmap_i32_empty_id());
-    bucket = bucket + 1;
+    node_id = child_id;
+    depth = depth + 1;
   }
 
-  return removed;
+  if (hashmap_u64_value_get(node_id) == hashmap_empty_id()) {
+    return 0;
+  }
+
+  hashmap_u64_value_set(node_id, hashmap_empty_id());
+  return 1;
 }

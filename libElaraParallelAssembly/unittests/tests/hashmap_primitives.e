@@ -10,20 +10,36 @@ kernel(VM vm) {
 }
 
 worker main(HashMapPrimitiveIngress msg) {
-  local HashMapI32 map;
-  map.buckets_off = 0;
-  map.capacity = 16;
+  local HashMap64 map;
+  map.root_id = hashmap_u64_init();
   map.count = 0;
 
-  int required = hashmap_i32_required_bytes(map.capacity);
-  int initialized = hashmap_i32_init(map.buckets_off, map.capacity);
-  int id_a = hashmap_i32_put(map.buckets_off, map.capacity, 10, 100);
-  int id_b = hashmap_i32_put(map.buckets_off, map.capacity, 26, 260);
-  int id_c = hashmap_i32_put(map.buckets_off, map.capacity, 10, 101);
-  int has_a = hashmap_i32_contains(map.buckets_off, map.capacity, 10);
-  int value_a = hashmap_i32_get_or(map.buckets_off, map.capacity, 10, 0);
-  int missing = hashmap_i32_get_or(map.buckets_off, map.capacity, 99, 777);
-  int removed = hashmap_i32_remove(map.buckets_off, map.capacity, 26);
-  int has_b = hashmap_i32_contains(map.buckets_off, map.capacity, 26);
-  int cleared = hashmap_i32_clear(map.buckets_off, map.capacity);
+  int payload_a = hashmap_bytes_alloc();
+  int payload_b = hashmap_bytes_alloc();
+  int zero_a = hashmap_bytes_zero(payload_a);
+  int zero_b = hashmap_bytes_zero(payload_b);
+  int write_a0 = hashmap_bytes_store_i32(payload_a, 0, 100);
+  int write_a1 = hashmap_bytes_store_i32(payload_a, 4, 101);
+  int write_b0 = hashmap_bytes_store_i32(payload_b, 0, 200);
+
+  local HashMapKey64 key_a;
+  key_a.b00 = 1;  key_a.b01 = 2;  key_a.b02 = 3;  key_a.b03 = 4;
+  key_a.b04 = 5;  key_a.b05 = 6;  key_a.b06 = 7;  key_a.b07 = 8;
+
+  local HashMapKey64 key_b;
+  key_b.b00 = 8; key_b.b01 = 7; key_b.b02 = 6; key_b.b03 = 5;
+  key_b.b04 = 4; key_b.b05 = 3; key_b.b06 = 2; key_b.b07 = 1;
+
+  int put_a = hashmap_u64_put(map.root_id, key_a, payload_a);
+  int put_b = hashmap_u64_put(map.root_id, key_b, payload_b);
+  int has_a = hashmap_u64_contains(map.root_id, key_a);
+  int has_b = hashmap_u64_contains(map.root_id, key_b);
+  int found_a = hashmap_u64_find(map.root_id, key_a);
+  int found_b = hashmap_u64_find(map.root_id, key_b);
+  int read_a0 = hashmap_bytes_load_i32(found_a, 0);
+  int read_a1 = hashmap_bytes_load_i32(found_a, 4);
+  int read_b0 = hashmap_bytes_load_i32(found_b, 0);
+  int removed_b = hashmap_u64_remove(map.root_id, key_b);
+  int has_b_after = hashmap_u64_contains(map.root_id, key_b);
+  int freed_b = hashmap_bytes_free(payload_b);
 }

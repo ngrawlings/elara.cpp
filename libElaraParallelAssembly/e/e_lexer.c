@@ -292,7 +292,9 @@ int e_lex_source(const char *src, ETokenVec *out_tokens, char err[256]) {
         case '-': kind = E_TOK_MINUS; break;
         case '*': kind = E_TOK_STAR; break;
         case '/': kind = E_TOK_SLASH; break;
+        case '%': kind = E_TOK_PERCENT; break;
         case '|': kind = E_TOK_PIPE; break;
+        case '~': kind = E_TOK_TILDE; break;
         case '@': kind = E_TOK_AT; break;
         default: break;
       }

@@ -33,6 +33,8 @@ typedef enum {
   E_EXPR_INT,
   E_EXPR_STRING,
   E_EXPR_BINARY,
+  E_EXPR_UNARY,
+  E_EXPR_SLICE,
   E_EXPR_ASSIGN,
   E_EXPR_CALL,
   E_EXPR_FIELD,
@@ -44,6 +46,7 @@ typedef enum {
   E_BIN_SUB,
   E_BIN_MUL,
   E_BIN_DIV,
+  E_BIN_MOD,
   E_BIN_EQ,
   E_BIN_NE,
   E_BIN_LT,
@@ -51,6 +54,12 @@ typedef enum {
   E_BIN_GT,
   E_BIN_GE,
 } EBinaryOp;
+
+typedef enum {
+  E_UN_PLUS = 1,
+  E_UN_MINUS,
+  E_UN_BITNOT,
+} EUnaryOp;
 
 struct EExpr {
   EExprKind kind;
@@ -63,6 +72,15 @@ struct EExpr {
       EExpr *lhs;
       EExpr *rhs;
     } binary;
+    struct {
+      EUnaryOp op;
+      EExpr *operand;
+    } unary;
+    struct {
+      EExpr *base;
+      EExpr *start;
+      EExpr *end;
+    } slice;
     struct {
       EExpr *lhs;
       EExpr *rhs;

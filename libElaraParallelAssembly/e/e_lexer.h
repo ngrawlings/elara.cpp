@@ -55,7 +55,9 @@ typedef enum {
   E_TOK_MINUS,
   E_TOK_STAR,
   E_TOK_SLASH,
+  E_TOK_PERCENT,
   E_TOK_PIPE,
+  E_TOK_TILDE,
   E_TOK_AT,
 } ETokenKind;
 
