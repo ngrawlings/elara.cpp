@@ -70,6 +70,7 @@ private:
     bool bootstrapVirtualDrives();
     bool connectEpaDbg();
     void closeEpaDbg();
+    bool refreshDebugSessionConfigFromEnv();
     bool epaDbgCall(const String &method, const String &params_json, String &result_json);
     bool epaDbgLoadBundle();
     bool ingressBootDescriptor(const String &payload_hex, String &result_json, String &error_message);

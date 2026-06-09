@@ -1,14 +1,16 @@
 import argparse
 import json
 import os
+import queue
 import random
 import struct
 import sys
+import threading
 import time
+import tkinter as tk
 from pathlib import Path
+from tkinter import scrolledtext
 
-from elara_ui.builder import UiDocumentBuilder
-from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
 from elara_io import (
     IoOp,
     PersistentBlockIoController,
@@ -17,42 +19,6 @@ from elara_io import (
     build_default_chipset,
     default_virtual_drives,
 )
-
-
-def build_document():
-    ui = UiDocumentBuilder()
-    ui.create_window("ElaraOs", 1080, 760, "org.elara.ui.elara-os-python")
-    ui.set_theme_mode("light")
-    ui.create_tabs("app.tabs")
-    ui.set_root_content("app.tabs")
-    ui.create_grid("app.panel")
-    ui.add_tab("app.tabs", "Control Panel", "app.panel")
-    ui.add_grid_column_exact("app.panel", 24)
-    ui.add_grid_column_fill("app.panel")
-    ui.add_grid_column_exact("app.panel", 220)
-    ui.add_grid_row_exact("app.panel", 24)
-    ui.add_grid_row_exact("app.panel", 44)
-    ui.add_grid_row_exact("app.panel", 44)
-    ui.add_grid_row_exact("app.panel", 44)
-    ui.add_grid_row_fill("app.panel")
-    ui.add_grid_row_exact("app.panel", 24)
-    ui.create_label("app.title", "ElaraOs control surface", 18)
-    ui.create_text_input("app.endpoint", "service endpoint", "https://api.example.local")
-    ui.create_button("app.refresh", "Refresh", "app.refresh")
-    ui.create_checkbox("app.live", "Live updates", True).set_property_number("app.live", "font_size", 14)
-    ui.create_spinner("app.interval", 1, 60, 5, 1).set_property_number("app.interval", "font_size", 14)
-    ui.create_slider("app.risk", "horizontal", 0, 100, 35, 1)
-    ui.create_list_view("app.activity")
-    ui.set_property_number("app.activity", "font_size", 14)
-    ui.set_section_json("app.activity", "items", [{"id": "queued", "label": "Queued refresh"}, {"id": "connected", "label": "Connected to RPC head"}, {"id": "ready", "label": "Ready for backend logic"}])
-    ui.place_grid_child("app.panel", "app.title", 1, 1, 2, 1)
-    ui.place_grid_child("app.panel", "app.endpoint", 1, 2)
-    ui.place_grid_child("app.panel", "app.refresh", 2, 2)
-    ui.place_grid_child("app.panel", "app.live", 1, 3)
-    ui.place_grid_child("app.panel", "app.interval", 2, 3)
-    ui.place_grid_child("app.panel", "app.risk", 1, 4, 2, 1)
-    ui.place_grid_child("app.panel", "app.activity", 1, 5, 2, 1)
-    return ui
 
 
 
@@ -108,40 +74,163 @@ def _ingress_boot_descriptor(client) -> dict:
     }
 
 
-def _run_as_external_logic(session_path: str) -> None:
-    _ensure_ide_python_path()
-    import ext_logic_client
-    client = ext_logic_client.ExtLogicClient.from_session_file(session_path)
-    client.connect_retry(timeout=10.0)
-    client.register(name="elara-os-python")
-    print("[ext-logic] Registered with IDE", flush=True)
-    try:
-        result = _ingress_boot_descriptor(client)
-        print("[ext-logic] Boot descriptor ingress", flush=True)
-        print(json.dumps(result, indent=2), flush=True)
-    except Exception as exc:
-        print(f"[ext-logic] Boot descriptor ingress failed: {exc}", flush=True)
-    try:
-        result = run_io_chipset_self_test()
-        print("[ext-logic] IO chipset self-test", flush=True)
-        print(json.dumps(result, indent=2), flush=True)
-    except Exception as exc:
-        print(f"[ext-logic] IO chipset self-test failed: {exc}", flush=True)
-    try:
+class ExtLogicTkMonitor:
+    def __init__(self, session_path: str) -> None:
+        self.session_path = session_path
+        self.root = tk.Tk()
+        self.root.title("Elara OS Python Monitor")
+        self.root.geometry("1120x760")
+        self.status_var = tk.StringVar(value="Starting")
+        self.event_queue: "queue.Queue[tuple[str, str]]" = queue.Queue()
+        self.command_queue: "queue.Queue[str]" = queue.Queue()
+        self.stop_event = threading.Event()
+        self.last_host_status = ""
+        self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+
+        header = tk.Frame(self.root, padx=12, pady=12)
+        header.pack(fill="x")
+        tk.Label(header, text="EPA <-> C++ Host <-> Python", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+        tk.Label(header, textvariable=self.status_var, anchor="w").pack(fill="x", pady=(6, 0))
+
+        controls = tk.Frame(self.root, padx=12, pady=0)
+        controls.pack(fill="x", pady=(0, 12))
+        tk.Button(controls, text="Power", width=12, command=lambda: self._queue_command("power")).pack(side="left")
+        tk.Button(controls, text="Reset", width=12, command=lambda: self._queue_command("reset")).pack(side="left", padx=(8, 0))
+
+        self.log = scrolledtext.ScrolledText(self.root, wrap="word", font=("TkFixedFont", 10))
+        self.log.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        self.log.configure(state="disabled")
+
+    def run(self) -> None:
+        worker = threading.Thread(target=self._worker_main, daemon=True)
+        worker.start()
+        self.root.after(100, self._drain_queue)
+        self.root.mainloop()
+        self.stop_event.set()
+
+    def _set_status(self, text: str) -> None:
+        self.event_queue.put(("status", text))
+
+    def _append(self, text: str) -> None:
+        self.event_queue.put(("log", text))
+
+    def _queue_command(self, command: str) -> None:
+        self.command_queue.put(command)
+        self._append(f"[ui] queued {command} button press\n")
+
+    def _drain_queue(self) -> None:
         while True:
             try:
-                pong = client.ping()
-            except Exception as exc:
-                print(f"[ext-logic] Frontend shutdown or bridge disconnect detected; exiting cleanly: {exc}", flush=True)
-                return
-            if pong != "pong":
-                print(f"[ext-logic] Unexpected bridge ping response {pong!r}; exiting cleanly", flush=True)
-                return
-            time.sleep(1.0)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        client.close()
+                kind, payload = self.event_queue.get_nowait()
+            except queue.Empty:
+                break
+            if kind == "status":
+                self.status_var.set(payload)
+                continue
+            self.log.configure(state="normal")
+            self.log.insert("end", payload)
+            self.log.see("end")
+            self.log.configure(state="disabled")
+        if not self.stop_event.is_set():
+            self.root.after(100, self._drain_queue)
+
+    def _on_close(self) -> None:
+        self.stop_event.set()
+        self.root.destroy()
+
+    def _worker_main(self) -> None:
+        _ensure_ide_python_path()
+        import ext_logic_client
+
+        client = ext_logic_client.ExtLogicClient.from_session_file(self.session_path)
+        try:
+            self._set_status("Connecting to IDE external logic bridge")
+            client.connect_retry(timeout=10.0)
+            client.register(name="elara-os-python")
+            self._append("[python] registered with IDE ext-logic bridge\n")
+
+            status = client.call("ext.debug.status", timeout=10.0)
+            self.last_host_status = json.dumps(status, sort_keys=True)
+            self._append(f"[python] host status: {json.dumps(status, indent=2)}\n")
+            self._append("[python] waiting for Power or Reset from Tk control panel\n")
+            self._set_status("Connected - waiting for power")
+
+            while not self.stop_event.is_set():
+                try:
+                    latest = client.call("ext.debug.status", timeout=5.0)
+                    latest_key = json.dumps(latest, sort_keys=True)
+                    if latest_key != self.last_host_status:
+                        self.last_host_status = latest_key
+                        self._append(f"[python] host status: {json.dumps(latest, indent=2)}\n")
+                except Exception as exc:
+                    self._append(f"[error] host status poll failed: {exc}\n")
+                    self._set_status("Bridge error")
+                    return
+
+                try:
+                    command = self.command_queue.get_nowait()
+                except queue.Empty:
+                    command = ""
+                if command:
+                    self._append(f"[action] handling {command} button\n")
+                    self._set_status(f"Sending {command} boot payload")
+                    ingress = _ingress_boot_descriptor(client)
+                    self._append(
+                        "[boot] prepared BootDeviceList.flat_v1 "
+                        f"bytes={ingress['payload_bytes']} "
+                        f"hex_prefix={ingress['payload_hex'][:64]} "
+                        f"drives={json.dumps([{'drive_id': drive['drive_id'], 'mount_path': drive['mount_path']} for drive in ingress['drives']])}\n"
+                    )
+                    self._append(f"[boot] host ingress result:\n{json.dumps(ingress['ingress'], indent=2)}\n")
+                    self._append(f"[action] {command} boot payload sent through C++ host\n")
+                    self._set_status(f"{command.capitalize()} payload sent")
+
+                try:
+                    pong = client.ping()
+                except Exception as exc:
+                    self._append(f"[error] bridge disconnect detected: {exc}\n")
+                    self._set_status("Disconnected")
+                    return
+                if pong != "pong":
+                    self._append(f"[error] unexpected ping response: {pong!r}\n")
+                    self._set_status("Unexpected bridge response")
+                    return
+                time.sleep(1.0)
+        except Exception as exc:
+            self._append(f"[error] {exc}\n")
+            self._set_status("Bridge error")
+        finally:
+            client.close()
+
+
+def _run_standalone_tk_window() -> None:
+    root = tk.Tk()
+    root.title("Elara OS Python Monitor")
+    root.geometry("920x620")
+
+    header = tk.Frame(root, padx=12, pady=12)
+    header.pack(fill="x")
+    tk.Label(header, text="Elara OS Python/Tk Monitor", font=("TkDefaultFont", 14, "bold")).pack(anchor="w")
+    tk.Label(
+        header,
+        text="No ELARA_DEBUG_SESSION is set. Launch this through the IDE debug flow to attach to the host bridge.",
+        anchor="w",
+        justify="left",
+    ).pack(fill="x", pady=(6, 0))
+
+    log = scrolledtext.ScrolledText(root, wrap="word", font=("TkFixedFont", 10))
+    log.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+    log.insert(
+        "end",
+        "[python] standalone Tk mode\n"
+        "[info] waiting for IDE-managed launch with ELARA_DEBUG_SESSION\n",
+    )
+    log.configure(state="disabled")
+    root.mainloop()
+
+
+def _run_as_external_logic(session_path: str) -> None:
+    ExtLogicTkMonitor(session_path).run()
 
 
 def run_io_chipset_self_test() -> dict:
@@ -198,50 +287,14 @@ def main():
         _run_as_external_logic(elara_session)
         return
 
-    parser = argparse.ArgumentParser(description="Load the generated Elara UI document into a running RPC head")
-    parser.add_argument("--host", default="127.0.0.1", help="RPC server host")
-    parser.add_argument("--port", default=18820, type=int, help="RPC server port")
-    parser.add_argument("--snapshot", action="store_true", help="Fetch a root snapshot after loading")
-    parser.add_argument("--output", help="Write the generated document JSON to this path")
-    parser.add_argument("--once", action="store_true", help="Load once and exit immediately")
-    parser.add_argument("--no-events", action="store_true", help="Do not subscribe to default UI events")
+    parser = argparse.ArgumentParser(description="Run the Elara OS Python Tk monitor")
     parser.add_argument("--io-chipset-self-test", action="store_true", help="Run the virtual IO chipset draft self-test")
     args = parser.parse_args()
 
     if args.io_chipset_self_test:
         print(json.dumps(run_io_chipset_self_test(), indent=2))
         return
-
-    def on_ui_event(params):
-        print(json.dumps({"ui.event": params}, indent=2), flush=True)
-        return {"received": True}
-
-    builder = build_document()
-    document_json = builder.to_json(indent=2)
-    if args.output:
-        output_path = Path(args.output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(document_json, encoding="utf-8")
-    try:
-        with ElaraUiRpcClient(args.host, args.port) as client:
-            client.add_handler("ui.event", on_ui_event)
-            load_result = client.load_document(builder)
-            print(json.dumps(load_result, indent=2))
-            if args.snapshot:
-                snapshot = client.snapshot()
-                print(json.dumps(snapshot, indent=2))
-            if not args.no_events:
-                for action in ("clicked", "keysTyped", "valueChanged", "keyDown", "keyUp", "action"):
-                    client.enable_event(action)
-            if args.once:
-                return
-            print("Connected to Elara UI RPC head. Press Ctrl+C to exit.", flush=True)
-            while True:
-                time.sleep(0.25)
-    except KeyboardInterrupt:
-        return
-    except ElaraUiRpcError as exc:
-        raise SystemExit(str(exc))
+    _run_standalone_tk_window()
 
 
 

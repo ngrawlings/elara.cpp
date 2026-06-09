@@ -18,7 +18,6 @@ type BootAssets(int version, int flags) {
 kernel(VM vm) {
   kernalId("elara.os.boot");
   start_worker(boot_ingress);
-  start_worker(publish_boot_assets);
 }
 
 acl {
@@ -112,17 +111,5 @@ worker boot_ingress(BootDeviceList trigger) {
     } else {
       device_index = device_index + 1;
     }
-  }
-
-  next publish_boot_assets;
-}
-
-worker publish_boot_assets(BootDeviceList trigger) {
-  static BootAssets assets;
-
-  static {
-    assets.version = 1;
-    assets.flags = 0;
-    rgm_publish("elara.os.boot.assets", assets);
   }
 }

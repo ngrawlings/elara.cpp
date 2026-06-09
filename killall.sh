@@ -1,43 +1,148 @@
 #!/usr/bin/env bash
-# Kill all processes associated with the elara.cpp project.
+
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DRY_RUN=0
 
-killed=0
+if [[ "${1:-}" == "--dry-run" ]]; then
+  DRY_RUN=1
+  shift
+fi
 
-kill_matching() {
-    local label="$1"
-    shift
-    local pids
-    pids=$(pgrep -f "$1" 2>/dev/null || true)
-    if [ -n "$pids" ]; then
-        echo "Killing $label: $pids"
-        kill -9 $pids 2>/dev/null || true
-        killed=$((killed + $(echo $pids | wc -w)))
-    fi
+if [[ $# -gt 0 ]]; then
+  echo "usage: $0 [--dry-run]" >&2
+  exit 2
+fi
+
+declare -A PPID_OF=()
+declare -A CMD_OF=()
+declare -A TARGETS=()
+declare -A REASONS=()
+
+DIRECT_PATTERNS=(
+  "elaraui-server"
+  "gdb --interpreter=mi2"
+  "gdb /usr/local/bin/elaraui-server"
+  "gdb /home/nyhl/workspace/elara.cpp"
+  "epa-ide/ai_rpc_client.py"
+  "/epavm "
+  "/epa-dbg "
+  "orange-fortress"
+  "epa-signal-lab"
+  "elara-os"
+  "python3 ./app.py"
+  "python ./app.py"
+)
+
+pid_in_project_tree() {
+  local pid="$1"
+  local cwd
+  cwd="$(readlink "/proc/${pid}/cwd" 2>/dev/null || true)"
+  [[ -n "${cwd}" ]] || return 1
+  [[ "${cwd}" == "${PROJECT_ROOT}" || "${cwd}" == "${PROJECT_ROOT}/"* ]]
 }
 
-# C++ server binary
-kill_matching "elaraui-server"        "elaraui-server"
+cmd_matches_project() {
+  local cmd="$1"
+  [[ "${cmd}" == *"${PROJECT_ROOT}"* ]] && return 0
+  local pattern
+  for pattern in "${DIRECT_PATTERNS[@]}"; do
+    [[ "${cmd}" == *"${pattern}"* ]] && return 0
+  done
+  return 1
+}
 
-# EPA IDE (app.py and any workers it spawns)
-kill_matching "epa-ide app.py"        "$PROJECT_DIR/epa-ide/app.py"
-kill_matching "epa-ide workers"       "$PROJECT_DIR/epa-ide/workers/"
+mark_target() {
+  local pid="$1"
+  local reason="$2"
+  [[ -n "${pid}" ]] || return 0
+  [[ "${pid}" =~ ^[0-9]+$ ]] || return 0
+  [[ "${pid}" != "$$" ]] || return 0
+  [[ "${pid}" != "${PPID:-0}" ]] || return 0
+  kill -0 "${pid}" 2>/dev/null || return 0
+  if [[ -z "${TARGETS[$pid]:-}" ]]; then
+    TARGETS["$pid"]=1
+    REASONS["$pid"]="$reason"
+  fi
+}
 
-# Any python process running from within the project directory
-kill_matching "python (project)"      "$PROJECT_DIR/epa-ide"
+while IFS= read -r pid ppid cmd; do
+  [[ -n "${pid:-}" ]] || continue
+  [[ -n "${ppid:-}" ]] || continue
+  [[ -n "${cmd:-}" ]] || continue
+  PPID_OF["$pid"]="$ppid"
+  CMD_OF["$pid"]="$cmd"
+  if pid_in_project_tree "$pid"; then
+    mark_target "$pid" "cwd under ${PROJECT_ROOT}"
+    continue
+  fi
+  if cmd_matches_project "$cmd"; then
+    mark_target "$pid" "command matched project pattern"
+  fi
+done < <(ps -eo pid=,ppid=,args=)
 
-# Orange Fortress demo (C++ binary + EPA debug server)
-kill_matching "orange-fortress"           "$PROJECT_DIR/demos/orange-fortress/cpp/build/orange-fortress"
-kill_matching "orange-fortress-epa-debug" "$PROJECT_DIR/demos/orange-fortress/cpp/build/orange-fortress-epa-debug"
+while IFS= read -r pid_file; do
+  [[ -f "${pid_file}" ]] || continue
+  while IFS=$'\t' read -r pid _label; do
+    mark_target "$pid" "listed in ${pid_file#${PROJECT_ROOT}/}"
+  done < "${pid_file}"
+done < <(find "${PROJECT_ROOT}" -maxdepth 3 -type f -name '.pids' 2>/dev/null)
 
-# Build tools that might be stuck
-kill_matching "elara-project-builder" "elara-project-builder"
-kill_matching "elara-unit-tests"      "elara-unit-tests"
+changed=1
+while [[ "${changed}" -eq 1 ]]; do
+  changed=0
+  for pid in "${!PPID_OF[@]}"; do
+    parent="${PPID_OF[$pid]}"
+    if [[ -n "${TARGETS[$parent]:-}" && -z "${TARGETS[$pid]:-}" ]]; then
+      TARGETS["$pid"]=1
+      REASONS["$pid"]="child of ${parent}"
+      changed=1
+    fi
+  done
+done
 
-if [ "$killed" -eq 0 ]; then
-    echo "No elara processes found."
-else
-    echo "Done — killed $killed process(es)."
+if [[ "${#TARGETS[@]}" -eq 0 ]]; then
+  find "${PROJECT_ROOT}" -maxdepth 3 -type f -name '.pids' -exec rm -f {} +
+  echo "no elara.cpp related processes found"
+  exit 0
 fi
+
+mapfile -t ORDERED_PIDS < <(printf '%s\n' "${!TARGETS[@]}" | sort -n)
+
+echo "project root: ${PROJECT_ROOT}"
+echo "matched ${#ORDERED_PIDS[@]} process(es)"
+for pid in "${ORDERED_PIDS[@]}"; do
+  printf '  pid=%s reason=%s cmd=%s\n' \
+    "${pid}" \
+    "${REASONS[$pid]}" \
+    "${CMD_OF[$pid]:-(exited)}"
+done
+
+if [[ "${DRY_RUN}" -eq 1 ]]; then
+  exit 0
+fi
+
+for pid in "${ORDERED_PIDS[@]}"; do
+  kill "${pid}" 2>/dev/null || true
+done
+
+sleep 1
+
+survivors=()
+for pid in "${ORDERED_PIDS[@]}"; do
+  if kill -0 "${pid}" 2>/dev/null; then
+    survivors+=("${pid}")
+  fi
+done
+
+if [[ "${#survivors[@]}" -gt 0 ]]; then
+  echo "force killing ${#survivors[@]} surviving process(es)"
+  for pid in "${survivors[@]}"; do
+    kill -9 "${pid}" 2>/dev/null || true
+  done
+fi
+
+find "${PROJECT_ROOT}" -maxdepth 3 -type f -name '.pids' -exec rm -f {} +
+
+echo "cleanup complete"

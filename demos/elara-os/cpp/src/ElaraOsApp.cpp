@@ -150,6 +150,24 @@ static int jsonIntField(const std::string &json, const char *key, int fallback) 
     return end && end != json.c_str() + pos ? (int)value : fallback;
 }
 
+static std::string readTextFile(const char *path) {
+    if (!path || !path[0]) {
+        return std::string();
+    }
+    FILE *fp = fopen(path, "rb");
+    if (!fp) {
+        return std::string();
+    }
+    std::string text;
+    char buffer[1024];
+    size_t got = 0;
+    while ((got = fread(buffer, 1u, sizeof(buffer), fp)) > 0u) {
+        text.append(buffer, got);
+    }
+    fclose(fp);
+    return text;
+}
+
 static String jsonQuoteString(const String &value) {
     String value_copy(value);
     std::string escaped = jsonEscape(value_copy.operator char *());
@@ -555,6 +573,7 @@ bool ElaraOsApp::connectEpaDbg() {
     if (epa_dbg_fd >= 0) {
         return true;
     }
+    refreshDebugSessionConfigFromEnv();
     if (!epa_dbg_host.length() || epa_dbg_port <= 0) {
         return false;
     }
@@ -589,6 +608,33 @@ bool ElaraOsApp::connectEpaDbg() {
         printf("[C++ Host] connected to EPA debug VM at %s:%d\n", epa_dbg_host.operator char *(), epa_dbg_port);
     }
     return epa_dbg_fd >= 0;
+}
+
+bool ElaraOsApp::refreshDebugSessionConfigFromEnv() {
+    const char *session_path = getenv("ELARA_DEBUG_SESSION");
+    std::string text = readTextFile(session_path);
+    if (text.empty()) {
+        return false;
+    }
+
+    std::string session_epa_host = jsonStringField(text, "epa_dbg_host");
+    int session_epa_port = jsonIntField(text, "epa_dbg_port", 0);
+    std::string session_bundle_path = jsonStringField(text, "bundle_path");
+
+    if (session_epa_host.size()) {
+        epa_dbg_host = String(session_epa_host.c_str());
+    }
+    if (session_epa_port > 0 && session_epa_port != epa_dbg_port) {
+        epa_dbg_port = session_epa_port;
+        if (epa_dbg_fd >= 0) {
+            close(epa_dbg_fd);
+            epa_dbg_fd = -1;
+        }
+    }
+    if (session_bundle_path.size()) {
+        bundle_path = String(session_bundle_path.c_str());
+    }
+    return session_epa_port > 0;
 }
 
 void ElaraOsApp::closeEpaDbg() {
@@ -737,6 +783,7 @@ bool ElaraOsApp::handleExtLogicRequest(const String &method, const String &param
         return false;
     }
     if (method == String("ext.debug.status")) {
+        refreshDebugSessionConfigFromEnv();
         result_json = String("{\"epa_loaded\":") + String(epa_loaded ? "true" : "false")
             + String(",\"epa_dbg_port\":") + String(epa_dbg_port)
             + String(",\"ext_logic_server\":") + String(ext_logic_server_fd >= 0 ? "true" : "false")
@@ -948,7 +995,6 @@ int ElaraOsApp::run() {
         peer->close();
     }
     if (host_bridge_port > 0) {
-        launchPythonLogic();
         printf("Elara OS host running under IDE bridge. Waiting for IDE shutdown.\n");
         while (!quit_requested.load()) {
             if (!host_bridge_running.load()) {
