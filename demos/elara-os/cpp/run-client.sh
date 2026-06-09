@@ -3,6 +3,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEMO_ROOT="$(cd "${ROOT_DIR}/.." && pwd)"
+PID_FILE="${ELARA_PID_FILE:-${DEMO_ROOT}/.pids}"
+
+if [[ -n "${PID_FILE}" ]]; then
+  mkdir -p "$(dirname "${PID_FILE}")"
+  printf "%s\t%s\n" "$$" "elara-os-client" >> "${PID_FILE}"
+fi
+
 cd "$ROOT_DIR"
 
 if [[ ! -x "./build/elara-os" ]]; then

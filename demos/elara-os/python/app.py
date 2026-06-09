@@ -3,12 +3,20 @@ import json
 import os
 import random
 import struct
+import sys
 import time
 from pathlib import Path
 
 from elara_ui.builder import UiDocumentBuilder
 from elara_ui.rpc import ElaraUiRpcClient, ElaraUiRpcError
-from elara_io import IoOp, build_block_request, build_default_chipset
+from elara_io import (
+    IoOp,
+    PersistentBlockIoController,
+    build_block_request,
+    build_boot_device_list_ingress,
+    build_default_chipset,
+    default_virtual_drives,
+)
 
 
 def build_document():
@@ -48,12 +56,71 @@ def build_document():
 
 
 
+def _ensure_ide_python_path() -> None:
+    repo_root = Path(__file__).resolve().parents[3]
+    ide_path = repo_root / "epa-ide"
+    if ide_path.is_dir() and str(ide_path) not in sys.path:
+        sys.path.insert(0, str(ide_path))
+
+
+def _load_debug_session(session_path: str) -> dict:
+    with open(session_path, "r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _ingress_boot_descriptor(client) -> dict:
+    drives = default_virtual_drives()
+    PersistentBlockIoController(drives)
+    payload = build_boot_device_list_ingress(drives)
+    ingress_result = client.call(
+        "elara.os.bootDescriptor",
+        {
+            "format": "BootDeviceList.flat_v1",
+            "payload_hex": payload.hex(),
+            "drives": [
+                {
+                    "drive_id": drive.drive_id,
+                    "path": str(drive.path),
+                    "mount_path": drive.mount_path,
+                    "block_size": drive.block_size,
+                    "block_count": drive.block_count,
+                }
+                for drive in drives
+            ],
+        },
+        timeout=30.0,
+    )
+
+    return {
+        "drives": [
+            {
+                "drive_id": drive.drive_id,
+                "path": str(drive.path),
+                "mount_path": drive.mount_path,
+                "block_size": drive.block_size,
+                "block_count": drive.block_count,
+            }
+            for drive in drives
+        ],
+        "payload_bytes": len(payload),
+        "payload_hex": payload.hex(),
+        "ingress": ingress_result,
+    }
+
+
 def _run_as_external_logic(session_path: str) -> None:
+    _ensure_ide_python_path()
     import ext_logic_client
     client = ext_logic_client.ExtLogicClient.from_session_file(session_path)
     client.connect_retry(timeout=10.0)
     client.register(name="elara-os-python")
     print("[ext-logic] Registered with IDE", flush=True)
+    try:
+        result = _ingress_boot_descriptor(client)
+        print("[ext-logic] Boot descriptor ingress", flush=True)
+        print(json.dumps(result, indent=2), flush=True)
+    except Exception as exc:
+        print(f"[ext-logic] Boot descriptor ingress failed: {exc}", flush=True)
     try:
         result = run_io_chipset_self_test()
         print("[ext-logic] IO chipset self-test", flush=True)

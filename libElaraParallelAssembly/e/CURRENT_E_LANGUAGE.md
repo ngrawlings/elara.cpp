@@ -92,8 +92,8 @@ Common string helpers live in:
 #include "common/string.em"
 ```
 
-Installed stdlib modules live under `/usr/local/e`. The compiler searches
-project-local include paths first, then falls back to `/usr/local/e`, so local
+Installed stdlib modules live under `/usr/local/e/include`. The compiler searches
+project-local include paths first, then falls back to `/usr/local/e/include`, so local
 project modules can override or shadow the installed stdlib while normal
 installed use keeps `#include "common/..."` stable.
 

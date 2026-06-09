@@ -82,6 +82,7 @@ class VirtualDrive:
     drive_id: int
     path: Path
     size_bytes: int
+    mount_path: str
     block_size: int = DEFAULT_BLOCK_SIZE
 
     @property
@@ -97,19 +98,7 @@ class PersistentBlockIoController(IoDevice):
     def __init__(self, drives: Optional[Iterable[VirtualDrive]] = None) -> None:
         super().__init__("block_io")
         if drives is None:
-            root_drive_path = Path(
-                os.environ.get(
-                    "ELARA_OS_ROOT_DRIVE",
-                    str(Path.home() / ".elaraos" / "root"),
-                )
-            )
-            drives = (
-                VirtualDrive(
-                    drive_id=1,
-                    path=root_drive_path,
-                    size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
-                ),
-            )
+            drives = default_virtual_drives()
         self.drives: Dict[int, VirtualDrive] = {drive.drive_id: drive for drive in drives}
         for drive in self.drives.values():
             self._ensure_drive_exists(drive)
@@ -288,3 +277,45 @@ def build_default_chipset() -> VirtualIoChipset:
     chipset.register(NetworkController())
     chipset.register(ClockController())
     return chipset
+
+
+def default_virtual_drives() -> tuple[VirtualDrive, ...]:
+    root = Path(os.environ.get("ELARA_OS_HOME", str(Path.home() / ".elaraos")))
+    root_drive_path = Path(os.environ.get("ELARA_OS_ROOT_DRIVE", str(root / "root")))
+    data_drive_path = Path(os.environ.get("ELARA_OS_DATA_DRIVE", str(root / "data")))
+    return (
+        VirtualDrive(
+            drive_id=1,
+            path=root_drive_path,
+            size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
+            mount_path="/",
+        ),
+        VirtualDrive(
+            drive_id=2,
+            path=data_drive_path,
+            size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
+            mount_path="/data",
+        ),
+    )
+
+
+def build_boot_device_payload(drives: Optional[Iterable[VirtualDrive]] = None) -> bytes:
+    active_drives = tuple(drives if drives is not None else default_virtual_drives())
+    blob = bytearray()
+    blob.extend(struct.pack("<I", 1))
+    blob.extend(struct.pack("<I", len(active_drives)))
+    for drive in active_drives:
+        mount_bytes = drive.mount_path.encode("utf-8")
+        padded_size = (len(mount_bytes) + 3) & ~3
+        blob.extend(struct.pack("<I", drive.drive_id & 0xFFFFFFFF))
+        blob.extend(struct.pack("<I", len(mount_bytes) & 0xFFFFFFFF))
+        blob.extend(mount_bytes)
+        if padded_size > len(mount_bytes):
+            blob.extend(b"\x00" * (padded_size - len(mount_bytes)))
+    return bytes(blob)
+
+
+def build_boot_device_list_ingress(drives: Optional[Iterable[VirtualDrive]] = None) -> bytes:
+    payload = build_boot_device_payload(drives)
+    device_count = struct.unpack_from("<I", payload, 4)[0] if len(payload) >= 8 else 0
+    return struct.pack("<III", 1, device_count, len(payload)) + payload

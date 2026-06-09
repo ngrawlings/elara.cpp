@@ -47,6 +47,11 @@ write_manifest() {
     relative_path="${source_path#${BUILD_ROOT}/}"
     printf '%s\n' "${INSTALL_ROOT_DIR}/${relative_path}" >> "${MANIFEST_PATH}"
   done < <(find "${BUILD_ROOT}/bin" "${BUILD_ROOT}/include" "${BUILD_ROOT}/lib" "${BUILD_ROOT}/share" -type f -print0 2>/dev/null)
+
+  while IFS= read -r -d '' source_path; do
+    relative_path="${source_path#${BUILD_ROOT}/e/}"
+    printf '%s\n' "${INSTALL_ROOT_DIR}/e/include/${relative_path}" >> "${MANIFEST_PATH}"
+  done < <(find "${BUILD_ROOT}/e" -type f -print0 2>/dev/null)
 }
 
 remove_from_manifest() {
@@ -65,6 +70,9 @@ remove_from_manifest() {
   rmdir "${INSTALL_ROOT_DIR}/share/elara-project-builder" 2>/dev/null || true
   rmdir "${MANIFEST_DIR}" 2>/dev/null || true
   rmdir "${INSTALL_ROOT_DIR}/share" 2>/dev/null || true
+  rmdir "${INSTALL_ROOT_DIR}/e/include/common" 2>/dev/null || true
+  rmdir "${INSTALL_ROOT_DIR}/e/include" 2>/dev/null || true
+  rmdir "${INSTALL_ROOT_DIR}/e" 2>/dev/null || true
 }
 
 if [[ "${1:-}" == "--remove" ]]; then

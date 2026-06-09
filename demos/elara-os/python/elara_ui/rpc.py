@@ -15,6 +15,125 @@ class ElaraUiRpcError(RuntimeError):
         self.message = message
 
 
+class _BRpcCodec:
+    _NAMED_BYTE = 10
+    _NAMED_STRING = 14
+    _ARRAY = 5
+
+    @staticmethod
+    def _ns(name: str, value: str) -> bytes:
+        name_bytes = name.encode("utf-8")
+        value_bytes = value.encode("utf-8")
+        return (
+            bytes([_BRpcCodec._NAMED_STRING])
+            + struct.pack(">I", len(name_bytes)) + name_bytes
+            + struct.pack(">I", len(value_bytes)) + value_bytes
+        )
+
+    @staticmethod
+    def _nb(name: str, value: int) -> bytes:
+        name_bytes = name.encode("utf-8")
+        return (
+            bytes([_BRpcCodec._NAMED_BYTE])
+            + struct.pack(">I", len(name_bytes))
+            + name_bytes
+            + bytes([value & 0xFF])
+        )
+
+    @staticmethod
+    def _array(fields: bytes, count: int) -> bytes:
+        return bytes([_BRpcCodec._ARRAY]) + struct.pack(">I", len(fields)) + struct.pack(">I", count) + fields
+
+    @classmethod
+    def encode(cls, payload: dict) -> bytes:
+        has_id = "id" in payload
+        has_ok = "ok" in payload
+        if has_id and has_ok:
+            request_id = str(payload["id"])
+            if payload["ok"]:
+                result_json = json.dumps(payload.get("result"), separators=(",", ":"), ensure_ascii=False)
+                return cls._array(cls._ns("id", request_id) + cls._nb("ok", 1) + cls._ns("result", result_json), 3)
+            error = payload.get("error") or {}
+            return cls._array(
+                cls._ns("id", request_id)
+                + cls._nb("ok", 0)
+                + cls._ns("code", error.get("code", ""))
+                + cls._ns("msg", error.get("message", "")),
+                4,
+            )
+        if has_id:
+            params_json = "null" if payload.get("params") is None else json.dumps(payload.get("params"), separators=(",", ":"), ensure_ascii=False)
+            return cls._array(
+                cls._ns("id", str(payload["id"]))
+                + cls._ns("method", payload.get("method", ""))
+                + cls._ns("params", params_json),
+                3,
+            )
+        params_json = "null" if payload.get("params") is None else json.dumps(payload.get("params"), separators=(",", ":"), ensure_ascii=False)
+        return cls._array(cls._ns("method", payload.get("method", "")) + cls._ns("params", params_json), 2)
+
+    @classmethod
+    def decode(cls, data: bytes) -> dict:
+        pos = 0
+
+        def u8() -> int:
+            nonlocal pos
+            value = data[pos]
+            pos += 1
+            return value
+
+        def u32() -> int:
+            nonlocal pos
+            value = struct.unpack_from(">I", data, pos)[0]
+            pos += 4
+            return value
+
+        def read_str() -> str:
+            nonlocal pos
+            length = u32()
+            value = data[pos:pos + length].decode("utf-8")
+            pos += length
+            return value
+
+        type_byte = u8()
+        if type_byte != cls._ARRAY:
+            raise ValueError(f"Expected BRPC array, got type {type_byte}")
+        u32()
+        count = u32()
+
+        fields = {}
+        for _ in range(count):
+            field_type = u8()
+            if field_type == cls._NAMED_STRING:
+                fields[read_str()] = read_str()
+            elif field_type == cls._NAMED_BYTE:
+                fields[read_str()] = u8()
+            else:
+                raise ValueError(f"Unexpected BRPC field type: {field_type}")
+
+        if "id" in fields and "ok" in fields:
+            if fields["ok"]:
+                result_json = fields.get("result", "null")
+                return {"id": fields["id"], "ok": True, "result": None if result_json == "null" else json.loads(result_json)}
+            return {
+                "id": fields["id"],
+                "ok": False,
+                "error": {"code": fields.get("code", ""), "message": fields.get("msg", "")},
+            }
+        if "id" in fields:
+            params_json = fields.get("params", "null")
+            return {
+                "id": fields["id"],
+                "method": fields.get("method", ""),
+                "params": None if params_json == "null" else json.loads(params_json),
+            }
+        params_json = fields.get("params", "null")
+        return {
+            "method": fields.get("method", ""),
+            "params": None if params_json == "null" else json.loads(params_json),
+        }
+
+
 class ElaraUiRpcClient:
     def __init__(self, host: str = "127.0.0.1", port: int = 18777):
         self.host = host

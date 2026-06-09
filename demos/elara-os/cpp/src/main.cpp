@@ -16,6 +16,9 @@ struct ElaraOsDebugSessionConfig {
     String session_path;
     String ui_rpc_host;
     int ui_rpc_port;
+    String bundle_path;
+    String epa_dbg_host;
+    int epa_dbg_port;
     String host_debug_host;
     int host_debug_port;
 
@@ -24,6 +27,9 @@ struct ElaraOsDebugSessionConfig {
           session_path(""),
           ui_rpc_host(""),
           ui_rpc_port(0),
+          bundle_path(""),
+          epa_dbg_host(""),
+          epa_dbg_port(0),
           host_debug_host(""),
           host_debug_port(0) {
     }
@@ -63,6 +69,9 @@ static ElaraOsDebugSessionConfig load_debug_session_from_env() {
     cfg.session_path = String(session_path ? session_path : "");
     cfg.ui_rpc_host = String(json_string_field(text, "ui_rpc_host").c_str());
     cfg.ui_rpc_port = json_int_field(text, "ui_rpc_port", 18820);
+    cfg.bundle_path = String(json_string_field(text, "bundle_path").c_str());
+    cfg.epa_dbg_host = String(json_string_field(text, "epa_dbg_host").c_str());
+    cfg.epa_dbg_port = json_int_field(text, "epa_dbg_port", 0);
     cfg.host_debug_host = String(json_string_field(text, "host_debug_host").c_str());
     cfg.host_debug_port = json_int_field(text, "host_debug_port", 0);
     return cfg;
@@ -94,8 +103,10 @@ int main(int argc, const char *argv[]) {
         ? debug_session.host_debug_host
         : String("127.0.0.1"));
     int host_bridge_port = debug_session.enabled ? debug_session.host_debug_port : 0;
-    if (argc > 1) host = String(argv[1]);
-    if (argc > 2) port = atoi(argv[2]);
+    if (!debug_session.enabled) {
+        if (argc > 1) host = String(argv[1]);
+        if (argc > 2) port = atoi(argv[2]);
+    }
     const char *bridge_host_env = getenv("ELARA_IDE_HOST_BRIDGE_HOST");
     const char *bridge_port_env = getenv("ELARA_IDE_HOST_BRIDGE_PORT");
     if (bridge_host_env && bridge_host_env[0]) {
@@ -104,9 +115,19 @@ int main(int argc, const char *argv[]) {
     if (bridge_port_env && bridge_port_env[0]) {
         host_bridge_port = atoi(bridge_port_env);
     }
+    bool prefer_owned_ui_server = debug_session.enabled || argc <= 2;
     if (debug_session.enabled) {
         printf("Loaded IDE debug session: %s\n", debug_session.session_path.operator char *());
     }
-    ElaraOsApp app(host, port, host_bridge_host, host_bridge_port);
+    ElaraOsApp app(
+        host,
+        port,
+        host_bridge_host,
+        host_bridge_port,
+        debug_session.epa_dbg_host,
+        debug_session.epa_dbg_port,
+        debug_session.bundle_path,
+        prefer_owned_ui_server
+    );
     return app.run();
 }

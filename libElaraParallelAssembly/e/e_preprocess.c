@@ -106,7 +106,7 @@ char *e_load_translation_unit(const char *path, char err[256]) {
            "-I", ".",
            "-I", "libElaraParallelAssembly/e",
            "-I", "./libElaraParallelAssembly/e",
-           "-I", "/usr/local/e",
+           "-I", "/usr/local/e/include",
            path, (char*)NULL);
     _exit(127);
   }
@@ -283,7 +283,7 @@ char *e_load_translation_unit_with_map(const char *path, ELineMap *line_map, cha
            "-I", ".",
            "-I", "libElaraParallelAssembly/e",
            "-I", "./libElaraParallelAssembly/e",
-           "-I", "/usr/local/e",
+           "-I", "/usr/local/e/include",
            path, (char*)NULL);
     _exit(127);
   }

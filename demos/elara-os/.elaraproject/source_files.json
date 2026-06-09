@@ -14,6 +14,17 @@
   "cpp": [
     "cpp/src/ElaraOsApp.cpp",
     "cpp/src/ElaraOsApp.h",
+    "cpp/src/ElaraOsEpaDebugServer.cpp",
+    "cpp/src/ElaraOsEpaDebugServer.h",
+    "cpp/src/ElaraOsEpaDebugService.cpp",
+    "cpp/src/ElaraOsEpaDebugService.h",
+    "cpp/src/ElaraOsEpaDebugShim.c",
+    "cpp/src/ElaraOsEpaDebugShim.h",
+    "cpp/src/ElaraOsEpaFrame.cpp",
+    "cpp/src/ElaraOsEpaFrame.h",
+    "cpp/src/ElaraOsEpaVmHost.cpp",
+    "cpp/src/ElaraOsEpaVmHost.h",
+    "cpp/src/epa_debug_main.cpp",
     "cpp/src/main.cpp"
   ],
   "python": [

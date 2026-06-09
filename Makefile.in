@@ -193,6 +193,14 @@ install:
 			done || exit $$?; \
 		fi; \
 	done
+	@if [ -d "$(ROOT_BUILD_DIR)/e" ]; then \
+		find "$(ROOT_BUILD_DIR)/e" -type f | while IFS= read -r source_path; do \
+			relative_path="$${source_path#$(ROOT_BUILD_DIR)/e/}"; \
+			dest_path="$(INSTALL_ROOT_DIR)/e/include/$$relative_path"; \
+			mkdir -p "$$(dirname "$$dest_path")"; \
+			cp "$$source_path" "$$dest_path" || exit $$?; \
+		done || exit $$?; \
+	fi
 
 remove:
 	@for subdir in bin include lib share; do \
@@ -205,6 +213,13 @@ remove:
 			done || exit $$?; \
 		fi; \
 	done
+	@if [ -d "$(ROOT_BUILD_DIR)/e" ]; then \
+		find "$(ROOT_BUILD_DIR)/e" -type f | while IFS= read -r source_path; do \
+			relative_path="$${source_path#$(ROOT_BUILD_DIR)/e/}"; \
+			dest_path="$(INSTALL_ROOT_DIR)/e/include/$$relative_path"; \
+			rm -f "$$dest_path" || exit $$?; \
+		done || exit $$?; \
+	fi
 
 smoke: all
 	@$(SMOKE_SCRIPT)

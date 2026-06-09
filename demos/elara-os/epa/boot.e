@@ -1,5 +1,6 @@
 #include "frame_protocol.em"
 #include "storage_protocol.em"
+#include "common/bytes.em"
 
 type BootDeviceList(
   int version,
