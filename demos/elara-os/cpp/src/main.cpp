@@ -109,11 +109,13 @@ int main(int argc, const char *argv[]) {
     }
     const char *bridge_host_env = getenv("ELARA_IDE_HOST_BRIDGE_HOST");
     const char *bridge_port_env = getenv("ELARA_IDE_HOST_BRIDGE_PORT");
-    if (bridge_host_env && bridge_host_env[0]) {
-        host_bridge_host = String(bridge_host_env);
-    }
-    if (bridge_port_env && bridge_port_env[0]) {
-        host_bridge_port = atoi(bridge_port_env);
+    if (!debug_session.enabled) {
+        if (bridge_host_env && bridge_host_env[0]) {
+            host_bridge_host = String(bridge_host_env);
+        }
+        if (bridge_port_env && bridge_port_env[0]) {
+            host_bridge_port = atoi(bridge_port_env);
+        }
     }
     bool prefer_owned_ui_server = debug_session.enabled || argc <= 2;
     if (debug_session.enabled) {

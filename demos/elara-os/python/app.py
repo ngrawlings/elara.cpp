@@ -74,6 +74,10 @@ def _ingress_boot_descriptor(client) -> dict:
     }
 
 
+def _continue_boot_descriptor(client) -> dict:
+    return client.call("elara.os.bootContinue", timeout=30.0)
+
+
 class ExtLogicTkMonitor:
     def __init__(self, session_path: str) -> None:
         self.session_path = session_path
@@ -96,6 +100,7 @@ class ExtLogicTkMonitor:
         controls.pack(fill="x", pady=(0, 12))
         tk.Button(controls, text="Power", width=12, command=lambda: self._queue_command("power")).pack(side="left")
         tk.Button(controls, text="Reset", width=12, command=lambda: self._queue_command("reset")).pack(side="left", padx=(8, 0))
+        tk.Button(controls, text="Continue", width=12, command=lambda: self._queue_command("continue")).pack(side="left", padx=(8, 0))
 
         self.log = scrolledtext.ScrolledText(self.root, wrap="word", font=("TkFixedFont", 10))
         self.log.pack(fill="both", expand=True, padx=12, pady=(0, 12))
@@ -152,7 +157,7 @@ class ExtLogicTkMonitor:
             status = client.call("ext.debug.status", timeout=10.0)
             self.last_host_status = json.dumps(status, sort_keys=True)
             self._append(f"[python] host status: {json.dumps(status, indent=2)}\n")
-            self._append("[python] waiting for Power or Reset from Tk control panel\n")
+            self._append("[python] waiting for Power, Reset, or Continue from Tk control panel\n")
             self._set_status("Connected - waiting for power")
 
             while not self.stop_event.is_set():
@@ -173,17 +178,24 @@ class ExtLogicTkMonitor:
                     command = ""
                 if command:
                     self._append(f"[action] handling {command} button\n")
-                    self._set_status(f"Sending {command} boot payload")
-                    ingress = _ingress_boot_descriptor(client)
-                    self._append(
-                        "[boot] prepared BootDeviceList.flat_v1 "
-                        f"bytes={ingress['payload_bytes']} "
-                        f"hex_prefix={ingress['payload_hex'][:64]} "
-                        f"drives={json.dumps([{'drive_id': drive['drive_id'], 'mount_path': drive['mount_path']} for drive in ingress['drives']])}\n"
-                    )
-                    self._append(f"[boot] host ingress result:\n{json.dumps(ingress['ingress'], indent=2)}\n")
-                    self._append(f"[action] {command} boot payload sent through C++ host\n")
-                    self._set_status(f"{command.capitalize()} payload sent")
+                    if command == "continue":
+                        self._set_status("Continuing queued EPA boot")
+                        run_result = _continue_boot_descriptor(client)
+                        self._append(f"[boot] host continue result:\n{json.dumps(run_result, indent=2)}\n")
+                        self._append("[action] queued boot payload continued through EPA run\n")
+                        self._set_status("Queued boot continued")
+                    else:
+                        self._set_status(f"Queueing {command} boot payload")
+                        ingress = _ingress_boot_descriptor(client)
+                        self._append(
+                            "[boot] prepared BootDeviceList.flat_v1 "
+                            f"bytes={ingress['payload_bytes']} "
+                            f"hex_prefix={ingress['payload_hex'][:64]} "
+                            f"drives={json.dumps([{'drive_id': drive['drive_id'], 'mount_path': drive['mount_path']} for drive in ingress['drives']])}\n"
+                        )
+                        self._append(f"[boot] host ingress result:\n{json.dumps(ingress['ingress'], indent=2)}\n")
+                        self._append(f"[action] {command} boot payload queued through C++ host\n")
+                        self._set_status(f"{command.capitalize()} payload queued")
 
                 try:
                     pong = client.ping()

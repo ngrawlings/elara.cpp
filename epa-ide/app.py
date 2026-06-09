@@ -8251,6 +8251,227 @@ def main():
                         "recent_output": recent_output,
                     }
 
+                def _ai_rpc_get_status_indicators() -> dict:
+                    epa_proc = _epa_dbg.get("proc")
+                    epa_client = _epa_dbg.get("client")
+                    epa_port = _epa_dbg.get("port")
+                    if not epa_proc or epa_proc.poll() is not None:
+                        epa_primary = {"state": _IND_RED, "label": "Offline"}
+                        epa_secondary = {"state": _IND_OFF, "label": "—"}
+                        epa_port_text = "Port: —"
+                    elif not epa_client or not epa_client.connected:
+                        epa_primary = {"state": _IND_ORANGE, "label": "Listening"}
+                        epa_secondary = {"state": _IND_RED, "label": "IDE not connected"}
+                        epa_port_text = f"Port: {epa_port}"
+                    else:
+                        epa_primary = {"state": _IND_GREEN, "label": "Running"}
+                        epa_secondary = {"state": _IND_GREEN, "label": "IDE connected"}
+                        epa_port_text = f"Port: {epa_port}"
+                    ide_connected = bool(epa_client and epa_client.connected)
+
+                    bridge_server = host_debug_bridge.get("server")
+                    bridge_port = host_debug_bridge.get("port")
+                    bridge_connected = host_debug_bridge.get("client_connected", False)
+                    ext_logic_connected = host_debug_bridge.get("external_logic_connected", False)
+                    ext_logic_proxied = host_debug_bridge.get("ext_logic_proxied", False)
+                    now_ts = time.time()
+                    host_ping_fresh = (now_ts - float(host_debug_bridge.get("last_host_pong", 0.0) or 0.0)) < 3.5
+                    ext_ping_fresh = (now_ts - float(host_debug_bridge.get("last_ext_pong", 0.0) or 0.0)) < 3.5
+                    host_ingress_count = int(app_state.get("host_interconnect_ingress_count", 0) or 0)
+                    host_egress_count = int(app_state.get("host_interconnect_egress_count", 0) or 0)
+                    if not bridge_server:
+                        host_primary = {"state": _IND_RED, "label": "Offline"}
+                        host_secondary = {"state": _IND_OFF, "label": "—"}
+                        host_port_text = "Port: —"
+                    else:
+                        if ide_connected and bridge_connected:
+                            host_primary = {"state": _IND_GREEN, "label": f"EPA host  in={host_ingress_count}"}
+                        elif ide_connected or bridge_connected:
+                            host_primary = {"state": _IND_ORANGE, "label": f"EPA host  in={host_ingress_count}"}
+                        else:
+                            host_primary = {"state": _IND_OFF, "label": f"EPA host  in={host_ingress_count}"}
+                        if ext_logic_proxied:
+                            host_secondary = {"state": _IND_GREEN, "label": f"External logic  out={host_egress_count}"}
+                        elif ext_logic_connected:
+                            host_secondary = {"state": _IND_ORANGE, "label": f"External logic  out={host_egress_count}"}
+                        else:
+                            host_secondary = {"state": _IND_OFF, "label": f"External logic  out={host_egress_count}"}
+                        host_port_text = f"Port: {bridge_port}" if bridge_port else "Port: —"
+                    host_ping = {
+                        "host_bridge": _IND_GREEN if host_ping_fresh and bridge_connected else (_IND_RED if bridge_connected else _IND_OFF),
+                        "external_logic": _IND_GREEN if (ext_logic_connected and ext_ping_fresh) else (_IND_RED if ext_logic_connected else _IND_OFF),
+                    }
+
+                    gdb_proc = cpp_gdb_state.get("proc")
+                    gdb_status = str(cpp_gdb_state.get("status", "") or "")
+                    if not gdb_proc:
+                        cpp_primary = {"state": _IND_RED, "label": "GDB"}
+                        cpp_secondary = {"state": _IND_OFF, "label": "Target"}
+                        cpp_port_text = "PID: —"
+                    elif gdb_proc.poll() is not None:
+                        cpp_primary = {"state": _IND_RED, "label": "GDB"}
+                        cpp_secondary = {"state": _IND_RED, "label": "Target exited"}
+                        cpp_port_text = f"PID: {gdb_proc.pid}"
+                    elif "waiting for gdb prompt" in gdb_status.lower() or "launch" in gdb_status.lower():
+                        cpp_primary = {"state": _IND_ORANGE, "label": "GDB"}
+                        cpp_secondary = {"state": _IND_ORANGE, "label": "Target"}
+                        cpp_port_text = f"PID: {gdb_proc.pid}"
+                    else:
+                        cpp_primary = {"state": _IND_GREEN, "label": "GDB"}
+                        cpp_secondary = {"state": _IND_GREEN, "label": "Target running" if cpp_gdb_state.get("running") else "Target stopped"}
+                        cpp_port_text = f"PID: {gdb_proc.pid}"
+
+                    py_started = python_dbg_state.get("started", False)
+                    py_port = args.ai_rpc_port if hasattr(args, "ai_rpc_port") and args.ai_rpc_port else None
+                    if not py_started:
+                        py_primary = {"state": _IND_RED, "label": "Not started"}
+                        py_secondary = {"state": _IND_OFF, "label": "—"}
+                    else:
+                        py_primary = {"state": _IND_GREEN, "label": "Started"}
+                        py_secondary = {"state": _IND_GREEN, "label": "Streaming active"}
+                    py_port_text = f"Port: {py_port}" if py_port else "Port: —"
+
+                    return {
+                        "epa": {
+                            "primary": epa_primary,
+                            "secondary": epa_secondary,
+                            "port_text": epa_port_text,
+                            "process_alive": bool(epa_proc and epa_proc.poll() is None),
+                            "connected": bool(epa_client and epa_client.connected),
+                        },
+                        "host": {
+                            "primary": host_primary,
+                            "secondary": host_secondary,
+                            "port_text": host_port_text,
+                            "ping": host_ping,
+                            "bridge_connected": bool(bridge_connected),
+                            "external_logic_connected": bool(ext_logic_connected),
+                            "external_logic_proxied": bool(ext_logic_proxied),
+                            "ingress_count": host_ingress_count,
+                            "egress_count": host_egress_count,
+                        },
+                        "cpp": {
+                            "primary": cpp_primary,
+                            "secondary": cpp_secondary,
+                            "port_text": cpp_port_text,
+                            "running": bool(cpp_gdb_state.get("running")),
+                            "status": gdb_status,
+                        },
+                        "python": {
+                            "primary": py_primary,
+                            "secondary": py_secondary,
+                            "port_text": py_port_text,
+                            "started": bool(py_started),
+                            "status": str(python_dbg_state.get("status", "") or ""),
+                        },
+                    }
+
+                _ai_rpc_control_seq = [0]
+
+                def _ai_rpc_runtime_control(target: str, action: str) -> dict:
+                    c = client_ref.get("client")
+                    if c is None:
+                        raise RuntimeError("ui_unavailable: UI client is not connected")
+                    target_key = str(target or "").strip().lower()
+                    action_key = str(action or "").strip().lower()
+                    if not target_key:
+                        raise RuntimeError("missing_param: target")
+                    if not action_key:
+                        raise RuntimeError("missing_param: action")
+
+                    target_aliases = {
+                        "host": "cpp",
+                        "cpp": "cpp",
+                        "c++": "cpp",
+                        "python": "python",
+                        "ext_logic": "python",
+                        "external_logic": "python",
+                        "epa": "epa_vm",
+                        "epa_vm": "epa_vm",
+                        "vm": "epa_vm",
+                    }
+                    normalized_target = target_aliases.get(target_key, "")
+                    if not normalized_target:
+                        raise RuntimeError(f"invalid_target: {target}")
+
+                    _ai_rpc_control_seq[0] += 1
+                    request_id = f"runtime-{_ai_rpc_control_seq[0]}"
+                    _push_event(
+                        "ai_runtime_control_queued",
+                        request_id=request_id,
+                        target=normalized_target,
+                        action=action_key,
+                    )
+
+                    def _run_control():
+                        try:
+                            if normalized_target == "cpp":
+                                action_map = {
+                                    "launch": "debug.cpp.reset",
+                                    "reset": "debug.cpp.reset",
+                                    "stop": "debug.cpp.stop",
+                                    "kill": "debug.cpp.stop",
+                                    "continue": "debug.cpp.continue",
+                                    "pause": "debug.cpp.pause",
+                                    "step_over": "debug.cpp.step_over",
+                                    "step_into": "debug.cpp.step_into",
+                                    "step_out": "debug.cpp.step_out",
+                                }
+                                mapped = action_map.get(action_key, "")
+                                if not mapped:
+                                    raise RuntimeError(f"invalid_action_for_cpp: {action_key}")
+                                _cpp_gdb_handle_action(c, mapped)
+                            elif normalized_target == "python":
+                                action_map = {
+                                    "launch": "debug.python.reset",
+                                    "reset": "debug.python.reset",
+                                    "stop": "debug.python.stop",
+                                    "kill": "debug.python.stop",
+                                    "continue": "debug.python.continue",
+                                    "pause": "debug.python.pause",
+                                    "step_over": "debug.python.step_over",
+                                    "step_into": "debug.python.step_into",
+                                    "step_out": "debug.python.step_out",
+                                }
+                                mapped = action_map.get(action_key, "")
+                                if not mapped:
+                                    raise RuntimeError(f"invalid_action_for_python: {action_key}")
+                                _python_dbg_handle_action(c, mapped)
+                            elif normalized_target == "epa_vm":
+                                if action_key == "launch":
+                                    if not _start_debug_vm(c, force_restart=False):
+                                        raise RuntimeError("epa_vm_start_failed")
+                                elif action_key == "reset":
+                                    if not _start_debug_vm(c, force_restart=True):
+                                        raise RuntimeError("epa_vm_reset_failed")
+                                elif action_key in ("stop", "kill"):
+                                    _epa_dbg_stop()
+                                    _refresh_status_panel(c)
+                                else:
+                                    raise RuntimeError(f"invalid_action_for_epa_vm: {action_key}")
+                            _push_event(
+                                "ai_runtime_control_done",
+                                request_id=request_id,
+                                target=normalized_target,
+                                action=action_key,
+                            )
+                        except Exception as exc:
+                            _push_event(
+                                "ai_runtime_control_error",
+                                request_id=request_id,
+                                target=normalized_target,
+                                action=action_key,
+                                error=str(exc),
+                            )
+
+                    _deferred(_run_control)
+                    return {
+                        "queued": True,
+                        "request_id": request_id,
+                        "target": normalized_target,
+                        "action": action_key,
+                    }
+
                 def _ai_rpc_restart_ui(use_gdb: bool = False) -> dict:
                     proc = _ui_server.get("proc")
                     if proc and proc.poll() is None:
@@ -8468,10 +8689,12 @@ def main():
                 ide_bindings._get_exceptions = _ai_rpc_get_exceptions
                 ide_bindings._clear_exceptions = _ai_rpc_clear_exceptions
                 ide_bindings._get_ui_status = _ai_rpc_get_ui_status
+                ide_bindings._get_status_indicators = _ai_rpc_get_status_indicators
                 ide_bindings._restart_ui = _ai_rpc_restart_ui
                 ide_bindings._reload_ui_document = _ai_rpc_reload_ui_document
                 ide_bindings._trigger_action = _ai_rpc_trigger_action
                 ide_bindings._ext_call = _ai_rpc_ext_call
+                ide_bindings._runtime_control = _ai_rpc_runtime_control
                 ide_bindings._get_event_log = _ai_rpc_get_event_log
                 ide_bindings._clear_event_log = _ai_rpc_clear_event_log
                 ide_bindings._log_event = _push_event

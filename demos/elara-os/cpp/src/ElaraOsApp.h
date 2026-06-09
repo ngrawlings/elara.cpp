@@ -44,6 +44,8 @@ private:
     String bundle_path;
     int epa_dbg_fd;
     bool epa_loaded;
+    bool boot_payload_pending;
+    String pending_boot_payload_hex;
     std::string virtual_drive_root;
     pid_t owned_ui_server_pid;
     pid_t owned_python_pid;
@@ -52,6 +54,7 @@ private:
     std::atomic<bool> quit_requested;
     std::thread host_bridge_thread;
     std::thread ext_logic_thread;
+    std::mutex ext_logic_request_mutex;
     std::mutex host_bridge_mutex;
     std::mutex epa_dbg_mutex;
     int ext_logic_server_fd;
@@ -74,6 +77,7 @@ private:
     bool epaDbgCall(const String &method, const String &params_json, String &result_json);
     bool epaDbgLoadBundle();
     bool ingressBootDescriptor(const String &payload_hex, String &result_json, String &error_message);
+    bool continueBootDescriptor(String &result_json, String &error_message);
     void startExtLogicServer();
     void extLogicServe();
     bool ensureDirectoryPath(const std::string &path);

@@ -49,6 +49,8 @@ ElaraOsApp::ElaraOsApp(
       bundle_path(value_bundle_path),
       epa_dbg_fd(-1),
       epa_loaded(false),
+      boot_payload_pending(false),
+      pending_boot_payload_hex(""),
       virtual_drive_root("/tmp/elara-os-virtual-drives"),
       owned_ui_server_pid(-1),
       owned_python_pid(-1),
@@ -226,7 +228,8 @@ static void dispatchExtLogicFrame(ElaraOsApp *app, int fd, const std::vector<cha
     String result_json;
     String error_code;
     String error_message;
-    if (app && app->handleExtLogicRequest(method, params_json, result_json, error_code, error_message)) {
+    bool handled = app && app->handleExtLogicRequest(method, params_json, result_json, error_code, error_message);
+    if (handled) {
         writeBrpcFrame(fd, BRpcRpcCodec::buildSuccessResponse(id, result_json.length() ? result_json : String("{}")));
     } else {
         writeBrpcFrame(
@@ -605,6 +608,11 @@ bool ElaraOsApp::connectEpaDbg() {
     freeaddrinfo(result);
     epa_dbg_fd = fd;
     if (epa_dbg_fd >= 0) {
+        struct timeval timeout;
+        timeout.tv_sec = 5;
+        timeout.tv_usec = 0;
+        setsockopt(epa_dbg_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+        setsockopt(epa_dbg_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
         printf("[C++ Host] connected to EPA debug VM at %s:%d\n", epa_dbg_host.operator char *(), epa_dbg_port);
     }
     return epa_dbg_fd >= 0;
@@ -647,10 +655,13 @@ void ElaraOsApp::closeEpaDbg() {
 
 bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, String &result_json) {
     if (!connectEpaDbg()) {
+        String method_copy(method);
+        printf("[C++ Host] EPA debug connect failed method=%s\n", method_copy.operator char *());
         return false;
     }
 
     std::lock_guard<std::mutex> lock(epa_dbg_mutex);
+    String method_copy(method);
     ByteArray request = BRpcRpcCodec::buildRequest(
         String("elara-os-host"),
         method,
@@ -658,6 +669,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     );
     ByteArray frame = BRpcRpcCodec::framePayload(request);
     if (write(epa_dbg_fd, frame.operator const char *(), (size_t)frame.length()) != (ssize_t)frame.length()) {
+        printf("[C++ Host] EPA debug write failed method=%s\n", method_copy.operator char *());
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -665,6 +677,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
 
     unsigned char rhdr[4];
     if (!readExact(epa_dbg_fd, (char *)rhdr, 4)) {
+        printf("[C++ Host] EPA debug read header failed method=%s\n", method_copy.operator char *());
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -678,6 +691,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     }
     std::vector<char> response(rlen + 1, 0);
     if (!readExact(epa_dbg_fd, response.data(), rlen)) {
+        printf("[C++ Host] EPA debug read body failed method=%s\n", method_copy.operator char *());
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -703,7 +717,6 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
         return false;
     }
     if (!ok) {
-        String method_copy(method);
         printf("[C++ Host] EPA debug RPC failed method=%s code=%s msg=%s\n",
                method_copy.operator char *(),
                error_code.operator char *(),
@@ -722,7 +735,16 @@ bool ElaraOsApp::epaDbgLoadBundle() {
     }
     String result_json;
     String params = String("{\"bundle_path\":") + jsonQuoteString(bundle_path) + String("}");
+    sendHostDebugEvent("state", "\"status\":\"loading EPA bundle for boot descriptor ingress\"");
     if (!epaDbgCall(String("epa.debug.loadBundle"), params, result_json)) {
+        return false;
+    }
+    sendHostDebugEvent("state", "\"status\":\"priming boot ingress worker after EPA bundle load\"");
+    String prime_result;
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":\"boot\",\"max_ticks\":64}"),
+            prime_result)) {
         return false;
     }
     epa_loaded = true;
@@ -744,6 +766,7 @@ bool ElaraOsApp::ingressBootDescriptor(const String &payload_hex, String &result
     String ingress_result;
     String ingress_params = String("{\"path_id\":") + jsonQuoteString(path_id)
         + String(",\"wid\":1,\"payload_hex\":") + jsonQuoteString(payload_hex) + String("}");
+    sendHostDebugEvent("state", "\"status\":\"pushing boot descriptor into EPA ingress\"");
     if (!epaDbgCall(String("epa.debug.ingressPushHex"), ingress_params, ingress_result)) {
         error_message = String("epa.debug.ingressPushHex failed");
         return false;
@@ -754,7 +777,26 @@ bool ElaraOsApp::ingressBootDescriptor(const String &payload_hex, String &result
         "\"kernel\":\"elara.os.boot\",\"worker\":\"wid=1\",\"type\":\"BootDeviceList\",\"details\":\"hardware descriptor payload queued\""
     );
 
+    pending_boot_payload_hex = payload_hex;
+    boot_payload_pending = true;
+    result_json = String("{\"queued\":true,\"path_id\":\"boot\",\"payload_bytes\":")
+        + String((int)(payload_hex.length() / 2))
+        + String(",\"ingress\":") + (ingress_result.length() ? ingress_result : String("{}"))
+        + String(",\"run_pending\":true}")
+        ;
+    sendHostDebugEvent("state", "\"status\":\"boot descriptor queued in EPA ingress\"");    
+    return true;
+}
+
+bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_message) {
+    if (!boot_payload_pending || !pending_boot_payload_hex.length()) {
+        error_message = String("no queued boot descriptor to continue");
+        return false;
+    }
+
+    String path_id("boot");
     String run_result;
+    sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
             String("{\"path_id\":") + jsonQuoteString(path_id) + String(",\"max_ticks\":200000}"),
@@ -762,11 +804,12 @@ bool ElaraOsApp::ingressBootDescriptor(const String &payload_hex, String &result
         error_message = String("epa.debug.run failed after boot ingress");
         return false;
     }
-    result_json = String("{\"queued\":true,\"path_id\":\"boot\",\"payload_bytes\":")
-        + String((int)(payload_hex.length() / 2))
-        + String(",\"ingress\":") + (ingress_result.length() ? ingress_result : String("{}"))
+    result_json = String("{\"continued\":true,\"path_id\":\"boot\",\"payload_bytes\":")
+        + String((int)(pending_boot_payload_hex.length() / 2))
         + String(",\"run\":") + (run_result.length() ? run_result : String("{}"))
         + String("}");
+    boot_payload_pending = false;
+    pending_boot_payload_hex = String("");
     sendHostDebugEvent("state", "\"status\":\"boot descriptor delivered to EPA\"");
     return true;
 }
@@ -782,11 +825,19 @@ bool ElaraOsApp::handleExtLogicRequest(const String &method, const String &param
         error_code = String("boot_descriptor_failed");
         return false;
     }
+    if (method == String("elara.os.bootContinue")) {
+        if (continueBootDescriptor(result_json, error_message)) {
+            return true;
+        }
+        error_code = String("boot_continue_failed");
+        return false;
+    }
     if (method == String("ext.debug.status")) {
         refreshDebugSessionConfigFromEnv();
         result_json = String("{\"epa_loaded\":") + String(epa_loaded ? "true" : "false")
             + String(",\"epa_dbg_port\":") + String(epa_dbg_port)
             + String(",\"ext_logic_server\":") + String(ext_logic_server_fd >= 0 ? "true" : "false")
+            + String(",\"boot_payload_pending\":") + String(boot_payload_pending ? "true" : "false")
             + String("}");
         return true;
     }
@@ -835,11 +886,14 @@ void ElaraOsApp::extLogicServe() {
         if (client < 0) {
             break;
         }
-        std::vector<char> frame;
-        while (readBrpcFrame(client, frame)) {
-            dispatchExtLogicFrame(this, client, frame);
-        }
-        close(client);
+        std::thread([this, client]() {
+            std::vector<char> frame;
+            while (readBrpcFrame(client, frame)) {
+                std::lock_guard<std::mutex> lock(ext_logic_request_mutex);
+                dispatchExtLogicFrame(this, client, frame);
+            }
+            close(client);
+        }).detach();
     }
 }
 

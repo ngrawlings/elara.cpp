@@ -1182,6 +1182,9 @@ class AiRpcServer:
     def _m_get_ui_status(self, _params):
         return self._ide.get_ui_status()
 
+    def _m_get_status_indicators(self, _params):
+        return self._ide.get_status_indicators()
+
     def _m_restart_ui(self, params):
         use_gdb = bool(params.get("use_gdb", False))
         return self._ide.restart_ui(use_gdb)
@@ -1210,6 +1213,15 @@ class AiRpcServer:
             raise _RpcError("missing_param: params must be an object")
         timeout = float(params.get("timeout", 10.0))
         return self._ide.ext_call(method, ext_params, timeout)
+
+    def _m_runtime_control(self, params):
+        target = str(params.get("target", "") or "")
+        action = str(params.get("action", "") or "")
+        if not target:
+            raise _RpcError("missing_param: target")
+        if not action:
+            raise _RpcError("missing_param: action")
+        return self._ide.runtime_control(target, action)
 
     def _m_get_event_log(self, params):
         limit = int(params.get("limit", 100))
@@ -1323,10 +1335,12 @@ class IdeBindings:
         self._get_exceptions = None         # (limit: int) -> list
         self._clear_exceptions = None       # () -> dict
         self._get_ui_status = None          # () -> dict
+        self._get_status_indicators = None  # () -> dict
         self._restart_ui = None             # (use_gdb: bool) -> dict
         self._reload_ui_document = None     # () -> dict
         self._trigger_action = None         # (action, target, payload) -> dict
         self._ext_call = None               # (method: str, params: dict, timeout: float) -> any
+        self._runtime_control = None        # (target: str, action: str) -> dict
         self._get_event_log = None          # (limit: int, type_filter: str) -> list
         self._clear_event_log = None        # () -> dict
         self._log_event = None              # (event_type: str, **details) -> None
@@ -1411,6 +1425,11 @@ class IdeBindings:
                     "process_pid": None, "server_cmd": [], "recent_output": []}
         return self._get_ui_status()
 
+    def get_status_indicators(self) -> dict:
+        if not self._get_status_indicators:
+            return {}
+        return self._get_status_indicators()
+
     def restart_ui(self, use_gdb: bool = False) -> dict:
         if not self._restart_ui:
             raise _RpcError("ui_unavailable: restart_ui callback not set")
@@ -1430,6 +1449,11 @@ class IdeBindings:
         if not self._ext_call:
             raise _RpcError("ui_unavailable: ext_call callback not set")
         return self._ext_call(method, params, timeout)
+
+    def runtime_control(self, target: str, action: str) -> dict:
+        if not self._runtime_control:
+            raise _RpcError("ui_unavailable: runtime_control callback not set")
+        return self._runtime_control(target, action)
 
     def get_event_log(self, limit: int = 100, type_filter: str = "") -> list:
         if not self._get_event_log:

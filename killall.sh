@@ -17,6 +17,7 @@ fi
 
 declare -A PPID_OF=()
 declare -A CMD_OF=()
+declare -A COMM_OF=()
 declare -A TARGETS=()
 declare -A REASONS=()
 
@@ -53,6 +54,16 @@ cmd_matches_project() {
   return 1
 }
 
+comm_matches_project() {
+  local comm="$1"
+  [[ "${comm}" == "elaraui-server" ]] && return 0
+  [[ "${comm}" == "gdb" ]] && return 0
+  [[ "${comm}" == "epavm" ]] && return 0
+  [[ "${comm}" == "epa-dbg" ]] && return 0
+  [[ "${comm}" == "elara-os" ]] && return 0
+  return 1
+}
+
 mark_target() {
   local pid="$1"
   local reason="$2"
@@ -67,20 +78,47 @@ mark_target() {
   fi
 }
 
-while IFS= read -r pid ppid cmd; do
+for proc_dir in /proc/[0-9]*; do
+  pid="${proc_dir#/proc/}"
+  [[ -r "${proc_dir}/status" ]] || continue
+  [[ -r "${proc_dir}/cmdline" ]] || continue
+  ppid="$(awk '/^PPid:/ { print $2 }' "${proc_dir}/status" 2>/dev/null || true)"
+  comm="$(cat "${proc_dir}/comm" 2>/dev/null || true)"
+  cmd="$(tr '\0' ' ' < "${proc_dir}/cmdline" 2>/dev/null || true)"
   [[ -n "${pid:-}" ]] || continue
   [[ -n "${ppid:-}" ]] || continue
+  [[ -n "${comm:-}" ]] || continue
   [[ -n "${cmd:-}" ]] || continue
   PPID_OF["$pid"]="$ppid"
+  COMM_OF["$pid"]="$comm"
   CMD_OF["$pid"]="$cmd"
   if pid_in_project_tree "$pid"; then
     mark_target "$pid" "cwd under ${PROJECT_ROOT}"
     continue
   fi
+  if comm_matches_project "$comm" && cmd_matches_project "$cmd"; then
+    mark_target "$pid" "process name and command matched project pattern"
+    continue
+  fi
   if cmd_matches_project "$cmd"; then
     mark_target "$pid" "command matched project pattern"
   fi
-done < <(ps -eo pid=,ppid=,args=)
+done
+
+while IFS= read -r line; do
+  [[ -n "${line:-}" ]] || continue
+  pid="$(awk '{print $2}' <<<"${line}")"
+  ppid="$(awk '{print $3}' <<<"${line}")"
+  cmd="$(awk '{for (i = 8; i <= NF; ++i) printf "%s%s", $i, (i < NF ? OFS : "")}' <<<"${line}")"
+  [[ -n "${pid:-}" ]] || continue
+  [[ -n "${ppid:-}" ]] || continue
+  [[ -n "${cmd:-}" ]] || continue
+  PPID_OF["$pid"]="${PPID_OF[$pid]:-$ppid}"
+  CMD_OF["$pid"]="${CMD_OF[$pid]:-$cmd}"
+  if [[ "${cmd}" == *"elaraui-server"* || "${cmd}" == *"gdb /usr/local/bin/elaraui-server"* ]]; then
+    mark_target "$pid" "ps fallback matched elaraui-server"
+  fi
+done < <(ps -ef)
 
 while IFS= read -r pid_file; do
   [[ -f "${pid_file}" ]] || continue
