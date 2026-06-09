@@ -31,4 +31,5 @@ worker boot_ingress(BootDeviceList trigger) {
   boot_frame.phase = 1;
   boot_frame.flags = 0;
   far_signal("elara.os.frame_authority", publish_boot_frame, boot_frame);
+  retire_worker();
 }

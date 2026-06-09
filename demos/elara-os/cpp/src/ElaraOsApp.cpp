@@ -1,4 +1,5 @@
 #include "ElaraOsApp.h"
+#include "ElaraOsEpaFrame.h"
 
 #include <errno.h>
 #include <arpa/inet.h>
@@ -51,7 +52,7 @@ ElaraOsApp::ElaraOsApp(
       epa_loaded(false),
       boot_payload_pending(false),
       pending_boot_payload_hex(""),
-      virtual_drive_root("/tmp/elara-os-virtual-drives"),
+      virtual_drive_root(""),
       owned_ui_server_pid(-1),
       owned_python_pid(-1),
       prefer_owned_ui_server(value_prefer_owned_ui_server),
@@ -59,6 +60,8 @@ ElaraOsApp::ElaraOsApp(
       quit_requested(false),
       ext_logic_server_fd(-1),
       peer(new ElaraUiRpcPeer()) {
+    const char *home_env = getenv("HOME");
+    virtual_drive_root = std::string(home_env && home_env[0] ? home_env : "/tmp") + "/.elaraos";
     const char *drive_root_env = getenv("ELARA_OS_VDRIVE_ROOT");
     if (drive_root_env && drive_root_env[0]) {
         virtual_drive_root = drive_root_env;
@@ -150,6 +153,39 @@ static int jsonIntField(const std::string &json, const char *key, int fallback) 
     char *end = NULL;
     long value = strtol(json.c_str() + pos, &end, 10);
     return end && end != json.c_str() + pos ? (int)value : fallback;
+}
+
+static int hexNibble(char ch) {
+    if (ch >= '0' && ch <= '9') return ch - '0';
+    if (ch >= 'a' && ch <= 'f') return 10 + (ch - 'a');
+    if (ch >= 'A' && ch <= 'F') return 10 + (ch - 'A');
+    return -1;
+}
+
+static bool decodeHexBytes(const std::string &hex, std::vector<unsigned char> &bytes) {
+    if ((hex.size() & 1u) != 0u) {
+        return false;
+    }
+    bytes.clear();
+    bytes.reserve(hex.size() / 2u);
+    for (std::string::size_type i = 0; i < hex.size(); i += 2u) {
+        int hi = hexNibble(hex[i]);
+        int lo = hexNibble(hex[i + 1u]);
+        if (hi < 0 || lo < 0) {
+            bytes.clear();
+            return false;
+        }
+        bytes.push_back((unsigned char)((hi << 4) | lo));
+    }
+    return true;
+}
+
+static void appendJsonCommand(String &json, int &emitted, const String &command_json) {
+    if (emitted) {
+        json += String(",");
+    }
+    json += command_json;
+    emitted++;
 }
 
 static std::string readTextFile(const char *path) {
@@ -277,6 +313,146 @@ bool ElaraOsApp::loadDocument(const String &document_json) {
         return false;
     }
     printf("Document loaded: %s\n", result_json.operator char *());
+    return true;
+}
+
+bool ElaraOsApp::setSectionJson(const String &target, const String &section, const String &value_json) {
+    String params = String("{\"target\":")
+        + JsonString(target, true).toString()
+        + String(",\"section\":")
+        + JsonString(section, true).toString()
+        + String(",\"value\":")
+        + value_json
+        + String("}");
+    String result_json;
+    String error_code;
+    String error_message;
+    if (!peer->call(String("ui.setSectionJson"), params, result_json, error_code, error_message, 5000)) {
+        printf("ui.setSectionJson failed [%s] target=%s section=%s: %s\n",
+               error_code.operator char *(),
+               String(target).operator char *(),
+               String(section).operator char *(),
+               error_message.operator char *());
+        return false;
+    }
+    printf("ui.setSectionJson ok: target=%s section=%s bytes=%d\n",
+           String(target).operator char *(),
+           String(section).operator char *(),
+           value_json.length());
+    return true;
+}
+
+bool ElaraOsApp::updateSurfaceCommandsFromMailbox(const String &mailbox_json, String &frame_json, String &error_message) {
+    String mailbox_copy(mailbox_json);
+    std::string mb(mailbox_copy.operator char *() ? mailbox_copy.operator char *() : "");
+    std::string hex = jsonStringField(mb, "hex");
+    int wid = jsonIntField(mb, "wid", 0);
+    int len = jsonIntField(mb, "len", 0);
+    if (wid <= 0 || len <= 0 || hex.empty()) {
+        error_message = String("EPA mailbox did not contain an egress frame");
+        return false;
+    }
+
+    std::vector<unsigned char> bytes;
+    if (!decodeHexBytes(hex, bytes) || (int)bytes.size() != len) {
+        error_message = String("EPA mailbox hex payload was malformed");
+        return false;
+    }
+
+    ElaraOsEpaFrameHeader header = orangeFortressParseEgressFrameHeader(bytes.data(), bytes.size());
+    frame_json = orangeFortressFrameHeaderJson(
+        header,
+        String("egress"),
+        String("elara-os.epa.frame.v1")
+    );
+    sendHostDebugEvent(
+        "egress_frame",
+        (String("\"kernel\":\"elara.os.frame_authority\",")
+            + String("\"worker\":\"wid=") + String(wid) + String("\",")
+            + String("\"frame\":") + frame_json).operator char *()
+    );
+    if (!header.valid) {
+        error_message = String("invalid EPA egress frame: ") + header.error;
+        return false;
+    }
+
+    size_t offset = header.header_bytes;
+    String commands("[");
+    int emitted = 0;
+    appendJsonCommand(
+        commands,
+        emitted,
+        String("{\"op\":\"clear\",\"r\":") + String(((double)header.frame_type) / 255.0)
+            + String(",\"g\":") + String(((double)header.frame_id) / 255.0)
+            + String(",\"b\":") + String(((double)header.record_count) / 255.0)
+            + String("}")
+    );
+
+    while (offset + 4u <= bytes.size()) {
+        uint32_t opcode = orangeFortressReadLeU32(bytes.data() + offset);
+        offset += 4u;
+        if (opcode == 255u) {
+            break;
+        }
+        if (opcode == 1u) {
+            if (offset + 28u > bytes.size()) break;
+            uint32_t x = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t y = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t w = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t h = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t r = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t g = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t b = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            appendJsonCommand(
+                commands,
+                emitted,
+                String("{\"op\":\"rect\",\"x\":") + String((int)x)
+                    + String(",\"y\":") + String((int)y)
+                    + String(",\"w\":") + String((int)w)
+                    + String(",\"h\":") + String((int)h)
+                    + String(",\"r\":") + String(((double)r) / 255.0)
+                    + String(",\"g\":") + String(((double)g) / 255.0)
+                    + String(",\"b\":") + String(((double)b) / 255.0)
+                    + String("}")
+            );
+            continue;
+        }
+        if (opcode == 2u) {
+            if (offset + 32u > bytes.size()) break;
+            uint32_t x0 = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t y0 = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t x1 = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t y1 = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t line_width = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t r = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t g = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t b = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            appendJsonCommand(
+                commands,
+                emitted,
+                String("{\"op\":\"line\",\"x0\":") + String((int)x0)
+                    + String(",\"y0\":") + String((int)y0)
+                    + String(",\"x1\":") + String((int)x1)
+                    + String(",\"y1\":") + String((int)y1)
+                    + String(",\"line_width\":") + String((int)line_width)
+                    + String(",\"r\":") + String(((double)r) / 255.0)
+                    + String(",\"g\":") + String(((double)g) / 255.0)
+                    + String(",\"b\":") + String(((double)b) / 255.0)
+                    + String("}")
+            );
+            continue;
+        }
+        break;
+    }
+    commands += String("]");
+
+    if (!setSectionJson(String("app.surface"), String("commands"), commands)) {
+        error_message = String("failed to update Vulkan surface commands");
+        return false;
+    }
+    sendHostDebugEvent("state", "\"status\":\"Elara OS boot screen egressed\",\"surface\":\"app.surface\"");
+    printf("[C++ Host] Elara OS boot frame parsed: wid=%d bytes=%d records=%d commands=%d\n",
+           wid, len, (int)header.record_count, emitted);
     return true;
 }
 
@@ -621,16 +797,35 @@ bool ElaraOsApp::connectEpaDbg() {
 bool ElaraOsApp::refreshDebugSessionConfigFromEnv() {
     const char *session_path = getenv("ELARA_DEBUG_SESSION");
     std::string text = readTextFile(session_path);
+    if (session_path && session_path[0]) {
+        std::string path(session_path);
+        std::string::size_type slash = path.find_last_of('/');
+        if (slash != std::string::npos) {
+            std::string latest_path = path.substr(0, slash + 1u) + "latest.json";
+            std::string latest_text = readTextFile(latest_path.c_str());
+            if (!latest_text.empty()) {
+                text = latest_text;
+            }
+        }
+    }
     if (text.empty()) {
         return false;
     }
 
     std::string session_epa_host = jsonStringField(text, "epa_dbg_host");
     int session_epa_port = jsonIntField(text, "epa_dbg_port", 0);
+    std::string session_host_debug_host = jsonStringField(text, "host_debug_host");
+    int session_host_debug_port = jsonIntField(text, "host_debug_port", 0);
     std::string session_bundle_path = jsonStringField(text, "bundle_path");
 
     if (session_epa_host.size()) {
         epa_dbg_host = String(session_epa_host.c_str());
+    }
+    if (session_host_debug_host.size()) {
+        host_bridge_host = String(session_host_debug_host.c_str());
+    }
+    if (session_host_debug_port > 0) {
+        host_bridge_port = session_host_debug_port;
     }
     if (session_epa_port > 0 && session_epa_port != epa_dbg_port) {
         epa_dbg_port = session_epa_port;
@@ -739,14 +934,6 @@ bool ElaraOsApp::epaDbgLoadBundle() {
     if (!epaDbgCall(String("epa.debug.loadBundle"), params, result_json)) {
         return false;
     }
-    sendHostDebugEvent("state", "\"status\":\"priming boot ingress worker after EPA bundle load\"");
-    String prime_result;
-    if (!epaDbgCall(
-            String("epa.debug.run"),
-            String("{\"path_id\":\"boot\",\"max_ticks\":64}"),
-            prime_result)) {
-        return false;
-    }
     epa_loaded = true;
     sendHostDebugEvent("state", "\"status\":\"EPA bundle loaded for boot descriptor ingress\"");
     return true;
@@ -794,23 +981,51 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         return false;
     }
 
-    String path_id("boot");
+    String boot_path_id("boot");
+    String frame_path_id("frame_authority");
     String run_result;
+    String clear_result;
+    String frame_run_result;
+    String mailbox_result;
+    String frame_json;
+    epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"frame_authority\"}"), clear_result);
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(path_id) + String(",\"max_ticks\":200000}"),
+            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":200000}"),
             run_result)) {
         error_message = String("epa.debug.run failed after boot ingress");
         return false;
     }
+
+    sendHostDebugEvent("state", "\"status\":\"running Frame Authority boot worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":200000}"),
+            frame_run_result)) {
+        error_message = String("epa.debug.run failed for frame_authority after boot ingress");
+        return false;
+    }
+
+    if (!epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_authority\"}"), mailbox_result)) {
+        error_message = String("epa.debug.getMailbox failed after frame_authority run");
+        return false;
+    }
+
+    if (!updateSurfaceCommandsFromMailbox(mailbox_result, frame_json, error_message)) {
+        return false;
+    }
+
     result_json = String("{\"continued\":true,\"path_id\":\"boot\",\"payload_bytes\":")
         + String((int)(pending_boot_payload_hex.length() / 2))
         + String(",\"run\":") + (run_result.length() ? run_result : String("{}"))
+        + String(",\"frame_run\":") + (frame_run_result.length() ? frame_run_result : String("{}"))
+        + String(",\"mailbox\":") + (mailbox_result.length() ? mailbox_result : String("{}"))
+        + String(",\"frame\":") + (frame_json.length() ? frame_json : String("{}"))
         + String("}");
     boot_payload_pending = false;
     pending_boot_payload_hex = String("");
-    sendHostDebugEvent("state", "\"status\":\"boot descriptor delivered to EPA\"");
+    sendHostDebugEvent("state", "\"status\":\"boot descriptor delivered and boot screen egressed\"");
     return true;
 }
 
@@ -898,6 +1113,7 @@ void ElaraOsApp::extLogicServe() {
 }
 
 bool ElaraOsApp::connectHostDebugBridge() {
+    refreshDebugSessionConfigFromEnv();
     if (host_bridge_port <= 0 || host_bridge_fd >= 0) {
         return false;
     }
@@ -1029,10 +1245,12 @@ bool ElaraOsApp::sendHostDebugEvent(const char *kind, const char *payload) {
 }
 
 int ElaraOsApp::run() {
+    printf("Elara OS virtual drive root: %s\n", virtual_drive_root.c_str());
     if (!bootstrapVirtualDrives()) {
         printf("Failed to bootstrap virtual drives under %s\n", virtual_drive_root.c_str());
         return 1;
     }
+    printf("Elara OS virtual drives ready under %s\n", virtual_drive_root.c_str());
     if (!connectUiPeer()) {
         printf("Failed to connect to %s:%d\n", host.operator char *(), port);
         return 1;

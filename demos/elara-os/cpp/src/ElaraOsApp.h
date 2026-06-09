@@ -78,6 +78,8 @@ private:
     bool epaDbgLoadBundle();
     bool ingressBootDescriptor(const String &payload_hex, String &result_json, String &error_message);
     bool continueBootDescriptor(String &result_json, String &error_message);
+    bool setSectionJson(const String &target, const String &section, const String &value_json);
+    bool updateSurfaceCommandsFromMailbox(const String &mailbox_json, String &frame_json, String &error_message);
     void startExtLogicServer();
     void extLogicServe();
     bool ensureDirectoryPath(const std::string &path);

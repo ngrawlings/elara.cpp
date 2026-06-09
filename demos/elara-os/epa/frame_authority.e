@@ -41,18 +41,9 @@ acl {
   "elara.app.example" -> frame_ingress;
 }
 
-@attributes signal_mail_box_size:512
+@attributes signal_mail_box_size:2048
 worker publish_boot_frame(FrameBoot boot) {
-  static FrameAuthorityState state;
-
-  static {
-    state.frame_id = 1;
-    state.boot_complete = 0;
-    state.focused_surface = 0;
-    state.surface_count = 0;
-  }
-
-  frame_begin(1280, 720, 2, state.frame_id, 15);
+  frame_begin(1280, 720, 2, 1, 15);
 
   // Background and top-band.
   frame_rect(0, 0, 1280, 720, 10, 14, 20);
@@ -83,20 +74,16 @@ worker publish_boot_frame(FrameBoot boot) {
 
   frame_commit();
 
-  state.boot_complete = 1;
-  state.frame_id = state.frame_id + 1;
   retire_worker();
 }
 
 worker frame_ingress(FrameRequest request) {
-  static FrameAuthorityState state;
+  local FrameAuthorityState state;
 
-  static {
-    state.frame_id = 2;
-    state.boot_complete = 1;
-    state.focused_surface = 0;
-    state.surface_count = 0;
-  }
+  state.frame_id = 2;
+  state.boot_complete = 1;
+  state.focused_surface = 0;
+  state.surface_count = 0;
 
   if (request.opcode == 1) {
     int slot = dyn_alloc(frame_surfaces);
