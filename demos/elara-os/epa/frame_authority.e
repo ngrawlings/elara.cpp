@@ -1,9 +1,5 @@
 #include "frame_protocol.em"
 
-type FrameRequest(int opcode, int surface_id, int arg0, int arg1) {
-  return opcode;
-}
-
 type SurfaceRecord(
   int surface_id,
   int owner_uid_lo,
@@ -31,11 +27,14 @@ dynamic frame_surfaces(SurfaceRecord, 8, 64, 8);
 kernel(VM vm) {
   kernalId("elara.os.frame_authority");
   start_worker(publish_boot_frame);
+  start_worker(manager_ingress);
   start_worker(frame_ingress);
 }
 
 acl {
   "elara.os.boot" -> publish_boot_frame;
+  "elara.os.console_view" -> manager_ingress;
+  "elara.os.window_manager" -> manager_ingress;
   "elara.os.shell" -> frame_ingress;
   "elara.os.input" -> frame_ingress;
   "elara.app.example" -> frame_ingress;
@@ -73,6 +72,36 @@ worker publish_boot_frame(FrameBoot boot) {
   frame_rect(1098, 682, 154, 12, 117, 224, 163);
 
   frame_commit();
+
+  retire_worker();
+}
+
+@attributes signal_mail_box_size:2048
+worker manager_ingress(FrameManagerFrame frame) {
+  static int active_manager_id;
+
+  if (active_manager_id == 0) {
+    active_manager_id = 1;
+  }
+
+  if (frame.frame_kind == 0) {
+    active_manager_id = frame.manager_id;
+  }
+
+  if (frame.frame_kind != 0) {
+    if (frame.manager_id == active_manager_id) {
+      frame_begin(1280, 720, 2, frame.frame_id, 8);
+      frame_rect(0, 0, 1280, 720, 8, 11, 16);
+      frame_rect(0, 0, 1280, 86, 18, 25, 36);
+      frame_rect(72, 118, 1136, 488, 18, 23, 31);
+      frame_rect(88, 134, 1104, 456, 26, 34, 46);
+      frame_rect(88, 134, 1104, 10, 82, 146, 255);
+      frame_rect(120, 176, 420 + (frame.manager_id * 36), 26, 117, 224, 163);
+      frame_rect(120, 232, 280 + (frame.arg0 * 4), 18, 255, 196, 92);
+      frame_rect(0, 664, 1280, 56, 14, 18, 24);
+      frame_commit();
+    }
+  }
 
   retire_worker();
 }

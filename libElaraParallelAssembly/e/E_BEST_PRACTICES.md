@@ -196,6 +196,34 @@ int y = local_load_i32(blob, 416);
 
 If an offset matters, give it a named helper.
 
+## Prefer Typed HashMap Values For Virtual Trees
+
+`common/hashmap.em` stores each map value in a 64-byte dynamic slot. Use the
+typed value helpers when the map is modelling an object graph, virtual
+filesystem, `/proc` tree, or authority namespace.
+
+Useful value kinds:
+
+- `hashmap_value_kind_inline_blob()`
+- `hashmap_value_kind_blob_ref()`
+- `hashmap_value_kind_map_ref()`
+- `hashmap_value_kind_typed_ref()`
+- `hashmap_value_kind_authority_ref()`
+- `hashmap_value_kind_generated_ref()`
+
+Good:
+
+```c
+int root = hashmap_u64_init();
+int proc = hashmap_u64_init();
+hashmap_u64_put_map(root, key_proc, proc, 0);
+hashmap_u64_put_typed_ref(proc, key_status, status_type_id, status_record_id, 16, 0);
+```
+
+This keeps `u64 -> value_id` compatible with existing code while making each
+value self-describing through `kind`, `type_id`, `flags`, `size`, and `ref_id`.
+Nested maps are just values whose kind is `hashmap_value_kind_map_ref()`.
+
 ## Use Slices For Copying, Not Aliasing
 
 The current dynamic slice model is intentionally copy-oriented:

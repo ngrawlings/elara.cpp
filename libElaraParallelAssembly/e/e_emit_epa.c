@@ -28,6 +28,11 @@ typedef struct {
   EmitBuiltinFn fn;
 } EmitBuiltinEntry;
 
+typedef struct {
+  const char *name;
+  unsigned int func_id;
+} EmitFuncIdEntry;
+
 struct EmitCtx {
   unsigned int next_label_id;
   unsigned int next_worker_id;
@@ -46,8 +51,9 @@ struct EmitCtx {
   /* Current type layout when inside a type body (for GHS field ident resolution) */
   const ETypeLayout *current_type_layout;
   /* Pre-built name → func_id map for user-defined function CALL emission */
-  struct { const char *name; unsigned int func_id; } func_id_map[64];
-  unsigned int func_id_map_count;
+  EmitFuncIdEntry *func_id_map;
+  size_t func_id_map_count;
+  size_t func_id_map_cap;
   /* Source line map: translates flat preprocessed line → (file, original-line) */
   const ELineMap *line_map;
   const char *main_file;
@@ -909,22 +915,36 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
   return 0;
 }
 
-static void build_func_id_map(EmitCtx *ctx, const EProgram *prog) {
+static int append_func_id_map_entry(EmitCtx *ctx, const char *name, unsigned int func_id) {
+  EmitFuncIdEntry *next;
+
+  if (ctx->func_id_map_count == ctx->func_id_map_cap) {
+    size_t next_cap = ctx->func_id_map_cap ? ctx->func_id_map_cap * 2u : 64u;
+    next = (EmitFuncIdEntry*)realloc(ctx->func_id_map, sizeof(*next) * next_cap);
+    if (!next) return 0;
+    ctx->func_id_map = next;
+    ctx->func_id_map_cap = next_cap;
+  }
+
+  ctx->func_id_map[ctx->func_id_map_count].name = name;
+  ctx->func_id_map[ctx->func_id_map_count].func_id = func_id;
+  ctx->func_id_map_count++;
+  return 1;
+}
+
+static int build_func_id_map(EmitCtx *ctx, const EProgram *prog) {
   size_t i;
   unsigned int next_id = 1u;
   ctx->func_id_map_count = 0u;
-  for (i = 0; i < prog->count && ctx->func_id_map_count < 64u; i++) {
+  for (i = 0; i < prog->count; i++) {
     const ETopDecl *top = &prog->items[i];
     if (top->kind == E_TOP_TYPE) {
-      ctx->func_id_map[ctx->func_id_map_count].name = top->as.tdecl.name;
-      ctx->func_id_map[ctx->func_id_map_count].func_id = next_id++;
-      ctx->func_id_map_count++;
+      if (!append_func_id_map_entry(ctx, top->as.tdecl.name, next_id++)) return 0;
     } else if (top->kind == E_TOP_FUNCTION) {
-      ctx->func_id_map[ctx->func_id_map_count].name = top->as.func.name;
-      ctx->func_id_map[ctx->func_id_map_count].func_id = next_id++;
-      ctx->func_id_map_count++;
+      if (!append_func_id_map_entry(ctx, top->as.func.name, next_id++)) return 0;
     }
   }
+  return 1;
 }
 
 static int find_user_func_id(const EmitCtx *ctx, const char *name, unsigned int *out_id) {
@@ -4053,7 +4073,11 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
   ctx.line_map = line_map;
   ctx.main_file = main_file;
   ctx.model = model;
-  build_func_id_map(&ctx, prog);
+  if (!build_func_id_map(&ctx, prog)) {
+    free(ctx.func_id_map);
+    if (err) snprintf(err, 256, "e_emit_epa_asm: OOM building function id map");
+    return 0;
+  }
   collect_program_strings(&ctx, prog);
 
   fputs("; E -> EPA ASM skeleton emitter\n", out);
@@ -4335,6 +4359,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
   fputs("END\n", out);
   for (i = 0; i < ctx.string_count; i++) free(ctx.strings[i].literal);
   free(ctx.strings);
+  free(ctx.func_id_map);
 
   if (map_out) {
     fflush(out);

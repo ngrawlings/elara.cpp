@@ -26,6 +26,66 @@ function int hashmap_bytes_value_size() {
   return 64;
 }
 
+function int hashmap_value_kind_empty() {
+  return 0;
+}
+
+function int hashmap_value_kind_inline_blob() {
+  return 1;
+}
+
+function int hashmap_value_kind_blob_ref() {
+  return 2;
+}
+
+function int hashmap_value_kind_map_ref() {
+  return 3;
+}
+
+function int hashmap_value_kind_typed_ref() {
+  return 4;
+}
+
+function int hashmap_value_kind_authority_ref() {
+  return 5;
+}
+
+function int hashmap_value_kind_generated_ref() {
+  return 6;
+}
+
+function int hashmap_value_type_none() {
+  return 0;
+}
+
+function int hashmap_value_kind_off() {
+  return 0;
+}
+
+function int hashmap_value_type_off() {
+  return 4;
+}
+
+function int hashmap_value_flags_off() {
+  return 8;
+}
+
+function int hashmap_value_size_off() {
+  return 12;
+}
+
+function int hashmap_value_ref_off() {
+  return 16;
+}
+
+function int hashmap_value_payload_off() {
+  return 20;
+}
+
+function int hashmap_value_payload_size() {
+  return 44;
+}
+
 function int hashmap_u64_node_value_off() {
   return 1024;
 }
@@ -78,6 +138,304 @@ function int hashmap_bytes_free(int value_id) {
   return value_id;
 }
 
+function int hashmap_value_alloc() {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_init(
+  int value_id,
+  int kind,
+  int type_id,
+  int ref_id,
+  int size,
+  int flags
+) {
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, kind);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_new(
+  int kind,
+  int type_id,
+  int ref_id,
+  int size,
+  int flags
+) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, kind);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_kind(int value_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 0);
+}
+
+function int hashmap_value_type_id(int value_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 4);
+}
+
+function int hashmap_value_flags(int value_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 8);
+}
+
+function int hashmap_value_size(int value_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 12);
+}
+
+function int hashmap_value_ref_id(int value_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 16);
+}
+
+function int hashmap_value_set_kind(int value_id, int kind) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(value, 0, kind);
+  hashmap_bytes_values[value_id] = value;
+  return kind;
+}
+
+function int hashmap_value_set_type_id(int value_id, int type_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(value, 4, type_id);
+  hashmap_bytes_values[value_id] = value;
+  return type_id;
+}
+
+function int hashmap_value_set_flags(int value_id, int flags) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(value, 8, flags);
+  hashmap_bytes_values[value_id] = value;
+  return flags;
+}
+
+function int hashmap_value_set_size(int value_id, int size) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(value, 12, size);
+  hashmap_bytes_values[value_id] = value;
+  return size;
+}
+
+function int hashmap_value_set_ref_id(int value_id, int ref_id) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  return ref_id;
+}
+
+function int hashmap_value_payload_store_i32(int value_id, int word_index, int value) {
+  local byte[64] bytes;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  local_store_i32(bytes, 20 + (word_index * 4), value);
+  hashmap_bytes_values[value_id] = bytes;
+  return value;
+}
+
+function int hashmap_value_payload_load_i32(int value_id, int word_index) {
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  return local_load_i32(value, 20 + (word_index * 4));
+}
+
+function int hashmap_value_new_inline_i32(int type_id, int value, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] bytes;
+  int slot = 0;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(bytes, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(bytes, 0, 1);
+  local_store_i32(bytes, 4, type_id);
+  local_store_i32(bytes, 8, flags);
+  local_store_i32(bytes, 12, 4);
+  local_store_i32(bytes, 16, hashmap_empty_id());
+  local_store_i32(bytes, 20, value);
+  hashmap_bytes_values[value_id] = bytes;
+  return value_id;
+}
+
+function int hashmap_value_new_inline_i32_pair(int type_id, int left, int right, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] bytes;
+  int slot = 0;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(bytes, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(bytes, 0, 1);
+  local_store_i32(bytes, 4, type_id);
+  local_store_i32(bytes, 8, flags);
+  local_store_i32(bytes, 12, 8);
+  local_store_i32(bytes, 16, hashmap_empty_id());
+  local_store_i32(bytes, 20, left);
+  local_store_i32(bytes, 24, right);
+  hashmap_bytes_values[value_id] = bytes;
+  return value_id;
+}
+
+function int hashmap_value_new_map(int map_root_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 3);
+  local_store_i32(value, 4, 0);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, map_root_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_new_typed_ref(int type_id, int ref_id, int size, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 4);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_new_blob_ref(int type_id, int ref_id, int size, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 2);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_new_authority_ref(int authority_id, int type_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 5);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, authority_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_new_generated_ref(int generator_id, int type_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 6);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, generator_id);
+  hashmap_bytes_values[value_id] = value;
+  return value_id;
+}
+
+function int hashmap_value_is_map(int value_id) {
+  if (value_id == hashmap_empty_id()) {
+    return 0;
+  }
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  if (local_load_i32(value, 0) == 3) {
+    return 1;
+  }
+  return 0;
+}
+
+function int hashmap_value_as_map_root(int value_id) {
+  if (value_id == hashmap_empty_id()) {
+    return hashmap_empty_id();
+  }
+  local byte[64] value;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  if (local_load_i32(value, 0) != 3) {
+    return hashmap_empty_id();
+  }
+  return local_load_i32(value, 16);
+}
+
 function int hashmap_u64_node_child_off(int key_byte) {
   return key_byte * 4;
 }
@@ -98,20 +456,29 @@ function int hashmap_u64_node_init(int node_id) {
 
 function int hashmap_u64_init() {
   int root_id = dyn_alloc(hashmap_u64_nodes);
-  hashmap_u64_node_init(root_id);
+  local byte[1028] node;
+  int slot = 0;
+  node = hashmap_u64_nodes[root_id:root_id + 1];
+
+  while (slot < 257) {
+    local_store_i32(node, slot * 4, hashmap_empty_id());
+    slot = slot + 1;
+  }
+
+  hashmap_u64_nodes[root_id] = node;
   return root_id;
 }
 
 function int hashmap_u64_child_get(int node_id, int key_byte) {
   local byte[1028] node;
   node = hashmap_u64_nodes[node_id:node_id + 1];
-  return local_load_i32(node, hashmap_u64_node_child_off(key_byte));
+  return local_load_i32(node, key_byte * 4);
 }
 
 function int hashmap_u64_child_set(int node_id, int key_byte, int child_id) {
   local byte[1028] node;
   node = hashmap_u64_nodes[node_id:node_id + 1];
-  local_store_i32(node, hashmap_u64_node_child_off(key_byte), child_id);
+  local_store_i32(node, key_byte * 4, child_id);
   hashmap_u64_nodes[node_id] = node;
   return child_id;
 }
@@ -119,13 +486,13 @@ function int hashmap_u64_child_set(int node_id, int key_byte, int child_id) {
 function int hashmap_u64_value_get(int node_id) {
   local byte[1028] node;
   node = hashmap_u64_nodes[node_id:node_id + 1];
-  return local_load_i32(node, hashmap_u64_node_value_off());
+  return local_load_i32(node, 1024);
 }
 
 function int hashmap_u64_value_set(int node_id, int value_id) {
   local byte[1028] node;
   node = hashmap_u64_nodes[node_id:node_id + 1];
-  local_store_i32(node, hashmap_u64_node_value_off(), value_id);
+  local_store_i32(node, 1024, value_id);
   hashmap_u64_nodes[node_id] = node;
   return value_id;
 }
@@ -135,8 +502,19 @@ function int hashmap_u64_find(int root_id, HashMapKey64 key) {
   int node_id = root_id;
 
   while (depth < 8) {
-    int key_byte = hashmap_key64_get_byte(key, depth);
-    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    int key_byte = 0;
+    if (depth == 0) { key_byte = bit_and_i32(key.b00, 255); }
+    if (depth == 1) { key_byte = bit_and_i32(key.b01, 255); }
+    if (depth == 2) { key_byte = bit_and_i32(key.b02, 255); }
+    if (depth == 3) { key_byte = bit_and_i32(key.b03, 255); }
+    if (depth == 4) { key_byte = bit_and_i32(key.b04, 255); }
+    if (depth == 5) { key_byte = bit_and_i32(key.b05, 255); }
+    if (depth == 6) { key_byte = bit_and_i32(key.b06, 255); }
+    if (depth == 7) { key_byte = bit_and_i32(key.b07, 255); }
+    local byte[1028] node;
+    int child_id = 0;
+    node = hashmap_u64_nodes[node_id:node_id + 1];
+    child_id = local_load_i32(node, key_byte * 4);
     if (child_id == hashmap_empty_id()) {
       return hashmap_empty_id();
     }
@@ -144,14 +522,42 @@ function int hashmap_u64_find(int root_id, HashMapKey64 key) {
     depth = depth + 1;
   }
 
-  return hashmap_u64_value_get(node_id);
+  local byte[1028] value_node;
+  value_node = hashmap_u64_nodes[node_id:node_id + 1];
+  return local_load_i32(value_node, 1024);
 }
 
 function int hashmap_u64_contains(int root_id, HashMapKey64 key) {
-  if (hashmap_u64_find(root_id, key) == hashmap_empty_id()) {
-    return 0;
+  int depth = 0;
+  int node_id = root_id;
+
+  while (depth < 8) {
+    int key_byte = 0;
+    if (depth == 0) { key_byte = bit_and_i32(key.b00, 255); }
+    if (depth == 1) { key_byte = bit_and_i32(key.b01, 255); }
+    if (depth == 2) { key_byte = bit_and_i32(key.b02, 255); }
+    if (depth == 3) { key_byte = bit_and_i32(key.b03, 255); }
+    if (depth == 4) { key_byte = bit_and_i32(key.b04, 255); }
+    if (depth == 5) { key_byte = bit_and_i32(key.b05, 255); }
+    if (depth == 6) { key_byte = bit_and_i32(key.b06, 255); }
+    if (depth == 7) { key_byte = bit_and_i32(key.b07, 255); }
+    local byte[1028] node;
+    int child_id = 0;
+    node = hashmap_u64_nodes[node_id:node_id + 1];
+    child_id = local_load_i32(node, key_byte * 4);
+    if (child_id == hashmap_empty_id()) {
+      return 0;
+    }
+    node_id = child_id;
+    depth = depth + 1;
   }
-  return 1;
+
+  local byte[1028] value_node;
+  value_node = hashmap_u64_nodes[node_id:node_id + 1];
+  if (local_load_i32(value_node, 1024) != hashmap_empty_id()) {
+    return 1;
+  }
+  return 0;
 }
 
 function int hashmap_u64_put(int root_id, HashMapKey64 key, int value_id) {
@@ -159,18 +565,234 @@ function int hashmap_u64_put(int root_id, HashMapKey64 key, int value_id) {
   int node_id = root_id;
 
   while (depth < 8) {
-    int key_byte = hashmap_key64_get_byte(key, depth);
-    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    int key_byte = 0;
+    if (depth == 0) { key_byte = bit_and_i32(key.b00, 255); }
+    if (depth == 1) { key_byte = bit_and_i32(key.b01, 255); }
+    if (depth == 2) { key_byte = bit_and_i32(key.b02, 255); }
+    if (depth == 3) { key_byte = bit_and_i32(key.b03, 255); }
+    if (depth == 4) { key_byte = bit_and_i32(key.b04, 255); }
+    if (depth == 5) { key_byte = bit_and_i32(key.b05, 255); }
+    if (depth == 6) { key_byte = bit_and_i32(key.b06, 255); }
+    if (depth == 7) { key_byte = bit_and_i32(key.b07, 255); }
+    local byte[1028] parent_node;
+    int child_id = 0;
+    parent_node = hashmap_u64_nodes[node_id:node_id + 1];
+    child_id = local_load_i32(parent_node, key_byte * 4);
     if (child_id == hashmap_empty_id()) {
       child_id = dyn_alloc(hashmap_u64_nodes);
-      hashmap_u64_node_init(child_id);
-      hashmap_u64_child_set(node_id, key_byte, child_id);
+      local byte[1028] child_node;
+      int slot = 0;
+      child_node = hashmap_u64_nodes[child_id:child_id + 1];
+      while (slot < 257) {
+        local_store_i32(child_node, slot * 4, hashmap_empty_id());
+        slot = slot + 1;
+      }
+      hashmap_u64_nodes[child_id] = child_node;
+      local_store_i32(parent_node, key_byte * 4, child_id);
+      hashmap_u64_nodes[node_id] = parent_node;
     }
     node_id = child_id;
     depth = depth + 1;
   }
 
-  hashmap_u64_value_set(node_id, value_id);
+  local byte[1028] value_node;
+  value_node = hashmap_u64_nodes[node_id:node_id + 1];
+  local_store_i32(value_node, 1024, value_id);
+  hashmap_u64_nodes[node_id] = value_node;
+  return value_id;
+}
+
+function int hm_u64_put8(
+  int root_id,
+  int b00,
+  int b01,
+  int b02,
+  int b03,
+  int b04,
+  int b05,
+  int b06,
+  int b07,
+  int value_id
+) {
+  int depth = 0;
+  int node_id = root_id;
+
+  while (depth < 8) {
+    int key_byte = 0;
+    if (depth == 0) { key_byte = bit_and_i32(b00, 255); }
+    if (depth == 1) { key_byte = bit_and_i32(b01, 255); }
+    if (depth == 2) { key_byte = bit_and_i32(b02, 255); }
+    if (depth == 3) { key_byte = bit_and_i32(b03, 255); }
+    if (depth == 4) { key_byte = bit_and_i32(b04, 255); }
+    if (depth == 5) { key_byte = bit_and_i32(b05, 255); }
+    if (depth == 6) { key_byte = bit_and_i32(b06, 255); }
+    if (depth == 7) { key_byte = bit_and_i32(b07, 255); }
+    local byte[1028] parent_node;
+    int child_id = 0;
+    parent_node = hashmap_u64_nodes[node_id:node_id + 1];
+    child_id = local_load_i32(parent_node, key_byte * 4);
+    if (child_id == hashmap_empty_id()) {
+      child_id = dyn_alloc(hashmap_u64_nodes);
+      local byte[1028] child_node;
+      int slot = 0;
+      child_node = hashmap_u64_nodes[child_id:child_id + 1];
+      while (slot < 257) {
+        local_store_i32(child_node, slot * 4, hashmap_empty_id());
+        slot = slot + 1;
+      }
+      hashmap_u64_nodes[child_id] = child_node;
+      local_store_i32(parent_node, key_byte * 4, child_id);
+      hashmap_u64_nodes[node_id] = parent_node;
+    }
+    node_id = child_id;
+    depth = depth + 1;
+  }
+
+  local byte[1028] value_node;
+  value_node = hashmap_u64_nodes[node_id:node_id + 1];
+  local_store_i32(value_node, 1024, value_id);
+  hashmap_u64_nodes[node_id] = value_node;
+  return value_id;
+}
+
+function int hashmap_u64_put_inline_i32(int root_id, HashMapKey64 key, int type_id, int value, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] bytes;
+  int slot = 0;
+  bytes = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(bytes, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(bytes, 0, 1);
+  local_store_i32(bytes, 4, type_id);
+  local_store_i32(bytes, 8, flags);
+  local_store_i32(bytes, 12, 4);
+  local_store_i32(bytes, 16, hashmap_empty_id());
+  local_store_i32(bytes, 20, value);
+  hashmap_bytes_values[value_id] = bytes;
+  hashmap_u64_put(root_id, key, value_id);
+  return value_id;
+}
+
+function int hashmap_u64_put_map(int root_id, HashMapKey64 key, int child_root_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 3);
+  local_store_i32(value, 4, 0);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, child_root_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u64_put(root_id, key, value_id);
+  return value_id;
+}
+
+function int hashmap_u64_put_typed_ref(
+  int root_id,
+  HashMapKey64 key,
+  int type_id,
+  int ref_id,
+  int size,
+  int flags
+) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 4);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u64_put(root_id, key, value_id);
+  return value_id;
+}
+
+function int hashmap_u64_put_blob_ref(
+  int root_id,
+  HashMapKey64 key,
+  int type_id,
+  int ref_id,
+  int size,
+  int flags
+) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 2);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u64_put(root_id, key, value_id);
+  return value_id;
+}
+
+function int hashmap_u64_put_authority_ref(
+  int root_id,
+  HashMapKey64 key,
+  int authority_id,
+  int type_id,
+  int flags
+) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 5);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, authority_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u64_put(root_id, key, value_id);
+  return value_id;
+}
+
+function int hashmap_u64_put_generated_ref(
+  int root_id,
+  HashMapKey64 key,
+  int generator_id,
+  int type_id,
+  int flags
+) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 6);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, generator_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u64_put(root_id, key, value_id);
   return value_id;
 }
 
@@ -179,8 +801,19 @@ function int hashmap_u64_remove(int root_id, HashMapKey64 key) {
   int node_id = root_id;
 
   while (depth < 8) {
-    int key_byte = hashmap_key64_get_byte(key, depth);
-    int child_id = hashmap_u64_child_get(node_id, key_byte);
+    int key_byte = 0;
+    if (depth == 0) { key_byte = bit_and_i32(key.b00, 255); }
+    if (depth == 1) { key_byte = bit_and_i32(key.b01, 255); }
+    if (depth == 2) { key_byte = bit_and_i32(key.b02, 255); }
+    if (depth == 3) { key_byte = bit_and_i32(key.b03, 255); }
+    if (depth == 4) { key_byte = bit_and_i32(key.b04, 255); }
+    if (depth == 5) { key_byte = bit_and_i32(key.b05, 255); }
+    if (depth == 6) { key_byte = bit_and_i32(key.b06, 255); }
+    if (depth == 7) { key_byte = bit_and_i32(key.b07, 255); }
+    local byte[1028] node;
+    int child_id = 0;
+    node = hashmap_u64_nodes[node_id:node_id + 1];
+    child_id = local_load_i32(node, key_byte * 4);
     if (child_id == hashmap_empty_id()) {
       return 0;
     }
@@ -188,11 +821,14 @@ function int hashmap_u64_remove(int root_id, HashMapKey64 key) {
     depth = depth + 1;
   }
 
-  if (hashmap_u64_value_get(node_id) == hashmap_empty_id()) {
+  local byte[1028] value_node;
+  value_node = hashmap_u64_nodes[node_id:node_id + 1];
+  if (local_load_i32(value_node, 1024) == hashmap_empty_id()) {
     return 0;
   }
 
-  hashmap_u64_value_set(node_id, hashmap_empty_id());
+  local_store_i32(value_node, 1024, hashmap_empty_id());
+  hashmap_u64_nodes[node_id] = value_node;
   return 1;
 }
 

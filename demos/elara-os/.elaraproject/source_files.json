@@ -3,13 +3,16 @@
     "epa/app_surface.e",
     "epa/block_io_authority.e",
     "epa/boot.e",
+    "epa/console_view.e",
     "epa/entry.e",
     "epa/filesystem_authority.e",
     "epa/frame_authority.e",
     "epa/input_router.e",
     "epa/network_controller.e",
+    "epa/registry_authority.e",
     "epa/security_authority.e",
-    "epa/shell_desktop.e"
+    "epa/shell_desktop.e",
+    "epa/window_manager.e"
   ],
   "cpp": [
     "cpp/src/ElaraOsApp.cpp",
