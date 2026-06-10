@@ -28,8 +28,8 @@ function int dynamic_acl_permission_granted() {
   return 2;
 }
 
-function int dynamic_acl_authority_frame() {
-  return hash_u32("frame");
+function int dynamic_acl_authority_frame_io() {
+  return hash_u32("frameio");
 }
 
 function int dynamic_acl_authority_block_io() {
@@ -72,16 +72,20 @@ function int dynamic_acl_authority_window() {
   return hash_u32("window");
 }
 
-function int dynamic_acl_route_frame_boot() {
-  return hash_u32("frame/boot");
+function int dynamic_acl_authority_stream_io() {
+  return hash_u32("streamio");
 }
 
-function int dynamic_acl_route_frame_console() {
-  return hash_u32("frame/console");
+function int dynamic_acl_route_frame_io_boot() {
+  return hash_u32("frameio/boot");
 }
 
-function int dynamic_acl_route_frame_window() {
-  return hash_u32("frame/window");
+function int dynamic_acl_route_frame_io_console() {
+  return hash_u32("frameio/console");
+}
+
+function int dynamic_acl_route_frame_io_window() {
+  return hash_u32("frameio/window");
 }
 
 function int dynamic_acl_route_registry_fs() {
@@ -90,4 +94,8 @@ function int dynamic_acl_route_registry_fs() {
 
 function int dynamic_acl_route_registry_blockio() {
   return hash_u32("registry/blockio");
+}
+
+function int dynamic_acl_route_registry_streamio() {
+  return hash_u32("registry/streamio");
 }

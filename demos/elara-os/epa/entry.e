@@ -1,4 +1,4 @@
-#include "registry_protocol.em"
+#include "registry/registry_protocol.em"
 #include "dynamic_acl_protocol.em"
 #include "common/hashmap.em"
 
@@ -26,11 +26,12 @@ acl {
   "elara.os.security" -> dynamic_acl_authority;
   "elara.os.registry" -> dynamic_acl_authority;
   "elara.os.boot" -> dynamic_acl_authority;
-  "elara.os.frame_authority" -> dynamic_acl_authority;
+  "elara.os.frame_io" -> dynamic_acl_authority;
   "elara.os.console_view" -> dynamic_acl_authority;
   "elara.os.window_manager" -> dynamic_acl_authority;
   "elara.os.filesystem" -> dynamic_acl_authority;
   "elara.os.block_io" -> dynamic_acl_authority;
+  "elara.os.stream_io" -> dynamic_acl_authority;
   "elara.os.shell" -> dynamic_acl_authority;
 }
 
@@ -50,6 +51,7 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
   static int window_registered;
   static int filesystem_registered;
   static int block_io_registered;
+  static int stream_io_registered;
   static int security_registered;
   static int shell_registered;
 
@@ -87,7 +89,7 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
     if (request.route_id == dynamic_acl_authority_registry()) {
       registry_registered = 1;
     }
-    if (request.route_id == dynamic_acl_authority_frame()) {
+    if (request.route_id == dynamic_acl_authority_frame_io()) {
       frame_registered = 1;
     }
     if (request.route_id == dynamic_acl_authority_boot()) {
@@ -105,6 +107,9 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
     if (request.route_id == dynamic_acl_authority_block_io()) {
       block_io_registered = 1;
     }
+    if (request.route_id == dynamic_acl_authority_stream_io()) {
+      stream_io_registered = 1;
+    }
     if (request.route_id == dynamic_acl_authority_security()) {
       security_registered = 1;
     }
@@ -117,21 +122,21 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
     hashmap_u32_put(route_permission_map, request.route_id, hashmap_value_new_inline_i32(1, dynamic_acl_permission_asked(), 0));
 
     route_allowed = 0;
-    if (request.route_id == dynamic_acl_route_frame_boot()) {
+    if (request.route_id == dynamic_acl_route_frame_io_boot()) {
       if (frame_registered == 1) {
         if (boot_registered == 1) {
           route_allowed = 1;
         }
       }
     }
-    if (request.route_id == dynamic_acl_route_frame_console()) {
+    if (request.route_id == dynamic_acl_route_frame_io_console()) {
       if (frame_registered == 1) {
         if (console_registered == 1) {
           route_allowed = 1;
         }
       }
     }
-    if (request.route_id == dynamic_acl_route_frame_window()) {
+    if (request.route_id == dynamic_acl_route_frame_io_window()) {
       if (frame_registered == 1) {
         if (window_registered == 1) {
           route_allowed = 1;
@@ -157,21 +162,21 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
       hashmap_u32_put(route_permission_map, request.route_id, hashmap_value_new_inline_i32(1, dynamic_acl_permission_granted(), 0));
     }
 
-    if (request.route_id == dynamic_acl_route_frame_boot()) {
+    if (request.route_id == dynamic_acl_route_frame_io_boot()) {
       if (route_allowed == 1) {
-      grant_kernel_route("elara.os.frame_authority", "elara.os.boot", publish_boot_frame);
+      grant_kernel_route("elara.os.frame_io", "elara.os.boot", publish_boot_frame);
       }
     }
 
-    if (request.route_id == dynamic_acl_route_frame_console()) {
+    if (request.route_id == dynamic_acl_route_frame_io_console()) {
       if (route_allowed == 1) {
-      grant_kernel_route("elara.os.frame_authority", "elara.os.console_view", manager_ingress);
+      grant_kernel_route("elara.os.frame_io", "elara.os.console_view", manager_ingress);
       }
     }
 
-    if (request.route_id == dynamic_acl_route_frame_window()) {
+    if (request.route_id == dynamic_acl_route_frame_io_window()) {
       if (route_allowed == 1) {
-      grant_kernel_route("elara.os.frame_authority", "elara.os.window_manager", manager_ingress);
+      grant_kernel_route("elara.os.frame_io", "elara.os.window_manager", manager_ingress);
       }
     }
 
@@ -189,16 +194,16 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
   }
 
   if (request.opcode == dynamic_acl_opcode_revoke()) {
-    if (request.route_id == dynamic_acl_route_frame_boot()) {
-      revoke_kernel_route("elara.os.frame_authority", "elara.os.boot", publish_boot_frame);
+    if (request.route_id == dynamic_acl_route_frame_io_boot()) {
+      revoke_kernel_route("elara.os.frame_io", "elara.os.boot", publish_boot_frame);
     }
 
-    if (request.route_id == dynamic_acl_route_frame_console()) {
-      revoke_kernel_route("elara.os.frame_authority", "elara.os.console_view", manager_ingress);
+    if (request.route_id == dynamic_acl_route_frame_io_console()) {
+      revoke_kernel_route("elara.os.frame_io", "elara.os.console_view", manager_ingress);
     }
 
-    if (request.route_id == dynamic_acl_route_frame_window()) {
-      revoke_kernel_route("elara.os.frame_authority", "elara.os.window_manager", manager_ingress);
+    if (request.route_id == dynamic_acl_route_frame_io_window()) {
+      revoke_kernel_route("elara.os.frame_io", "elara.os.window_manager", manager_ingress);
     }
 
     if (request.route_id == dynamic_acl_route_registry_fs()) {
@@ -212,16 +217,16 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
   }
 
   if (request.opcode == dynamic_acl_opcode_revoke_all()) {
-    if (request.route_id == dynamic_acl_route_frame_boot()) {
-      revoke_kernel_routes("elara.os.frame_authority", "elara.os.boot");
+    if (request.route_id == dynamic_acl_route_frame_io_boot()) {
+      revoke_kernel_routes("elara.os.frame_io", "elara.os.boot");
     }
 
-    if (request.route_id == dynamic_acl_route_frame_console()) {
-      revoke_kernel_routes("elara.os.frame_authority", "elara.os.console_view");
+    if (request.route_id == dynamic_acl_route_frame_io_console()) {
+      revoke_kernel_routes("elara.os.frame_io", "elara.os.console_view");
     }
 
-    if (request.route_id == dynamic_acl_route_frame_window()) {
-      revoke_kernel_routes("elara.os.frame_authority", "elara.os.window_manager");
+    if (request.route_id == dynamic_acl_route_frame_io_window()) {
+      revoke_kernel_routes("elara.os.frame_io", "elara.os.window_manager");
     }
 
     if (request.route_id == dynamic_acl_route_registry_fs()) {

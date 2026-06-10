@@ -46,8 +46,8 @@ function int registry_type_chipset() {
   return 5;
 }
 
-function int registry_authority_frame() {
-  return hash_u32("frame");
+function int registry_authority_frame_io() {
+  return hash_u32("frameio");
 }
 
 function int registry_authority_block_io() {
@@ -88,6 +88,10 @@ function int registry_authority_console() {
 
 function int registry_authority_window() {
   return hash_u32("window");
+}
+
+function int registry_authority_stream_io() {
+  return hash_u32("streamio");
 }
 
 function int registry_chipset_elara_silicon() {
@@ -183,6 +187,7 @@ acl {
   "elara.os.boot" -> registry_ingress;
   "elara.os.filesystem" -> registry_ingress;
   "elara.os.block_io" -> registry_ingress;
+  "elara.os.stream_io" -> registry_ingress;
   "elara.os.security" -> registry_ingress;
   "elara.os.shell" -> registry_ingress;
   "elara.os.entry" -> registry_ingress;
@@ -205,6 +210,7 @@ worker registry_ingress(RegistryRequest request) {
   static int window_record_id;
   static int filesystem_record_id;
   static int block_io_record_id;
+  static int stream_io_record_id;
   static int security_record_id;
   static int shell_record_id;
 
@@ -259,12 +265,13 @@ worker registry_ingress(RegistryRequest request) {
     entry_record_id = reg_authority_record_new(registry_authority_entry(), 0, root_id, 0, generation, 0);
     dynamic_acl_record_id = reg_authority_record_new(registry_authority_dynamic_acl(), registry_authority_entry(), root_id, 0, generation, 0);
     registry_record_id = reg_authority_record_new(registry_authority_registry(), registry_authority_entry(), authorities_id, 1, generation, 0);
-    frame_record_id = reg_authority_record_new(registry_authority_frame(), registry_authority_registry(), authorities_id, 0, generation, 0);
-    boot_record_id = reg_authority_record_new(registry_authority_boot(), registry_authority_frame(), authorities_id, 0, generation, 0);
-    console_record_id = reg_authority_record_new(registry_authority_console(), registry_authority_frame(), authorities_id, 0, generation, 0);
-    window_record_id = reg_authority_record_new(registry_authority_window(), registry_authority_frame(), authorities_id, 0, generation, 0);
+    frame_record_id = reg_authority_record_new(registry_authority_frame_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    boot_record_id = reg_authority_record_new(registry_authority_boot(), registry_authority_frame_io(), authorities_id, 0, generation, 0);
+    console_record_id = reg_authority_record_new(registry_authority_console(), registry_authority_frame_io(), authorities_id, 0, generation, 0);
+    window_record_id = reg_authority_record_new(registry_authority_window(), registry_authority_frame_io(), authorities_id, 0, generation, 0);
     filesystem_record_id = reg_authority_record_new(registry_authority_filesystem(), registry_authority_registry(), authorities_id, 0, generation, 0);
     block_io_record_id = reg_authority_record_new(registry_authority_block_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    stream_io_record_id = reg_authority_record_new(registry_authority_stream_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
     security_record_id = reg_authority_record_new(registry_authority_security(), registry_authority_registry(), authorities_id, 0, generation, 0);
     shell_record_id = reg_authority_record_new(registry_authority_shell(), registry_authority_registry(), authorities_id, 0, generation, 0);
 
@@ -274,11 +281,14 @@ worker registry_ingress(RegistryRequest request) {
     // /proc/authorities/dynacl
     hashmap_u32_put(authorities_id, registry_authority_dynamic_acl(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), dynamic_acl_record_id, 24, 0));
 
-    // /proc/authorities/frame
-    hashmap_u32_put(authorities_id, registry_authority_frame(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), frame_record_id, 24, 0));
+    // /proc/authorities/frameio
+    hashmap_u32_put(authorities_id, registry_authority_frame_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), frame_record_id, 24, 0));
 
     // /proc/authorities/blockio
     hashmap_u32_put(authorities_id, registry_authority_block_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), block_io_record_id, 24, 0));
+
+    // /proc/authorities/streamio
+    hashmap_u32_put(authorities_id, registry_authority_stream_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), stream_io_record_id, 24, 0));
 
     // /proc/authorities/fs
     hashmap_u32_put(authorities_id, registry_authority_filesystem(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), filesystem_record_id, 24, 0));
@@ -333,7 +343,7 @@ worker registry_ingress(RegistryRequest request) {
     if (request.path_hash_lo == registry_authority_registry()) {
       reg_authority_record_mark(registry_record_id, 1, generation, request.flags);
     }
-    if (request.path_hash_lo == registry_authority_frame()) {
+    if (request.path_hash_lo == registry_authority_frame_io()) {
       reg_authority_record_mark(frame_record_id, 1, generation, request.flags);
     }
     if (request.path_hash_lo == registry_authority_boot()) {
@@ -350,6 +360,9 @@ worker registry_ingress(RegistryRequest request) {
     }
     if (request.path_hash_lo == registry_authority_block_io()) {
       reg_authority_record_mark(block_io_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_stream_io()) {
+      reg_authority_record_mark(stream_io_record_id, 1, generation, request.flags);
     }
     if (request.path_hash_lo == registry_authority_security()) {
       reg_authority_record_mark(security_record_id, 1, generation, request.flags);

@@ -296,7 +296,7 @@ void ElaraOsApp::buildDocument(ElaraUiDocumentBuilder &ui) {
     ui.setRootContent(String("app.surface"));
     ui.createWidget(String("app.surface"), String("elara.widgets.vulkan_surface"));
     ui.setPropertyString(String("app.surface"), String("backend"), String("vulkan"));
-    ui.setPropertyString(String("app.surface"), String("kernel_name"), String("elara.os.frame_authority"));
+    ui.setPropertyString(String("app.surface"), String("kernel_name"), String("elara.os.frame_io"));
     ui.setPropertyString(String("app.surface"), String("overlay_text"), String("Boot Pending"));
     ui.setPropertyNumber(String("app.surface"), String("virtual_width"), 1280);
     ui.setPropertyNumber(String("app.surface"), String("virtual_height"), 720);
@@ -308,7 +308,7 @@ void ElaraOsApp::buildDocument(ElaraUiDocumentBuilder &ui) {
                "{\"op\":\"rect\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"r\":0.039,\"g\":0.055,\"b\":0.078},"
                "{\"op\":\"rect\",\"x\":0,\"y\":0,\"w\":1280,\"h\":720,\"r\":0.055,\"g\":0.071,\"b\":0.094},"
                "{\"op\":\"text\",\"x\":460,\"y\":338,\"text\":\"Boot Pending\",\"size\":42,\"r\":0.92,\"g\":0.96,\"b\":1.0},"
-               "{\"op\":\"text\",\"x\":462,\"y\":382,\"text\":\"waiting for EPA frame authority\",\"size\":18,\"r\":0.68,\"g\":0.78,\"b\":0.9}"
+               "{\"op\":\"text\",\"x\":462,\"y\":382,\"text\":\"waiting for EPA frame IO authority\",\"size\":18,\"r\":0.68,\"g\":0.78,\"b\":0.9}"
                "]")
     );
 }
@@ -377,7 +377,7 @@ bool ElaraOsApp::updateSurfaceCommandsFromMailbox(const String &mailbox_json, St
     );
     sendHostDebugEvent(
         "egress_frame",
-        (String("\"kernel\":\"elara.os.frame_authority\",")
+        (String("\"kernel\":\"elara.os.frame_io\",")
             + String("\"worker\":\"wid=") + String(wid) + String("\",")
             + String("\"frame\":") + frame_json).operator char *()
     );
@@ -1028,7 +1028,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String boot_path_id("boot");
     String entry_path_id("entry");
     String registry_path_id("registry_authority");
-    String frame_path_id("frame_authority");
+    String frame_path_id("frame_io_authority");
     String run_result;
     String clear_result;
     String entry_run_result;
@@ -1036,7 +1036,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String frame_run_result;
     String mailbox_result;
     String frame_json;
-    epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"frame_authority\"}"), clear_result);
+    epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), clear_result);
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
@@ -1073,20 +1073,20 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         return false;
     }
 
-    sendHostDebugEvent("state", "\"status\":\"running Frame Authority boot worker\"");
+    sendHostDebugEvent("state", "\"status\":\"running Frame IO Authority boot worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
             String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
             frame_run_result)) {
-        error_message = String("epa.debug.run failed for frame_authority after boot ingress");
+        error_message = String("epa.debug.run failed for frame_io_authority after boot ingress");
         if (epa_dbg_last_error.length()) {
             error_message = error_message + String(": ") + epa_dbg_last_error;
         }
         return false;
     }
 
-    if (!epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_authority\"}"), mailbox_result)) {
-        error_message = String("epa.debug.getMailbox failed after frame_authority run");
+    if (!epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), mailbox_result)) {
+        error_message = String("epa.debug.getMailbox failed after frame_io_authority run");
         if (epa_dbg_last_error.length()) {
             error_message = error_message + String(": ") + epa_dbg_last_error;
         }
@@ -1097,14 +1097,14 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         String fallback_ingress;
         String fallback_run;
         String fallback_mailbox;
-        String fallback_params = String("{\"path_id\":\"frame_authority\",\"wid\":1,\"payload_hex\":\"0100000000000000\"}");
-        sendHostDebugEvent("state", "\"status\":\"Frame Authority mailbox empty; injecting fallback boot frame\"");
+        String fallback_params = String("{\"path_id\":\"frame_io_authority\",\"wid\":1,\"payload_hex\":\"0100000000000000\"}");
+        sendHostDebugEvent("state", "\"status\":\"Frame IO Authority mailbox empty; injecting fallback boot frame\"");
         if (epaDbgCall(String("epa.debug.ingressPushHex"), fallback_params, fallback_ingress) &&
             epaDbgCall(
                 String("epa.debug.run"),
                 String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
                 fallback_run) &&
-            epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_authority\"}"), fallback_mailbox) &&
+            epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), fallback_mailbox) &&
             updateSurfaceCommandsFromMailbox(fallback_mailbox, frame_json, error_message)) {
             mailbox_result = fallback_mailbox;
             frame_run_result = fallback_run;

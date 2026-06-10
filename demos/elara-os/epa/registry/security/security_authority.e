@@ -1,4 +1,4 @@
-#include "dynamic_acl_protocol.em"
+#include "../../dynamic_acl_protocol.em"
 
 type SecurityRequest(int opcode, int subject_uid_lo, int subject_uid_hi, int object_id) {
   return opcode;
@@ -18,7 +18,7 @@ kernel(VM vm) {
 acl {
   "elara.os.boot" -> security_ingress;
   "elara.os.shell" -> security_ingress;
-  "elara.os.frame_authority" -> security_ingress;
+  "elara.os.frame_io" -> security_ingress;
   "elara.os.storage" -> security_ingress;
 }
 

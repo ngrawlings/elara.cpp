@@ -1,5 +1,5 @@
-#include "frame_protocol.em"
-#include "dynamic_acl_protocol.em"
+#include "frame_io_protocol.em"
+#include "../../dynamic_acl_protocol.em"
 
 type SurfaceRecord(
   int surface_id,
@@ -14,7 +14,7 @@ type SurfaceRecord(
   return surface_id;
 }
 
-type FrameAuthorityState(
+type FrameIOAuthorityState(
   int frame_id,
   int boot_complete,
   int focused_surface,
@@ -26,7 +26,7 @@ type FrameAuthorityState(
 dynamic frame_surfaces(SurfaceRecord, 8, 64, 8);
 
 kernel(VM vm) {
-  kernalId("elara.os.frame_authority");
+  kernalId("elara.os.frame_io");
   start_worker(publish_boot_frame);
   start_worker(manager_ingress);
   start_worker(frame_ingress);
@@ -37,7 +37,7 @@ acl {
   "elara.os.console_view" -> manager_ingress;
   "elara.os.window_manager" -> manager_ingress;
   "elara.os.shell" -> frame_ingress;
-  "elara.os.input" -> frame_ingress;
+  "elara.os.hid_io" -> frame_ingress;
   "elara.app.example" -> frame_ingress;
 }
 
@@ -48,7 +48,7 @@ worker publish_boot_frame(FrameBoot boot) {
 
   if (registered == 0) {
     acl_request.opcode = dynamic_acl_opcode_register();
-    acl_request.route_id = dynamic_acl_authority_frame();
+    acl_request.route_id = dynamic_acl_authority_frame_io();
     acl_request.flags = dynamic_acl_authority_registry();
     acl_request.reserved = 0;
     far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
@@ -97,7 +97,7 @@ worker manager_ingress(FrameManagerFrame frame) {
 
   if (registered == 0) {
     acl_request.opcode = dynamic_acl_opcode_register();
-    acl_request.route_id = dynamic_acl_authority_frame();
+    acl_request.route_id = dynamic_acl_authority_frame_io();
     acl_request.flags = dynamic_acl_authority_registry();
     acl_request.reserved = 0;
     far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
@@ -131,7 +131,7 @@ worker manager_ingress(FrameManagerFrame frame) {
 }
 
 worker frame_ingress(FrameRequest request) {
-  local FrameAuthorityState state;
+  local FrameIOAuthorityState state;
 
   state.frame_id = 2;
   state.boot_complete = 1;

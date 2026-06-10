@@ -13,7 +13,7 @@ kernel(VM vm) {
 
 acl {
   "elara.os.shell" -> app_ingress;
-  "elara.os.input" -> app_ingress;
+  "elara.os.hid_io" -> app_ingress;
 }
 
 worker app_ingress(AppEvent event) {

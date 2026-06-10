@@ -1,4 +1,4 @@
-#include "dynamic_acl_protocol.em"
+#include "../../dynamic_acl_protocol.em"
 
 type ShellEvent(int opcode, int target_id, int arg0, int arg1) {
   return opcode;
@@ -16,8 +16,8 @@ kernel(VM vm) {
 }
 
 acl {
-  "elara.os.input" -> shell_ingress;
-  "elara.os.frame_authority" -> shell_ingress;
+  "elara.os.hid_io" -> shell_ingress;
+  "elara.os.frame_io" -> shell_ingress;
   "elara.app.example" -> shell_ingress;
 }
 

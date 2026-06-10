@@ -18,7 +18,7 @@ elara.os.entry
     |
     +-- registry
     |   |
-    |   +-- frame_authority
+    |   +-- frame_io_authority
     |   |   |
     |   |   +-- boot
     |   |   |
@@ -96,14 +96,14 @@ Dynamic grants are allowed only when both endpoints are registered and the route
 matches an ancestor/descendant relationship in the tree.
 
 ```text
-hash_u32("frame/boot")
-  elara.os.boot -> elara.os.frame_authority.publish_boot_frame
+hash_u32("frameio/boot")
+  elara.os.boot -> elara.os.frame_io.publish_boot_frame
 
-hash_u32("frame/console")
-  elara.os.console_view -> elara.os.frame_authority.manager_ingress
+hash_u32("frameio/console")
+  elara.os.console_view -> elara.os.frame_io.manager_ingress
 
-hash_u32("frame/window")
-  elara.os.window_manager -> elara.os.frame_authority.manager_ingress
+hash_u32("frameio/window")
+  elara.os.window_manager -> elara.os.frame_io.manager_ingress
 
 hash_u32("registry/fs")
   elara.os.filesystem -> elara.os.registry.registry_ingress

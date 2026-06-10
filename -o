@@ -1,0 +1,74 @@
+; E -> EPA ASM skeleton emitter
+; Generated for manual inspection. Some operations remain comments/placeholders.
+
+KERNEL_ID 252042346 2863040846
+ACL_ALLOW 2201550732 324333870 1
+ACL_ALLOW 4161865071 676912937 1
+ACL_ALLOW 3721600603 659960518 1
+
+; type ShellEvent
+; ghs_span=16
+;   field opcode offset=0 size=4
+;   field target_id offset=4 size=4
+;   field arg0 offset=8 size=4
+;   field arg1 offset=12 size=4
+FUNC_START 1 0
+  ; !LINE 2
+  SET_R 2 0
+  GR_MOV4 0
+  PUSH R0
+  RET
+FUNC_END
+
+; type ShellSurface
+; ghs_span=16
+;   field surface_id offset=0 size=4
+;   field x offset=4 size=4
+;   field y offset=8 size=4
+;   field flags offset=12 size=4
+FUNC_START 2 0
+  ; !LINE 6
+  SET_R 2 0
+  GR_MOV4 0
+  PUSH R0
+  RET
+FUNC_END
+
+; dynamic shell_surfaces element=ShellSurface min_free=4 max_free=128 grow_by=8 maintenance=round-start replenish_to_min_free use_scope=entire-round
+;   manifest element_size=16 segmented-slot-pool pending-runtime
+
+;   header words=5 active_count@0 free_count@1 live_head@2 live_tail@3 free_head@4
+;   grow policy: prepend new capacity onto free_head
+;   append policy: use live_tail in main header for O(1) live append
+
+DYNAMIC_POOL 0 16 4 128 8
+
+; kernel entry
+ENTRY_START 0 256 256 128
+  PRIVILEGE_LOCK
+  ; !LINE 12
+  ; !LINE 13
+  ENTRY_EXEC 1
+  END
+ENTRY_END
+
+; worker shell_ingress
+; typed GHS view ShellEvent span=16
+ENTRY_START 1 256 256 128
+  E_WORKER_WAIT_1:
+  WAIT_FOR_DATA
+  ; current wake carries the inbound GHS handle in worker ingress
+  WORKER_TRX_IN_R 3
+  WORKER_TRX_IN_R 0
+  WORKER_TRX_IN_R 1
+  ; !LINE 23
+  ; decl int surface stack+0 size=4
+  DYN_ALLOC 0
+  PUSH R0
+  STORE_L 0
+  ; !LINE 25
+  HOST_SIGNAL
+  JMP E_WORKER_WAIT_1
+ENTRY_END
+
+END

@@ -1,5 +1,5 @@
 #include "storage_protocol.em"
-#include "dynamic_acl_protocol.em"
+#include "../../dynamic_acl_protocol.em"
 
 type BlockDeviceState(int drive_id, int block_size, int block_count, int flags, int mount_id, int mount_path) {
   return drive_id;

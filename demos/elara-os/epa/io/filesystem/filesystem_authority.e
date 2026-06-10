@@ -1,5 +1,5 @@
-#include "storage_protocol.em"
-#include "dynamic_acl_protocol.em"
+#include "../block/storage_protocol.em"
+#include "../../dynamic_acl_protocol.em"
 
 type FileSystemMountState(int mount_id, int drive_id, int fs_kind, int flags, int mount_path) {
   return mount_id;
