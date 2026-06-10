@@ -193,6 +193,15 @@ static uint64_t fnv1a64_bytes(const char *s) {
   return h;
 }
 
+static uint32_t fnv1a32_bytes(const char *s) {
+  uint32_t h = 2166136261u;
+  while (s && *s) {
+    h ^= (uint8_t)*s++;
+    h *= 16777619u;
+  }
+  return h;
+}
+
 static unsigned int stable_at_id_for_name(const char *name) {
   uint32_t id = (uint32_t)(fnv1a64_bytes(name) & 0x7fffffffu);
   return id ? id : 1u;
@@ -462,6 +471,8 @@ static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, 
 static int emit_rgm_get_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_local_load_u8_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_hash_u32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dynamic_serialized_size_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dynamic_serialize_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -866,6 +877,9 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"rgm_get", emit_rgm_get_builtin},
     {"ghs_store_i32", emit_ghs_store_i32_builtin},
     {"local_load_i32", emit_local_load_i32_builtin},
+    {"local_load_u8", emit_local_load_u8_builtin},
+    {"hash_u32", emit_hash_u32_builtin},
+    {"hash_path_node_u32", emit_hash_u32_builtin},
     {"local_store_i32", emit_local_store_i32_builtin},
     {"dynamic_serialized_size", emit_dynamic_serialized_size_builtin},
     {"dynamic_serialize", emit_dynamic_serialize_builtin},
@@ -2171,6 +2185,62 @@ static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
   fputs("LBR_MOV4 R2 R2\n", out);
   emit_indent(out, depth);
   fputs("PUSH R2\n", out);
+  return 1;
+}
+
+static int emit_local_load_u8_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; local_load_u8 expects (local_ref, byte_offset), got %zu\n",
+            expr->as.call.arg_count);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("POP R1\n", out);
+  emit_indent(out, depth);
+  fputs("POP R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  emit_indent(out, depth);
+  fputs("ADD_I32\n", out);
+  emit_indent(out, depth);
+  fputs("POP R2\n", out);
+  emit_indent(out, depth);
+  fputs("LBR_MOV1 R2 R2\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH R2\n", out);
+  return 1;
+}
+
+static int emit_hash_u32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  uint32_t hash;
+  char normalized[512];
+  (void)ctx;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects one string literal\n", expr->as.call.callee);
+    return 0;
+  }
+  if (!expr->as.call.args[0] || expr->as.call.args[0]->kind != E_EXPR_STRING) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects a string literal\n", expr->as.call.callee);
+    return 0;
+  }
+  hash = fnv1a32_bytes(normalized_string_token(expr->as.call.args[0]->as.string_lit,
+                                               normalized,
+                                               sizeof(normalized)));
+  emit_indent(out, depth);
+  fprintf(out, "SET_R 0 %u\n", (unsigned int)hash);
+  emit_indent(out, depth);
+  fputs("PUSH R0\n", out);
   return 1;
 }
 

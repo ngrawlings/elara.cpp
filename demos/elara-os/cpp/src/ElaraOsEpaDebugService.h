@@ -61,6 +61,7 @@ private:
     void pushEvent(const String &kind, uint32_t wid, uint32_t code, const ElaraOsDbgEip *at, const String &message);
     void pushLogEvent(const String &message);
     bool runTicks(EpaKernel *kernel, uint32_t tick_count, bool stop_on_breakpoint, String &stop_reason, uint32_t &ticks_ran, String &error_message);
+    bool kernelIsIdle(EpaKernel *kernel) const;
     bool hasBreakpointHit(EpaKernel *kernel, uint32_t *out_wid, Breakpoint *out_breakpoint = NULL) const;
     String buildSnapshotJson(EpaKernel *kernel, const String &path_id = String()) const;
     String buildEventsJson(bool clear_after_read);

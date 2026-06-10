@@ -1,3 +1,6 @@
+#ifndef ELARA_COMMON_BYTES_EM
+#define ELARA_COMMON_BYTES_EM
+
 // Local byte-span primitives for E.
 //
 // These functions operate on the worker/kernel local byte arena. They are the
@@ -562,3 +565,5 @@ function int u32_store_le(int off, int value) {
 
   return value;
 }
+
+#endif

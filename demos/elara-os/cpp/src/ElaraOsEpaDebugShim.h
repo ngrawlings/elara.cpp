@@ -23,6 +23,7 @@ typedef struct {
   uint32_t wid;
   uint32_t active;
   uint32_t inited;
+  uint32_t retired;
   uint32_t halted;
   uint32_t blocked;
   uint32_t faulted;

@@ -79,7 +79,7 @@ static int cpu_spawn_thread(EpaKernel *k, CpuThreadState *st, uint32_t tid, char
 }
 
 static inline int worker_runnable(const EpaWorkerState *w) {
-  return w && w->inited && !w->retired && !w->halted && !w->faulted && !w->blocked;
+  return w && w->inited && !w->retired && !w->halted && !w->faulted && !w->blocked && !w->waiting_for_data;
 }
 
 static int debug_player_avatar_worker(const EpaKernel *k, uint32_t wid) {
@@ -137,7 +137,6 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
   if (frc == EPA_FLOW_OK) {
     w->halted = 1;
-    if (wid == 0) return 2; // kernel ended
     return 1;
   }
 
@@ -153,7 +152,6 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
     if (nrc == EPA_NF_EXEC_HALT) {
       w->halted = 1;
-      if (wid == 0) return 2;
       return 1;
     }
   }
@@ -517,12 +515,14 @@ static int cpu_run(EpaKernel *k,
   for (;;) {
     if (max_ticks && ticks++ >= max_ticks) {
       // In this profile, max_ticks is a management loop budget.
-      snprintf(err, EPA_MAX_ERR, "run: cpu_thread budget exhausted after %u ticks", ticks);
+      if (debug) {
+        snprintf(err, EPA_MAX_ERR, "run: step complete returning to host after %u ticks", ticks);
+      } else {
+        snprintf(err, EPA_MAX_ERR, "run: cpu_thread budget exhausted after %u ticks", ticks);
+      }
       return 0;
     }
 
-    // Kernel end condition
-    if (k->impl.workers[0].halted) return 1;
     if (k->impl.workers[0].faulted) {
       snprintf(err, EPA_MAX_ERR, "run: worker[0] faulted");
       return 0;
@@ -564,6 +564,10 @@ static int cpu_run(EpaKernel *k,
     // Headless artifact-driven execution: sleep until woken by ingress,
     // worker unbind, or explicit wake().
     if (!any_runnable_unbound) {
+      if (max_ticks && all_threads_idle_locked(st)) {
+        pthread_mutex_unlock(&st->mu);
+        return 1;
+      }
       epa_platform_cond_wait(&st->cv, &st->mu);
       pthread_mutex_unlock(&st->mu);
     } else {

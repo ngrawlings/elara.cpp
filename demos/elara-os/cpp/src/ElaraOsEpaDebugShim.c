@@ -35,6 +35,7 @@ size_t ElaraOs_epa_debug_capture_workers(EpaKernel *kernel, ElaraOsEpaDebugWorke
     dst->wid = wid;
     dst->active = 1u;
     dst->inited = (uint32_t)w->inited;
+    dst->retired = (uint32_t)w->retired;
     dst->halted = (uint32_t)w->halted;
     dst->blocked = (uint32_t)w->blocked;
     dst->faulted = (uint32_t)w->faulted;

@@ -216,13 +216,16 @@ Good:
 ```c
 int root = hashmap_u64_init();
 int proc = hashmap_u64_init();
-hashmap_u64_put_map(root, key_proc, proc, 0);
-hashmap_u64_put_typed_ref(proc, key_status, status_type_id, status_record_id, 16, 0);
+hashmap_u32_put_map(root, hash_u32("proc"), proc, 0);
+hashmap_u32_put_typed_ref(proc, hash_u32("registry"), status_type_id, status_record_id, 16, 0);
 ```
 
 This keeps `u64 -> value_id` compatible with existing code while making each
 value self-describing through `kind`, `type_id`, `flags`, `size`, and `ref_id`.
 Nested maps are just values whose kind is `hashmap_value_kind_map_ref()`.
+For virtual filesystems and authority trees, hash each path segment separately;
+`/proc/registry` is a lookup of `hash_u32("proc")` at the root, then
+`hash_u32("registry")` in that child map.
 
 ## Use Slices For Copying, Not Aliasing
 

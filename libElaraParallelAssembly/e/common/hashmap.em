@@ -1,3 +1,6 @@
+#ifndef ELARA_COMMON_HASHMAP_EM
+#define ELARA_COMMON_HASHMAP_EM
+
 #include "common/bytes.em"
 
 type HashMapBytesHandle(int value_id) {
@@ -655,6 +658,100 @@ function int hm_u64_put8(
   return value_id;
 }
 
+function int hashmap_u32_put(int root_id, int node_hash, int value_id) {
+  local byte[4] key_bytes;
+  local_store_i32(key_bytes, 0, node_hash);
+  return hm_u64_put8(
+    root_id,
+    local_load_u8(key_bytes, 0),
+    local_load_u8(key_bytes, 1),
+    local_load_u8(key_bytes, 2),
+    local_load_u8(key_bytes, 3),
+    0,
+    0,
+    0,
+    0,
+    value_id
+  );
+}
+
+function int hashmap_u32_put_map(int root_id, int node_hash, int child_root_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 3);
+  local_store_i32(value, 4, 0);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, child_root_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u32_put(root_id, node_hash, value_id);
+  return value_id;
+}
+
+function int hashmap_u32_put_typed_ref(int root_id, int node_hash, int type_id, int ref_id, int size, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 4);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, size);
+  local_store_i32(value, 16, ref_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u32_put(root_id, node_hash, value_id);
+  return value_id;
+}
+
+function int hashmap_u32_put_generated_ref(int root_id, int node_hash, int generator_id, int type_id, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 6);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 0);
+  local_store_i32(value, 16, generator_id);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u32_put(root_id, node_hash, value_id);
+  return value_id;
+}
+
+function int hashmap_u32_put_inline_i32(int root_id, int node_hash, int type_id, int value_word, int flags) {
+  int value_id = dyn_alloc(hashmap_bytes_values);
+  local byte[64] value;
+  int slot = 0;
+  value = hashmap_bytes_values[value_id:value_id + 1];
+  while (slot < 16) {
+    local_store_i32(value, slot * 4, 0);
+    slot = slot + 1;
+  }
+  local_store_i32(value, 0, 1);
+  local_store_i32(value, 4, type_id);
+  local_store_i32(value, 8, flags);
+  local_store_i32(value, 12, 4);
+  local_store_i32(value, 16, hashmap_empty_id());
+  local_store_i32(value, 20, value_word);
+  hashmap_bytes_values[value_id] = value;
+  hashmap_u32_put(root_id, node_hash, value_id);
+  return value_id;
+}
+
 function int hashmap_u64_put_inline_i32(int root_id, HashMapKey64 key, int type_id, int value, int flags) {
   int value_id = dyn_alloc(hashmap_bytes_values);
   local byte[64] bytes;
@@ -892,3 +989,5 @@ function int hashmap_u64_restore(byte[1] blob, int blob_offset) {
 
   return 20 + values_bytes + nodes_bytes;
 }
+
+#endif

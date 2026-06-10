@@ -42,6 +42,21 @@ Until E expression syntax grows `&`, `|`, `^`, and `~`, use the wrappers in
 `bit_not_i32`, plus byte-masked variants `byte_and`, `byte_or`, `byte_xor`,
 and `byte_not`.
 
+## Hashing
+
+E standardizes path/node hashing on 32-bit FNV-1a:
+
+```c
+int node = hash_u32("registry");
+```
+
+- `hash_u32("literal")` is a compile-time builtin for string literals
+- `hash_path_node_u32("literal")` is an alias for path-tree code
+- `common/hash.em` provides runtime `hash_u32_bytes(off, len)` for local byte spans
+- `common/hashmap.em` provides `hashmap_u32_put(...)` and typed `hashmap_u32_put_*`
+  helpers so each path segment can be hashed independently and used to find the
+  child on that tree level
+
 Formatting and logging are not core opcodes. Use:
 
 ```c

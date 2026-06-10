@@ -1,4 +1,5 @@
 #include "frame_protocol.em"
+#include "dynamic_acl_protocol.em"
 
 type SurfaceRecord(
   int surface_id,
@@ -42,6 +43,18 @@ acl {
 
 @attributes signal_mail_box_size:2048
 worker publish_boot_frame(FrameBoot boot) {
+  static int registered;
+  local DynamicACLRequest acl_request;
+
+  if (registered == 0) {
+    acl_request.opcode = dynamic_acl_opcode_register();
+    acl_request.route_id = dynamic_acl_authority_frame();
+    acl_request.flags = dynamic_acl_authority_registry();
+    acl_request.reserved = 0;
+    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
+    registered = 1;
+  }
+
   frame_begin(1280, 720, 2, 1, 15);
 
   // Background and top-band.
@@ -79,6 +92,17 @@ worker publish_boot_frame(FrameBoot boot) {
 @attributes signal_mail_box_size:2048
 worker manager_ingress(FrameManagerFrame frame) {
   static int active_manager_id;
+  static int registered;
+  local DynamicACLRequest acl_request;
+
+  if (registered == 0) {
+    acl_request.opcode = dynamic_acl_opcode_register();
+    acl_request.route_id = dynamic_acl_authority_frame();
+    acl_request.flags = dynamic_acl_authority_registry();
+    acl_request.reserved = 0;
+    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
+    registered = 1;
+  }
 
   if (active_manager_id == 0) {
     active_manager_id = 1;

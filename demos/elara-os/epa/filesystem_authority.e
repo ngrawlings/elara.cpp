@@ -1,4 +1,5 @@
 #include "storage_protocol.em"
+#include "dynamic_acl_protocol.em"
 
 type FileSystemMountState(int mount_id, int drive_id, int fs_kind, int flags, int mount_path) {
   return mount_id;
@@ -25,12 +26,23 @@ acl {
 
 worker register_mount(FileSystemMount mount) {
   static int mount_count;
+  static int registered;
   int slot = dyn_alloc(fs_mounts);
   local FileSystemMountState state;
   local FileSystemMount staged;
+  local DynamicACLRequest acl_request;
 
   static {
     mount_count = 0;
+  }
+
+  if (registered == 0) {
+    acl_request.opcode = dynamic_acl_opcode_register();
+    acl_request.route_id = dynamic_acl_authority_filesystem();
+    acl_request.flags = dynamic_acl_authority_registry();
+    acl_request.reserved = 0;
+    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
+    registered = 1;
   }
 
   staged.mount_id = mount.mount_id;

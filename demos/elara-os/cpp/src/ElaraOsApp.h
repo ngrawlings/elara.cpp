@@ -11,6 +11,7 @@
 #include <thread>
 
 namespace elara {
+class ElaraOsEpaDebugService;
 namespace ui {
 namespace rpc {
     class ElaraUiDocumentBuilder;
@@ -44,9 +45,11 @@ private:
     String bundle_path;
     int epa_dbg_fd;
     bool epa_loaded;
+    String epa_dbg_last_error;
     bool boot_payload_pending;
     String pending_boot_payload_hex;
     std::string virtual_drive_root;
+    std::string ext_logic_session_path;
     pid_t owned_ui_server_pid;
     pid_t owned_python_pid;
     bool prefer_owned_ui_server;
@@ -59,6 +62,7 @@ private:
     std::mutex epa_dbg_mutex;
     int ext_logic_server_fd;
     Ref<ui::rpc::ElaraUiRpcPeer> peer;
+    Ref<ElaraOsEpaDebugService> local_epa_debug_service;
 
     void buildDocument(ui::rpc::ElaraUiDocumentBuilder &ui);
     bool loadDocument(const String &document_json);

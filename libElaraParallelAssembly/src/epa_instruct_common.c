@@ -1343,8 +1343,17 @@ case EPA_OP_RET: {
   // RET (no params)
   EpaEip ret;
   uint16_t frame_words = 0;
+  uint32_t ret_value = 0;
+  if (!epa_stack_pop(st, &ret_value)) {
+    snprintf(err, EPA_MAX_ERR, "RET: missing return value");
+    return EPA_FLOW_ERR;
+  }
   if (!epa_flow_pop_ret_frame(st, &ret, &frame_words, err)) {
     // err already set by helper
+    return EPA_FLOW_ERR;
+  }
+  if (!epa_stack_push(st, ret_value)) {
+    snprintf(err, EPA_MAX_ERR, "RET: stack overflow restoring return value");
     return EPA_FLOW_ERR;
   }
 

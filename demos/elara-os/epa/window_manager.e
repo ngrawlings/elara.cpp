@@ -1,4 +1,5 @@
 #include "frame_protocol.em"
+#include "dynamic_acl_protocol.em"
 
 type WindowManagerRequest(int opcode, int sequence, int active_surface, int surface_count) {
   return opcode;
@@ -17,8 +18,19 @@ acl {
 }
 
 worker window_manager_ingress(WindowManagerRequest request) {
+  static int registered;
+  local DynamicACLRequest acl_request;
   local FrameManagerFrame focus;
   local FrameManagerFrame frame;
+
+  if (registered == 0) {
+    acl_request.opcode = dynamic_acl_opcode_register();
+    acl_request.route_id = dynamic_acl_authority_window();
+    acl_request.flags = dynamic_acl_authority_frame();
+    acl_request.reserved = 0;
+    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
+    registered = 1;
+  }
 
   focus.manager_id = 2;
   focus.frame_id = request.sequence;

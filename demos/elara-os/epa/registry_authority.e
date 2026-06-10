@@ -1,8 +1,5 @@
+#include "registry_protocol.em"
 #include "common/hashmap.em"
-
-type RegistryRequest(int opcode, int path_hash_lo, int path_hash_hi, int flags) {
-  return opcode;
-}
 
 type RegistryStatusRecord(
   int root_id,
@@ -15,7 +12,19 @@ type RegistryStatusRecord(
   return root_id;
 }
 
+type RegistryAuthorityRecord(
+  int authority_id,
+  int parent_authority_id,
+  int node_id,
+  int registered,
+  int generation,
+  int flags
+) {
+  return authority_id;
+}
+
 dynamic registry_status_records(RegistryStatusRecord, 4, 32, 4);
+dynamic registry_authority_records(RegistryAuthorityRecord, 16, 64, 8);
 
 function int registry_type_directory() {
   return 1;
@@ -38,27 +47,47 @@ function int registry_type_chipset() {
 }
 
 function int registry_authority_frame() {
-  return 1;
+  return hash_u32("frame");
 }
 
 function int registry_authority_block_io() {
-  return 2;
+  return hash_u32("blockio");
 }
 
 function int registry_authority_filesystem() {
-  return 3;
+  return hash_u32("fs");
 }
 
 function int registry_authority_security() {
-  return 4;
+  return hash_u32("security");
 }
 
 function int registry_authority_shell() {
-  return 5;
+  return hash_u32("shell");
 }
 
 function int registry_authority_registry() {
-  return 6;
+  return hash_u32("registry");
+}
+
+function int registry_authority_entry() {
+  return hash_u32("entry");
+}
+
+function int registry_authority_dynamic_acl() {
+  return hash_u32("dynacl");
+}
+
+function int registry_authority_boot() {
+  return hash_u32("boot");
+}
+
+function int registry_authority_console() {
+  return hash_u32("console");
+}
+
+function int registry_authority_window() {
+  return hash_u32("window");
 }
 
 function int registry_chipset_elara_silicon() {
@@ -122,6 +151,29 @@ function int reg_value_new_i32(int type_id, int value_word, int flags) {
   return value_id;
 }
 
+function int reg_authority_record_new(int authority_id, int parent_id, int node_id, int registered, int generation, int flags) {
+  int record_id = dyn_alloc(registry_authority_records);
+  local RegistryAuthorityRecord record;
+  record.authority_id = authority_id;
+  record.parent_authority_id = parent_id;
+  record.node_id = node_id;
+  record.registered = registered;
+  record.generation = generation;
+  record.flags = flags;
+  registry_authority_records[record_id] = record;
+  return record_id;
+}
+
+function int reg_authority_record_mark(int record_id, int registered, int generation, int flags) {
+  local RegistryAuthorityRecord record;
+  record = registry_authority_records[record_id:record_id + 1];
+  record.registered = registered;
+  record.generation = generation;
+  record.flags = flags;
+  registry_authority_records[record_id] = record;
+  return record_id;
+}
+
 kernel(VM vm) {
   kernalId("elara.os.registry");
   start_worker(registry_ingress);
@@ -133,6 +185,7 @@ acl {
   "elara.os.block_io" -> registry_ingress;
   "elara.os.security" -> registry_ingress;
   "elara.os.shell" -> registry_ingress;
+  "elara.os.entry" -> registry_ingress;
 }
 
 worker registry_ingress(RegistryRequest request) {
@@ -143,6 +196,17 @@ worker registry_ingress(RegistryRequest request) {
   static int chipsets_id;
   static int status_id;
   static int generation;
+  static int entry_record_id;
+  static int dynamic_acl_record_id;
+  static int registry_record_id;
+  static int frame_record_id;
+  static int boot_record_id;
+  static int console_record_id;
+  static int window_record_id;
+  static int filesystem_record_id;
+  static int block_io_record_id;
+  static int security_record_id;
+  static int shell_record_id;
 
   local RegistryStatusRecord status;
 
@@ -163,68 +227,136 @@ worker registry_ingress(RegistryRequest request) {
     registry_status_records[status_id] = status;
 
     // /proc
-    hm_u64_put8(root_id, 112, 114, 111, 99, 0, 0, 0, 0, reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), proc_id, 0, 0));
+    hashmap_u32_put(root_id, registry_path_proc(), reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), proc_id, 0, 0));
 
     // /proc/self
-    hm_u64_put8(proc_id, 115, 101, 108, 102, 0, 0, 0, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_self(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_self(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_self(), 0, 0));
 
     // /proc/mounts
-    hm_u64_put8(proc_id, 109, 111, 117, 110, 116, 115, 0, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_mounts(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_mounts(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_mounts(), 0, 0));
 
     // /proc/filesystems
-    hm_u64_put8(proc_id, 102, 115, 0, 0, 0, 0, 0, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_filesystems(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_fs(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_filesystems(), 0, 0));
 
     // /proc/meminfo
-    hm_u64_put8(proc_id, 109, 101, 109, 105, 110, 102, 111, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_meminfo(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_meminfo(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_meminfo(), 0, 0));
 
     // /proc/cpuinfo
-    hm_u64_put8(proc_id, 99, 112, 117, 105, 110, 102, 111, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_cpuinfo(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_cpuinfo(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_cpuinfo(), 0, 0));
 
     // /proc/uptime
-    hm_u64_put8(proc_id, 117, 112, 116, 105, 109, 101, 0, 0, reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_uptime(), 0, 0));
+    hashmap_u32_put(proc_id, registry_path_uptime(), reg_value_new(hashmap_value_kind_generated_ref(), registry_type_generated_file(), registry_generated_uptime(), 0, 0));
 
     // /proc/registry
-    hm_u64_put8(proc_id, 114, 101, 103, 105, 115, 116, 114, 121, reg_value_new(hashmap_value_kind_typed_ref(), registry_type_status_record(), status_id, 24, 0));
+    hashmap_u32_put(proc_id, registry_path_registry(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_status_record(), status_id, 24, 0));
 
     // /proc/authorities
-    hm_u64_put8(proc_id, 97, 117, 116, 104, 115, 0, 0, 0, reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), authorities_id, 0, 0));
+    hashmap_u32_put(proc_id, registry_path_auths(), reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), authorities_id, 0, 0));
 
     // /proc/chipsets
-    hm_u64_put8(proc_id, 99, 104, 105, 112, 115, 0, 0, 0, reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), chipsets_id, 0, 0));
+    hashmap_u32_put(proc_id, registry_path_chips(), reg_value_new(hashmap_value_kind_map_ref(), registry_type_directory(), chipsets_id, 0, 0));
+
+    entry_record_id = reg_authority_record_new(registry_authority_entry(), 0, root_id, 0, generation, 0);
+    dynamic_acl_record_id = reg_authority_record_new(registry_authority_dynamic_acl(), registry_authority_entry(), root_id, 0, generation, 0);
+    registry_record_id = reg_authority_record_new(registry_authority_registry(), registry_authority_entry(), authorities_id, 1, generation, 0);
+    frame_record_id = reg_authority_record_new(registry_authority_frame(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    boot_record_id = reg_authority_record_new(registry_authority_boot(), registry_authority_frame(), authorities_id, 0, generation, 0);
+    console_record_id = reg_authority_record_new(registry_authority_console(), registry_authority_frame(), authorities_id, 0, generation, 0);
+    window_record_id = reg_authority_record_new(registry_authority_window(), registry_authority_frame(), authorities_id, 0, generation, 0);
+    filesystem_record_id = reg_authority_record_new(registry_authority_filesystem(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    block_io_record_id = reg_authority_record_new(registry_authority_block_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    security_record_id = reg_authority_record_new(registry_authority_security(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    shell_record_id = reg_authority_record_new(registry_authority_shell(), registry_authority_registry(), authorities_id, 0, generation, 0);
+
+    // /proc/authorities/entry
+    hashmap_u32_put(authorities_id, registry_authority_entry(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), entry_record_id, 24, 0));
+
+    // /proc/authorities/dynacl
+    hashmap_u32_put(authorities_id, registry_authority_dynamic_acl(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), dynamic_acl_record_id, 24, 0));
 
     // /proc/authorities/frame
-    hm_u64_put8(authorities_id, 102, 114, 97, 109, 101, 0, 0, 0, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_frame(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_frame(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), frame_record_id, 24, 0));
 
     // /proc/authorities/blockio
-    hm_u64_put8(authorities_id, 98, 108, 111, 99, 107, 105, 111, 0, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_block_io(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_block_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), block_io_record_id, 24, 0));
 
     // /proc/authorities/fs
-    hm_u64_put8(authorities_id, 102, 115, 0, 0, 0, 0, 0, 0, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_filesystem(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_filesystem(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), filesystem_record_id, 24, 0));
 
     // /proc/authorities/security
-    hm_u64_put8(authorities_id, 115, 101, 99, 117, 114, 105, 116, 121, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_security(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_security(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), security_record_id, 24, 0));
 
     // /proc/authorities/shell
-    hm_u64_put8(authorities_id, 115, 104, 101, 108, 108, 0, 0, 0, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_shell(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_shell(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), shell_record_id, 24, 0));
 
     // /proc/authorities/registry
-    hm_u64_put8(authorities_id, 114, 101, 103, 105, 115, 116, 114, 121, reg_value_new(hashmap_value_kind_authority_ref(), registry_type_authority(), registry_authority_registry(), 0, 0));
+    hashmap_u32_put(authorities_id, registry_authority_registry(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), registry_record_id, 24, 0));
+
+    // /proc/authorities/boot
+    hashmap_u32_put(authorities_id, registry_authority_boot(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), boot_record_id, 24, 0));
+
+    // /proc/authorities/console
+    hashmap_u32_put(authorities_id, registry_authority_console(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), console_record_id, 24, 0));
+
+    // /proc/authorities/window
+    hashmap_u32_put(authorities_id, registry_authority_window(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), window_record_id, 24, 0));
 
     // /proc/chipsets/elara
-    hm_u64_put8(chipsets_id, 101, 108, 97, 114, 97, 0, 0, 0, reg_value_new_i32(registry_type_chipset(), registry_chipset_elara_silicon(), 0));
+    hashmap_u32_put(chipsets_id, hash_u32("elara"), reg_value_new_i32(registry_type_chipset(), registry_chipset_elara_silicon(), 0));
 
     // /proc/chipsets/io
-    hm_u64_put8(chipsets_id, 105, 111, 0, 0, 0, 0, 0, 0, reg_value_new_i32(registry_type_chipset(), registry_chipset_io(), 0));
+    hashmap_u32_put(chipsets_id, hash_u32("io"), reg_value_new_i32(registry_type_chipset(), registry_chipset_io(), 0));
 
     initialized = 1;
   }
 
-  if (request.opcode == 1) {
+  if (request.opcode == registry_request_status()) {
     host_signal();
   }
 
-  if (request.opcode == 2) {
+  if (request.opcode == registry_request_touch_generation()) {
     generation = generation + 1;
+    status = registry_status_records[status_id:status_id + 1];
+    status.generation = generation;
+    registry_status_records[status_id] = status;
+    host_signal();
+  }
+
+  if (request.opcode == registry_request_register_authority()) {
+    generation = generation + 1;
+    if (request.path_hash_lo == registry_authority_entry()) {
+      reg_authority_record_mark(entry_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_dynamic_acl()) {
+      reg_authority_record_mark(dynamic_acl_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_registry()) {
+      reg_authority_record_mark(registry_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_frame()) {
+      reg_authority_record_mark(frame_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_boot()) {
+      reg_authority_record_mark(boot_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_console()) {
+      reg_authority_record_mark(console_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_window()) {
+      reg_authority_record_mark(window_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_filesystem()) {
+      reg_authority_record_mark(filesystem_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_block_io()) {
+      reg_authority_record_mark(block_io_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_security()) {
+      reg_authority_record_mark(security_record_id, 1, generation, request.flags);
+    }
+    if (request.path_hash_lo == registry_authority_shell()) {
+      reg_authority_record_mark(shell_record_id, 1, generation, request.flags);
+    }
     status = registry_status_records[status_id:status_id + 1];
     status.generation = generation;
     registry_status_records[status_id] = status;

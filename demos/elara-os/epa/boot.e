@@ -1,5 +1,6 @@
 #include "frame_protocol.em"
 #include "storage_protocol.em"
+#include "dynamic_acl_protocol.em"
 #include "common/bytes.em"
 
 type BootDeviceList(
@@ -27,6 +28,13 @@ acl {
 
 worker boot_ingress(BootDeviceList trigger) {
   local FrameBoot boot_frame;
+  local DynamicACLRequest acl_request;
+
+  acl_request.opcode = dynamic_acl_opcode_register();
+  acl_request.route_id = dynamic_acl_authority_boot();
+  acl_request.flags = dynamic_acl_authority_frame();
+  acl_request.reserved = 0;
+  far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
 
   boot_frame.phase = 1;
   boot_frame.flags = 0;

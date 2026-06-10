@@ -1,9 +1,11 @@
 #include "ElaraOsEpaDebugService.h"
 
 #include <ctype.h>
+#include <atomic>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <thread>
 #include <unistd.h>
 #include <vector>
 #include <libelarasockets/rpc/json/JsonRPCCodec.h>
@@ -235,6 +237,42 @@ bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bo
     if (!kernel) { error_message = "kernel not created"; return false; }
     ensureDebugCallbackInstalled();
     ticks_ran = 0;
+    if (stop_on_breakpoint) {
+        StdoutCapture capture;
+        String captured;
+        err[0] = 0;
+        capture.begin();
+        std::atomic<bool> run_finished(false);
+        std::thread watchdog([kernel, &run_finished]() {
+            usleep(1000000);
+            if (!run_finished.load()) {
+                epa_kernel_request_interrupt(kernel);
+            }
+        });
+        int ok = epa_kernel_run(kernel, tick_count, 1, err);
+        run_finished.store(true);
+        watchdog.join();
+        captured = capture.end();
+        if (captured.length()) pushLogEvent(captured.trim());
+        ticks_ran = tick_count;
+        if (!ok) {
+            String err_text(err);
+            if (!startsWith(err_text, "run: step complete returning to host")) {
+                error_message = err_text.length() ? err_text : host.lastError();
+                stop_reason = "error";
+                return false;
+            }
+        }
+        uint32_t wid = 0; Breakpoint bp;
+        if (hasBreakpointHit(kernel, &wid, &bp)) {
+            ElaraOsDbgEip at; at.block_type = bp.block_type; at.block_id = bp.block_id; at.rel_pc = bp.rel_pc;
+            pushEvent(String("breakpoint"), wid, 0, &at, String("software breakpoint hit"));
+            stop_reason = "breakpoint";
+            return true;
+        }
+        stop_reason = kernelIsIdle(kernel) ? String("idle") : String("step");
+        return true;
+    }
     for (;;) {
         StdoutCapture capture;
         String captured;
@@ -252,7 +290,8 @@ bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bo
                 return false;
             }
         }
-        if (!events.empty()) { stop_reason = events.back().kind; return true; }
+        if (!events.empty() && !stop_on_breakpoint) { stop_reason = events.back().kind; return true; }
+        if (stop_on_breakpoint && kernelIsIdle(kernel)) { stop_reason = "idle"; return true; }
         if (stop_on_breakpoint) {
             uint32_t wid = 0; Breakpoint bp;
             if (hasBreakpointHit(kernel, &wid, &bp)) {
@@ -264,6 +303,20 @@ bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bo
         }
         if (tick_count != 0 && ticks_ran >= tick_count) { stop_reason = "step"; return true; }
     }
+}
+
+bool ElaraOsEpaDebugService::kernelIsIdle(EpaKernel *kernel) const {
+    ElaraOsEpaDebugWorkerSnapshot workers[ELARAOS_EPA_DEBUG_MAX_WORKERS];
+    size_t worker_count = ElaraOs_epa_debug_capture_workers(kernel, workers, ELARAOS_EPA_DEBUG_MAX_WORKERS);
+    if (!kernel) return true;
+    for (size_t i = 0; i < worker_count; i++) {
+        const ElaraOsEpaDebugWorkerSnapshot &w = workers[i];
+        if (!w.inited) continue;
+        if (!w.retired && !w.halted && !w.faulted && !w.blocked && !w.waiting_for_data) {
+            return false;
+        }
+    }
+    return true;
 }
 
 String ElaraOsEpaDebugService::buildSnapshotJson(EpaKernel *kernel, const String &path_id) const {
@@ -289,6 +342,7 @@ String ElaraOsEpaDebugService::buildSnapshotJson(EpaKernel *kernel, const String
         if (i) result += String(",");
         result += String("{");
         result += String("\"wid\":") + String((int)workers[i].wid);
+        result += String(",\"retired\":") + String((int)workers[i].retired);
         result += String(",\"halted\":") + String((int)workers[i].halted);
         result += String(",\"blocked\":") + String((int)workers[i].blocked);
         result += String(",\"faulted\":") + String((int)workers[i].faulted);

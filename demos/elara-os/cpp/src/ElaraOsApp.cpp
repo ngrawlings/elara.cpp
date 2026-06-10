@@ -1,4 +1,5 @@
 #include "ElaraOsApp.h"
+#include "ElaraOsEpaDebugService.h"
 #include "ElaraOsEpaFrame.h"
 
 #include <errno.h>
@@ -50,9 +51,11 @@ ElaraOsApp::ElaraOsApp(
       bundle_path(value_bundle_path),
       epa_dbg_fd(-1),
       epa_loaded(false),
+      epa_dbg_last_error(""),
       boot_payload_pending(false),
       pending_boot_payload_hex(""),
       virtual_drive_root(""),
+      ext_logic_session_path(""),
       owned_ui_server_pid(-1),
       owned_python_pid(-1),
       prefer_owned_ui_server(value_prefer_owned_ui_server),
@@ -66,6 +69,13 @@ ElaraOsApp::ElaraOsApp(
     if (drive_root_env && drive_root_env[0]) {
         virtual_drive_root = drive_root_env;
     }
+    if (!bundle_path.length()) {
+        bundle_path = String("../build/epa.bin");
+    }
+    const char *session_env = getenv("ELARA_OS_EXT_LOGIC_SESSION");
+    ext_logic_session_path = session_env && session_env[0]
+        ? std::string(session_env)
+        : std::string("/tmp/elara-os-ext-logic-session.json");
 }
 
 ElaraOsApp::~ElaraOsApp() {
@@ -559,6 +569,9 @@ bool ElaraOsApp::launchPythonLogic() {
         return false;
     }
     if (pid == 0) {
+        if (!ext_logic_session_path.empty()) {
+            setenv("ELARA_DEBUG_SESSION", ext_logic_session_path.c_str(), 1);
+        }
         execlp("python3", "python3", app_path.c_str(), (char *)NULL);
         fprintf(stderr, "Failed to exec python3 %s: %s\n", app_path.c_str(), strerror(errno));
         _exit(127);
@@ -849,9 +862,31 @@ void ElaraOsApp::closeEpaDbg() {
 }
 
 bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, String &result_json) {
+    epa_dbg_last_error = String("");
+    if (epa_dbg_port <= 0) {
+        if (!local_epa_debug_service) {
+            local_epa_debug_service = Ref<ElaraOsEpaDebugService>(new ElaraOsEpaDebugService());
+            printf("[C++ Host] using in-process EPA debug service\n");
+        }
+        String error_code;
+        String error_message;
+        if (local_epa_debug_service->call(method, params_json.length() ? params_json : String("{}"), result_json, error_code, error_message)) {
+            return true;
+        }
+        printf("[C++ Host] local EPA debug call failed method=%s code=%s msg=%s\n",
+               String(method).operator char *(),
+               error_code.operator char *(),
+               error_message.operator char *());
+        epa_dbg_last_error = String("local EPA debug call failed method=") + method
+            + String(" code=") + error_code
+            + String(" msg=") + error_message;
+        return false;
+    }
+
     if (!connectEpaDbg()) {
         String method_copy(method);
         printf("[C++ Host] EPA debug connect failed method=%s\n", method_copy.operator char *());
+        epa_dbg_last_error = String("EPA debug connect failed method=") + method;
         return false;
     }
 
@@ -865,6 +900,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     ByteArray frame = BRpcRpcCodec::framePayload(request);
     if (write(epa_dbg_fd, frame.operator const char *(), (size_t)frame.length()) != (ssize_t)frame.length()) {
         printf("[C++ Host] EPA debug write failed method=%s\n", method_copy.operator char *());
+        epa_dbg_last_error = String("EPA debug write failed method=") + method;
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -873,6 +909,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     unsigned char rhdr[4];
     if (!readExact(epa_dbg_fd, (char *)rhdr, 4)) {
         printf("[C++ Host] EPA debug read header failed method=%s\n", method_copy.operator char *());
+        epa_dbg_last_error = String("EPA debug read header failed method=") + method;
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -880,6 +917,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     uint32_t rlen = ((uint32_t)rhdr[0] << 24) | ((uint32_t)rhdr[1] << 16)
                   | ((uint32_t)rhdr[2] << 8)  | (uint32_t)rhdr[3];
     if (rlen > 4u * 1024u * 1024u) {
+        epa_dbg_last_error = String("EPA debug response too large method=") + method;
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -887,6 +925,7 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
     std::vector<char> response(rlen + 1, 0);
     if (!readExact(epa_dbg_fd, response.data(), rlen)) {
         printf("[C++ Host] EPA debug read body failed method=%s\n", method_copy.operator char *());
+        epa_dbg_last_error = String("EPA debug read body failed method=") + method;
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -907,6 +946,8 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
             error_message,
             parse_error)) {
         printf("[C++ Host] EPA debug response parse failed: %s\n", parse_error.operator char *());
+        epa_dbg_last_error = String("EPA debug response parse failed method=") + method
+            + String(" msg=") + parse_error;
         close(epa_dbg_fd);
         epa_dbg_fd = -1;
         return false;
@@ -916,6 +957,9 @@ bool ElaraOsApp::epaDbgCall(const String &method, const String &params_json, Str
                method_copy.operator char *(),
                error_code.operator char *(),
                error_message.operator char *());
+        epa_dbg_last_error = String("EPA debug RPC failed method=") + method
+            + String(" code=") + error_code
+            + String(" msg=") + error_message;
         return false;
     }
     return true;
@@ -982,9 +1026,13 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     }
 
     String boot_path_id("boot");
+    String entry_path_id("entry");
+    String registry_path_id("registry_authority");
     String frame_path_id("frame_authority");
     String run_result;
     String clear_result;
+    String entry_run_result;
+    String registry_run_result;
     String frame_run_result;
     String mailbox_result;
     String frame_json;
@@ -992,33 +1040,90 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":200000}"),
+            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":4096}"),
             run_result)) {
         error_message = String("epa.debug.run failed after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Dynamic ACL Authority registration worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":4096}"),
+            entry_run_result)) {
+        error_message = String("epa.debug.run failed for entry after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Registry Authority registration worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":4096}"),
+            registry_run_result)) {
+        error_message = String("epa.debug.run failed for registry_authority after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
         return false;
     }
 
     sendHostDebugEvent("state", "\"status\":\"running Frame Authority boot worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":200000}"),
+            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
             frame_run_result)) {
         error_message = String("epa.debug.run failed for frame_authority after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
         return false;
     }
 
     if (!epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_authority\"}"), mailbox_result)) {
         error_message = String("epa.debug.getMailbox failed after frame_authority run");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
         return false;
     }
 
     if (!updateSurfaceCommandsFromMailbox(mailbox_result, frame_json, error_message)) {
+        String fallback_ingress;
+        String fallback_run;
+        String fallback_mailbox;
+        String fallback_params = String("{\"path_id\":\"frame_authority\",\"wid\":1,\"payload_hex\":\"0100000000000000\"}");
+        sendHostDebugEvent("state", "\"status\":\"Frame Authority mailbox empty; injecting fallback boot frame\"");
+        if (epaDbgCall(String("epa.debug.ingressPushHex"), fallback_params, fallback_ingress) &&
+            epaDbgCall(
+                String("epa.debug.run"),
+                String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
+                fallback_run) &&
+            epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_authority\"}"), fallback_mailbox) &&
+            updateSurfaceCommandsFromMailbox(fallback_mailbox, frame_json, error_message)) {
+            mailbox_result = fallback_mailbox;
+            frame_run_result = fallback_run;
+        } else {
+        error_message = error_message
+            + String("; boot_run=") + (run_result.length() ? run_result : String("{}"))
+            + String("; entry_run=") + (entry_run_result.length() ? entry_run_result : String("{}"))
+            + String("; registry_run=") + (registry_run_result.length() ? registry_run_result : String("{}"))
+            + String("; frame_run=") + (frame_run_result.length() ? frame_run_result : String("{}"))
+            + String("; mailbox=") + (mailbox_result.length() ? mailbox_result : String("{}"));
         return false;
+        }
     }
 
     result_json = String("{\"continued\":true,\"path_id\":\"boot\",\"payload_bytes\":")
         + String((int)(pending_boot_payload_hex.length() / 2))
         + String(",\"run\":") + (run_result.length() ? run_result : String("{}"))
+        + String(",\"entry_run\":") + (entry_run_result.length() ? entry_run_result : String("{}"))
+        + String(",\"registry_run\":") + (registry_run_result.length() ? registry_run_result : String("{}"))
         + String(",\"frame_run\":") + (frame_run_result.length() ? frame_run_result : String("{}"))
         + String(",\"mailbox\":") + (mailbox_result.length() ? mailbox_result : String("{}"))
         + String(",\"frame\":") + (frame_json.length() ? frame_json : String("{}"))
@@ -1062,7 +1167,7 @@ bool ElaraOsApp::handleExtLogicRequest(const String &method, const String &param
 }
 
 void ElaraOsApp::startExtLogicServer() {
-    if (ext_logic_server_fd >= 0 || host_bridge_port <= 0) {
+    if (ext_logic_server_fd >= 0) {
         return;
     }
 
@@ -1088,6 +1193,26 @@ void ElaraOsApp::startExtLogicServer() {
     }
     ext_logic_server_fd = fd;
     int port_num = (int)ntohs(addr.sin_port);
+    {
+        FILE *session = fopen(ext_logic_session_path.c_str(), "w");
+        if (session) {
+            fprintf(session,
+                    "{\n"
+                    "  \"ext_logic_host\": \"127.0.0.1\",\n"
+                    "  \"ext_logic_port\": %d,\n"
+                    "  \"host_debug_host\": \"%s\",\n"
+                    "  \"host_debug_port\": %d,\n"
+                    "  \"project\": \"elara-os\"\n"
+                    "}\n",
+                    port_num,
+                    host_bridge_host.operator char *(),
+                    host_bridge_port);
+            fclose(session);
+            printf("Elara OS ext-logic session: %s port=%d\n", ext_logic_session_path.c_str(), port_num);
+        } else {
+            printf("Failed to write ext-logic session %s: %s\n", ext_logic_session_path.c_str(), strerror(errno));
+        }
+    }
     char payload[128];
     snprintf(payload, sizeof(payload), "\"port\":%d", port_num);
     sendHostDebugEvent("ext_logic_listen", payload);
@@ -1266,6 +1391,8 @@ int ElaraOsApp::run() {
         printf("UI document not available; keeping Elara OS host alive for IDE debug bridge.\n");
         peer->close();
     }
+    startExtLogicServer();
+    launchPythonLogic();
     if (host_bridge_port > 0) {
         printf("Elara OS host running under IDE bridge. Waiting for IDE shutdown.\n");
         while (!quit_requested.load()) {

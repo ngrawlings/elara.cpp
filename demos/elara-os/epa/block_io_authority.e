@@ -1,4 +1,5 @@
 #include "storage_protocol.em"
+#include "dynamic_acl_protocol.em"
 
 type BlockDeviceState(int drive_id, int block_size, int block_count, int flags, int mount_id, int mount_path) {
   return drive_id;
@@ -25,12 +26,23 @@ acl {
 
 worker register_block_device(BlockDeviceRegistration registration) {
   static int registered_count;
+  static int registered;
   int slot = dyn_alloc(block_devices);
   local BlockDeviceState device;
   local BlockDeviceRegistration staged;
+  local DynamicACLRequest acl_request;
 
   static {
     registered_count = 0;
+  }
+
+  if (registered == 0) {
+    acl_request.opcode = dynamic_acl_opcode_register();
+    acl_request.route_id = dynamic_acl_authority_block_io();
+    acl_request.flags = dynamic_acl_authority_registry();
+    acl_request.reserved = 0;
+    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
+    registered = 1;
   }
 
   staged.drive_id = registration.drive_id;
