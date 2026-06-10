@@ -62,6 +62,7 @@ typedef struct {
 
   uint8_t waiting_for_data;
   uint8_t has_current_ghs;
+  uint8_t ignore_max_ticks;
 
   // Descriptor-debug metadata (not used for control flow)
   // abs_base = absolute byte offset into original blob where this descriptor begins

@@ -10,7 +10,7 @@
 // ---------- COMMON: Core / framing (lowest) ----------
 //
 X(NOOP,                    0u, "NOOP", 0)   // Does nothing (padding / alignment / placeholder)
-X(SET_MODE,                1u, "SET_MODE", 1)   // Set VM execution mode flags (u8)
+X(SET_MODE,                1u, "SET_MODE", 6)   // Loader-time mode/attribute record: u8 kind, u8 target, u32 value
 X(END,                     2u, "END", 0)   // End of current block (kernel / worker / func)
 
 // Variable-length, top-level const data section (parsed by loader; not executed)
@@ -35,7 +35,7 @@ X(KERNEL_ID,              15u, "KERNEL_ID", 8) // Program-level kernel 64-bit id
 X(ACL_ALLOW,              16u, "ACL_ALLOW", 12) // Program-level ACL allow (remote_id_lo, remote_id_hi, local_wid)
 X(ENTRY_RETIRE,           17u, "ENTRY_RETIRE", 1) // Permanently remove worker from scheduler pool (u8 wid)
 X(KERNEL_RETIRE,          18u, "KERNEL_RETIRE", 0) // Unload kernel by uid in r0/r1
-X(ENTRY_PRIVILEGE,        19u, "ENTRY_PRIVILEGE", 5) // Initial privilege grant: u8 wid, u32 privilege
+X(ENTRY_PRIVILEGE,        19u, "ENTRY_PRIVILEGE", 5) // Deprecated alias; use SET_MODE worker privilege
 X(PRIVILEGE_LOCK,         20u, "PRIVILEGE_LOCK", 0) // Seal privilege grants for this loaded image
 X(ACL,                    21u, "ACL", 2) // u8 kind,u8 wid: 1=grant, 2=revoke, 3=revoke_all; uid args in r0..r3
 X(AND_I32,                22u, "AND_I32", 0) // Pop a,b -> push (a & b)

@@ -915,6 +915,8 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     if (!epa_worker_init(&k->workers[id], id, body_start, body_end, in_words, out_words, signal_mailbox_size, err)) {
       return 0;
     }
+    k->workers[id].privilege = prog->worker_privilege[id];
+    k->workers[id].ignore_max_ticks = prog->worker_ignore_max_ticks[id] ? 1u : 0u;
     if (!epa_worker_configure_dynamic_pools(&k->workers[id], dynamic_cfgs, dynamic_cfg_count, err)) {
       return 0;
     }
@@ -1141,6 +1143,17 @@ int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32
   return epa_kernel_ingress_push_tagged(k, wid, 0u, data, len);
 }
 
+int epa_kernel_set_worker_ignore_max_ticks(EpaKernel *k, uint32_t wid, int ignore) {
+  if (!k || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) return 0;
+  k->impl.workers[wid].ignore_max_ticks = ignore ? 1u : 0u;
+  return 1;
+}
+
+int epa_kernel_get_worker_ignore_max_ticks(const EpaKernel *k, uint32_t wid) {
+  if (!k || wid >= EPA_MAX_WORKERS || !k->impl.workers[wid].inited) return 0;
+  return k->impl.workers[wid].ignore_max_ticks ? 1 : 0;
+}
+
 static void ingress_free_msg(EpaIngressMsg *m) {
   free(m->buf);
   m->buf = NULL;
@@ -1229,12 +1242,15 @@ static int epa_kernel_deliver_ingress_msg(EpaKernel *k,
   if (!epa_ring_push(&dst->inq, 1 /* Always one because there is only one GHS handle*/, 0, err)) return 0;
   if (!epa_ring_push(&dst->inq, idx,               0, err)) return 0;
   if (!epa_ring_push(&dst->inq, gen2,              0, err)) return 0;
+  if (!epa_ring_push(&dst->inq, len_bytes,         0, err)) return 0;
 
-  // Wake worker ONLY if it was explicitly waiting for data
   if (dst->waiting_for_data) {
     if (!epa_worker_round_enter(dst, err)) return 0;
-    dst->waiting_for_data = 0;
-    dst->blocked = 0;
+  }
+  dst->waiting_for_data = 0;
+  dst->blocked = 0;
+  if (k->sched_vt && k->sched_vt->wake) {
+    k->sched_vt->wake(k, &k->sched_state);
   }
 
   return 1;
@@ -1285,7 +1301,7 @@ int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k,
   EpaWorkerState *dst = &k->impl.workers[dst_wid];
   dst->ingress_source_kernel_uid = source_kernel_uid;
   dst->ingress_source_worker_id = source_worker_id;
-  uint32_t needed_words = 1u + (ghs_handle_count * 2u);
+  uint32_t needed_words = 2u + (ghs_handle_count * 2u);
 
   if (epa_ring_space(&dst->inq) < needed_words) {
     kernel_fault_worker(k, dst_wid, "INGRESS FAULT: ring buffer full for wid=%u (need %u words)", dst_wid, needed_words);
@@ -1303,12 +1319,15 @@ int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k,
 	  if (!epa_ring_push(&dst->inq, idx,               0, err)) return 0;
 	  if (!epa_ring_push(&dst->inq, gen2,              0, err)) return 0;
   }
+  if (!epa_ring_push(&dst->inq, 0u, 0, err)) return 0;
 
-  // Wake worker ONLY if it was explicitly waiting for data
   if (dst->waiting_for_data) {
     if (!epa_worker_round_enter(dst, err)) return 0;
-    dst->waiting_for_data = 0;
-    dst->blocked = 0;
+  }
+  dst->waiting_for_data = 0;
+  dst->blocked = 0;
+  if (k->sched_vt && k->sched_vt->wake) {
+    k->sched_vt->wake(k, &k->sched_state);
   }
 
   return 1;
@@ -1360,6 +1379,7 @@ int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]) {
       ingress_free_msg(m);
       q->head = (q->head + 1) % EPA_INGRESS_QMAX;
       q->count--;
+      k->impl.ingress_deliveries++;
     }
   }
 

@@ -1040,7 +1040,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":4096}"),
+            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
             run_result)) {
         error_message = String("epa.debug.run failed after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1052,7 +1052,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Dynamic ACL Authority registration worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":4096}"),
+            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
             entry_run_result)) {
         error_message = String("epa.debug.run failed for entry after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1064,7 +1064,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Registry Authority registration worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":4096}"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
             registry_run_result)) {
         error_message = String("epa.debug.run failed for registry_authority after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1076,7 +1076,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Frame IO Authority boot worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
+            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
             frame_run_result)) {
         error_message = String("epa.debug.run failed for frame_io_authority after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1102,20 +1102,24 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         if (epaDbgCall(String("epa.debug.ingressPushHex"), fallback_params, fallback_ingress) &&
             epaDbgCall(
                 String("epa.debug.run"),
-                String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":4096}"),
+                String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
                 fallback_run) &&
             epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), fallback_mailbox) &&
             updateSurfaceCommandsFromMailbox(fallback_mailbox, frame_json, error_message)) {
             mailbox_result = fallback_mailbox;
             frame_run_result = fallback_run;
         } else {
-        error_message = error_message
-            + String("; boot_run=") + (run_result.length() ? run_result : String("{}"))
-            + String("; entry_run=") + (entry_run_result.length() ? entry_run_result : String("{}"))
-            + String("; registry_run=") + (registry_run_result.length() ? registry_run_result : String("{}"))
-            + String("; frame_run=") + (frame_run_result.length() ? frame_run_result : String("{}"))
-            + String("; mailbox=") + (mailbox_result.length() ? mailbox_result : String("{}"));
-        return false;
+            error_message = error_message
+                + String("; boot_run=") + (run_result.length() ? run_result : String("{}"))
+                + String("; entry_run=") + (entry_run_result.length() ? entry_run_result : String("{}"))
+                + String("; registry_run=") + (registry_run_result.length() ? registry_run_result : String("{}"))
+                + String("; frame_run=") + (frame_run_result.length() ? frame_run_result : String("{}"))
+                + String("; mailbox=") + (mailbox_result.length() ? mailbox_result : String("{}"))
+                + String("; fallback_ingress=") + (fallback_ingress.length() ? fallback_ingress : String("{}"))
+                + String("; fallback_run=") + (fallback_run.length() ? fallback_run : String("{}"))
+                + String("; fallback_mailbox=") + (fallback_mailbox.length() ? fallback_mailbox : String("{}"))
+                + String("; epa_debug_last_error=") + (epa_dbg_last_error.length() ? epa_dbg_last_error : String("(none)"));
+            return false;
         }
     }
 

@@ -67,10 +67,11 @@ static int resolve_here(
 }
 
 static int read_rel32(const uint8_t *code, size_t pc, int32_t *out) {
-  uint32_t u = (uint32_t)code[pc+2] |
-               ((uint32_t)code[pc+3] << 8) |
-               ((uint32_t)code[pc+4] << 16) |
-               ((uint32_t)code[pc+5] << 24);
+  size_t imm = pc + EPA_OPCODE_BYTES;
+  uint32_t u = (uint32_t)code[imm] |
+               ((uint32_t)code[imm+1] << 8) |
+               ((uint32_t)code[imm+2] << 16) |
+               ((uint32_t)code[imm+3] << 24);
   *out = (int32_t)u;
   return 1;
 }
@@ -517,6 +518,13 @@ EpaFlowRc epa_flow_step(
       }
       w->waiting_for_data = 1;
       w->blocked = 1;
+      if (epa_ring_count(&w->inq) > 0u) {
+        if (!epa_worker_round_enter(w, err)) {
+          return EPA_FLOW_ERR;
+        }
+        w->waiting_for_data = 0;
+        w->blocked = 0;
+      }
 
       eip->rel_pc = (uint32_t)(pc + need);
       return EPA_FLOW_YIELDED;
@@ -1797,6 +1805,10 @@ case EPA_OP_GR_MOV4: {
 	  return EPA_FLOW_ERR;
 	}
 	ge = epa_ghs_read_bytes(k->impl.ghs, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4);
+	if (ge != EPA_GHS_OK && w->has_current_ghs) {
+	  h = w->current_ghs;
+	  ge = epa_ghs_read_bytes(k->impl.ghs, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4);
+	}
 	if (ge != EPA_GHS_OK) {
 	  snprintf(err, EPA_MAX_ERR, "GR_MOV4 failed off=%u err=%d", (unsigned)w->vm.csc[2], ge);
 	  return EPA_FLOW_ERR;

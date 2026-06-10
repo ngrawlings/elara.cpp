@@ -8,6 +8,10 @@
 #define EPA_MODE_CUDA     ((uint8_t)1u)
 #define EPA_IS_VALID_MODE(m) ((m) == EPA_MODE_OPENGL || (m) == EPA_MODE_CUDA)
 
+#define EPA_SET_MODE_BACKEND                 ((uint8_t)1u)
+#define EPA_SET_MODE_WORKER_PRIVILEGE        ((uint8_t)2u)
+#define EPA_SET_MODE_WORKER_IGNORE_MAX_TICKS ((uint8_t)3u)
+
 
 #define EPA_YIELD_SOFT            ((uint8_t)0u)
 #define EPA_YIELD_HARD            ((uint8_t)1u)

@@ -30,6 +30,7 @@ typedef struct {
   uint32_t waiting_for_data;
   uint32_t at_running;
   uint32_t has_current_ghs;
+  uint32_t ignore_max_ticks;
   uint32_t csc[4];
   uint32_t stack_depth;
   uint32_t stack_preview_count;
@@ -42,6 +43,7 @@ typedef struct {
   uint32_t lscope_depth;
   uint64_t current_ghs;
   ElaraOsEpaDebugEip eip;
+  char fault_message[256];
 } ElaraOsEpaDebugWorkerSnapshot;
 
 typedef struct {

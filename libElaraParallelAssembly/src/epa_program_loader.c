@@ -1,5 +1,6 @@
 #include "epa_program_loader.h"
 #include "opcodes/epa_opcode_values.h"
+#include "opcodes/epa_opcode_parameter_values.h"
 #include "opcodes/opcode_def.h"
 #include <string.h>
 #include <stdio.h>
@@ -382,6 +383,25 @@ int epa_program_parse(
       uint32_t lo = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES);
       uint32_t hi = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 4u);
       out->kernel_uid = ((uint64_t)hi << 32) | (uint64_t)lo;
+      pc += need;
+      continue;
+    }
+
+    if (op == EPA_OP_SET_MODE) {
+      uint8_t kind = blob[pc + EPA_OPCODE_BYTES];
+      uint8_t target = blob[pc + EPA_OPCODE_BYTES + 1u];
+      uint32_t value = EPA_READ_U32_LE(blob, pc + EPA_OPCODE_BYTES + 2u);
+      if (kind == EPA_SET_MODE_BACKEND) {
+        (void)target;
+        /* Backend mode is retained as image metadata for future backends. */
+      } else if (kind == EPA_SET_MODE_WORKER_PRIVILEGE) {
+        out->worker_privilege[target] = value;
+      } else if (kind == EPA_SET_MODE_WORKER_IGNORE_MAX_TICKS) {
+        out->worker_ignore_max_ticks[target] = value ? 1u : 0u;
+      } else {
+        snprintf(err, EPA_MAX_ERR, "program_loader: unknown SET_MODE kind=%u at pc=%zu", (unsigned)kind, pc);
+        return 0;
+      }
       pc += need;
       continue;
     }

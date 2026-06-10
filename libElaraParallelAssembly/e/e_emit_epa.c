@@ -484,6 +484,7 @@ static int emit_worker_stop_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, 
 static int emit_worker_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_retire_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_worker_ignore_max_ticks_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_acl_grant_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_acl_revoke_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_acl_revoke_all_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -823,17 +824,11 @@ static int emit_dynamic_index_store(FILE *out, const EExpr *lhs, const EExpr *rh
   if (!expr_is_dynamic_index(lhs, ctx->model, &pool)) return 0;
   emit_expr(out, lhs->as.index.index, ctx, depth);
   emit_indent(out, depth);
-  fputs("POP R0\n", out);
-  emit_indent(out, depth);
   EMIT_STORE_L(out, ctx, id_slot);
 
   emit_expr(out, rhs, ctx, depth);
   emit_indent(out, depth);
-  fputs("POP R1\n", out);
-  emit_indent(out, depth);
   EMIT_STORE_L(out, ctx, ref_slot + 1u);
-  emit_indent(out, depth);
-  fputs("POP R1\n", out);
   emit_indent(out, depth);
   EMIT_STORE_L(out, ctx, ref_slot);
 
@@ -897,6 +892,8 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"kernel_retire", emit_kernel_retire_builtin},
     {"set_worker_privilege", emit_worker_privilege_builtin},
     {"worker_privilege", emit_worker_privilege_builtin},
+    {"set_worker_ignore_max_ticks", emit_worker_ignore_max_ticks_builtin},
+    {"worker_ignore_max_ticks", emit_worker_ignore_max_ticks_builtin},
     {"grant_kernel_route", emit_acl_grant_builtin},
     {"revoke_kernel_route", emit_acl_revoke_builtin},
     {"revoke_kernel_routes", emit_acl_revoke_all_builtin},
@@ -1527,6 +1524,16 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
         return 1;
       }
       if (field && field->ghs_size == 4u) {
+        if (param && param->vm_local_words == 2u) {
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+          emit_indent(out, depth);
+          fputs("POP R0\n", out);
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+          emit_indent(out, depth);
+          fputs("POP R1\n", out);
+        }
         emit_indent(out, depth);
         fprintf(out, "SET_R 2 %zu\n", field->ghs_offset);
         emit_indent(out, depth);
@@ -3084,8 +3091,49 @@ static int emit_worker_privilege_builtin(FILE *out, const EExpr *expr, EmitCtx *
     return 0;
   }
   privilege = (uint32_t)priv_arg->as.int_lit;
+  if (ctx->inside_kernel_static_block) return 1;
   emit_indent(out, depth);
-  fprintf(out, "ENTRY_PRIVILEGE %u %u\n", wid, privilege);
+  fprintf(out, "SET_MODE 2 %u %u\n", wid, privilege);
+  return 1;
+}
+
+static int emit_worker_ignore_max_ticks_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int wid = 0u;
+  uint32_t enabled = 0u;
+  const EExpr *worker_arg;
+  const EExpr *enabled_arg;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (!ctx->inside_kernel_static_block) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s only valid inside kernel static { }\n", expr->as.call.callee);
+    return 0;
+  }
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s expects (worker, enabled)\n", expr->as.call.callee);
+    return 0;
+  }
+  worker_arg = expr->as.call.args[0];
+  enabled_arg = expr->as.call.args[1];
+  if (worker_arg->kind == E_EXPR_IDENT) {
+    wid = worker_entry_id_for_name(ctx->model, worker_arg->as.ident);
+  } else if (worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit >= 0 && worker_arg->as.int_lit <= 255) {
+    wid = (unsigned int)worker_arg->as.int_lit;
+  }
+  if (wid == 0u && !(worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit == 0)) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s unknown worker\n", expr->as.call.callee);
+    return 0;
+  }
+  if (enabled_arg->kind != E_EXPR_INT || enabled_arg->as.int_lit < 0) {
+    emit_indent(out, depth);
+    fprintf(out, "; %s enabled must be a non-negative integer literal\n", expr->as.call.callee);
+    return 0;
+  }
+  enabled = enabled_arg->as.int_lit ? 1u : 0u;
+  if (ctx->inside_kernel_static_block) return 1;
+  emit_indent(out, depth);
+  fprintf(out, "SET_MODE 3 %u %u\n", wid, enabled);
   return 1;
 }
 
@@ -3951,6 +3999,86 @@ static void emit_kernel_static_blocks_in_stmt(FILE *out, const EStmt *stmt, Emit
   }
 }
 
+static void emit_kernel_mode_manifest_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!expr) return;
+  if (expr->kind == E_EXPR_CALL &&
+      (strcmp(expr->as.call.callee, "set_worker_privilege") == 0 ||
+       strcmp(expr->as.call.callee, "worker_privilege") == 0 ||
+       strcmp(expr->as.call.callee, "set_worker_ignore_max_ticks") == 0 ||
+       strcmp(expr->as.call.callee, "worker_ignore_max_ticks") == 0)) {
+    unsigned int wid = 0u;
+    uint32_t value = 0u;
+    uint32_t kind = (strcmp(expr->as.call.callee, "set_worker_privilege") == 0 ||
+                     strcmp(expr->as.call.callee, "worker_privilege") == 0) ? 2u : 3u;
+    const EExpr *worker_arg;
+    const EExpr *value_arg;
+    if (expr->as.call.arg_count != 2u) return;
+    worker_arg = expr->as.call.args[0];
+    value_arg = expr->as.call.args[1];
+    if (worker_arg->kind == E_EXPR_IDENT) {
+      wid = worker_entry_id_for_name(ctx->model, worker_arg->as.ident);
+    } else if (worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit >= 0 && worker_arg->as.int_lit <= 255) {
+      wid = (unsigned int)worker_arg->as.int_lit;
+    }
+    if (wid == 0u && !(worker_arg->kind == E_EXPR_INT && worker_arg->as.int_lit == 0)) return;
+    if (value_arg->kind != E_EXPR_INT || value_arg->as.int_lit < 0) return;
+    value = (uint32_t)value_arg->as.int_lit;
+    if (kind == 3u) value = value ? 1u : 0u;
+    emit_indent(out, depth);
+    fprintf(out, "SET_MODE %u %u %u\n", kind, wid, value);
+    return;
+  }
+  switch (expr->kind) {
+    case E_EXPR_CALL:
+      for (i = 0; i < expr->as.call.arg_count; i++) emit_kernel_mode_manifest_expr(out, expr->as.call.args[i], ctx, depth);
+      break;
+    case E_EXPR_BINARY:
+      emit_kernel_mode_manifest_expr(out, expr->as.binary.lhs, ctx, depth);
+      emit_kernel_mode_manifest_expr(out, expr->as.binary.rhs, ctx, depth);
+      break;
+    case E_EXPR_UNARY:
+      emit_kernel_mode_manifest_expr(out, expr->as.unary.operand, ctx, depth);
+      break;
+    case E_EXPR_ASSIGN:
+      emit_kernel_mode_manifest_expr(out, expr->as.assign.lhs, ctx, depth);
+      emit_kernel_mode_manifest_expr(out, expr->as.assign.rhs, ctx, depth);
+      break;
+    case E_EXPR_FIELD:
+      emit_kernel_mode_manifest_expr(out, expr->as.field.base, ctx, depth);
+      break;
+    case E_EXPR_INDEX:
+      emit_kernel_mode_manifest_expr(out, expr->as.index.base, ctx, depth);
+      emit_kernel_mode_manifest_expr(out, expr->as.index.index, ctx, depth);
+      break;
+    case E_EXPR_SLICE:
+      emit_kernel_mode_manifest_expr(out, expr->as.slice.base, ctx, depth);
+      emit_kernel_mode_manifest_expr(out, expr->as.slice.start, ctx, depth);
+      emit_kernel_mode_manifest_expr(out, expr->as.slice.end, ctx, depth);
+      break;
+    default:
+      break;
+  }
+}
+
+static void emit_kernel_mode_manifest_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!stmt) return;
+  switch (stmt->kind) {
+    case E_STMT_STATIC_BLOCK:
+      for (i = 0; i < stmt->as.static_block.count; i++) emit_kernel_mode_manifest_stmt(out, stmt->as.static_block.items[i], ctx, depth);
+      break;
+    case E_STMT_BLOCK:
+      for (i = 0; i < stmt->as.block.count; i++) emit_kernel_mode_manifest_stmt(out, stmt->as.block.items[i], ctx, depth);
+      break;
+    case E_STMT_EXPR:
+      emit_kernel_mode_manifest_expr(out, stmt->as.expr, ctx, depth);
+      break;
+    default:
+      break;
+  }
+}
+
 static int pool_is_in_worker_body(const char *pool_name, const EStmt *stmt) {
   size_t i;
   if (!stmt) return 0;
@@ -4283,6 +4411,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         break;
       case E_TOP_KERNEL:
         fputs("; kernel entry\n", out);
+        emit_kernel_mode_manifest_stmt(out, top->as.kernel.body, &ctx, 0);
         fprintf(out, "ENTRY_START 0 %u %u %u\n",
                 resolved_in_words(model, &top->as.kernel.attrs),
                 resolved_out_words(model, &top->as.kernel.attrs),
@@ -4291,8 +4420,6 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.current_worker = NULL;
         ctx.current_frame = find_frame(model, "kernel");
         emit_kernel_static_blocks_in_stmt(out, top->as.kernel.body, &ctx, 1);
-        emit_indent(out, 1);
-        fputs("PRIVILEGE_LOCK\n", out);
         emit_stmt(out, top->as.kernel.body, &ctx, 1, NULL, NULL);
         ctx.current_frame = NULL;
         fputs("  END\n", out);
@@ -4362,17 +4489,19 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
           fputs("WORKER_TRX_IN_R 0\n", out);
           emit_indent(out, 1);
           fputs("WORKER_TRX_IN_R 1\n", out);
+          emit_indent(out, 1);
+          fputs("WORKER_TRX_IN_R 2\n", out);
           if (top->as.worker.param_count == 1u) {
             const EFunctionParamCheck *worker_param = find_param_check_by_name(&ctx, top->as.worker.params[0].name);
             if (worker_param && worker_param->vm_local_words == 2u) {
               emit_indent(out, 1);
               fputs("PUSH R0\n", out);
               emit_indent(out, 1);
-              fprintf(out, "STORE_LW %u\n", worker_param->vm_local_slot);
+              EMIT_STORE_L(out, &ctx, worker_param->vm_local_slot);
               emit_indent(out, 1);
               fputs("PUSH R1\n", out);
               emit_indent(out, 1);
-              fprintf(out, "STORE_LW %u\n", worker_param->vm_local_slot + 1u);
+              EMIT_STORE_L(out, &ctx, worker_param->vm_local_slot + 1u);
             }
           }
           /* Emit maintenance comment for each pool declared inline in this worker. */

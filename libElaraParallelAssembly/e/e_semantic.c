@@ -2057,18 +2057,20 @@ static int validate_rgm_usage(const EProgram *program, const ESemanticModel *mod
   return 1;
 }
 
-static int is_worker_privilege_call(const EExpr *expr) {
+static int is_worker_mode_decl_call(const EExpr *expr) {
   return expr && expr->kind == E_EXPR_CALL &&
          (strcmp(expr->as.call.callee, "set_worker_privilege") == 0 ||
-          strcmp(expr->as.call.callee, "worker_privilege") == 0);
+          strcmp(expr->as.call.callee, "worker_privilege") == 0 ||
+          strcmp(expr->as.call.callee, "set_worker_ignore_max_ticks") == 0 ||
+          strcmp(expr->as.call.callee, "worker_ignore_max_ticks") == 0);
 }
 
 static int validate_privilege_usage_in_expr(const EExpr *expr, int in_kernel_static_block, int as_statement, char err[256]) {
   size_t i;
   if (!expr) return 1;
-  if (is_worker_privilege_call(expr)) {
+  if (is_worker_mode_decl_call(expr)) {
     if (!as_statement) {
-      snprintf(err, 256, "%s is a privilege declaration statement and cannot be used as a value", expr->as.call.callee);
+      snprintf(err, 256, "%s is a worker mode declaration statement and cannot be used as a value", expr->as.call.callee);
       return 0;
     }
     if (!in_kernel_static_block) {
@@ -2076,11 +2078,11 @@ static int validate_privilege_usage_in_expr(const EExpr *expr, int in_kernel_sta
       return 0;
     }
     if (expr->as.call.arg_count != 2u) {
-      snprintf(err, 256, "%s expects exactly 2 args: (worker, privilege)", expr->as.call.callee);
+      snprintf(err, 256, "%s expects exactly 2 args: (worker, value)", expr->as.call.callee);
       return 0;
     }
     if (expr->as.call.args[1]->kind != E_EXPR_INT || expr->as.call.args[1]->as.int_lit < 0) {
-      snprintf(err, 256, "%s privilege must be a non-negative integer literal", expr->as.call.callee);
+      snprintf(err, 256, "%s value must be a non-negative integer literal", expr->as.call.callee);
       return 0;
     }
     return 1;
@@ -2332,7 +2334,7 @@ static int validate_privilege_usage_in_stmt(const EStmt *stmt, int in_kernel, in
     case E_STMT_RETURN:
       return validate_privilege_usage_in_expr(stmt->as.ret.value, in_kernel_static_block, 0, err);
     case E_STMT_EXPR:
-      return validate_privilege_usage_in_expr(stmt->as.expr, in_kernel_static_block, is_worker_privilege_call(stmt->as.expr), err);
+      return validate_privilege_usage_in_expr(stmt->as.expr, in_kernel_static_block, is_worker_mode_decl_call(stmt->as.expr), err);
     case E_STMT_STATIC_BLOCK:
       if (!in_kernel) in_kernel_static_block = 0;
       else in_kernel_static_block = 1;

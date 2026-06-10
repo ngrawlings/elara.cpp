@@ -42,6 +42,7 @@ size_t ElaraOs_epa_debug_capture_workers(EpaKernel *kernel, ElaraOsEpaDebugWorke
     dst->waiting_for_data = (uint32_t)w->waiting_for_data;
     dst->at_running = 0u;
     dst->has_current_ghs = (uint32_t)w->has_current_ghs;
+    dst->ignore_max_ticks = (uint32_t)w->ignore_max_ticks;
     memcpy(dst->csc, w->vm.csc, sizeof(dst->csc));
     dst->stack_depth = (uint32_t)w->vm.stack.sp;
     dst->stack_preview_count = (uint32_t)((w->vm.stack.sp < ELARAOS_EPA_DEBUG_STACK_PREVIEW) ? w->vm.stack.sp : ELARAOS_EPA_DEBUG_STACK_PREVIEW);
@@ -59,6 +60,8 @@ size_t ElaraOs_epa_debug_capture_workers(EpaKernel *kernel, ElaraOsEpaDebugWorke
     dst->eip.block_type = w->vm.eip.block_type;
     dst->eip.block_id = w->vm.eip.block_id;
     dst->eip.rel_pc = w->vm.eip.rel_pc;
+    memcpy(dst->fault_message, w->fault_message, sizeof(dst->fault_message));
+    dst->fault_message[sizeof(dst->fault_message) - 1u] = 0;
   }
   return count;
 }
