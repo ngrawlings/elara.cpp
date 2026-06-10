@@ -27,9 +27,6 @@ dynamic frame_surfaces(SurfaceRecord, 8, 64, 8);
 
 kernel(VM vm) {
   kernalId("elara.os.frame_io");
-  static {
-    set_worker_ignore_max_ticks(publish_boot_frame, 1);
-  }
   start_worker(publish_boot_frame);
   start_worker(manager_ingress);
   start_worker(frame_ingress);
@@ -44,7 +41,7 @@ acl {
   "elara.app.example" -> frame_ingress;
 }
 
-@attributes signal_mail_box_size:2048
+@attributes signal_mail_box_size:16384
 worker publish_boot_frame(FrameBoot boot) {
   static int registered;
   local DynamicACLRequest acl_request;
@@ -58,34 +55,9 @@ worker publish_boot_frame(FrameBoot boot) {
     registered = 1;
   }
 
-  frame_begin(1280, 720, 2, 1, 15);
-
-  // Background and top-band.
-  frame_rect(0, 0, 1280, 720, 10, 14, 20);
-  frame_rect(0, 0, 1280, 116, 23, 30, 40);
-
-  // Main authority panel.
-  frame_rect(104, 126, 1072, 468, 18, 23, 31);
-  frame_rect(120, 142, 1040, 436, 26, 34, 46);
-  frame_rect(120, 142, 1040, 12, 82, 146, 255);
-
-  // Boot glyph: three stacked frame bars close to the chipset edge.
-  frame_rect(168, 216, 92, 188, 82, 146, 255);
-  frame_rect(284, 216, 92, 248, 117, 224, 163);
-  frame_rect(400, 216, 92, 152, 255, 196, 92);
-
-  // Status blocks for bootstrap authorities.
-  frame_rect(560, 224, 312, 28, 82, 146, 255);
-  frame_rect(560, 268, 244, 24, 117, 224, 163);
-  frame_rect(560, 308, 212, 24, 255, 196, 92);
-  frame_rect(560, 364, 468, 96, 31, 39, 52);
-  frame_rect(560, 476, 340, 18, 61, 71, 86);
-
-  // Focus frame and footer rail.
-  frame_line(88, 610, 1192, 610, 70, 96, 130, 0);
-  frame_rect(0, 664, 1280, 56, 14, 18, 24);
-  frame_rect(28, 682, 220, 12, 82, 146, 255);
-  frame_rect(1098, 682, 154, 12, 117, 224, 163);
+  frame_begin(1280, 720, 2, 1, 242);
+  frame_rect(0, 0, 1280, 720, 0, 0, 0);
+#include "preboot/elara_boot_splash_224x224_bw.em"
 
   frame_commit();
 
