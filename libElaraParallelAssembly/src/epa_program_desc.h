@@ -65,6 +65,8 @@ typedef struct {
   uint16_t entry_in_words[256];
   uint16_t entry_out_words[256];
   uint32_t signal_mailbox_size[256];
+  uint32_t worker_privilege[256];
+  uint8_t worker_ignore_max_ticks[256];
 
   EpaConst *consts;
   size_t nconsts;

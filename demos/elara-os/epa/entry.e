@@ -11,6 +11,7 @@ kernel(VM vm) {
 
   static {
     set_worker_privilege(dynamic_acl_authority, 100);
+    set_worker_ignore_max_ticks(dynamic_acl_authority, 1);
   }
 
   start_worker(entry_idle);

@@ -55,6 +55,7 @@ int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
   w->privilege = 0;
   w->waiting_for_data = 0;
   w->has_current_ghs = 0;
+  w->ignore_max_ticks = 0;
   w->current_ghs = 0;
   w->current_kernel_uid = 0u;
   w->current_worker_id = block_id;
@@ -124,6 +125,7 @@ void epa_worker_reset(EpaWorkerState *w) {
   w->privilege = 0;
   w->waiting_for_data = 0;
   w->has_current_ghs = 0;
+  w->ignore_max_ticks = 0;
   w->current_ghs = 0;
   w->current_worker_id = w->id;
   w->ingress_source_kernel_uid = EPA_HOST_KERNEL_UID;

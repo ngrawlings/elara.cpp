@@ -660,7 +660,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     // Core / mode
     {"NOOP",       EPA_OP_NOOP,                  0,0, 0,{0}, NULL, "NOOP takes no params"},
     {"END",        EPA_OP_END,                   0,0, 0,{0}, NULL, "END takes no params"},
-    {"SET_MODE",   EPA_OP_SET_MODE,              1,1, 1,{AK_MODE}, NULL, "SET_MODE <opengl|cuda|0|1>"},
+    {"SET_MODE",   EPA_OP_SET_MODE,              3,3, 3,{AK_U8, AK_U8, AK_U32}, NULL, "SET_MODE <kind:u8> <target:u8> <value:u32>"},
 
     // Flow
     {"YIELD",      EPA_OP_YIELD,                 0,1, 0,{0}, helper_emit_yield, "YIELD [soft|hard|0|1]"},
@@ -742,7 +742,6 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"ENTRY_HALT", EPA_OP_ENTRY_HALT,            1,1, 1,{AK_U8}, NULL, "ENTRY_HALT <worker_id:u8>"},
     {"ENTRY_RETIRE", EPA_OP_ENTRY_RETIRE,        1,1, 1,{AK_U8}, NULL, "ENTRY_RETIRE <worker_id:u8>"},
     {"KERNEL_RETIRE", EPA_OP_KERNEL_RETIRE,      0,0, 0,{0}, NULL, "KERNEL_RETIRE (uses r0/r1 target kernel uid)"},
-    {"ENTRY_PRIVILEGE", EPA_OP_ENTRY_PRIVILEGE,  2,2, 2,{AK_U8, AK_U32}, NULL, "ENTRY_PRIVILEGE <worker_id:u8> <privilege:u32>"},
     {"PRIVILEGE_LOCK", EPA_OP_PRIVILEGE_LOCK,    0,0, 0,{0}, NULL, "PRIVILEGE_LOCK"},
     {"ACL",            EPA_OP_ACL,               2,2, 2,{AK_U8, AK_U8}, NULL, "ACL <kind:u8> <local_wid:u8>  ; 1=grant,2=revoke,3=revoke_all"},
     {"PID",            EPA_OP_PID,               1,1, 1,{AK_U8}, NULL, "PID <kind:u8>  ; 1=self,2=retire"},

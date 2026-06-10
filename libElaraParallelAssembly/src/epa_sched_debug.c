@@ -20,6 +20,19 @@ static void debug_wake(EpaKernel *k, EpaSchedState *s) {
     (void)k; (void)s;
 }
 
+static int worker_runnable(const EpaWorkerState *w) {
+    return w && w->inited && !w->retired && !w->halted && !w->faulted && !w->blocked && !w->waiting_for_data;
+}
+
+static int any_ignore_max_ticks_runnable(const EpaKernel *k) {
+    if (!k) return 0;
+    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+        const EpaWorkerState *w = &k->impl.workers[wid];
+        if (worker_runnable(w) && w->ignore_max_ticks) return 1;
+    }
+    return 0;
+}
+
 static int debug_run(EpaKernel *k,
                      EpaSchedState *s,
                      uint32_t max_ticks,
@@ -35,6 +48,7 @@ static int debug_run(EpaKernel *k,
     }
 
     if (!epa_kernel_drain_ingress(k, err)) return 0;
+    uint64_t ingress_seen = k->impl.ingress_deliveries;
 
     k->impl.interrupt_requested = 0;
 
@@ -62,13 +76,13 @@ static int debug_run(EpaKernel *k,
 
     int any_ran = 0;
     for (uint32_t oi = 0; oi < norder; oi++) {
-        if (max_ticks && ticks >= max_ticks) break;
+        if (max_ticks && ticks >= max_ticks && !any_ignore_max_ticks_runnable(k)) break;
         if (k->impl.interrupt_requested) break;
 
         wid = order[oi];
         EpaWorkerState *w = &k->impl.workers[wid];
 
-        if (!w->inited || w->retired || w->halted || w->faulted || w->blocked) continue;
+        if (!worker_runnable(w)) continue;
 
         any_ran = 1;
         k->impl.cur_wid = wid;
@@ -77,7 +91,7 @@ static int debug_run(EpaKernel *k,
         if (next_cursor >= EPA_MAX_WORKERS) next_cursor = k->impl.worker_head;
 
         EpaFlowRc frc = epa_flow_step(k, &k->flow, w, (EpaStack*)&w->vm.stack, err);
-        ticks++;
+        if (!w->ignore_max_ticks) ticks++;
 
         if (frc == EPA_FLOW_ERR) {
             w->faulted = 1;
@@ -107,7 +121,13 @@ static int debug_run(EpaKernel *k,
 
     if (!any_ran) return 1; /* all workers idle/halted — not an error */
 
-    if (max_ticks && ticks >= max_ticks) {
+    if (!epa_kernel_drain_ingress(k, err)) return 0;
+    if (ingress_seen != k->impl.ingress_deliveries) {
+        ingress_seen = k->impl.ingress_deliveries;
+        ticks = 0;
+    }
+
+    if (max_ticks && ticks >= max_ticks && !any_ignore_max_ticks_runnable(k)) {
         if (err)
             snprintf(err, EPA_MAX_ERR,
                      "run: step complete returning to host after %u ticks", ticks);

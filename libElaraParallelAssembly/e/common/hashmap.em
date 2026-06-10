@@ -446,10 +446,10 @@ function int hashmap_u64_node_child_off(int key_byte) {
 function int hashmap_u64_node_init(int node_id) {
   local byte[1028] node;
   int slot = 0;
-  node = hashmap_u64_nodes[node_id:node_id + 1];
+  int empty_id = hashmap_empty_id();
 
   while (slot < 257) {
-    local_store_i32(node, slot * 4, hashmap_empty_id());
+    local_store_i32(node, slot * 4, empty_id);
     slot = slot + 1;
   }
 
@@ -461,10 +461,10 @@ function int hashmap_u64_init() {
   int root_id = dyn_alloc(hashmap_u64_nodes);
   local byte[1028] node;
   int slot = 0;
-  node = hashmap_u64_nodes[root_id:root_id + 1];
+  int empty_id = hashmap_empty_id();
 
   while (slot < 257) {
-    local_store_i32(node, slot * 4, hashmap_empty_id());
+    local_store_i32(node, slot * 4, empty_id);
     slot = slot + 1;
   }
 

@@ -59,6 +59,9 @@ int hook_entry_exec(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   k->workers[wid].inited = 1;
   k->workers[wid].halted = 0;
   k->workers[wid].blocked = 0;
+  if (kernel->sched_vt && kernel->sched_vt->wake) {
+    kernel->sched_vt->wake(kernel, &kernel->sched_state);
+  }
   return 1;
 }
 

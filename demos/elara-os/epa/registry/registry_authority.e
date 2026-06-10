@@ -180,6 +180,9 @@ function int reg_authority_record_mark(int record_id, int registered, int genera
 
 kernel(VM vm) {
   kernalId("elara.os.registry");
+  static {
+    set_worker_ignore_max_ticks(registry_ingress, 1);
+  }
   start_worker(registry_ingress);
 }
 

@@ -82,6 +82,15 @@ static inline int worker_runnable(const EpaWorkerState *w) {
   return w && w->inited && !w->retired && !w->halted && !w->faulted && !w->blocked && !w->waiting_for_data;
 }
 
+static int any_ignore_max_ticks_runnable(const EpaKernel *k) {
+  if (!k) return 0;
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
+    const EpaWorkerState *w = &k->impl.workers[wid];
+    if (worker_runnable(w) && w->ignore_max_ticks) return 1;
+  }
+  return 0;
+}
+
 static int debug_player_avatar_worker(const EpaKernel *k, uint32_t wid) {
   (void)k;
   (void)wid;
@@ -130,6 +139,10 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
   if (frc == EPA_FLOW_ERR) {
     w->faulted = 1;
+    if (err && err[0]) {
+      strncpy(w->fault_message, err, sizeof(w->fault_message) - 1u);
+      w->fault_message[sizeof(w->fault_message) - 1u] = 0;
+    }
     epa_print_fault_location(k, wid, &w->vm.eip, err && err[0] ? err : "(no message)");
     kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0002u, &w->vm.eip, err);
     return 0;
@@ -145,6 +158,10 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
 
     if (nrc == EPA_NF_EXEC_ERR) {
       w->faulted = 1;
+      if (err && err[0]) {
+        strncpy(w->fault_message, err, sizeof(w->fault_message) - 1u);
+        w->fault_message[sizeof(w->fault_message) - 1u] = 0;
+      }
       epa_print_fault_location(k, wid, &w->vm.eip, err && err[0] ? err : "(no message)");
       kdbg_emit(k, EPA_KDBG_EXCEPT, (uint8_t)wid, 0xFFFF0003u, &w->vm.eip, err);
       return 0;
@@ -458,7 +475,7 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
   // NOTE: called under st->mu.
   if (atomic_load(&st->interrupt) != 0 || k->impl.interrupt_requested) return;
 
-  for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
+  for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
     EpaWorkerState *w = &k->impl.workers[wid];
     if (!worker_runnable(w)) continue;
     if (st->wid_to_tid[wid] >= 0) continue; // already bound
@@ -472,6 +489,7 @@ static void cpu_bind_runnable(EpaKernel *k, CpuThreadState *st) {
 
     st->tid_to_wid[free_tid] = (int32_t)wid;
     st->wid_to_tid[wid] = free_tid;
+    epa_platform_cond_broadcast(&st->cv);
   }
 
   epa_platform_cond_broadcast(&st->cv);
@@ -509,11 +527,12 @@ static int cpu_run(EpaKernel *k,
 
   // Drain ingress up front (same as wave)
   if (!epa_kernel_drain_ingress(k, err)) return 0;
+  uint64_t ingress_seen = k->impl.ingress_deliveries;
 
   uint32_t ticks = 0;
 
   for (;;) {
-    if (max_ticks && ticks++ >= max_ticks) {
+    if (max_ticks && ticks >= max_ticks && !any_ignore_max_ticks_runnable(k)) {
       // In this profile, max_ticks is a management loop budget.
       if (debug) {
         snprintf(err, EPA_MAX_ERR, "run: step complete returning to host after %u ticks", ticks);
@@ -530,6 +549,11 @@ static int cpu_run(EpaKernel *k,
 
     // Drain ingress each management cycle (may wake workers)
     if (!epa_kernel_drain_ingress(k, err)) return 0;
+    if (ingress_seen != k->impl.ingress_deliveries) {
+      ingress_seen = k->impl.ingress_deliveries;
+      ticks = 0;
+    }
+    if (!any_ignore_max_ticks_runnable(k)) ticks++;
 
     pthread_mutex_lock(&st->mu);
 
@@ -555,7 +579,7 @@ static int cpu_run(EpaKernel *k,
 
     // Determine if any runnable worker is currently unbound (needs a thread)
     int any_runnable_unbound = 0;
-    for (uint32_t wid = k->impl.worker_head; wid < EPA_MAX_WORKERS; wid = k->impl.worker_next[wid]) {
+    for (uint32_t wid = 0; wid < EPA_MAX_WORKERS; wid++) {
       EpaWorkerState *w = &k->impl.workers[wid];
       if (!worker_runnable(w)) continue;
       if (st->wid_to_tid[wid] < 0) { any_runnable_unbound = 1; break; }

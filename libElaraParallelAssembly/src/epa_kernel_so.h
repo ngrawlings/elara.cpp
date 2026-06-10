@@ -72,6 +72,8 @@ EpaSchedProfile epa_kernel_get_scheduler(const EpaKernel *k);
 int epa_kernel_add_threads(EpaKernel *k, uint32_t add_count, char err[EPA_MAX_ERR]);
 uint32_t epa_kernel_thread_count(const EpaKernel *k);
 uint32_t epa_kernel_worker_count(const EpaKernel *k);
+int epa_kernel_set_worker_ignore_max_ticks(EpaKernel *k, uint32_t wid, int ignore);
+int epa_kernel_get_worker_ignore_max_ticks(const EpaKernel *k, uint32_t wid);
 EpaKernelStatus epa_kernel_get_status(const EpaKernel *k);
 const char* epa_kernel_get_last_error(const EpaKernel *k);
 const char* epa_kernel_status_name(EpaKernelStatus status);

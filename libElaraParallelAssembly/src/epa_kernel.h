@@ -88,6 +88,7 @@ typedef struct {
   EpaSystemMemoryRequestRing memq;
 
   int interrupt_requested;
+  uint64_t ingress_deliveries;
   pthread_mutex_t syncq_mu;
   pthread_mutex_t atq_mu;
   pthread_mutex_t memq_mu;

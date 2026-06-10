@@ -27,6 +27,9 @@ dynamic frame_surfaces(SurfaceRecord, 8, 64, 8);
 
 kernel(VM vm) {
   kernalId("elara.os.frame_io");
+  static {
+    set_worker_ignore_max_ticks(publish_boot_frame, 1);
+  }
   start_worker(publish_boot_frame);
   start_worker(manager_ingress);
   start_worker(frame_ingress);

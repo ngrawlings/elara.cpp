@@ -232,7 +232,7 @@ bool ElaraOsEpaDebugService::hasBreakpointHit(EpaKernel *kernel, uint32_t *out_w
     return false;
 }
 
-bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bool stop_on_breakpoint, String &stop_reason, uint32_t &ticks_ran, String &error_message) {
+bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bool stop_on_breakpoint, uint32_t watchdog_ms, String &stop_reason, uint32_t &ticks_ran, String &error_message) {
     char err[EPA_MAX_ERR];
     if (!kernel) { error_message = "kernel not created"; return false; }
     ensureDebugCallbackInstalled();
@@ -243,8 +243,9 @@ bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bo
         err[0] = 0;
         capture.begin();
         std::atomic<bool> run_finished(false);
-        std::thread watchdog([kernel, &run_finished]() {
-            usleep(1000000);
+        if (watchdog_ms == 0) watchdog_ms = 1000;
+        std::thread watchdog([kernel, &run_finished, watchdog_ms]() {
+            usleep((useconds_t)watchdog_ms * 1000u);
             if (!run_finished.load()) {
                 epa_kernel_request_interrupt(kernel);
             }
@@ -346,9 +347,13 @@ String ElaraOsEpaDebugService::buildSnapshotJson(EpaKernel *kernel, const String
         result += String(",\"halted\":") + String((int)workers[i].halted);
         result += String(",\"blocked\":") + String((int)workers[i].blocked);
         result += String(",\"faulted\":") + String((int)workers[i].faulted);
+        if (workers[i].faulted && workers[i].fault_message[0]) result += String(",\"fault_message\":") + jsonQuote(String(workers[i].fault_message));
         result += String(",\"waiting_for_data\":") + String((int)workers[i].waiting_for_data);
         result += String(",\"at_running\":") + String((int)workers[i].at_running);
+        result += String(",\"inq_count\":") + String((int)workers[i].inq_count);
+        result += String(",\"outq_count\":") + String((int)workers[i].outq_count);
         result += String(",\"has_current_ghs\":") + String((int)workers[i].has_current_ghs);
+        result += String(",\"ignore_max_ticks\":") + String((int)workers[i].ignore_max_ticks);
         result += String(",\"current_ghs\":") + String((unsigned long long)workers[i].current_ghs);
         result += String(",\"eip\":{\"block_type\":") + String((int)workers[i].eip.block_type) + String(",\"block_id\":") + String((int)workers[i].eip.block_id) + String(",\"rel_pc\":") + String((int)workers[i].eip.rel_pc) + String("}");
         result += String(",\"regs\":[") + String((int)workers[i].csc[0]) + String(",") + String((int)workers[i].csc[1]) + String(",") + String((int)workers[i].csc[2]) + String(",") + String((int)workers[i].csc[3]) + String("]");
@@ -443,15 +448,16 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         parseStringField(params_json, String("path_id"), path_id);
         parseUintField(params_json, String("ticks"), 1, &ticks);
         EpaKernel *kernel = kernelForPathId(path_id);
-        if (!runTicks(kernel, ticks, false, stop_reason, ticks_ran, error_message)) { error_code = String("step_failed"); return false; }
+        if (!runTicks(kernel, ticks, false, 1000, stop_reason, ticks_ran, error_message)) { error_code = String("step_failed"); return false; }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
     }
     if (method == String("epa.debug.run")) {
-        String path_id; uint32_t max_ticks = 1000, ticks_ran = 0; String stop_reason;
+        String path_id; uint32_t max_ticks = 1000, watchdog_ms = 1000, ticks_ran = 0; String stop_reason;
         parseStringField(params_json, String("path_id"), path_id);
         parseUintField(params_json, String("max_ticks"), 1000, &max_ticks);
+        parseUintField(params_json, String("watchdog_ms"), 1000, &watchdog_ms);
         EpaKernel *kernel = kernelForPathId(path_id);
-        if (!runTicks(kernel, max_ticks, true, stop_reason, ticks_ran, error_message)) { error_code = String("run_failed"); return false; }
+        if (!runTicks(kernel, max_ticks, true, watchdog_ms, stop_reason, ticks_ran, error_message)) { error_code = String("run_failed"); return false; }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
     }
     if (method == String("epa.debug.interrupt")) {
