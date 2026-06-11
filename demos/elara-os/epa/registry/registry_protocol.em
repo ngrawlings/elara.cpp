@@ -4,6 +4,27 @@ type RegistryRequest(int opcode, int path_hash_lo, int path_hash_hi, int flags) 
   return opcode;
 }
 
+type RegistryPartitionRegistration(
+  int drive_id,
+  int partition_drive_id,
+  int first_lba,
+  int last_lba,
+  int fs_kind,
+  int flags
+) {
+  return partition_drive_id;
+}
+
+type RegistryMountRegistration(
+  int mount_id,
+  int drive_id,
+  int fs_kind,
+  int flags,
+  int mount_path_hash
+) {
+  return mount_id;
+}
+
 function int registry_request_status() {
   return 1;
 }

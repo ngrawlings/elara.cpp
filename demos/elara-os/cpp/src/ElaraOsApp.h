@@ -48,6 +48,7 @@ private:
     String epa_dbg_last_error;
     bool boot_payload_pending;
     String pending_boot_payload_hex;
+    std::string pending_boot_descriptor_params_json;
     std::string virtual_drive_root;
     std::string ext_logic_session_path;
     pid_t owned_ui_server_pid;

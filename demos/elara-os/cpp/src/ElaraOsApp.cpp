@@ -54,6 +54,7 @@ ElaraOsApp::ElaraOsApp(
       epa_dbg_last_error(""),
       boot_payload_pending(false),
       pending_boot_payload_hex(""),
+      pending_boot_descriptor_params_json(""),
       virtual_drive_root(""),
       ext_logic_session_path(""),
       owned_ui_server_pid(-1),
@@ -214,6 +215,200 @@ static std::string readTextFile(const char *path) {
     }
     fclose(fp);
     return text;
+}
+
+struct BootDriveInfo {
+    int drive_id;
+    std::string path;
+    int flags;
+    int block_size;
+    int block_count;
+
+    BootDriveInfo() : drive_id(0), path(), flags(0), block_size(0), block_count(0) {}
+};
+
+struct GptPartitionInfo {
+    int drive_id;
+    int partition_drive_id;
+    int partition_index;
+    uint64_t first_lba;
+    uint64_t last_lba;
+    std::string name;
+    int fs_kind;
+    int flags;
+
+    GptPartitionInfo()
+        : drive_id(0), partition_drive_id(0), partition_index(0), first_lba(0), last_lba(0), name(), fs_kind(1), flags(0) {}
+};
+
+static uint32_t hashU32Literal(const char *text) {
+    uint32_t hash = 2166136261u;
+    if (!text) {
+        return hash;
+    }
+    for (const unsigned char *p = (const unsigned char *)text; *p; ++p) {
+        hash ^= (uint32_t)(*p);
+        hash *= 16777619u;
+    }
+    return hash;
+}
+
+static int partitionDriveIdFor(int drive_id, int partition_index) {
+    return (drive_id << 8) | (partition_index & 0xff);
+}
+
+static std::vector<BootDriveInfo> parseBootDriveInfos(const std::string &json) {
+    std::vector<BootDriveInfo> drives;
+    std::string::size_type pos = 0;
+    while ((pos = json.find("\"drive_id\"", pos)) != std::string::npos) {
+        std::string::size_type obj_start = json.rfind('{', pos);
+        std::string::size_type obj_end = json.find('}', pos);
+        if (obj_start == std::string::npos || obj_end == std::string::npos || obj_end <= obj_start) {
+            break;
+        }
+        std::string object_json = json.substr(obj_start, obj_end - obj_start + 1u);
+        BootDriveInfo drive;
+        drive.drive_id = jsonIntField(object_json, "drive_id", 0);
+        drive.path = jsonStringField(object_json, "path");
+        drive.flags = jsonIntField(object_json, "flags", 0);
+        drive.block_size = jsonIntField(object_json, "block_size", 0);
+        drive.block_count = jsonIntField(object_json, "block_count", 0);
+        if (drive.drive_id > 0 && !drive.path.empty()) {
+            drives.push_back(drive);
+        }
+        pos = obj_end + 1u;
+    }
+    return drives;
+}
+
+static uint32_t readLeU32At(const unsigned char *p) {
+    return ((uint32_t)p[0])
+         | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16)
+         | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t readLeU64At(const unsigned char *p) {
+    return ((uint64_t)p[0])
+         | ((uint64_t)p[1] << 8)
+         | ((uint64_t)p[2] << 16)
+         | ((uint64_t)p[3] << 24)
+         | ((uint64_t)p[4] << 32)
+         | ((uint64_t)p[5] << 40)
+         | ((uint64_t)p[6] << 48)
+         | ((uint64_t)p[7] << 56);
+}
+
+static std::string readUtf16LeName(const unsigned char *bytes, size_t max_bytes) {
+    std::string out;
+    for (size_t i = 0; i + 1u < max_bytes; i += 2u) {
+        uint16_t code_unit = (uint16_t)bytes[i] | (uint16_t)(bytes[i + 1u] << 8);
+        if (code_unit == 0u) {
+            break;
+        }
+        if (code_unit < 0x80u) {
+            out.push_back((char)code_unit);
+        }
+    }
+    return out;
+}
+
+static bool scanGptPartitions(const BootDriveInfo &drive, std::vector<GptPartitionInfo> &partitions, std::string &error_message) {
+    partitions.clear();
+    FILE *fp = fopen(drive.path.c_str(), "rb");
+    if (!fp) {
+        error_message = std::string("failed to open drive image: ") + drive.path;
+        return false;
+    }
+
+    unsigned char header[512];
+    memset(header, 0, sizeof(header));
+    if (fseeko(fp, 512, SEEK_SET) != 0 || fread(header, 1u, sizeof(header), fp) < 92u) {
+        fclose(fp);
+        error_message = std::string("failed to read GPT header from: ") + drive.path;
+        return false;
+    }
+    if (memcmp(header, "EFI PART", 8) != 0) {
+        fclose(fp);
+        error_message = std::string("missing GPT signature in: ") + drive.path;
+        return false;
+    }
+
+    uint64_t entry_lba = readLeU64At(header + 72u);
+    uint32_t entry_count = readLeU32At(header + 80u);
+    uint32_t entry_size = readLeU32At(header + 84u);
+    if (entry_count == 0u || entry_size < 128u) {
+        fclose(fp);
+        error_message = std::string("invalid GPT entry table in: ") + drive.path;
+        return false;
+    }
+
+    if (entry_count > 128u) {
+        entry_count = 128u;
+    }
+    std::vector<unsigned char> table((size_t)entry_count * (size_t)entry_size, 0);
+    off_t table_offset = (off_t)(entry_lba * 512u);
+    if (fseeko(fp, table_offset, SEEK_SET) != 0 ||
+        fread(table.data(), 1u, table.size(), fp) < table.size()) {
+        fclose(fp);
+        error_message = std::string("failed to read GPT entries from: ") + drive.path;
+        return false;
+    }
+    fclose(fp);
+
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        const unsigned char *entry = table.data() + ((size_t)i * (size_t)entry_size);
+        bool empty = true;
+        for (size_t b = 0; b < 16u; ++b) {
+            if (entry[b] != 0u) {
+                empty = false;
+                break;
+            }
+        }
+        if (empty) {
+            continue;
+        }
+
+        GptPartitionInfo info;
+        info.drive_id = drive.drive_id;
+        info.partition_index = (int)(i + 1u);
+        info.partition_drive_id = partitionDriveIdFor(info.drive_id, info.partition_index);
+        info.first_lba = readLeU64At(entry + 32u);
+        info.last_lba = readLeU64At(entry + 40u);
+        info.name = readUtf16LeName(entry + 56u, 72u);
+        info.fs_kind = 1;
+        info.flags = 0;
+        if (info.name == "rootfs" || info.name == "root") {
+            info.flags = 1;
+        }
+        partitions.push_back(info);
+    }
+
+    if (drive.drive_id == 1) {
+        bool have_root = false;
+        for (size_t i = 0; i < partitions.size(); ++i) {
+            if (partitions[i].flags == 1) {
+                have_root = true;
+                break;
+            }
+        }
+        if (!have_root && !partitions.empty()) {
+            partitions[0].flags = 1;
+        }
+    }
+
+    error_message.clear();
+    return true;
+}
+
+static void appendLeU32Hex(std::string &hex, uint32_t value) {
+    char chunk[9];
+    snprintf(chunk, sizeof(chunk), "%02x%02x%02x%02x",
+             (unsigned)(value & 0xffu),
+             (unsigned)((value >> 8) & 0xffu),
+             (unsigned)((value >> 16) & 0xffu),
+             (unsigned)((value >> 24) & 0xffu));
+    hex += chunk;
 }
 
 static String jsonQuoteString(const String &value) {
@@ -704,56 +899,26 @@ bool ElaraOsApp::ensureFileContents(const std::string &path, const std::string &
 
 bool ElaraOsApp::bootstrapVirtualDrives() {
     const std::string root = virtual_drive_root;
-    const std::string drive0 = root + "/drive-1";
-    const std::string drive1 = root + "/drive-2";
-    const std::string fs_root = root + "/fs/root";
-
-    if (!ensureDirectoryPath(root) ||
-        !ensureDirectoryPath(drive0) ||
-        !ensureDirectoryPath(drive1) ||
-        !ensureDirectoryPath(fs_root)) {
+    if (!ensureDirectoryPath(root)) {
         return false;
     }
 
     if (!ensureFileContents(
-            drive0 + "/device.json",
-            "{\n"
-            "  \"drive_id\": 1,\n"
-            "  \"block_size\": 4096,\n"
-            "  \"block_count\": 16384,\n"
-            "  \"flags\": 1,\n"
-            "  \"mount_id\": 1,\n"
-            "  \"mount_path\": \"/\",\n"
-            "  \"role\": \"system\"\n"
-            "}\n") ||
-        !ensureFileContents(
-            drive1 + "/device.json",
-            "{\n"
-            "  \"drive_id\": 2,\n"
-            "  \"block_size\": 4096,\n"
-            "  \"block_count\": 8192,\n"
-            "  \"flags\": 0,\n"
-            "  \"mount_id\": 2,\n"
-            "  \"mount_path\": \"/data\",\n"
-            "  \"role\": \"data\"\n"
-            "}\n") ||
-        !ensureFileContents(
-            fs_root + "/README.txt",
-            "Elara OS virtual root filesystem\n"
-            "mount_id=1\n"
-            "drive_id=1\n"
-            "fs_kind=1\n") ||
-        !ensureFileContents(
             root + "/manifest.json",
             "{\n"
-            "  \"drives\": [1, 2],\n"
-            "  \"mounts\": [\n"
-            "    {\"mount_id\": 1, \"drive_id\": 1, \"path\": \"/\", \"flags\": 1},\n"
-            "    {\"mount_id\": 2, \"drive_id\": 2, \"path\": \"/data\", \"flags\": 0}\n"
+            "  \"drives\": [\n"
+            "    {\"drive_id\": 1, \"path\": \"root\", \"role\": \"system\", \"partition_table\": \"gpt\"},\n"
+            "    {\"drive_id\": 2, \"path\": \"data\", \"role\": \"data\", \"partition_table\": \"gpt\"}\n"
             "  ],\n"
             "  \"filesystem_authority\": \"elara.os.filesystem\",\n"
-            "  \"block_io_authority\": \"elara.os.block_io\"\n"
-            "}\n")) {
+            "  \"block_io_authority\": \"elara.os.block_io\",\n"
+            "  \"mount_policy\": \"derive-from-partitions\"\n"
+            "}\n") ||
+        !ensureFileContents(
+            root + "/README.txt",
+            "Elara OS virtual block images live in this directory.\n"
+            "Mounts are not declared here.\n"
+            "Partition tables are created on the raw images and mount policy is derived later.\n")) {
         return false;
     }
 
@@ -1028,11 +1193,21 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String boot_path_id("boot");
     String entry_path_id("entry");
     String registry_path_id("registry_authority");
+    String block_io_path_id("block_io_authority");
+    String partition_io_path_id("partition_io_authority");
+    String filesystem_path_id("filesystem_authority");
     String frame_path_id("frame_io_authority");
     String run_result;
     String clear_result;
     String entry_run_result;
     String registry_run_result;
+    String registry_partition_run_result;
+    String registry_mount_run_result;
+    String block_io_run_result;
+    String partition_io_run_result;
+    String filesystem_run_result;
+    String entry_post_block_run_result;
+    String registry_post_block_run_result;
     String frame_run_result;
     String mailbox_result;
     String frame_json;
@@ -1040,7 +1215,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
+            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             run_result)) {
         error_message = String("epa.debug.run failed after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1052,7 +1227,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Dynamic ACL Authority registration worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
+            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             entry_run_result)) {
         error_message = String("epa.debug.run failed for entry after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1064,9 +1239,211 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Registry Authority registration worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             registry_run_result)) {
         error_message = String("epa.debug.run failed for registry_authority after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    std::vector<BootDriveInfo> boot_drives = parseBootDriveInfos(pending_boot_descriptor_params_json);
+    bool root_mount_registered = false;
+    uint32_t root_mount_path_hash = hashU32Literal("/");
+    for (size_t i = 0; i < boot_drives.size(); ++i) {
+        std::string payload_hex;
+        String ingress_result;
+        std::vector<GptPartitionInfo> partitions;
+        std::string scan_error;
+
+        appendLeU32Hex(payload_hex, (uint32_t)boot_drives[i].drive_id);
+        appendLeU32Hex(payload_hex, (uint32_t)boot_drives[i].block_size);
+        appendLeU32Hex(payload_hex, (uint32_t)boot_drives[i].block_count);
+        appendLeU32Hex(payload_hex, (uint32_t)boot_drives[i].flags);
+        if (!epaDbgCall(
+                String("epa.debug.ingressPushHex"),
+                String("{\"path_id\":") + jsonQuoteString(block_io_path_id)
+                    + String(",\"wid\":1,\"payload_hex\":") + jsonQuoteString(String(payload_hex.c_str())) + String("}"),
+                ingress_result)) {
+            error_message = String("failed to queue block device registration");
+            return false;
+        }
+
+        if (!scanGptPartitions(boot_drives[i], partitions, scan_error)) {
+            error_message = String(scan_error.c_str());
+            return false;
+        }
+
+        for (size_t p = 0; p < partitions.size(); ++p) {
+            std::string partition_hex;
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].drive_id);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].partition_drive_id);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].partition_index);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].first_lba);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].last_lba);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].fs_kind);
+            appendLeU32Hex(partition_hex, (uint32_t)partitions[p].flags);
+            if (!epaDbgCall(
+                    String("epa.debug.ingressPushHex"),
+                    String("{\"path_id\":") + jsonQuoteString(partition_io_path_id)
+                        + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(partition_hex.c_str())) + String("}"),
+                    ingress_result)) {
+                    error_message = String("failed to queue partition registration");
+                    return false;
+            }
+
+            std::string registry_partition_hex;
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].drive_id);
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].partition_drive_id);
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].first_lba);
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].last_lba);
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].fs_kind);
+            appendLeU32Hex(registry_partition_hex, (uint32_t)partitions[p].flags);
+            if (!epaDbgCall(
+                    String("epa.debug.ingressPushHex"),
+                    String("{\"path_id\":") + jsonQuoteString(registry_path_id)
+                        + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(registry_partition_hex.c_str())) + String("}"),
+                    ingress_result)) {
+                error_message = String("failed to queue registry partition registration");
+                return false;
+            }
+
+            char partition_payload[512];
+            snprintf(
+                partition_payload,
+                sizeof(partition_payload),
+                "\"status\":\"gpt partition detected\",\"drive_id\":%d,\"partition_drive_id\":%d,\"partition_index\":%d,\"first_lba\":%llu,\"last_lba\":%llu,\"name\":\"%s\",\"flags\":%d",
+                partitions[p].drive_id,
+                partitions[p].partition_drive_id,
+                partitions[p].partition_index,
+                (unsigned long long)partitions[p].first_lba,
+                (unsigned long long)partitions[p].last_lba,
+                jsonEscape(partitions[p].name.c_str()).c_str(),
+                partitions[p].flags
+            );
+            sendHostDebugEvent("state", partition_payload);
+
+            if (!root_mount_registered && partitions[p].flags == 1) {
+                std::string mount_hex;
+                appendLeU32Hex(mount_hex, 1u);
+                appendLeU32Hex(mount_hex, (uint32_t)partitions[p].partition_drive_id);
+                appendLeU32Hex(mount_hex, 1u);
+                appendLeU32Hex(mount_hex, 3u);
+                appendLeU32Hex(mount_hex, root_mount_path_hash);
+                if (!epaDbgCall(
+                        String("epa.debug.ingressPushHex"),
+                        String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
+                            + String(",\"wid\":1,\"payload_hex\":") + jsonQuoteString(String(mount_hex.c_str())) + String("}"),
+                        ingress_result)) {
+                    error_message = String("failed to queue root mount registration");
+                    return false;
+                }
+
+                std::string registry_mount_hex;
+                appendLeU32Hex(registry_mount_hex, 1u);
+                appendLeU32Hex(registry_mount_hex, (uint32_t)partitions[p].partition_drive_id);
+                appendLeU32Hex(registry_mount_hex, 1u);
+                appendLeU32Hex(registry_mount_hex, 3u);
+                appendLeU32Hex(registry_mount_hex, root_mount_path_hash);
+                if (!epaDbgCall(
+                        String("epa.debug.ingressPushHex"),
+                        String("{\"path_id\":") + jsonQuoteString(registry_path_id)
+                            + String(",\"wid\":3,\"payload_hex\":") + jsonQuoteString(String(registry_mount_hex.c_str())) + String("}"),
+                        ingress_result)) {
+                    error_message = String("failed to queue registry mount registration");
+                    return false;
+                }
+                root_mount_registered = true;
+                sendHostDebugEvent(
+                    "state",
+                    (String("\"status\":\"root partition mounted and registered\",\"mount\":\"/\",\"partition_drive_id\":")
+                        + String(partitions[p].partition_drive_id)
+                        + String(",\"mount_path_hash\":")
+                        + String((int)root_mount_path_hash)).operator char *()
+                );
+            }
+        }
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Block IO Authority registration worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(block_io_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            block_io_run_result)) {
+        error_message = String("epa.debug.run failed for block_io_authority after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Partition IO Authority scan worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(partition_io_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            partition_io_run_result)) {
+        error_message = String("epa.debug.run failed for partition_io_authority after boot ingress");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Registry Authority partition registration worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            registry_partition_run_result)) {
+        error_message = String("epa.debug.run failed for registry_authority partition registration");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Filesystem Authority mount worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            filesystem_run_result)) {
+        error_message = String("epa.debug.run failed for filesystem_authority after GPT scan");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Registry Authority mount registration worker\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            registry_mount_run_result)) {
+        error_message = String("epa.debug.run failed for registry_authority mount registration");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Dynamic ACL Authority after Block IO registration\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(entry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            entry_post_block_run_result)) {
+        error_message = String("epa.debug.run failed for entry after block_io_authority run");
+        if (epa_dbg_last_error.length()) {
+            error_message = error_message + String(": ") + epa_dbg_last_error;
+        }
+        return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"running Registry Authority after Block IO registration\"");
+    if (!epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(registry_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            registry_post_block_run_result)) {
+        error_message = String("epa.debug.run failed for registry_authority after block_io_authority run");
         if (epa_dbg_last_error.length()) {
             error_message = error_message + String(": ") + epa_dbg_last_error;
         }
@@ -1076,7 +1453,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     sendHostDebugEvent("state", "\"status\":\"running Frame IO Authority boot worker\"");
     if (!epaDbgCall(
             String("epa.debug.run"),
-            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
+            String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             frame_run_result)) {
         error_message = String("epa.debug.run failed for frame_io_authority after boot ingress");
         if (epa_dbg_last_error.length()) {
@@ -1102,7 +1479,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         if (epaDbgCall(String("epa.debug.ingressPushHex"), fallback_params, fallback_ingress) &&
             epaDbgCall(
                 String("epa.debug.run"),
-                String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":10000}"),
+                String("{\"path_id\":") + jsonQuoteString(frame_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
                 fallback_run) &&
             epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), fallback_mailbox) &&
             updateSurfaceCommandsFromMailbox(fallback_mailbox, frame_json, error_message)) {
@@ -1113,6 +1490,13 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 + String("; boot_run=") + (run_result.length() ? run_result : String("{}"))
                 + String("; entry_run=") + (entry_run_result.length() ? entry_run_result : String("{}"))
                 + String("; registry_run=") + (registry_run_result.length() ? registry_run_result : String("{}"))
+                + String("; block_io_run=") + (block_io_run_result.length() ? block_io_run_result : String("{}"))
+                + String("; partition_io_run=") + (partition_io_run_result.length() ? partition_io_run_result : String("{}"))
+                + String("; registry_partition_run=") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
+                + String("; filesystem_run=") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
+                + String("; registry_mount_run=") + (registry_mount_run_result.length() ? registry_mount_run_result : String("{}"))
+                + String("; entry_post_block_run=") + (entry_post_block_run_result.length() ? entry_post_block_run_result : String("{}"))
+                + String("; registry_post_block_run=") + (registry_post_block_run_result.length() ? registry_post_block_run_result : String("{}"))
                 + String("; frame_run=") + (frame_run_result.length() ? frame_run_result : String("{}"))
                 + String("; mailbox=") + (mailbox_result.length() ? mailbox_result : String("{}"))
                 + String("; fallback_ingress=") + (fallback_ingress.length() ? fallback_ingress : String("{}"))
@@ -1128,6 +1512,13 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"run\":") + (run_result.length() ? run_result : String("{}"))
         + String(",\"entry_run\":") + (entry_run_result.length() ? entry_run_result : String("{}"))
         + String(",\"registry_run\":") + (registry_run_result.length() ? registry_run_result : String("{}"))
+        + String(",\"block_io_run\":") + (block_io_run_result.length() ? block_io_run_result : String("{}"))
+        + String(",\"partition_io_run\":") + (partition_io_run_result.length() ? partition_io_run_result : String("{}"))
+        + String(",\"registry_partition_run\":") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
+        + String(",\"filesystem_run\":") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
+        + String(",\"registry_mount_run\":") + (registry_mount_run_result.length() ? registry_mount_run_result : String("{}"))
+        + String(",\"entry_post_block_run\":") + (entry_post_block_run_result.length() ? entry_post_block_run_result : String("{}"))
+        + String(",\"registry_post_block_run\":") + (registry_post_block_run_result.length() ? registry_post_block_run_result : String("{}"))
         + String(",\"frame_run\":") + (frame_run_result.length() ? frame_run_result : String("{}"))
         + String(",\"mailbox\":") + (mailbox_result.length() ? mailbox_result : String("{}"))
         + String(",\"frame\":") + (frame_json.length() ? frame_json : String("{}"))
@@ -1143,6 +1534,7 @@ bool ElaraOsApp::handleExtLogicRequest(const String &method, const String &param
         String params_copy(params_json);
         std::string params(params_copy.operator char *() ? params_copy.operator char *() : "");
         String payload_hex(jsonStringField(params, "payload_hex").c_str());
+        pending_boot_descriptor_params_json = params;
         if (ingressBootDescriptor(payload_hex, result_json, error_message)) {
             return true;
         }
@@ -1292,7 +1684,7 @@ bool ElaraOsApp::connectHostDebugBridge() {
     sendHostDebugEvent("state", "\"status\":\"vulkan surface host ready\",\"surface\":\"org.elara.ui.elara-os.surface\"");
     char drive_payload[1024];
     snprintf(drive_payload, sizeof(drive_payload),
-             "\"status\":\"virtual drives ready\",\"root\":\"%s\",\"drives\":[1,2],\"block_io\":\"elara.os.block_io\",\"filesystem\":\"elara.os.filesystem\"",
+             "\"status\":\"virtual drives ready\",\"root\":\"%s\",\"images\":[\"root\",\"data\"],\"block_io\":\"elara.os.block_io\",\"filesystem\":\"elara.os.filesystem\",\"mount_policy\":\"derive-from-partitions\"",
              jsonEscape(virtual_drive_root.c_str()).c_str());
     sendHostDebugEvent("state", drive_payload);
     startExtLogicServer();

@@ -1,4 +1,5 @@
 #include "ElaraOsEpaDebugServer.h"
+#include <libelarasockets/Socket.h>
 
 namespace elara {
 ElaraOsEpaDebugServer::ElaraOsEpaDebugServer() {
@@ -8,6 +9,7 @@ ElaraOsEpaDebugServer::ElaraOsEpaDebugServer() {
 ElaraOsEpaDebugServer::~ElaraOsEpaDebugServer() {}
 void ElaraOsEpaDebugServer::start(int port, String address) {
     listen(address, (unsigned short)port);
-    runEventLoop(true);
+    Socket::init(getEventBase());
+    runEventLoop(false);
 }
 }

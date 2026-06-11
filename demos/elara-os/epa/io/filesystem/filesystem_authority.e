@@ -24,12 +24,15 @@ acl {
   "elara.app.example" -> filesystem_ingress;
 }
 
-worker register_mount(FileSystemMount mount) {
+worker register_mount(MountRegistration mount) {
   static int mount_count;
   static int registered;
+  static int root_mount_id;
+  static int root_drive_id;
+  static int fstab_scan_pending;
   int slot = dyn_alloc(fs_mounts);
   local FileSystemMountState state;
-  local FileSystemMount staged;
+  local MountRegistration staged;
   local DynamicACLRequest acl_request;
 
   static {
@@ -49,17 +52,33 @@ worker register_mount(FileSystemMount mount) {
   staged.drive_id = mount.drive_id;
   staged.fs_kind = mount.fs_kind;
   staged.flags = mount.flags;
-  staged.mount_size = mount.mount_size;
-  staged.mount_data = mount.mount_data;
+  staged.mount_path_hash = mount.mount_path_hash;
 
   state.mount_id = staged.mount_id;
   state.drive_id = staged.drive_id;
   state.fs_kind = staged.fs_kind;
   state.flags = staged.flags;
-  state.mount_path = staged.mount_size;
+  state.mount_path = staged.mount_path_hash;
   fs_mounts[slot] = state;
 
+  if (filesystem_mount_is_root(staged.flags) == 1) {
+    root_mount_id = staged.mount_id;
+    root_drive_id = staged.drive_id;
+    fstab_scan_pending = 1;
+  }
+
   mount_count = mount_count + 1;
+
+  // Root is mounted directly from boot metadata for now. The follow-up
+  // /etc/fstab scan remains EPA-owned, but waits until filesystem reads exist.
+  if (fstab_scan_pending == 1) {
+    if (root_mount_id > 0) {
+      if (root_drive_id > 0) {
+        fstab_scan_pending = 0;
+      }
+    }
+  }
+
   host_signal();
 }
 

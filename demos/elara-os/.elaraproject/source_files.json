@@ -2,6 +2,7 @@
   "epa": [
     "epa/registry/app/app_surface.e",
     "epa/io/block/block_io_authority.e",
+    "epa/io/block/partition/partition_io_authority.e",
     "epa/boot.e",
     "epa/io/frame/console/console_view.e",
     "epa/entry.e",

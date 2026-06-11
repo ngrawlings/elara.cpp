@@ -19,8 +19,9 @@
 namespace elara {
 
     EventBase* Socket::event_base;
+    static const size_t ELARA_SOCKET_BUFFER_BYTES = 4u * 1024u * 1024u;
     
-    Socket::Socket(int _fd, CallbackInterface *cb) : in_buffer(4096), out_buffer(4096), recv_task(this), cb_interface(cb) {
+    Socket::Socket(int _fd, CallbackInterface *cb) : in_buffer(ELARA_SOCKET_BUFFER_BYTES), out_buffer(ELARA_SOCKET_BUFFER_BYTES), recv_task(this), cb_interface(cb) {
         this->fd = _fd;
         event_read = 0;
         event_write = 0;
@@ -34,7 +35,7 @@ namespace elara {
             cb_interface->onConnected(this);
     }
 
-    Socket::Socket(CallbackInterface *cb) : in_buffer(4096), out_buffer(4096), recv_task(this), cb_interface(cb) {
+    Socket::Socket(CallbackInterface *cb) : in_buffer(ELARA_SOCKET_BUFFER_BYTES), out_buffer(ELARA_SOCKET_BUFFER_BYTES), recv_task(this), cb_interface(cb) {
         event_read = 0;
         event_write = 0;
     }

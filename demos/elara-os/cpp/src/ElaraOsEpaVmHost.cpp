@@ -117,6 +117,21 @@ bool ElaraOsEpaVmHost::loadBundlePath(const String &bundle_path) {
         setError("epa_kernel_module_load_bundle failed", err);
         return false;
     }
+    {
+        size_t count = epa_kernel_module_count(module);
+        for (size_t i = 0; i < count; i++) {
+            EpaKernel *k = epa_kernel_module_kernel(module, i);
+            if (!k) {
+                continue;
+            }
+            uint32_t n = epa_kernel_worker_count(k);
+            if (n > 0 && !epa_kernel_module_add_kernel_threads(module, i, n, err)) {
+                setError("epa_kernel_module_add_kernel_threads failed", err);
+                destroy();
+                return false;
+            }
+        }
+    }
     error_text = String();
     return true;
 }

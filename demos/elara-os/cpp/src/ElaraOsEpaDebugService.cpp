@@ -238,41 +238,62 @@ bool ElaraOsEpaDebugService::runTicks(EpaKernel *kernel, uint32_t tick_count, bo
     ensureDebugCallbackInstalled();
     ticks_ran = 0;
     if (stop_on_breakpoint) {
-        StdoutCapture capture;
-        String captured;
-        err[0] = 0;
-        capture.begin();
-        std::atomic<bool> run_finished(false);
-        if (watchdog_ms == 0) watchdog_ms = 1000;
-        std::thread watchdog([kernel, &run_finished, watchdog_ms]() {
-            usleep((useconds_t)watchdog_ms * 1000u);
-            if (!run_finished.load()) {
-                epa_kernel_request_interrupt(kernel);
+        for (;;) {
+            StdoutCapture capture;
+            String captured;
+            uint32_t remaining = tick_count ? (tick_count - ticks_ran) : 1024u;
+            uint32_t step_ticks = remaining < 1024u ? remaining : 1024u;
+            if (step_ticks == 0u) {
+                stop_reason = "step";
+                return true;
             }
-        });
-        int ok = epa_kernel_run(kernel, tick_count, 1, err);
-        run_finished.store(true);
-        watchdog.join();
-        captured = capture.end();
-        if (captured.length()) pushLogEvent(captured.trim());
-        ticks_ran = tick_count;
-        if (!ok) {
-            String err_text(err);
-            if (!startsWith(err_text, "run: step complete returning to host")) {
-                error_message = err_text.length() ? err_text : host.lastError();
-                stop_reason = "error";
-                return false;
+            err[0] = 0;
+            capture.begin();
+            std::atomic<bool> run_finished(false);
+            // The CPU-thread scheduler may sit in its management loop while the
+            // kernel is effectively idle. Keep the watchdog short so we can
+            // re-check worker state frequently instead of blocking the host RPC
+            // for seconds at a time.
+            uint32_t step_watchdog_ms = watchdog_ms ? watchdog_ms : 100u;
+            if (step_watchdog_ms > 100u) {
+                step_watchdog_ms = 100u;
+            }
+            std::thread watchdog([kernel, &run_finished, step_watchdog_ms]() {
+                usleep((useconds_t)step_watchdog_ms * 1000u);
+                if (!run_finished.load()) {
+                    epa_kernel_request_interrupt(kernel);
+                }
+            });
+            int ok = epa_kernel_run(kernel, step_ticks, 1, err);
+            run_finished.store(true);
+            watchdog.join();
+            captured = capture.end();
+            if (captured.length()) pushLogEvent(captured.trim());
+            ticks_ran += step_ticks;
+            if (!ok) {
+                String err_text(err);
+                if (!startsWith(err_text, "run: step complete returning to host")) {
+                    error_message = err_text.length() ? err_text : host.lastError();
+                    stop_reason = "error";
+                    return false;
+                }
+            }
+            uint32_t wid = 0; Breakpoint bp;
+            if (hasBreakpointHit(kernel, &wid, &bp)) {
+                ElaraOsDbgEip at; at.block_type = bp.block_type; at.block_id = bp.block_id; at.rel_pc = bp.rel_pc;
+                pushEvent(String("breakpoint"), wid, 0, &at, String("software breakpoint hit"));
+                stop_reason = "breakpoint";
+                return true;
+            }
+            if (kernelIsIdle(kernel)) {
+                stop_reason = "idle";
+                return true;
+            }
+            if (tick_count != 0 && ticks_ran >= tick_count) {
+                stop_reason = "step";
+                return true;
             }
         }
-        uint32_t wid = 0; Breakpoint bp;
-        if (hasBreakpointHit(kernel, &wid, &bp)) {
-            ElaraOsDbgEip at; at.block_type = bp.block_type; at.block_id = bp.block_id; at.rel_pc = bp.rel_pc;
-            pushEvent(String("breakpoint"), wid, 0, &at, String("software breakpoint hit"));
-            stop_reason = "breakpoint";
-            return true;
-        }
-        stop_reason = kernelIsIdle(kernel) ? String("idle") : String("step");
-        return true;
     }
     for (;;) {
         StdoutCapture capture;
@@ -401,14 +422,19 @@ String ElaraOsEpaDebugService::buildBreakpointJson() const {
 }
 
 bool ElaraOsEpaDebugService::call(const String &method, const String &params_json, String &result_json, String &error_code, String &error_message) {
-    if (method == String("ping")) { result_json = String("{\"message\":\"pong\"}"); return true; }
-    if (method == String("epa.debug.create")) {
+    String routed_method(method);
+    if (startsWith(routed_method, "epa.")) {
+        routed_method = routed_method.substr(4);
+    }
+
+    if (routed_method == String("ping")) { result_json = String("{\"message\":\"pong\"}"); return true; }
+    if (routed_method == String("debug.create")) {
         if (!host.create()) { error_code = String("create_failed"); error_message = host.lastError(); return false; }
         ensureDebugCallbackInstalled(); result_json = String("{\"created\":true}"); return true; }
-    if (method == String("epa.debug.destroy")) { host.destroy(); events.clear(); last_mailbox_bytes.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true; }
-    if (method == String("epa.debug.setKernelId")) { String kernel_id; if (!parseStringField(params_json, String("kernel_id"), kernel_id)) kernel_id = String("epa.debug.kernel"); if (!host.setKernelId(kernel_id)) { error_code = String("set_kernel_id_failed"); error_message = host.lastError(); return false; } result_json = String("{\"ok\":true}"); return true; }
-    if (method == String("epa.debug.loadAsm")) { String asm_path; if (!parseStringField(params_json, String("asm_path"), asm_path) || !asm_path.length()) { error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false; } if (!host.loadAsmPath(asm_path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; } ensureDebugCallbackInstalled(); ensureSignalCallbackInstalled(); result_json = String("{\"loaded\":true}"); return true; }
-    if (method == String("epa.debug.loadBundle")) {
+    if (routed_method == String("debug.destroy")) { host.destroy(); events.clear(); last_mailbox_bytes.clear(); worker_debug_enabled.clear(); result_json = String("{\"destroyed\":true}"); return true; }
+    if (routed_method == String("debug.setKernelId")) { String kernel_id; if (!parseStringField(params_json, String("kernel_id"), kernel_id)) kernel_id = String("epa.debug.kernel"); if (!host.setKernelId(kernel_id)) { error_code = String("set_kernel_id_failed"); error_message = host.lastError(); return false; } result_json = String("{\"ok\":true}"); return true; }
+    if (routed_method == String("debug.loadAsm")) { String asm_path; if (!parseStringField(params_json, String("asm_path"), asm_path) || !asm_path.length()) { error_code = String("missing_asm_path"); error_message = String("asm_path is required"); return false; } if (!host.loadAsmPath(asm_path)) { error_code = String("load_asm_failed"); error_message = host.lastError(); return false; } ensureDebugCallbackInstalled(); ensureSignalCallbackInstalled(); result_json = String("{\"loaded\":true}"); return true; }
+    if (routed_method == String("debug.loadBundle")) {
         String bundle_path;
         if (!parseStringField(params_json, String("bundle_path"), bundle_path) || !bundle_path.length()) {
             error_code = String("missing_bundle_path"); error_message = String("bundle_path is required"); return false;
@@ -419,7 +445,7 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         result_json = String("{\"loaded\":true,\"kernel_count\":") + String((int)host.kernelCount()) + String("}");
         return true;
     }
-    if (method == String("epa.debug.ingressPushHex")) {
+    if (routed_method == String("debug.ingressPushHex")) {
         uint32_t wid = 1, tag = 0; String payload_hex, path_id; std::vector<unsigned char> bytes;
         parseStringField(params_json, String("path_id"), path_id);
         parseUintField(params_json, String("wid"), 1, &wid);
@@ -443,7 +469,7 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
                     + String("}");
         return true;
     }
-    if (method == String("epa.debug.step")) {
+    if (routed_method == String("debug.step")) {
         String path_id; uint32_t ticks = 1, ticks_ran = 0; String stop_reason;
         parseStringField(params_json, String("path_id"), path_id);
         parseUintField(params_json, String("ticks"), 1, &ticks);
@@ -451,7 +477,7 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         if (!runTicks(kernel, ticks, false, 1000, stop_reason, ticks_ran, error_message)) { error_code = String("step_failed"); return false; }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
     }
-    if (method == String("epa.debug.run")) {
+    if (routed_method == String("debug.run")) {
         String path_id; uint32_t max_ticks = 1000, watchdog_ms = 1000, ticks_ran = 0; String stop_reason;
         parseStringField(params_json, String("path_id"), path_id);
         parseUintField(params_json, String("max_ticks"), 1000, &max_ticks);
@@ -460,17 +486,17 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         if (!runTicks(kernel, max_ticks, true, watchdog_ms, stop_reason, ticks_ran, error_message)) { error_code = String("run_failed"); return false; }
         result_json = String("{\"ticks_ran\":") + String((int)ticks_ran) + String(",\"stop_reason\":") + jsonQuote(stop_reason) + String(",\"snapshot\":") + buildSnapshotJson(kernel, path_id) + String("}"); return true;
     }
-    if (method == String("epa.debug.interrupt")) {
+    if (routed_method == String("debug.interrupt")) {
         String path_id; parseStringField(params_json, String("path_id"), path_id);
         EpaKernel *kernel = kernelForPathId(path_id);
         if (kernel) epa_kernel_request_interrupt(kernel);
         result_json = String("{\"interrupt_requested\":true}"); return true;
     }
-    if (method == String("epa.debug.snapshot")) {
+    if (routed_method == String("debug.snapshot")) {
         String path_id; parseStringField(params_json, String("path_id"), path_id);
         result_json = buildSnapshotJson(kernelForPathId(path_id), path_id); return true;
     }
-    if (method == String("epa.debug.getMailbox")) {
+    if (routed_method == String("debug.getMailbox")) {
         String hex;
         char tmp[3];
         for (size_t i = 0; i < last_mailbox_bytes.size(); i++) {
@@ -491,17 +517,17 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
                     + String(",\"hex\":\"") + hex + String("\"}");
         return true;
     }
-    if (method == String("epa.debug.clearMailbox")) {
+    if (routed_method == String("debug.clearMailbox")) {
         last_mailbox_bytes.clear();
         last_mailbox_wid = 0;
         result_json = String("{\"cleared\":true}");
         return true;
     }
-    if (method == String("epa.debug.events")) { bool clear_after = true; parseBoolField(params_json, String("clear"), true, &clear_after); result_json = buildEventsJson(clear_after); return true; }
-    if (method == String("epa.debug.breakpointAdd")) { Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0; parseUintField(params_json, String("block_type"), 0, (uint32_t*)&bp.block_type); parseUintField(params_json, String("block_id"), 0, (uint32_t*)&bp.block_id); parseUintField(params_json, String("rel_pc"), 0, &bp.rel_pc); breakpoints.push_back(bp); result_json = buildBreakpointJson(); return true; }
-    if (method == String("epa.debug.breakpointClear")) { uint32_t block_type = 0, block_id = 0, rel_pc = 0; parseUintField(params_json, String("block_type"), 0, &block_type); parseUintField(params_json, String("block_id"), 0, &block_id); parseUintField(params_json, String("rel_pc"), 0, &rel_pc); for (std::vector<Breakpoint>::iterator it = breakpoints.begin(); it != breakpoints.end();) { if (it->block_type == block_type && it->block_id == block_id && it->rel_pc == rel_pc) it = breakpoints.erase(it); else ++it; } result_json = buildBreakpointJson(); return true; }
-    if (method == String("epa.debug.breakpointList")) { result_json = buildBreakpointJson(); return true; }
-    if (method == String("epa.debug.setWorkerDebug")) {
+    if (routed_method == String("debug.events")) { bool clear_after = true; parseBoolField(params_json, String("clear"), true, &clear_after); result_json = buildEventsJson(clear_after); return true; }
+    if (routed_method == String("debug.breakpointAdd")) { Breakpoint bp; bp.block_type = 0; bp.block_id = 0; bp.rel_pc = 0; parseUintField(params_json, String("block_type"), 0, (uint32_t*)&bp.block_type); parseUintField(params_json, String("block_id"), 0, (uint32_t*)&bp.block_id); parseUintField(params_json, String("rel_pc"), 0, &bp.rel_pc); breakpoints.push_back(bp); result_json = buildBreakpointJson(); return true; }
+    if (routed_method == String("debug.breakpointClear")) { uint32_t block_type = 0, block_id = 0, rel_pc = 0; parseUintField(params_json, String("block_type"), 0, &block_type); parseUintField(params_json, String("block_id"), 0, &block_id); parseUintField(params_json, String("rel_pc"), 0, &rel_pc); for (std::vector<Breakpoint>::iterator it = breakpoints.begin(); it != breakpoints.end();) { if (it->block_type == block_type && it->block_id == block_id && it->rel_pc == rel_pc) it = breakpoints.erase(it); else ++it; } result_json = buildBreakpointJson(); return true; }
+    if (routed_method == String("debug.breakpointList")) { result_json = buildBreakpointJson(); return true; }
+    if (routed_method == String("debug.setWorkerDebug")) {
         uint32_t wid = 1; bool enabled = true; String path_id;
         parseUintField(params_json, String("wid"), 1, &wid);
         parseBoolField(params_json, String("enabled"), true, &enabled);
@@ -513,7 +539,7 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
                     + String("}");
         return true;
     }
-    if (method == String("epa.debug.getWorkerDebug")) {
+    if (routed_method == String("debug.getWorkerDebug")) {
         uint32_t wid = 1; String path_id;
         parseUintField(params_json, String("wid"), 1, &wid);
         parseStringField(params_json, String("path_id"), path_id);

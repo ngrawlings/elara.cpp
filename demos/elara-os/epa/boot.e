@@ -1,7 +1,5 @@
 #include "io/frame/frame_io_protocol.em"
-#include "io/block/storage_protocol.em"
 #include "dynamic_acl_protocol.em"
-#include "common/bytes.em"
 
 type BootDeviceList(
   int version,
@@ -29,6 +27,12 @@ acl {
 worker boot_ingress(BootDeviceList trigger) {
   local FrameBoot boot_frame;
   local DynamicACLRequest acl_request;
+  int version = trigger.version;
+  int device_count = trigger.device_count;
+  int payload_size = trigger.payload_size;
+  version = version;
+  device_count = device_count;
+  payload_size = payload_size;
 
   acl_request.opcode = dynamic_acl_opcode_register();
   acl_request.route_id = dynamic_acl_authority_boot();
@@ -39,5 +43,6 @@ worker boot_ingress(BootDeviceList trigger) {
   boot_frame.phase = 1;
   boot_frame.flags = 0;
   far_signal("elara.os.frame_io", publish_boot_frame, boot_frame);
+
   retire_worker();
 }

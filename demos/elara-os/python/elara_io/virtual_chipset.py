@@ -82,7 +82,7 @@ class VirtualDrive:
     drive_id: int
     path: Path
     size_bytes: int
-    mount_path: str
+    flags: int = 0
     block_size: int = DEFAULT_BLOCK_SIZE
 
     @property
@@ -108,9 +108,13 @@ class PersistentBlockIoController(IoDevice):
         if drive.path.exists():
             if not drive.path.is_file():
                 raise ValueError(f"virtual drive path is not a file: {drive.path}")
-            return
-        with drive.path.open("wb") as handle:
-            handle.truncate(drive.size_bytes)
+            current_size = drive.path.stat().st_size
+            if current_size != drive.size_bytes:
+                with drive.path.open("r+b") as handle:
+                    handle.truncate(drive.size_bytes)
+        else:
+            with drive.path.open("wb") as handle:
+                handle.truncate(drive.size_bytes)
 
     def _parse_request(self, frame: IoFrame) -> tuple[VirtualDrive, int, int, bytes]:
         if len(frame.payload) < 16:
@@ -288,13 +292,13 @@ def default_virtual_drives() -> tuple[VirtualDrive, ...]:
             drive_id=1,
             path=root_drive_path,
             size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
-            mount_path="/",
+            flags=1,
         ),
         VirtualDrive(
             drive_id=2,
             path=data_drive_path,
             size_bytes=DEFAULT_DRIVE_SIZE_BYTES,
-            mount_path="/data",
+            flags=0,
         ),
     )
 
@@ -302,16 +306,13 @@ def default_virtual_drives() -> tuple[VirtualDrive, ...]:
 def build_boot_device_payload(drives: Optional[Iterable[VirtualDrive]] = None) -> bytes:
     active_drives = tuple(drives if drives is not None else default_virtual_drives())
     blob = bytearray()
-    blob.extend(struct.pack("<I", 1))
+    blob.extend(struct.pack("<I", 2))
     blob.extend(struct.pack("<I", len(active_drives)))
     for drive in active_drives:
-        mount_bytes = drive.mount_path.encode("utf-8")
-        padded_size = (len(mount_bytes) + 3) & ~3
         blob.extend(struct.pack("<I", drive.drive_id & 0xFFFFFFFF))
-        blob.extend(struct.pack("<I", len(mount_bytes) & 0xFFFFFFFF))
-        blob.extend(mount_bytes)
-        if padded_size > len(mount_bytes):
-            blob.extend(b"\x00" * (padded_size - len(mount_bytes)))
+        blob.extend(struct.pack("<I", drive.block_size & 0xFFFFFFFF))
+        blob.extend(struct.pack("<I", drive.block_count & 0xFFFFFFFF))
+        blob.extend(struct.pack("<I", drive.flags & 0xFFFFFFFF))
     return bytes(blob)
 
 

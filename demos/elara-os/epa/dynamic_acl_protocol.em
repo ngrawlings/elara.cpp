@@ -76,6 +76,10 @@ function int dynamic_acl_authority_stream_io() {
   return hash_u32("streamio");
 }
 
+function int dynamic_acl_authority_partition_io() {
+  return hash_u32("partitionio");
+}
+
 function int dynamic_acl_route_frame_io_boot() {
   return hash_u32("frameio/boot");
 }

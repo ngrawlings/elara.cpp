@@ -1,12 +1,12 @@
 #ifndef ELARAOSEPADEBUGSERVER_H
 #define ELARAOSEPADEBUGSERVER_H
 
-#include <libelarasockets/rpc/json/JsonRPCServer.h>
+#include <libelarasockets/rpc/brpc/BRpcServer.h>
 #include <libelaracore/memory/Ref.h>
 #include "ElaraOsEpaDebugService.h"
 
 namespace elara {
-class ElaraOsEpaDebugServer : public sockets::rpc::json::JsonRPCServer {
+class ElaraOsEpaDebugServer : public sockets::rpc::brpc::BRpcServer {
 public:
     ElaraOsEpaDebugServer();
     virtual ~ElaraOsEpaDebugServer();

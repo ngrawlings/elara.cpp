@@ -9,9 +9,9 @@
   },
   "serialized_byte_fields": {
     "payload": {
-      "format": "flat_v1",
+      "format": "block_io_v2",
       "computed_fields": {
-        "version": 1,
+        "version": 2,
         "device_count": 2
       },
       "items": [
@@ -21,27 +21,31 @@
         },
         {
           "type": "i32",
-          "value": 2
+          "value": 4096
+        },
+        {
+          "type": "i32",
+          "value": 262144
         },
         {
           "type": "i32",
           "value": 1
         },
         {
-          "type": "bytes_utf8",
-          "value": "/",
-          "length_prefix": true,
-          "pad4": true
-        },
-        {
           "type": "i32",
           "value": 2
         },
         {
-          "type": "bytes_utf8",
-          "value": "/data",
-          "length_prefix": true,
-          "pad4": true
+          "type": "i32",
+          "value": 4096
+        },
+        {
+          "type": "i32",
+          "value": 262144
+        },
+        {
+          "type": "i32",
+          "value": 0
         }
       ]
     }

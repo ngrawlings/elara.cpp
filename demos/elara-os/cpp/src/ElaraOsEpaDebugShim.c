@@ -42,7 +42,7 @@ size_t ElaraOs_epa_debug_capture_workers(EpaKernel *kernel, ElaraOsEpaDebugWorke
     dst->waiting_for_data = (uint32_t)w->waiting_for_data;
     dst->at_running = 0u;
     dst->has_current_ghs = (uint32_t)w->has_current_ghs;
-    dst->ignore_max_ticks = (uint32_t)w->ignore_max_ticks;
+    dst->ignore_max_ticks = 0u;
     memcpy(dst->csc, w->vm.csc, sizeof(dst->csc));
     dst->stack_depth = (uint32_t)w->vm.stack.sp;
     dst->stack_preview_count = (uint32_t)((w->vm.stack.sp < ELARAOS_EPA_DEBUG_STACK_PREVIEW) ? w->vm.stack.sp : ELARAOS_EPA_DEBUG_STACK_PREVIEW);

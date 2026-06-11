@@ -41,13 +41,13 @@ def _ingress_boot_descriptor(client) -> dict:
     ingress_result = client.call(
         "elara.os.bootDescriptor",
         {
-            "format": "BootDeviceList.flat_v1",
+            "format": "BootDeviceList.block_io_v2",
             "payload_hex": payload.hex(),
             "drives": [
                 {
                     "drive_id": drive.drive_id,
                     "path": str(drive.path),
-                    "mount_path": drive.mount_path,
+                    "flags": drive.flags,
                     "block_size": drive.block_size,
                     "block_count": drive.block_count,
                 }
@@ -62,7 +62,7 @@ def _ingress_boot_descriptor(client) -> dict:
             {
                 "drive_id": drive.drive_id,
                 "path": str(drive.path),
-                "mount_path": drive.mount_path,
+                "flags": drive.flags,
                 "block_size": drive.block_size,
                 "block_count": drive.block_count,
             }
@@ -188,10 +188,10 @@ class ExtLogicTkMonitor:
                         self._set_status(f"Queueing {command} boot payload")
                         ingress = _ingress_boot_descriptor(client)
                         self._append(
-                            "[boot] prepared BootDeviceList.flat_v1 "
+                            "[boot] prepared BootDeviceList.block_io_v2 "
                             f"bytes={ingress['payload_bytes']} "
                             f"hex_prefix={ingress['payload_hex'][:64]} "
-                            f"drives={json.dumps([{'drive_id': drive['drive_id'], 'mount_path': drive['mount_path']} for drive in ingress['drives']])}\n"
+                            f"drives={json.dumps([{'drive_id': drive['drive_id'], 'block_size': drive['block_size'], 'block_count': drive['block_count'], 'flags': drive['flags']} for drive in ingress['drives']])}\n"
                         )
                         self._append(f"[boot] host ingress result:\n{json.dumps(ingress['ingress'], indent=2)}\n")
                         self._append(f"[action] {command} boot payload queued through C++ host\n")

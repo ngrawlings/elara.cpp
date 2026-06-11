@@ -29,6 +29,8 @@ elara.os.entry
     |   +-- filesystem_authority
     |   |
     |   +-- block_io_authority
+    |   |   |
+    |   |   +-- partition_io_authority
     |   |
     |   +-- security_authority
     |   |

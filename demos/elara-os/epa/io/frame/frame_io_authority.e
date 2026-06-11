@@ -43,18 +43,6 @@ acl {
 
 @attributes signal_mail_box_size:16384
 worker publish_boot_frame(FrameBoot boot) {
-  static int registered;
-  local DynamicACLRequest acl_request;
-
-  if (registered == 0) {
-    acl_request.opcode = dynamic_acl_opcode_register();
-    acl_request.route_id = dynamic_acl_authority_frame_io();
-    acl_request.flags = dynamic_acl_authority_registry();
-    acl_request.reserved = 0;
-    far_signal("elara.os.entry", dynamic_acl_authority, acl_request);
-    registered = 1;
-  }
-
   frame_begin(1280, 720, 2, 1, 242);
   frame_rect(0, 0, 1280, 720, 0, 0, 0);
 #include "preboot/elara_boot_splash_224x224_bw.em"

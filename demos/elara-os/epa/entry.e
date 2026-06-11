@@ -31,6 +31,7 @@ acl {
   "elara.os.window_manager" -> dynamic_acl_authority;
   "elara.os.filesystem" -> dynamic_acl_authority;
   "elara.os.block_io" -> dynamic_acl_authority;
+  "elara.os.partition_io" -> dynamic_acl_authority;
   "elara.os.stream_io" -> dynamic_acl_authority;
   "elara.os.shell" -> dynamic_acl_authority;
 }
@@ -51,6 +52,7 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
   static int window_registered;
   static int filesystem_registered;
   static int block_io_registered;
+  static int partition_io_registered;
   static int stream_io_registered;
   static int security_registered;
   static int shell_registered;
@@ -106,6 +108,9 @@ worker dynamic_acl_authority(DynamicACLRequest request) {
     }
     if (request.route_id == dynamic_acl_authority_block_io()) {
       block_io_registered = 1;
+    }
+    if (request.route_id == dynamic_acl_authority_partition_io()) {
+      partition_io_registered = 1;
     }
     if (request.route_id == dynamic_acl_authority_stream_io()) {
       stream_io_registered = 1;

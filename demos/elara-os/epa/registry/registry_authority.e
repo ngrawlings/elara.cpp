@@ -23,8 +23,31 @@ type RegistryAuthorityRecord(
   return authority_id;
 }
 
+type RegistryPartitionRecord(
+  int drive_id,
+  int partition_drive_id,
+  int first_lba,
+  int last_lba,
+  int fs_kind,
+  int flags
+) {
+  return partition_drive_id;
+}
+
+type RegistryMountRecord(
+  int mount_id,
+  int drive_id,
+  int fs_kind,
+  int flags,
+  int mount_path_hash
+) {
+  return mount_id;
+}
+
 dynamic registry_status_records(RegistryStatusRecord, 4, 32, 4);
 dynamic registry_authority_records(RegistryAuthorityRecord, 16, 64, 8);
+dynamic registry_partition_records(RegistryPartitionRecord, 8, 64, 8);
+dynamic registry_mount_records(RegistryMountRecord, 8, 64, 8);
 
 function int registry_type_directory() {
   return 1;
@@ -52,6 +75,10 @@ function int registry_authority_frame_io() {
 
 function int registry_authority_block_io() {
   return hash_u32("blockio");
+}
+
+function int registry_authority_partition_io() {
+  return hash_u32("partitionio");
 }
 
 function int registry_authority_filesystem() {
@@ -181,12 +208,17 @@ function int reg_authority_record_mark(int record_id, int registered, int genera
 kernel(VM vm) {
   kernalId("elara.os.registry");
   start_worker(registry_ingress);
+  start_worker(register_partition);
+  start_worker(register_mount);
 }
 
 acl {
+  "elara.os.host" -> register_partition;
+  "elara.os.host" -> register_mount;
   "elara.os.boot" -> registry_ingress;
   "elara.os.filesystem" -> registry_ingress;
   "elara.os.block_io" -> registry_ingress;
+  "elara.os.partition_io" -> registry_ingress;
   "elara.os.stream_io" -> registry_ingress;
   "elara.os.security" -> registry_ingress;
   "elara.os.shell" -> registry_ingress;
@@ -210,6 +242,7 @@ worker registry_ingress(RegistryRequest request) {
   static int window_record_id;
   static int filesystem_record_id;
   static int block_io_record_id;
+  static int partition_io_record_id;
   static int stream_io_record_id;
   static int security_record_id;
   static int shell_record_id;
@@ -271,6 +304,7 @@ worker registry_ingress(RegistryRequest request) {
     window_record_id = reg_authority_record_new(registry_authority_window(), registry_authority_frame_io(), authorities_id, 0, generation, 0);
     filesystem_record_id = reg_authority_record_new(registry_authority_filesystem(), registry_authority_registry(), authorities_id, 0, generation, 0);
     block_io_record_id = reg_authority_record_new(registry_authority_block_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
+    partition_io_record_id = reg_authority_record_new(registry_authority_partition_io(), registry_authority_block_io(), authorities_id, 0, generation, 0);
     stream_io_record_id = reg_authority_record_new(registry_authority_stream_io(), registry_authority_registry(), authorities_id, 0, generation, 0);
     security_record_id = reg_authority_record_new(registry_authority_security(), registry_authority_registry(), authorities_id, 0, generation, 0);
     shell_record_id = reg_authority_record_new(registry_authority_shell(), registry_authority_registry(), authorities_id, 0, generation, 0);
@@ -286,6 +320,9 @@ worker registry_ingress(RegistryRequest request) {
 
     // /proc/authorities/blockio
     hashmap_u32_put(authorities_id, registry_authority_block_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), block_io_record_id, 24, 0));
+
+    // /proc/authorities/partitionio
+    hashmap_u32_put(authorities_id, registry_authority_partition_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), partition_io_record_id, 24, 0));
 
     // /proc/authorities/streamio
     hashmap_u32_put(authorities_id, registry_authority_stream_io(), reg_value_new(hashmap_value_kind_typed_ref(), registry_type_authority(), stream_io_record_id, 24, 0));
@@ -361,6 +398,9 @@ worker registry_ingress(RegistryRequest request) {
     if (request.path_hash_lo == registry_authority_block_io()) {
       reg_authority_record_mark(block_io_record_id, 1, generation, request.flags);
     }
+    if (request.path_hash_lo == registry_authority_partition_io()) {
+      reg_authority_record_mark(partition_io_record_id, 1, generation, request.flags);
+    }
     if (request.path_hash_lo == registry_authority_stream_io()) {
       reg_authority_record_mark(stream_io_record_id, 1, generation, request.flags);
     }
@@ -375,4 +415,31 @@ worker registry_ingress(RegistryRequest request) {
     registry_status_records[status_id] = status;
     host_signal();
   }
+}
+
+worker register_partition(RegistryPartitionRegistration registration) {
+  int slot = dyn_alloc(registry_partition_records);
+  local RegistryPartitionRecord record;
+
+  record.drive_id = registration.drive_id;
+  record.partition_drive_id = registration.partition_drive_id;
+  record.first_lba = registration.first_lba;
+  record.last_lba = registration.last_lba;
+  record.fs_kind = registration.fs_kind;
+  record.flags = registration.flags;
+  registry_partition_records[slot] = record;
+  host_signal();
+}
+
+worker register_mount(RegistryMountRegistration registration) {
+  int slot = dyn_alloc(registry_mount_records);
+  local RegistryMountRecord record;
+
+  record.mount_id = registration.mount_id;
+  record.drive_id = registration.drive_id;
+  record.fs_kind = registration.fs_kind;
+  record.flags = registration.flags;
+  record.mount_path_hash = registration.mount_path_hash;
+  registry_mount_records[slot] = record;
+  host_signal();
 }

@@ -1,7 +1,7 @@
 #include "storage_protocol.em"
 #include "../../dynamic_acl_protocol.em"
 
-type BlockDeviceState(int drive_id, int block_size, int block_count, int flags, int mount_id, int mount_path) {
+type BlockDeviceState(int drive_id, int block_size, int block_count, int flags) {
   return drive_id;
 }
 
@@ -49,16 +49,11 @@ worker register_block_device(BlockDeviceRegistration registration) {
   staged.block_size = registration.block_size;
   staged.block_count = registration.block_count;
   staged.flags = registration.flags;
-  staged.mount_id = registration.mount_id;
-  staged.mount_size = registration.mount_size;
-  staged.mount_data = registration.mount_data;
 
   device.drive_id = staged.drive_id;
   device.block_size = staged.block_size;
   device.block_count = staged.block_count;
   device.flags = staged.flags;
-  device.mount_id = staged.mount_id;
-  device.mount_path = staged.mount_size;
   block_devices[slot] = device;
 
   registered_count = registered_count + 1;
