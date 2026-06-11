@@ -554,6 +554,12 @@ function int u32_load_le(int off) {
   return value;
 }
 
+function int u16_load_le(int off) {
+  int lo = byte_load(off);
+  int hi = byte_load(off + 1);
+  return byte_and(lo, 255) + (byte_and(hi, 255) * 256);
+}
+
 function int u32_store_le(int off, int value) {
   EPA {
     LOAD_LW 0

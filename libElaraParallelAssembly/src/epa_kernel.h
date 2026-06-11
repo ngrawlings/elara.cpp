@@ -165,6 +165,10 @@ typedef struct EpaKernel {
   size_t dynamic_acl_cap;
   uint8_t *owned_blob;
   size_t owned_blob_len;
+  uint8_t *staged_boot_image;
+  size_t staged_boot_image_len;
+  uint32_t staged_boot_image_flags;
+  int boot_reset_pending;
 
   // Debug callback
   EpaKernelDbgCallback dbg_cb;

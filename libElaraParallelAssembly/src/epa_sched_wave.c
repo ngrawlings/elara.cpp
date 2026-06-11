@@ -91,6 +91,13 @@ static int wave_run(EpaKernel *k,
             err
         );
 
+        if (k->boot_reset_pending) {
+          if (!epa_kernel_commit_pending_boot_reset(k, err)) {
+            return 0;
+          }
+          return 2;
+        }
+
         if (frc == EPA_FLOW_ERR) {
           w->faulted = 1;
           epa_print_fault_location(k, i, &w->vm.eip, err);

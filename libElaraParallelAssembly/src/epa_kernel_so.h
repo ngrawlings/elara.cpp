@@ -74,6 +74,12 @@ uint32_t epa_kernel_thread_count(const EpaKernel *k);
 uint32_t epa_kernel_worker_count(const EpaKernel *k);
 int epa_kernel_set_worker_ignore_max_ticks(EpaKernel *k, uint32_t wid, int ignore);
 int epa_kernel_get_worker_ignore_max_ticks(const EpaKernel *k, uint32_t wid);
+int epa_kernel_stage_boot_image_from_ghs(EpaKernel *k, uint32_t source_wid,
+                                         uint64_t ghs_handle, uint32_t byte_count,
+                                         uint32_t flags, char err[EPA_MAX_ERR]);
+int epa_kernel_request_boot_reset_to_staged(EpaKernel *k, uint32_t source_wid,
+                                            uint32_t flags, char err[EPA_MAX_ERR]);
+int epa_kernel_commit_pending_boot_reset(EpaKernel *k, char err[EPA_MAX_ERR]);
 EpaKernelStatus epa_kernel_get_status(const EpaKernel *k);
 const char* epa_kernel_get_last_error(const EpaKernel *k);
 const char* epa_kernel_status_name(EpaKernelStatus status);

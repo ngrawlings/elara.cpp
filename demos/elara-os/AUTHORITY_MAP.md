@@ -27,6 +27,12 @@ elara.os.entry
     |   |   +-- window_manager
     |   |
     |   +-- filesystem_authority
+    |   |   |
+    |   |   +-- ext4_mounts
+    |   |   |
+    |   |   +-- ext4_root_inodes
+    |   |   |
+    |   |   +-- ext4_dir_entries
     |   |
     |   +-- block_io_authority
     |   |   |
@@ -120,6 +126,32 @@ The Dynamic ACL Authority also keeps an internal hashmap of route state:
 route_hash -> asked
 route_hash -> granted
 ```
+
+## Filesystem Boot State
+
+The boot bridge currently mounts the root GPT partition by sending fixed-width
+ext4 metadata to `elara.os.filesystem.register_mount`. The Filesystem Authority
+stores:
+
+```text
+fs_mounts
+  mount_id -> drive_id, fs_kind, flags, mount path hash
+
+ext4_mounts
+  mount_id -> superblock geometry and feature flags
+
+ext4_root_inodes
+  mount_id -> inode 2 mode, size, block count, extent header
+
+ext4_dir_entries
+  parent inode + name hash -> inode number, ext4 file type
+```
+
+At the current milestone, the host reads the ext4 superblock, group descriptor
+0, inode 2, and the first root directory extent. EPA receives the root mount,
+root inode, and streamed root directory entries. This is enough to prove the
+root filesystem is mounted and ready for the next step: walking an on-disk path
+to an EPA kernel image.
 
 ## Update Checklist
 

@@ -137,6 +137,13 @@ static int exec_one_tick(EpaKernel *k, uint32_t wid, char err[EPA_MAX_ERR]) {
       err
   );
 
+  if (k->boot_reset_pending) {
+    if (!epa_kernel_commit_pending_boot_reset(k, err)) {
+      return 0;
+    }
+    return 2;
+  }
+
   if (frc == EPA_FLOW_ERR) {
     w->faulted = 1;
     if (err && err[0]) {

@@ -1405,7 +1405,7 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
         strcmp(worker->params[0].name, base_name) == 0) {
       const EFunctionParamCheck *param = find_param_check_by_name(ctx, base_name);
       field = find_field_layout(ctx->model, worker->params[0].type.name, field_name);
-      if (field && field->is_flexible_tail && param && param->vm_local_words == 2u) {
+      if (field && field->is_flexible_tail) {
         unsigned int loop_id = next_label(ctx);
         unsigned int done_id = next_label(ctx);
         unsigned int fail_id = next_label(ctx);
@@ -1416,13 +1416,20 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
         emit_indent(out, depth);
         fputs("PUSH R0\n", out);                      /* scratch sentinel */
         emit_indent(out, depth);
-        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
-        emit_indent(out, depth);
-        fputs("POP R0\n", out);
-        emit_indent(out, depth);
-        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
-        emit_indent(out, depth);
-        fputs("POP R1\n", out);
+        if (param && param->vm_local_words == 2u) {
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+          emit_indent(out, depth);
+          fputs("POP R0\n", out);
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+          emit_indent(out, depth);
+          fputs("POP R1\n", out);
+        } else {
+          emit_indent(out, depth);
+          fputs("SET_R 0 0\n", out);
+          emit_indent(out, depth);
+          fputs("SET_R 1 0\n", out);
+        }
         emit_indent(out, depth);
         fputs("G_META\n", out);
         emit_indent(out, depth);
@@ -1470,13 +1477,20 @@ static int emit_worker_field_load(FILE *out, const char *base_name, const char *
         emit_indent(out, depth);
         fprintf(out, "JZ E_GHS_TAIL_DONE_%u\n", done_id);
         emit_indent(out, depth);
-        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
-        emit_indent(out, depth);
-        fputs("POP R0\n", out);
-        emit_indent(out, depth);
-        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
-        emit_indent(out, depth);
-        fputs("POP R1\n", out);
+        if (param && param->vm_local_words == 2u) {
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+          emit_indent(out, depth);
+          fputs("POP R0\n", out);
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+          emit_indent(out, depth);
+          fputs("POP R1\n", out);
+        } else {
+          emit_indent(out, depth);
+          fputs("SET_R 0 0\n", out);
+          emit_indent(out, depth);
+          fputs("SET_R 1 0\n", out);
+        }
         emit_indent(out, depth);
         fputs("PUSH R2\n", out);
         emit_indent(out, depth);
@@ -1664,8 +1678,6 @@ static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx
   }
   emit_indent(out, depth);
   fputs("WAIT_ON_SYNC\n", out);
-  emit_indent(out, depth);
-  fputs("POP R0\n", out);
   emit_indent(out, depth);
   fputs("PUSH R0\n", out);
   return 1;

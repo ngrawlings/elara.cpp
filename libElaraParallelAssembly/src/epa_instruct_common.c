@@ -15,6 +15,7 @@
 #define EPA_CALL_MAGIC1 0xF00DF00Du
 
 #include "epa_kernel.h"
+#include "epa_kernel_so.h"
 
 int epa_kernel_deliver_ghs_handles_framed(EpaKernel *k,
                                           uint32_t dst_wid,
@@ -151,13 +152,18 @@ EpaFlowRc epa_flow_step(
     return EPA_FLOW_ERR;
   }
 
-  uint8_t op = code[pc];
-  const EpaOpcodeDef *def = epa_find_opcode(op);
-  if (!def) {
-    snprintf(err, EPA_MAX_ERR, "unknown opcode 0x%02x at pc=%zu", op, pc);
+  uint16_t op = 0;
+  size_t op_width = 0;
+  if (!epa_decode_opcode_at(code, code_len, pc, &op, &op_width)) {
+    snprintf(err, EPA_MAX_ERR, "truncated opcode at pc=%zu", pc);
     return EPA_FLOW_ERR;
   }
-  size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
+  const EpaOpcodeDef *def = epa_find_opcode(op);
+  if (!def) {
+    snprintf(err, EPA_MAX_ERR, "unknown opcode 0x%04x at pc=%zu", (unsigned)op, pc);
+    return EPA_FLOW_ERR;
+  }
+  size_t need = op_width + (size_t)def->param_len;
   if (pc + need > code_len) {
     snprintf(err, EPA_MAX_ERR, "truncated %s at pc=%zu", def->name, pc);
     return EPA_FLOW_ERR;
@@ -168,10 +174,34 @@ EpaFlowRc epa_flow_step(
         (eip->block_type == EPA_BLOCK_ENTRY) ? "entry" :
         (eip->block_type == EPA_BLOCK_AT_ENTRY) ? "at_entry" : "func",
         (unsigned)eip->block_id,
-        pc, op, def->name);
+        pc, (unsigned)op, def->name);
 
   // Identify flow opcodes here. Everything else => backend.
   switch (op) {
+    case EPA_OP_BOOT_STAGE_IMAGE: {
+      uint64_t handle = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
+      uint32_t byte_count = w->vm.csc[2];
+      uint32_t flags = w->vm.csc[3];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (epa_kernel_stage_boot_image_from_ghs(k, (uint32_t)w->id, handle, byte_count, flags, err)) {
+        w->vm.csc[3] = 1u;
+      } else {
+        w->vm.csc[3] = 0u;
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_BOOT_RESET_TO_STAGED: {
+      uint32_t flags = w->vm.csc[3];
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (epa_kernel_request_boot_reset_to_staged(k, (uint32_t)w->id, flags, err)) {
+        w->vm.csc[3] = 1u;
+      } else {
+        w->vm.csc[3] = 0u;
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
     case EPA_OP_END:
       return EPA_FLOW_OK;
 
@@ -1764,6 +1794,10 @@ case EPA_OP_G_META: {
 
   epa_ghs_meta_t m;
   epa_ghs_err_t ge = epa_ghs_get_meta(k->impl.ghs, h, &m);
+  if (ge != EPA_GHS_OK && w->has_current_ghs) {
+    h = w->current_ghs;
+    ge = epa_ghs_get_meta(k->impl.ghs, h, &m);
+  }
   if (ge != EPA_GHS_OK) {
     snprintf(err, EPA_MAX_ERR, "G_META failed err=%d", ge);
     return 0;

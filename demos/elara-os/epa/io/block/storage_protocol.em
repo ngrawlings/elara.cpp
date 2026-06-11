@@ -18,8 +18,24 @@ type FileSystemMount(
   int drive_id,
   int fs_kind,
   int flags,
-  int mount_size,
-  byte[] mount_data
+  int mount_path_hash,
+  int superblock_magic,
+  int block_size,
+  int block_count,
+  int inode_count,
+  int blocks_per_group,
+  int inodes_per_group,
+  int inode_size,
+  int feature_compat,
+  int feature_incompat,
+  int feature_ro_compat,
+  int root_inode_mode,
+  int root_inode_size_lo,
+  int root_inode_blocks_lo,
+  int root_inode_flags,
+  int root_extent_magic,
+  int root_extent_entries,
+  int root_extent_depth
 ) {
   return mount_id;
 }

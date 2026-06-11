@@ -93,6 +93,13 @@ static int debug_run(EpaKernel *k,
         EpaFlowRc frc = epa_flow_step(k, &k->flow, w, (EpaStack*)&w->vm.stack, err);
         if (!w->ignore_max_ticks) ticks++;
 
+        if (k->boot_reset_pending) {
+            if (!epa_kernel_commit_pending_boot_reset(k, err)) {
+                return 0;
+            }
+            return 2;
+        }
+
         if (frc == EPA_FLOW_ERR) {
             w->faulted = 1;
             epa_print_fault_location(k, wid, &w->vm.eip, err);

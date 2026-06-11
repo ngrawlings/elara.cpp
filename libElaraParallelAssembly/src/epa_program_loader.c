@@ -31,14 +31,19 @@ static int skip_entry(
   int depth = 0;
 
   while (pc + EPA_OPCODE_BYTES <= blob_len) {
-    uint8_t op = blob[pc];
+    uint16_t op = 0;
+    size_t op_width = 0;
+    if (!epa_decode_opcode_at(blob, blob_len, pc, &op, &op_width)) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: truncated opcode at pc=%zu", pc);
+      return 0;
+    }
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", (unsigned)op, pc);
       return 0;
     }
 
-    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
+    size_t need = op_width + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -76,14 +81,19 @@ static int skip_func(
   int depth = 0;
 
   while (pc + EPA_OPCODE_BYTES <= blob_len) {
-    uint8_t op = blob[pc];
+    uint16_t op = 0;
+    size_t op_width = 0;
+    if (!epa_decode_opcode_at(blob, blob_len, pc, &op, &op_width)) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: truncated opcode at pc=%zu", pc);
+      return 0;
+    }
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", (unsigned)op, pc);
       return 0;
     }
 
-    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
+    size_t need = op_width + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -119,14 +129,19 @@ static int skip_at_entry(
   int depth = 0;
 
   while (pc + EPA_OPCODE_BYTES <= blob_len) {
-    uint8_t op = blob[pc];
+    uint16_t op = 0;
+    size_t op_width = 0;
+    if (!epa_decode_opcode_at(blob, blob_len, pc, &op, &op_width)) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: truncated opcode at pc=%zu", pc);
+      return 0;
+    }
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", (unsigned)op, pc);
       return 0;
     }
 
-    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
+    size_t need = op_width + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;
@@ -319,7 +334,12 @@ int epa_program_parse(
 
   size_t pc = 0;
   while (pc + EPA_OPCODE_BYTES <= blob_len) {
-    uint8_t op = blob[pc];
+    uint16_t op = 0;
+    size_t op_width = 0;
+    if (!epa_decode_opcode_at(blob, blob_len, pc, &op, &op_width)) {
+      snprintf(err, EPA_MAX_ERR, "program_loader: truncated opcode at pc=%zu", pc);
+      return 0;
+    }
 
     // Handle variable-length opcodes FIRST (they cannot use def->param_len)
     if (op == EPA_OP_DATA_BLOCK) {
@@ -331,11 +351,11 @@ int epa_program_parse(
 
     const EpaOpcodeDef *def = epa_find_opcode(op);
     if (!def) {
-      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%02x at pc=%zu", op, pc);
+      snprintf(err, EPA_MAX_ERR, "program_loader: unknown opcode 0x%04x at pc=%zu", (unsigned)op, pc);
       return 0;
     }
 
-    size_t need = EPA_OPCODE_BYTES + (size_t)def->param_len;
+    size_t need = op_width + (size_t)def->param_len;
     if (pc + need > blob_len) {
       snprintf(err, EPA_MAX_ERR, "program_loader: truncated %s at pc=%zu", def->name, pc);
       return 0;

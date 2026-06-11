@@ -6,3 +6,4 @@
 int epa_kernel_drain_ingress(EpaKernel *k, char err[EPA_MAX_ERR]);
 int epa_kernel_dispatch_at_requests_cpu(EpaKernel *k, char err[EPA_MAX_ERR]);
 int epa_kernel_dispatch_memory_requests_cpu(EpaKernel *k, char err[EPA_MAX_ERR]);
+int epa_kernel_commit_pending_boot_reset(EpaKernel *k, char err[EPA_MAX_ERR]);

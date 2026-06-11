@@ -510,6 +510,11 @@ void epa_kernel_destroy(EpaKernel *k) {
   free(k->owned_blob);
   k->owned_blob = NULL;
   k->owned_blob_len = 0;
+  free(k->staged_boot_image);
+  k->staged_boot_image = NULL;
+  k->staged_boot_image_len = 0;
+  k->staged_boot_image_flags = 0;
+  k->boot_reset_pending = 0;
   free(k->last_host_signal_bytes);
   k->last_host_signal_bytes = NULL;
   k->last_host_signal_len = 0;
@@ -1097,6 +1102,102 @@ static int epa_kernel_load_blob_internal(EpaKernel *k, const uint8_t *blob, size
 
 int epa_kernel_load_blob(EpaKernel *k, const uint8_t *blob, size_t blob_len, char err[EPA_MAX_ERR]) {
   return epa_kernel_load_blob_internal(k, blob, blob_len, 0u, 0u, err);
+}
+
+int epa_kernel_stage_boot_image_from_ghs(EpaKernel *k, uint32_t source_wid,
+                                         uint64_t ghs_handle, uint32_t byte_count,
+                                         uint32_t flags, char err[EPA_MAX_ERR]) {
+  epa_ghs_meta_t meta;
+  EpaProgramDesc parsed;
+  uint8_t *bytes;
+  epa_ghs_err_t ge;
+
+  if (err) err[0] = 0;
+  if (!k || !k->impl.ghs || ghs_handle == 0u || byte_count == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "boot stage image: bad args");
+    return 0;
+  }
+  if (!kernel_actor_has_privilege(k, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "boot stage image", err)) {
+    return 0;
+  }
+
+  ge = epa_ghs_get_meta(k->impl.ghs, ghs_handle, &meta);
+  if (ge != EPA_GHS_OK) {
+    if (err) snprintf(err, EPA_MAX_ERR, "boot stage image: invalid GHS handle err=%d", (int)ge);
+    return 0;
+  }
+  if (byte_count > meta.size_bytes) {
+    if (err) snprintf(err, EPA_MAX_ERR, "boot stage image: byte_count %u exceeds handle size %u",
+                      (unsigned)byte_count, (unsigned)meta.size_bytes);
+    return 0;
+  }
+
+  bytes = (uint8_t*)malloc(byte_count);
+  if (!bytes) {
+    if (err) snprintf(err, EPA_MAX_ERR, "boot stage image: OOM");
+    return 0;
+  }
+  ge = epa_ghs_read_bytes(k->impl.ghs, ghs_handle, 0u, bytes, byte_count);
+  if (ge != EPA_GHS_OK) {
+    free(bytes);
+    if (err) snprintf(err, EPA_MAX_ERR, "boot stage image: GHS read failed err=%d", (int)ge);
+    return 0;
+  }
+
+  memset(&parsed, 0, sizeof(parsed));
+  if (!epa_program_parse(&parsed, bytes, byte_count, err)) {
+    free(bytes);
+    return 0;
+  }
+  epa_program_free(&parsed);
+
+  free(k->staged_boot_image);
+  k->staged_boot_image = bytes;
+  k->staged_boot_image_len = byte_count;
+  k->staged_boot_image_flags = flags;
+  k->boot_reset_pending = 0;
+  return 1;
+}
+
+int epa_kernel_request_boot_reset_to_staged(EpaKernel *k, uint32_t source_wid,
+                                            uint32_t flags, char err[EPA_MAX_ERR]) {
+  if (err) err[0] = 0;
+  if (!k || !k->staged_boot_image || k->staged_boot_image_len == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "boot reset: no staged image");
+    return 0;
+  }
+  if (!kernel_actor_has_privilege(k, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "boot reset", err)) {
+    return 0;
+  }
+  k->staged_boot_image_flags = flags;
+  k->boot_reset_pending = 1;
+  return 1;
+}
+
+int epa_kernel_commit_pending_boot_reset(EpaKernel *k, char err[EPA_MAX_ERR]) {
+  uint8_t *image;
+  size_t image_len;
+  if (err) err[0] = 0;
+  if (!k || !k->boot_reset_pending) return 1;
+  if (!k->staged_boot_image || k->staged_boot_image_len == 0u) {
+    k->boot_reset_pending = 0;
+    if (err) snprintf(err, EPA_MAX_ERR, "boot reset: staged image disappeared");
+    return 0;
+  }
+
+  image = k->staged_boot_image;
+  image_len = k->staged_boot_image_len;
+  k->boot_reset_pending = 0;
+
+  if (!epa_kernel_load_blob_internal(k, image, image_len, 0u, 0u, err)) {
+    return 0;
+  }
+
+  free(image);
+  k->staged_boot_image = NULL;
+  k->staged_boot_image_len = 0;
+  k->staged_boot_image_flags = 0;
+  return 1;
 }
 
 static uint32_t pad4(uint32_t n) { return (n + 3u) & ~3u; }

@@ -189,3 +189,11 @@ X(I32_TO_F32,            124u, "I32_TO_F32", 0) // Pop i32 -> push f32 bits
 X(F32_TO_I32,            125u, "F32_TO_I32", 0) // Pop f32 bits -> push i32
 X(U32_TO_F32,            126u, "U32_TO_F32", 0) // Pop u32 -> push f32 bits
 X(F32_TO_U32,            127u, "F32_TO_U32", 0) // Pop f32 bits -> push u32
+
+//
+// ---------- FULL CORE: Chip lifecycle / boot control ----------
+//
+// Full-core instructions are 16-bit opcodes. The low byte has bit 7 set, so a
+// decoder can distinguish them from slim-core u8 opcodes.
+X(BOOT_STAGE_IMAGE,      0x0080u, "BOOT_STAGE_IMAGE", 0) // Privileged: r0/r1=GHS handle, r2=size, r3=flags -> r3=ok
+X(BOOT_RESET_TO_STAGED,  0x0081u, "BOOT_RESET_TO_STAGED", 0) // Privileged: commit staged image reset after current tick

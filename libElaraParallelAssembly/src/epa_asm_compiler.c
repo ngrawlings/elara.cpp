@@ -150,8 +150,11 @@ static int out_u16_le(Out *o, uint16_t v) {
   return 1;
 }
 
-static int out_opcode(Out *o, uint8_t op) {
-  return out_u8(o, op);
+static int out_opcode(Out *o, uint16_t op) {
+  if (EPA_OPCODE_IS_FULL(op)) {
+    return out_u16_le(o, op);
+  }
+  return out_u8(o, (uint8_t)op);
 }
 
 static int out_u32_le(Out *o, uint32_t v) {
@@ -453,7 +456,7 @@ typedef int (*AsmEmitHelper)(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok
 
 struct AsmInsnDesc {
   const char     *mnemonic;
-  uint8_t         opcode;
+  uint16_t        opcode;
   uint8_t         min_args;     // excluding mnemonic
   uint8_t         max_args;     // excluding mnemonic
   uint8_t         nkinds;
@@ -508,7 +511,7 @@ static int emit_generic(AsmCtx *ctx, Out *o, int line_no, int nt, char *tok[16],
     snprintf(err, EPA_MAX_ERR, "line %d: %s", line_no, d->usage ? d->usage : "wrong number of operands");
     return 0;
   }
-  if (!out_opcode(o, (uint8_t)d->opcode)) return 0;
+  if (!out_opcode(o, d->opcode)) return 0;
 
   // Fixed packing driven by kinds[]
   for (uint8_t i = 0; i < d->nkinds; i++) {
@@ -574,7 +577,7 @@ static int helper_emit_jump_rel32(AsmCtx *ctx, Out *o, int line_no, int nt, char
     return 0;
   }
 
-  if (!out_opcode(o, (uint8_t)d->opcode)) { snprintf(err, EPA_MAX_ERR, "line %d: OOM", line_no); return 0; }
+  if (!out_opcode(o, d->opcode)) { snprintf(err, EPA_MAX_ERR, "line %d: OOM", line_no); return 0; }
 
   // Reserve 4 bytes for rel32 (patch later if label)
   size_t imm_off = o->len;
@@ -810,6 +813,9 @@ static const AsmInsnDesc *find_desc(const char *mn) {
 
 	{"SM_PUT", EPA_OP_SM_PUT, 0, 0, 0, {0}, NULL, "SM_PUT: write u32 from r0 to signal mailbox at r3; r3 += 4"},
 
+    {"BOOT_STAGE_IMAGE", EPA_OP_BOOT_STAGE_IMAGE, 0,0, 0,{0}, NULL, "BOOT_STAGE_IMAGE (r0/r1=GHS handle,r2=size,r3=flags -> r3=ok)"},
+    {"BOOT_RESET_TO_STAGED", EPA_OP_BOOT_RESET_TO_STAGED, 0,0, 0,{0}, NULL, "BOOT_RESET_TO_STAGED (privileged reset to staged EPA image)"},
+
   };
 
   for (size_t i = 0; i < sizeof(kDesc)/sizeof(kDesc[0]); i++) {
@@ -824,15 +830,15 @@ int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg) {
   if (ieq(mnemonic, "PUSH")) {
     if (first_arg && (first_arg[0] == 'R' || first_arg[0] == 'r') &&
         isdigit((unsigned char)first_arg[1])) {
-      return (int)EPA_OPCODE_BYTES + 1;
+      return (int)epa_opcode_width(EPA_OP_PUSH_R) + 1;
     }
-    return (int)EPA_OPCODE_BYTES + 4;
+    return (int)epa_opcode_width(EPA_OP_PUSH_I32) + 4;
   }
   const AsmInsnDesc *d = find_desc(mnemonic);
   if (!d) return -1;
   /* Helpers with known fixed sizes */
-  if (d->helper == helper_emit_jump_rel32) return (int)EPA_OPCODE_BYTES + 4;
-  if (d->helper == helper_emit_yield)     return (int)EPA_OPCODE_BYTES + 1;
+  if (d->helper == helper_emit_jump_rel32) return (int)epa_opcode_width(d->opcode) + 4;
+  if (d->helper == helper_emit_yield)     return (int)epa_opcode_width(d->opcode) + 1;
   if (d->helper) return -1; /* unknown helper */
   /* Descriptor-driven: sum arg sizes */
   int param = 0;
@@ -848,7 +854,7 @@ int epa_asm_instr_total_bytes(const char *mnemonic, const char *first_arg) {
         return -1;
     }
   }
-  return (int)EPA_OPCODE_BYTES + param;
+  return (int)epa_opcode_width(d->opcode) + param;
 }
 
 static int emit_line(AsmCtx *ctx, Out *o, int line_no, char *line, char err[EPA_MAX_ERR]) {

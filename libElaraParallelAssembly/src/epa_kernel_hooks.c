@@ -33,8 +33,10 @@ void epa_print_fault_location(EpaKernel *k, uint32_t wid, const EpaEip *eip, con
     const uint8_t *code = NULL;
     size_t code_len = 0;
     if (epa_prog_resolve(&k->prog, eip->block_type, eip->block_id, &code, &code_len)) {
-      if ((size_t)pc + EPA_OPCODE_BYTES <= code_len) {
-        uint8_t op = code[pc];
+      uint16_t op = 0;
+      size_t op_width = 0;
+      if (epa_decode_opcode_at(code, code_len, (size_t)pc, &op, &op_width)) {
+        (void)op_width;
         const EpaOpcodeDef *def = epa_find_opcode(op);
         if (def) op_name = def->name;
       }

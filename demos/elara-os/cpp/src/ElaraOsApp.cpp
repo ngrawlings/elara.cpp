@@ -288,6 +288,10 @@ static uint32_t readLeU32At(const unsigned char *p) {
          | ((uint32_t)p[3] << 24);
 }
 
+static uint16_t readLeU16At(const unsigned char *p) {
+    return (uint16_t)(((uint16_t)p[0]) | ((uint16_t)p[1] << 8));
+}
+
 static uint64_t readLeU64At(const unsigned char *p) {
     return ((uint64_t)p[0])
          | ((uint64_t)p[1] << 8)
@@ -409,6 +413,242 @@ static void appendLeU32Hex(std::string &hex, uint32_t value) {
              (unsigned)((value >> 16) & 0xffu),
              (unsigned)((value >> 24) & 0xffu));
     hex += chunk;
+}
+
+static void appendBytesHex(std::string &hex, const std::vector<unsigned char> &bytes) {
+    char chunk[3];
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        snprintf(chunk, sizeof(chunk), "%02x", (unsigned)bytes[i]);
+        hex += chunk;
+    }
+}
+
+static String ext4SuperblockSummaryJson(
+    const GptPartitionInfo &partition,
+    const std::vector<unsigned char> &superblock
+) {
+    if (superblock.size() < 136u) {
+        return String("{\"valid\":false,\"error\":\"short superblock\"}");
+    }
+    uint32_t log_block_size = readLeU32At(superblock.data() + 24u);
+    uint32_t block_size = 1024u;
+    for (uint32_t i = 0; i < log_block_size && i < 16u; ++i) {
+        block_size *= 2u;
+    }
+    char volume_name[17];
+    memset(volume_name, 0, sizeof(volume_name));
+    memcpy(volume_name, superblock.data() + 120u, 16u);
+    return String("{\"valid\":") + String(readLeU16At(superblock.data() + 56u) == 0xef53u ? "true" : "false")
+        + String(",\"partition_drive_id\":") + String(partition.partition_drive_id)
+        + String(",\"magic\":") + String((int)readLeU16At(superblock.data() + 56u))
+        + String(",\"block_size\":") + String((int)block_size)
+        + String(",\"block_count\":") + String((int)readLeU32At(superblock.data() + 4u))
+        + String(",\"inode_count\":") + String((int)readLeU32At(superblock.data() + 0u))
+        + String(",\"blocks_per_group\":") + String((int)readLeU32At(superblock.data() + 32u))
+        + String(",\"inodes_per_group\":") + String((int)readLeU32At(superblock.data() + 40u))
+        + String(",\"inode_size\":") + String((int)readLeU16At(superblock.data() + 88u))
+        + String(",\"feature_compat\":") + String((int)readLeU32At(superblock.data() + 92u))
+        + String(",\"feature_incompat\":") + String((int)readLeU32At(superblock.data() + 96u))
+        + String(",\"feature_ro_compat\":") + String((int)readLeU32At(superblock.data() + 100u))
+        + String(",\"volume_name\":\"") + String(jsonEscape(volume_name).c_str()) + String("\"")
+        + String("}");
+}
+
+static bool readPartitionBytes(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint64_t partition_relative_offset,
+    size_t byte_count,
+    std::vector<unsigned char> &bytes,
+    std::string &error_message
+) {
+    bytes.assign(byte_count, 0);
+    FILE *fp = fopen(drive.path.c_str(), "rb");
+    if (!fp) {
+        error_message = std::string("failed to open drive image for partition read: ") + drive.path;
+        return false;
+    }
+
+    uint64_t absolute_offset = (partition.first_lba * 512ull) + partition_relative_offset;
+    if (fseeko(fp, (off_t)absolute_offset, SEEK_SET) != 0 ||
+        fread(bytes.data(), 1u, byte_count, fp) < byte_count) {
+        fclose(fp);
+        error_message = std::string("failed to read partition bytes from: ") + drive.path;
+        return false;
+    }
+
+    fclose(fp);
+    error_message.clear();
+    return true;
+}
+
+struct Ext4RootInodeSummary {
+    uint32_t inode_table_block;
+    uint32_t mode;
+    uint32_t size_lo;
+    uint32_t blocks_lo;
+    uint32_t flags;
+    uint32_t extent_magic;
+    uint32_t extent_entries;
+    uint32_t extent_depth;
+    uint32_t extent_len;
+    uint32_t extent_start_block_lo;
+    bool valid;
+
+    Ext4RootInodeSummary()
+        : inode_table_block(0),
+          mode(0),
+          size_lo(0),
+          blocks_lo(0),
+          flags(0),
+          extent_magic(0),
+          extent_entries(0),
+          extent_depth(0),
+          extent_len(0),
+          extent_start_block_lo(0),
+          valid(false) {}
+};
+
+struct Ext4DirectoryEntrySummary {
+    uint32_t inode_number;
+    uint32_t name_hash;
+    uint32_t file_type;
+    uint32_t name_len;
+    uint32_t rec_len;
+    std::string name;
+
+    Ext4DirectoryEntrySummary()
+        : inode_number(0), name_hash(0), file_type(0), name_len(0), rec_len(0), name() {}
+};
+
+static bool readExt4RootInodeSummary(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    uint32_t inode_size,
+    Ext4RootInodeSummary &summary,
+    std::string &error_message
+) {
+    if (block_size == 0u || inode_size < 128u) {
+        error_message = "invalid ext4 geometry for root inode read";
+        return false;
+    }
+
+    std::vector<unsigned char> group_descriptor;
+    uint64_t group_descriptor_offset = (block_size == 1024u) ? 2048ull : (uint64_t)block_size;
+    if (!readPartitionBytes(drive, partition, group_descriptor_offset, 64u, group_descriptor, error_message)) {
+        return false;
+    }
+
+    summary.inode_table_block = readLeU32At(group_descriptor.data() + 8u);
+    if (summary.inode_table_block == 0u) {
+        error_message = "ext4 group descriptor has no inode table block";
+        return false;
+    }
+
+    uint64_t root_inode_index = 1ull;
+    uint64_t root_inode_offset = ((uint64_t)summary.inode_table_block * (uint64_t)block_size)
+        + (root_inode_index * (uint64_t)inode_size);
+    std::vector<unsigned char> root_inode;
+    if (!readPartitionBytes(drive, partition, root_inode_offset, inode_size, root_inode, error_message)) {
+        return false;
+    }
+
+    summary.mode = (uint32_t)readLeU16At(root_inode.data() + 0u);
+    summary.size_lo = readLeU32At(root_inode.data() + 4u);
+    summary.blocks_lo = readLeU32At(root_inode.data() + 28u);
+    summary.flags = readLeU32At(root_inode.data() + 32u);
+    summary.extent_magic = (uint32_t)readLeU16At(root_inode.data() + 40u);
+    summary.extent_entries = (uint32_t)readLeU16At(root_inode.data() + 42u);
+    summary.extent_depth = (uint32_t)readLeU16At(root_inode.data() + 46u);
+    if (summary.extent_depth == 0u && summary.extent_entries > 0u && root_inode.size() >= 64u) {
+        summary.extent_len = (uint32_t)readLeU16At(root_inode.data() + 56u);
+        summary.extent_start_block_lo = readLeU32At(root_inode.data() + 60u);
+    }
+    summary.valid = ((summary.mode & 0x4000u) == 0x4000u) && summary.extent_magic == 0xf30au;
+    error_message.clear();
+    return true;
+}
+
+static String ext4RootInodeSummaryJson(const Ext4RootInodeSummary &summary) {
+    return String("{\"valid\":") + String(summary.valid ? "true" : "false")
+        + String(",\"inode_number\":2")
+        + String(",\"inode_table_block\":") + String((int)summary.inode_table_block)
+        + String(",\"mode\":") + String((int)summary.mode)
+        + String(",\"directory\":") + String((summary.mode & 0x4000u) == 0x4000u ? "true" : "false")
+        + String(",\"size_lo\":") + String((int)summary.size_lo)
+        + String(",\"blocks_lo\":") + String((int)summary.blocks_lo)
+        + String(",\"flags\":") + String((int)summary.flags)
+        + String(",\"extent_magic\":") + String((int)summary.extent_magic)
+        + String(",\"extent_entries\":") + String((int)summary.extent_entries)
+        + String(",\"extent_depth\":") + String((int)summary.extent_depth)
+        + String(",\"extent_len\":") + String((int)summary.extent_len)
+        + String(",\"extent_start_block_lo\":") + String((int)summary.extent_start_block_lo)
+        + String("}");
+}
+
+static bool readExt4RootDirectoryEntries(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    const Ext4RootInodeSummary &root_inode,
+    std::vector<Ext4DirectoryEntrySummary> &entries,
+    std::string &error_message
+) {
+    entries.clear();
+    if (!root_inode.valid || root_inode.extent_depth != 0u || root_inode.extent_start_block_lo == 0u) {
+        error_message = "root inode does not have a directly readable extent leaf";
+        return false;
+    }
+
+    std::vector<unsigned char> block;
+    uint64_t offset = (uint64_t)root_inode.extent_start_block_lo * (uint64_t)block_size;
+    if (!readPartitionBytes(drive, partition, offset, block_size, block, error_message)) {
+        return false;
+    }
+
+    size_t pos = 0u;
+    while (pos + 8u <= block.size() && entries.size() < 64u) {
+        uint32_t inode_number = readLeU32At(block.data() + pos);
+        uint32_t rec_len = (uint32_t)readLeU16At(block.data() + pos + 4u);
+        uint32_t name_len = (uint32_t)block[pos + 6u];
+        uint32_t file_type = (uint32_t)block[pos + 7u];
+        if (rec_len < 8u || pos + rec_len > block.size()) {
+            break;
+        }
+        if (inode_number > 0u && name_len > 0u && name_len <= rec_len - 8u) {
+            Ext4DirectoryEntrySummary entry;
+            entry.inode_number = inode_number;
+            entry.file_type = file_type;
+            entry.name_len = name_len;
+            entry.rec_len = rec_len;
+            entry.name.assign((const char *)(block.data() + pos + 8u), name_len);
+            entry.name_hash = hashU32Literal(entry.name.c_str());
+            entries.push_back(entry);
+        }
+        pos += rec_len;
+    }
+
+    error_message.clear();
+    return true;
+}
+
+static String ext4DirectoryEntriesSummaryJson(const std::vector<Ext4DirectoryEntrySummary> &entries) {
+    String json("[");
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0u) {
+            json = json + String(",");
+        }
+        json = json + String("{\"inode_number\":") + String((int)entries[i].inode_number)
+            + String(",\"name\":\"") + String(jsonEscape(entries[i].name.c_str()).c_str()) + String("\"")
+            + String(",\"name_hash\":") + String((int)entries[i].name_hash)
+            + String(",\"file_type\":") + String((int)entries[i].file_type)
+            + String(",\"name_len\":") + String((int)entries[i].name_len)
+            + String(",\"rec_len\":") + String((int)entries[i].rec_len)
+            + String("}");
+    }
+    json = json + String("]");
+    return json;
 }
 
 static String jsonQuoteString(const String &value) {
@@ -1211,6 +1451,9 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String frame_run_result;
     String mailbox_result;
     String frame_json;
+    String root_ext4_json("{}");
+    String root_inode_json("{}");
+    String root_dir_json("[]");
     epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), clear_result);
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
@@ -1249,6 +1492,23 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     }
 
     std::vector<BootDriveInfo> boot_drives = parseBootDriveInfos(pending_boot_descriptor_params_json);
+    if (boot_drives.empty()) {
+        const char *names[2] = {"root", "data"};
+        for (int i = 0; i < 2; ++i) {
+            std::string drive_path = virtual_drive_root + "/" + names[i];
+            struct stat st;
+            if (stat(drive_path.c_str(), &st) != 0 || st.st_size <= 0) {
+                continue;
+            }
+            BootDriveInfo drive;
+            drive.drive_id = i + 1;
+            drive.path = drive_path;
+            drive.flags = (i == 0) ? 1 : 0;
+            drive.block_size = 512;
+            drive.block_count = (int)(st.st_size / 512);
+            boot_drives.push_back(drive);
+        }
+    }
     bool root_mount_registered = false;
     uint32_t root_mount_path_hash = hashU32Literal("/");
     for (size_t i = 0; i < boot_drives.size(); ++i) {
@@ -1326,11 +1586,53 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
 
             if (!root_mount_registered && partitions[p].flags == 1) {
                 std::string mount_hex;
+                std::vector<unsigned char> ext4_superblock;
+                Ext4RootInodeSummary root_inode_summary;
+                std::vector<Ext4DirectoryEntrySummary> root_dir_entries;
+                std::string read_error;
+                if (!readPartitionBytes(boot_drives[i], partitions[p], 1024u, 1024u, ext4_superblock, read_error)) {
+                    error_message = String(read_error.c_str());
+                    return false;
+                }
+                root_ext4_json = ext4SuperblockSummaryJson(partitions[p], ext4_superblock);
                 appendLeU32Hex(mount_hex, 1u);
                 appendLeU32Hex(mount_hex, (uint32_t)partitions[p].partition_drive_id);
                 appendLeU32Hex(mount_hex, 1u);
                 appendLeU32Hex(mount_hex, 3u);
                 appendLeU32Hex(mount_hex, root_mount_path_hash);
+                uint32_t log_block_size = readLeU32At(ext4_superblock.data() + 24u);
+                uint32_t block_size = 1024u;
+                for (uint32_t bi = 0; bi < log_block_size && bi < 16u; ++bi) {
+                    block_size *= 2u;
+                }
+                uint32_t inode_size = (uint32_t)readLeU16At(ext4_superblock.data() + 88u);
+                if (!readExt4RootInodeSummary(boot_drives[i], partitions[p], block_size, inode_size, root_inode_summary, read_error)) {
+                    error_message = String(read_error.c_str());
+                    return false;
+                }
+                root_inode_json = ext4RootInodeSummaryJson(root_inode_summary);
+                if (!readExt4RootDirectoryEntries(boot_drives[i], partitions[p], block_size, root_inode_summary, root_dir_entries, read_error)) {
+                    error_message = String(read_error.c_str());
+                    return false;
+                }
+                root_dir_json = ext4DirectoryEntriesSummaryJson(root_dir_entries);
+                appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 56u));
+                appendLeU32Hex(mount_hex, block_size);
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 4u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 0u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 32u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 40u));
+                appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 88u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 92u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 96u));
+                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 100u));
+                appendLeU32Hex(mount_hex, root_inode_summary.mode);
+                appendLeU32Hex(mount_hex, root_inode_summary.size_lo);
+                appendLeU32Hex(mount_hex, root_inode_summary.blocks_lo);
+                appendLeU32Hex(mount_hex, root_inode_summary.flags);
+                appendLeU32Hex(mount_hex, root_inode_summary.extent_magic);
+                appendLeU32Hex(mount_hex, root_inode_summary.extent_entries);
+                appendLeU32Hex(mount_hex, root_inode_summary.extent_depth);
                 if (!epaDbgCall(
                         String("epa.debug.ingressPushHex"),
                         String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
@@ -1338,6 +1640,25 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                         ingress_result)) {
                     error_message = String("failed to queue root mount registration");
                     return false;
+                }
+
+                for (size_t di = 0; di < root_dir_entries.size(); ++di) {
+                    std::string directory_entry_hex;
+                    appendLeU32Hex(directory_entry_hex, 1u);
+                    appendLeU32Hex(directory_entry_hex, 2u);
+                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].inode_number);
+                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].name_hash);
+                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].file_type);
+                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].name_len);
+                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].rec_len);
+                    if (!epaDbgCall(
+                            String("epa.debug.ingressPushHex"),
+                            String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
+                                + String(",\"wid\":3,\"payload_hex\":") + jsonQuoteString(String(directory_entry_hex.c_str())) + String("}"),
+                            ingress_result)) {
+                        error_message = String("failed to queue root directory entry registration");
+                        return false;
+                    }
                 }
 
                 std::string registry_mount_hex;
@@ -1521,6 +1842,9 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"registry_post_block_run\":") + (registry_post_block_run_result.length() ? registry_post_block_run_result : String("{}"))
         + String(",\"frame_run\":") + (frame_run_result.length() ? frame_run_result : String("{}"))
         + String(",\"mailbox\":") + (mailbox_result.length() ? mailbox_result : String("{}"))
+        + String(",\"root_ext4\":") + root_ext4_json
+        + String(",\"root_inode\":") + root_inode_json
+        + String(",\"root_dir_entries\":") + root_dir_json
         + String(",\"frame\":") + (frame_json.length() ? frame_json : String("{}"))
         + String("}");
     boot_payload_pending = false;
