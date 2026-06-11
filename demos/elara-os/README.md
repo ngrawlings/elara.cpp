@@ -9,6 +9,7 @@ The goal is to grow this demo into a desktop-shaped proof that the EPA/E ISA can
 - `epa/`: OS authority kernels organized by `io/` and `registry/` hierarchy.
 - `cpp/`: simple Vulkan surface host that registers with the IDE status interconnect.
 - `python/`: first draft virtual IO chipset for host-side device emulation.
+- `epa_config.json`: EPA target build description for firmware and disk kernel images.
 
 ## Shape
 
@@ -28,4 +29,37 @@ The current bootstrap path now does three real jobs:
 - emits the authority-owned boot frame
 - registers the host-provided raw block devices with `elara.os.block_io`
 - hands partition-table ownership to `elara.os.partition_io`
-- leaves filesystem mounting to a later layer once partition/block reads are fully wired
+- reads the root ext4 superblock, root inode, and first root directory extent
+- registers the root mount and root directory entries with `elara.os.filesystem`
+
+## EPA Targets
+
+Build all configured EPA targets from this directory:
+
+```sh
+./build_epa.sh
+```
+
+Configured outputs:
+
+```text
+build/epa_firmware.bin  IO-chipset firmware image
+build/epa_kernel.bin    second-stage disk kernel image
+build/epa.bin           compatibility copy of epa_firmware.bin
+```
+
+The target file order and compile-time environment live in `epa_config.json`.
+Each target can define `env` values. During compilation, placeholders in `.e`
+or included `.em` files are replaced after preprocessing:
+
+```text
+{{ELARA_OS_IMAGE}}
+@ELARA_OS_IMAGE@
+```
+
+Build one target:
+
+```sh
+./build_epa.sh --target firmware
+./build_epa.sh --target kernel
+```

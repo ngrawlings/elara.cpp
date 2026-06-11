@@ -491,7 +491,7 @@ static int write_bundle(const char *out_path, BundleEntry *entries, int entry_co
 }
 
 static void usage(const char *argv0) {
-  fprintf(stderr, "Usage: %s [--out ../build/epa.bin] <root.e> <child1.e> [child2.e ...]\n", argv0);
+  fprintf(stderr, "Usage: %s [--out ../build/epa.bin] [--env NAME=VALUE ...] <root.e> <child1.e> [child2.e ...]\n", argv0);
 }
 
 int main(int argc, char **argv) {
@@ -522,6 +522,33 @@ int main(int argc, char **argv) {
         return 2;
       }
       out_path = argv[argi + 1];
+      argi += 2;
+      continue;
+    }
+    if (strcmp(argv[argi], "--env") == 0) {
+      char *eq;
+      char name[128];
+      size_t name_len;
+      if (argi + 1 >= argc) {
+        usage(argv[0]);
+        return 2;
+      }
+      eq = strchr(argv[argi + 1], '=');
+      if (!eq || eq == argv[argi + 1]) {
+        fprintf(stderr, "--env expects NAME=VALUE\n");
+        return 2;
+      }
+      name_len = (size_t)(eq - argv[argi + 1]);
+      if (name_len >= sizeof(name)) {
+        fprintf(stderr, "--env name too long: %s\n", argv[argi + 1]);
+        return 2;
+      }
+      memcpy(name, argv[argi + 1], name_len);
+      name[name_len] = 0;
+      if (!e_compile_env_set(name, eq + 1, err)) {
+        fprintf(stderr, "%s\n", err[0] ? err : "bad compile env");
+        return 2;
+      }
       argi += 2;
       continue;
     }

@@ -71,7 +71,7 @@ ElaraOsApp::ElaraOsApp(
         virtual_drive_root = drive_root_env;
     }
     if (!bundle_path.length()) {
-        bundle_path = String("../build/epa.bin");
+        bundle_path = String("../build/epa_firmware.bin");
     }
     const char *session_env = getenv("ELARA_OS_EXT_LOGIC_SESSION");
     ext_logic_session_path = session_env && session_env[0]

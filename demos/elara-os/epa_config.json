@@ -1,0 +1,55 @@
+{
+  "targets": [
+    {
+      "name": "firmware",
+      "out": "build/epa_firmware.bin",
+      "env": {
+        "ELARA_OS_IMAGE": "firmware",
+        "ELARA_OS_STAGE": "io-chipset-firmware",
+        "ELARA_OS_VERSION": "0.1.0"
+      },
+      "files": [
+        "epa/registry/app/app_surface.e",
+        "epa/io/block/block_io_authority.e",
+        "epa/io/block/partition/partition_io_authority.e",
+        "epa/boot.e",
+        "epa/io/frame/console/console_view.e",
+        "epa/entry.e",
+        "epa/io/filesystem/filesystem_authority.e",
+        "epa/io/frame/frame_io_authority.e",
+        "epa/io/hid/hid_io_authority.e",
+        "epa/io/stream/network/network_controller.e",
+        "epa/registry/registry_authority.e",
+        "epa/registry/security/security_authority.e",
+        "epa/io/stream/stream_io_authority.e",
+        "epa/registry/shell/shell_desktop.e",
+        "epa/io/frame/window/window_manager.e"
+      ]
+    },
+    {
+      "name": "kernel",
+      "out": "build/epa_kernel.bin",
+      "env": {
+        "ELARA_OS_IMAGE": "kernel",
+        "ELARA_OS_STAGE": "second-stage-disk-kernel",
+        "ELARA_OS_VERSION": "0.1.0"
+      },
+      "files": [
+        "epa/registry/app/app_surface.e",
+        "epa/io/block/block_io_authority.e",
+        "epa/io/block/partition/partition_io_authority.e",
+        "epa/io/frame/console/console_view.e",
+        "epa/entry.e",
+        "epa/io/filesystem/filesystem_authority.e",
+        "epa/io/frame/frame_io_authority.e",
+        "epa/io/hid/hid_io_authority.e",
+        "epa/io/stream/network/network_controller.e",
+        "epa/registry/registry_authority.e",
+        "epa/registry/security/security_authority.e",
+        "epa/io/stream/stream_io_authority.e",
+        "epa/registry/shell/shell_desktop.e",
+        "epa/io/frame/window/window_manager.e"
+      ]
+    }
+  ]
+}

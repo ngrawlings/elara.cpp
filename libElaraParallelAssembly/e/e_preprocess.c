@@ -9,6 +9,84 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+typedef struct {
+  char *name;
+  char *value;
+} ECompileEnvVar;
+
+static ECompileEnvVar *g_compile_env = NULL;
+static size_t g_compile_env_count = 0;
+
+static char *dup_cstr_local(const char *s) {
+  size_t n;
+  char *out;
+  if (!s) s = "";
+  n = strlen(s);
+  out = (char*)malloc(n + 1u);
+  if (!out) return NULL;
+  memcpy(out, s, n + 1u);
+  return out;
+}
+
+void e_compile_env_clear(void) {
+  size_t i;
+  for (i = 0; i < g_compile_env_count; i++) {
+    free(g_compile_env[i].name);
+    free(g_compile_env[i].value);
+  }
+  free(g_compile_env);
+  g_compile_env = NULL;
+  g_compile_env_count = 0;
+}
+
+int e_compile_env_set(const char *name, const char *value, char err[256]) {
+  size_t i;
+  ECompileEnvVar *next;
+  char *name_copy;
+  char *value_copy;
+  if (err) err[0] = 0;
+  if (!name || !name[0]) {
+    if (err) snprintf(err, 256, "compile env var has empty name");
+    return 0;
+  }
+  for (i = 0; name[i]; i++) {
+    if (!(isalnum((unsigned char)name[i]) || name[i] == '_')) {
+      if (err) snprintf(err, 256, "compile env var '%s' must use [A-Za-z0-9_]", name);
+      return 0;
+    }
+  }
+  value_copy = dup_cstr_local(value ? value : "");
+  if (!value_copy) {
+    if (err) snprintf(err, 256, "OOM");
+    return 0;
+  }
+  for (i = 0; i < g_compile_env_count; i++) {
+    if (strcmp(g_compile_env[i].name, name) == 0) {
+      free(g_compile_env[i].value);
+      g_compile_env[i].value = value_copy;
+      return 1;
+    }
+  }
+  name_copy = dup_cstr_local(name);
+  if (!name_copy) {
+    free(value_copy);
+    if (err) snprintf(err, 256, "OOM");
+    return 0;
+  }
+  next = (ECompileEnvVar*)realloc(g_compile_env, sizeof(ECompileEnvVar) * (g_compile_env_count + 1u));
+  if (!next) {
+    free(name_copy);
+    free(value_copy);
+    if (err) snprintf(err, 256, "OOM");
+    return 0;
+  }
+  g_compile_env = next;
+  g_compile_env[g_compile_env_count].name = name_copy;
+  g_compile_env[g_compile_env_count].value = value_copy;
+  g_compile_env_count++;
+  return 1;
+}
+
 static int has_suffix(const char *path, const char *suffix) {
   size_t path_len;
   size_t suffix_len;
@@ -18,6 +96,66 @@ static int has_suffix(const char *path, const char *suffix) {
   suffix_len = strlen(suffix);
   if (path_len < suffix_len) return 0;
   return strcmp(path + (path_len - suffix_len), suffix) == 0;
+}
+
+static int append_mem(char **buf, size_t *len, size_t *cap, const char *data, size_t data_len) {
+  char *next;
+  if (*len + data_len + 1u > *cap) {
+    size_t ncap = *cap ? *cap * 2u : 8192u;
+    while (ncap < *len + data_len + 1u) ncap *= 2u;
+    next = (char*)realloc(*buf, ncap);
+    if (!next) return 0;
+    *buf = next;
+    *cap = ncap;
+  }
+  if (data_len) memcpy(*buf + *len, data, data_len);
+  *len += data_len;
+  (*buf)[*len] = 0;
+  return 1;
+}
+
+static char *replace_compile_placeholders(const char *src, char err[256]) {
+  const char *p;
+  char *out = NULL;
+  size_t len = 0;
+  size_t cap = 0;
+  if (!src || g_compile_env_count == 0) return src ? dup_cstr_local(src) : NULL;
+  p = src;
+  while (*p) {
+    size_t i;
+    int matched = 0;
+    for (i = 0; i < g_compile_env_count; i++) {
+      const char *name = g_compile_env[i].name;
+      size_t name_len = strlen(name);
+      if (strncmp(p, "{{", 2u) == 0 &&
+          strncmp(p + 2u, name, name_len) == 0 &&
+          strncmp(p + 2u + name_len, "}}", 2u) == 0) {
+        if (!append_mem(&out, &len, &cap, g_compile_env[i].value, strlen(g_compile_env[i].value))) goto oom;
+        p += 4u + name_len;
+        matched = 1;
+        break;
+      }
+      if (*p == '@' &&
+          strncmp(p + 1u, name, name_len) == 0 &&
+          p[1u + name_len] == '@') {
+        if (!append_mem(&out, &len, &cap, g_compile_env[i].value, strlen(g_compile_env[i].value))) goto oom;
+        p += 2u + name_len;
+        matched = 1;
+        break;
+      }
+    }
+    if (!matched) {
+      if (!append_mem(&out, &len, &cap, p, 1u)) goto oom;
+      p++;
+    }
+  }
+  if (!out) out = dup_cstr_local("");
+  if (!out && err) snprintf(err, 256, "OOM");
+  return out;
+oom:
+  free(out);
+  if (err) snprintf(err, 256, "OOM");
+  return NULL;
 }
 
 static char *slurp_fd(int fd, char err[256]) {
@@ -136,7 +274,11 @@ char *e_load_translation_unit(const char *path, char err[256]) {
     return NULL;
   }
 
-  return out;
+  {
+    char *replaced = replace_compile_placeholders(out, err);
+    free(out);
+    return replaced;
+  }
 }
 
 /* ------------------------------------------------------------------ */

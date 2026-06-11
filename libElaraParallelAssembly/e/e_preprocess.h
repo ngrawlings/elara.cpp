@@ -20,6 +20,12 @@ void e_line_map_free(ELineMap *map);
 /* Load and preprocess a .e translation unit (same as before, no map). */
 char *e_load_translation_unit(const char *path, char err[256]);
 
+/* Target compile environment used after preprocessing for placeholder
+ * replacement. Placeholders are {{NAME}} or @NAME@.
+ */
+void e_compile_env_clear(void);
+int e_compile_env_set(const char *name, const char *value, char err[256]);
+
 /*
  * Like e_load_translation_unit but also builds a line map that translates
  * flat cleaned-source line numbers back to (file, original-line) pairs.
