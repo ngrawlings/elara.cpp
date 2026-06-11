@@ -141,6 +141,8 @@ typedef struct {
   uint32_t local_wid;
 } EpaDynamicAclEntry;
 
+typedef struct EpaKernelModule EpaKernelModule;
+
 typedef struct EpaKernel {
   KernelImpl impl;
 
@@ -169,6 +171,9 @@ typedef struct EpaKernel {
   size_t staged_boot_image_len;
   uint32_t staged_boot_image_flags;
   int boot_reset_pending;
+  EpaKernelModule **owned_dynamic_modules;
+  size_t owned_dynamic_module_count;
+  size_t owned_dynamic_module_cap;
 
   // Debug callback
   EpaKernelDbgCallback dbg_cb;

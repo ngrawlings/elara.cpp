@@ -14,9 +14,19 @@ type BootAssets(int version, int flags) {
   return version;
 }
 
+type BootKernelImage(byte[] payload) {
+  return payload;
+}
+
 kernel(VM vm) {
   kernalId("elara.os.boot");
+
+  static {
+    set_worker_privilege(boot_kernel_ingress, 100);
+  }
+
   start_worker(boot_ingress);
+  start_worker(boot_kernel_ingress);
 }
 
 acl {
@@ -44,5 +54,11 @@ worker boot_ingress(BootDeviceList trigger) {
   boot_frame.flags = 0;
   far_signal("elara.os.frame_io", publish_boot_frame, boot_frame);
 
+  retire_worker();
+}
+
+worker boot_kernel_ingress(BootKernelImage image) {
+  boot_stage_image(image, 0);
+  boot_reset_to_staged(0);
   retire_worker();
 }

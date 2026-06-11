@@ -553,6 +553,14 @@ int hook_request_dynamic_pool_capacity(void *user, uint8_t wid, uint32_t pool_id
   return epa_kernel_dispatch_memory_requests_cpu(k, err);
 }
 
+int hook_dynlib_import(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count,
+                       uint64_t local_name_uid, uint32_t *out_module_count,
+                       char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  return epa_kernel_process_import_dynamic_library_ghs(k, wid, ghs_handle, byte_count,
+                                                       local_name_uid, out_module_count, err);
+}
+
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   EpaKernel *k = (EpaKernel*)user;
   EpaWorkerState *w;

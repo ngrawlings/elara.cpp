@@ -50,6 +50,18 @@
         "epa/registry/shell/shell_desktop.e",
         "epa/io/frame/window/window_manager.e"
       ]
+    },
+    {
+      "name": "png_decoder_lib",
+      "out": "build/lib/png_decoder.epa.bin",
+      "env": {
+        "ELARA_OS_IMAGE": "dynamic-library",
+        "ELARA_OS_STAGE": "png-decoder",
+        "ELARA_OS_VERSION": "0.1.0"
+      },
+      "files": [
+        "epa/lib/png/entry.e"
+      ]
     }
   ]
 }

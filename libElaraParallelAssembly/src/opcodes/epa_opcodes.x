@@ -197,3 +197,4 @@ X(F32_TO_U32,            127u, "F32_TO_U32", 0) // Pop f32 bits -> push u32
 // decoder can distinguish them from slim-core u8 opcodes.
 X(BOOT_STAGE_IMAGE,      0x0080u, "BOOT_STAGE_IMAGE", 0) // Privileged: r0/r1=GHS handle, r2=size, r3=flags -> r3=ok
 X(BOOT_RESET_TO_STAGED,  0x0081u, "BOOT_RESET_TO_STAGED", 0) // Privileged: commit staged image reset after current tick
+X(DYNLIB_IMPORT,         0x0082u, "DYNLIB_IMPORT", 0) // r0/r1=GHS bundle, r2=size, stack=alias lo/hi -> r2=count,r3=ok

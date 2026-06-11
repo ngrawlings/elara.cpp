@@ -521,6 +521,117 @@ struct Ext4DirectoryEntrySummary {
         : inode_number(0), name_hash(0), file_type(0), name_len(0), rec_len(0), name() {}
 };
 
+struct Ext4ExtentSummary {
+    uint32_t logical_block;
+    uint32_t len;
+    uint64_t start_block;
+
+    Ext4ExtentSummary() : logical_block(0), len(0), start_block(0) {}
+};
+
+struct Ext4InodeSummary {
+    uint32_t inode_number;
+    uint32_t inode_table_block;
+    uint32_t mode;
+    uint32_t size_lo;
+    uint32_t blocks_lo;
+    uint32_t flags;
+    uint32_t extent_magic;
+    uint32_t extent_entries;
+    uint32_t extent_depth;
+    std::vector<Ext4ExtentSummary> extents;
+    bool valid;
+
+    Ext4InodeSummary()
+        : inode_number(0),
+          inode_table_block(0),
+          mode(0),
+          size_lo(0),
+          blocks_lo(0),
+          flags(0),
+          extent_magic(0),
+          extent_entries(0),
+          extent_depth(0),
+          extents(),
+          valid(false) {}
+};
+
+static bool readExt4InodeSummary(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    uint32_t inode_size,
+    uint32_t inodes_per_group,
+    uint32_t inode_number,
+    Ext4InodeSummary &summary,
+    std::string &error_message
+) {
+    if (block_size == 0u || inode_size < 128u || inodes_per_group == 0u || inode_number == 0u) {
+        error_message = "invalid ext4 geometry for inode read";
+        return false;
+    }
+
+    uint32_t inode_index = inode_number - 1u;
+    uint32_t group = inode_index / inodes_per_group;
+    uint32_t index_in_group = inode_index % inodes_per_group;
+    uint64_t descriptor_offset = ((block_size == 1024u) ? 2048ull : (uint64_t)block_size) + ((uint64_t)group * 64ull);
+    std::vector<unsigned char> group_descriptor;
+    if (!readPartitionBytes(drive, partition, descriptor_offset, 64u, group_descriptor, error_message)) {
+        return false;
+    }
+
+    summary = Ext4InodeSummary();
+    summary.inode_number = inode_number;
+    summary.inode_table_block = readLeU32At(group_descriptor.data() + 8u);
+    if (summary.inode_table_block == 0u) {
+        error_message = "ext4 group descriptor has no inode table block";
+        return false;
+    }
+
+    uint64_t inode_offset = ((uint64_t)summary.inode_table_block * (uint64_t)block_size)
+        + ((uint64_t)index_in_group * (uint64_t)inode_size);
+    std::vector<unsigned char> inode;
+    if (!readPartitionBytes(drive, partition, inode_offset, inode_size, inode, error_message)) {
+        return false;
+    }
+
+    summary.mode = (uint32_t)readLeU16At(inode.data() + 0u);
+    summary.size_lo = readLeU32At(inode.data() + 4u);
+    summary.blocks_lo = readLeU32At(inode.data() + 28u);
+    summary.flags = readLeU32At(inode.data() + 32u);
+    summary.extent_magic = (uint32_t)readLeU16At(inode.data() + 40u);
+    summary.extent_entries = (uint32_t)readLeU16At(inode.data() + 42u);
+    summary.extent_depth = (uint32_t)readLeU16At(inode.data() + 46u);
+    if (summary.extent_magic != 0xf30au || summary.extent_depth != 0u) {
+        error_message = "ext4 inode is not a directly readable extent leaf";
+        return false;
+    }
+
+    uint32_t entries = summary.extent_entries;
+    if (entries > 4u) {
+        entries = 4u;
+    }
+    for (uint32_t i = 0; i < entries; ++i) {
+        size_t off = 52u + ((size_t)i * 12u);
+        if (off + 12u > inode.size()) {
+            break;
+        }
+        Ext4ExtentSummary extent;
+        extent.logical_block = readLeU32At(inode.data() + off);
+        extent.len = (uint32_t)readLeU16At(inode.data() + off + 4u);
+        uint32_t start_hi = (uint32_t)readLeU16At(inode.data() + off + 6u);
+        uint32_t start_lo = readLeU32At(inode.data() + off + 8u);
+        extent.start_block = ((uint64_t)start_hi << 32) | (uint64_t)start_lo;
+        if (extent.len > 0u) {
+            summary.extents.push_back(extent);
+        }
+    }
+
+    summary.valid = !summary.extents.empty();
+    error_message.clear();
+    return true;
+}
+
 static bool readExt4RootInodeSummary(
     const BootDriveInfo &drive,
     const GptPartitionInfo &partition,
@@ -629,6 +740,165 @@ static bool readExt4RootDirectoryEntries(
         pos += rec_len;
     }
 
+    error_message.clear();
+    return true;
+}
+
+static bool readExt4DirectoryEntriesForInode(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    const Ext4InodeSummary &inode,
+    std::vector<Ext4DirectoryEntrySummary> &entries,
+    std::string &error_message
+) {
+    entries.clear();
+    if (!inode.valid || (inode.mode & 0x4000u) != 0x4000u) {
+        error_message = "ext4 inode is not a readable directory";
+        return false;
+    }
+
+    uint64_t remaining = inode.size_lo ? (uint64_t)inode.size_lo : (uint64_t)block_size;
+    for (size_t ei = 0; ei < inode.extents.size() && remaining > 0u; ++ei) {
+        const Ext4ExtentSummary &extent = inode.extents[ei];
+        for (uint32_t bi = 0; bi < extent.len && remaining > 0u && entries.size() < 128u; ++bi) {
+            std::vector<unsigned char> block;
+            uint64_t offset = (extent.start_block + (uint64_t)bi) * (uint64_t)block_size;
+            if (!readPartitionBytes(drive, partition, offset, block_size, block, error_message)) {
+                return false;
+            }
+            size_t limit = block.size();
+            if (remaining < limit) {
+                limit = (size_t)remaining;
+            }
+            size_t pos = 0u;
+            while (pos + 8u <= limit && entries.size() < 128u) {
+                uint32_t inode_number = readLeU32At(block.data() + pos);
+                uint32_t rec_len = (uint32_t)readLeU16At(block.data() + pos + 4u);
+                uint32_t name_len = (uint32_t)block[pos + 6u];
+                uint32_t file_type = (uint32_t)block[pos + 7u];
+                if (rec_len < 8u || pos + rec_len > limit) {
+                    break;
+                }
+                if (inode_number > 0u && name_len > 0u && name_len <= rec_len - 8u) {
+                    Ext4DirectoryEntrySummary entry;
+                    entry.inode_number = inode_number;
+                    entry.file_type = file_type;
+                    entry.name_len = name_len;
+                    entry.rec_len = rec_len;
+                    entry.name.assign((const char *)(block.data() + pos + 8u), name_len);
+                    entry.name_hash = hashU32Literal(entry.name.c_str());
+                    entries.push_back(entry);
+                }
+                pos += rec_len;
+            }
+            remaining -= limit;
+        }
+    }
+
+    error_message.clear();
+    return true;
+}
+
+static bool readExt4FileBytesForInode(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    const Ext4InodeSummary &inode,
+    std::vector<unsigned char> &bytes,
+    std::string &error_message
+) {
+    bytes.clear();
+    if (!inode.valid || (inode.mode & 0x8000u) != 0x8000u) {
+        error_message = "ext4 inode is not a readable regular file";
+        return false;
+    }
+    bytes.reserve(inode.size_lo);
+    uint64_t remaining = inode.size_lo;
+    for (size_t ei = 0; ei < inode.extents.size() && remaining > 0u; ++ei) {
+        const Ext4ExtentSummary &extent = inode.extents[ei];
+        for (uint32_t bi = 0; bi < extent.len && remaining > 0u; ++bi) {
+            std::vector<unsigned char> block;
+            uint64_t offset = (extent.start_block + (uint64_t)bi) * (uint64_t)block_size;
+            if (!readPartitionBytes(drive, partition, offset, block_size, block, error_message)) {
+                return false;
+            }
+            size_t take = block.size();
+            if (remaining < take) {
+                take = (size_t)remaining;
+            }
+            bytes.insert(bytes.end(), block.begin(), block.begin() + (std::vector<unsigned char>::difference_type)take);
+            remaining -= take;
+        }
+    }
+    if (bytes.size() != inode.size_lo) {
+        error_message = "ext4 file extents ended before file size";
+        return false;
+    }
+    error_message.clear();
+    return true;
+}
+
+static bool findExt4DirectoryEntry(
+    const std::vector<Ext4DirectoryEntrySummary> &entries,
+    const char *name,
+    Ext4DirectoryEntrySummary &out_entry
+) {
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (entries[i].name == name) {
+            out_entry = entries[i];
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool readExt4KernelImage(
+    const BootDriveInfo &drive,
+    const GptPartitionInfo &partition,
+    uint32_t block_size,
+    uint32_t inode_size,
+    uint32_t inodes_per_group,
+    std::vector<unsigned char> &kernel_image,
+    std::string &error_message
+) {
+    Ext4InodeSummary root;
+    Ext4InodeSummary boot_dir;
+    Ext4InodeSummary elara_dir;
+    Ext4InodeSummary kernel_file;
+    std::vector<Ext4DirectoryEntrySummary> entries;
+    Ext4DirectoryEntrySummary boot_entry;
+    Ext4DirectoryEntrySummary elara_entry;
+    Ext4DirectoryEntrySummary kernel_entry;
+
+    if (!readExt4InodeSummary(drive, partition, block_size, inode_size, inodes_per_group, 2u, root, error_message) ||
+        !readExt4DirectoryEntriesForInode(drive, partition, block_size, root, entries, error_message)) {
+        return false;
+    }
+    if (!findExt4DirectoryEntry(entries, "boot", boot_entry)) {
+        error_message = "missing /boot directory in virtual root";
+        return false;
+    }
+    if (!readExt4InodeSummary(drive, partition, block_size, inode_size, inodes_per_group, boot_entry.inode_number, boot_dir, error_message) ||
+        !readExt4DirectoryEntriesForInode(drive, partition, block_size, boot_dir, entries, error_message)) {
+        return false;
+    }
+    if (!findExt4DirectoryEntry(entries, "elara", elara_entry)) {
+        error_message = "missing /boot/elara directory in virtual root";
+        return false;
+    }
+    if (!readExt4InodeSummary(drive, partition, block_size, inode_size, inodes_per_group, elara_entry.inode_number, elara_dir, error_message) ||
+        !readExt4DirectoryEntriesForInode(drive, partition, block_size, elara_dir, entries, error_message)) {
+        return false;
+    }
+    if (!findExt4DirectoryEntry(entries, "epa_kernel.bin", kernel_entry)) {
+        error_message = "missing /boot/elara/epa_kernel.bin in virtual root";
+        return false;
+    }
+    if (!readExt4InodeSummary(drive, partition, block_size, inode_size, inodes_per_group, kernel_entry.inode_number, kernel_file, error_message) ||
+        !readExt4FileBytesForInode(drive, partition, block_size, kernel_file, kernel_image, error_message)) {
+        return false;
+    }
     error_message.clear();
     return true;
 }
@@ -1445,6 +1715,8 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String registry_mount_run_result;
     String block_io_run_result;
     String partition_io_run_result;
+    String boot_kernel_ingress_result;
+    String boot_kernel_run_result;
     String filesystem_run_result;
     String entry_post_block_run_result;
     String registry_post_block_run_result;
@@ -1454,6 +1726,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String root_ext4_json("{}");
     String root_inode_json("{}");
     String root_dir_json("[]");
+    String kernel_image_json("{}");
     epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"frame_io_authority\"}"), clear_result);
     sendHostDebugEvent("state", "\"status\":\"running EPA after queued boot descriptor\"");
     if (!epaDbgCall(
@@ -1589,6 +1862,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 std::vector<unsigned char> ext4_superblock;
                 Ext4RootInodeSummary root_inode_summary;
                 std::vector<Ext4DirectoryEntrySummary> root_dir_entries;
+                std::vector<unsigned char> kernel_image;
                 std::string read_error;
                 if (!readPartitionBytes(boot_drives[i], partitions[p], 1024u, 1024u, ext4_superblock, read_error)) {
                     error_message = String(read_error.c_str());
@@ -1616,6 +1890,19 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     return false;
                 }
                 root_dir_json = ext4DirectoryEntriesSummaryJson(root_dir_entries);
+                if (!readExt4KernelImage(
+                        boot_drives[i],
+                        partitions[p],
+                        block_size,
+                        inode_size,
+                        readLeU32At(ext4_superblock.data() + 40u),
+                        kernel_image,
+                        read_error)) {
+                    error_message = String(read_error.c_str());
+                    return false;
+                }
+                kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"bytes\":")
+                    + String((int)kernel_image.size()) + String("}");
                 appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 56u));
                 appendLeU32Hex(mount_hex, block_size);
                 appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 4u));
@@ -1676,6 +1963,26 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     return false;
                 }
                 root_mount_registered = true;
+                std::string kernel_hex;
+                appendBytesHex(kernel_hex, kernel_image);
+                if (!epaDbgCall(
+                        String("epa.debug.ingressPushHex"),
+                        String("{\"path_id\":") + jsonQuoteString(boot_path_id)
+                            + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(kernel_hex.c_str())) + String("}"),
+                        boot_kernel_ingress_result)) {
+                    error_message = String("failed to queue second-stage kernel image");
+                    return false;
+                }
+                if (!epaDbgCall(
+                        String("epa.debug.run"),
+                        String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+                        boot_kernel_run_result)) {
+                    error_message = String("epa.debug.run failed for boot kernel image handoff");
+                    if (epa_dbg_last_error.length()) {
+                        error_message = error_message + String(": ") + epa_dbg_last_error;
+                    }
+                    return false;
+                }
                 sendHostDebugEvent(
                     "state",
                     (String("\"status\":\"root partition mounted and registered\",\"mount\":\"/\",\"partition_drive_id\":")
@@ -1816,6 +2123,8 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 + String("; registry_partition_run=") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
                 + String("; filesystem_run=") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
                 + String("; registry_mount_run=") + (registry_mount_run_result.length() ? registry_mount_run_result : String("{}"))
+                + String("; boot_kernel_ingress=") + (boot_kernel_ingress_result.length() ? boot_kernel_ingress_result : String("{}"))
+                + String("; boot_kernel_run=") + (boot_kernel_run_result.length() ? boot_kernel_run_result : String("{}"))
                 + String("; entry_post_block_run=") + (entry_post_block_run_result.length() ? entry_post_block_run_result : String("{}"))
                 + String("; registry_post_block_run=") + (registry_post_block_run_result.length() ? registry_post_block_run_result : String("{}"))
                 + String("; frame_run=") + (frame_run_result.length() ? frame_run_result : String("{}"))
@@ -1838,6 +2147,8 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"registry_partition_run\":") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
         + String(",\"filesystem_run\":") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
         + String(",\"registry_mount_run\":") + (registry_mount_run_result.length() ? registry_mount_run_result : String("{}"))
+        + String(",\"boot_kernel_ingress\":") + (boot_kernel_ingress_result.length() ? boot_kernel_ingress_result : String("{}"))
+        + String(",\"boot_kernel_run\":") + (boot_kernel_run_result.length() ? boot_kernel_run_result : String("{}"))
         + String(",\"entry_post_block_run\":") + (entry_post_block_run_result.length() ? entry_post_block_run_result : String("{}"))
         + String(",\"registry_post_block_run\":") + (registry_post_block_run_result.length() ? registry_post_block_run_result : String("{}"))
         + String(",\"frame_run\":") + (frame_run_result.length() ? frame_run_result : String("{}"))
@@ -1845,6 +2156,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"root_ext4\":") + root_ext4_json
         + String(",\"root_inode\":") + root_inode_json
         + String(",\"root_dir_entries\":") + root_dir_json
+        + String(",\"kernel_image\":") + kernel_image_json
         + String(",\"frame\":") + (frame_json.length() ? frame_json : String("{}"))
         + String("}");
     boot_payload_pending = false;

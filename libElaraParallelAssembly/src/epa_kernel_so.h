@@ -43,6 +43,15 @@ EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t
                                                       const uint8_t *bundle, size_t bundle_len,
                                                       uint32_t requested_pid, uint32_t *out_pid,
                                                       char err[EPA_MAX_ERR]);
+// Imports a dynamic module into actor's PID namespace; returned pointer is inspectable, actor owns lifetime.
+EpaKernelModule* epa_kernel_process_import_dynamic_library_bytes(EpaKernel *actor, uint32_t source_wid,
+                                                                 const uint8_t *blob, size_t blob_len,
+                                                                 uint64_t local_name_uid,
+                                                                 char err[EPA_MAX_ERR]);
+int        epa_kernel_process_import_dynamic_library_ghs(EpaKernel *actor, uint32_t source_wid,
+                                                         uint64_t ghs_handle, uint32_t byte_count,
+                                                         uint64_t local_name_uid, uint32_t *out_module_count,
+                                                         char err[EPA_MAX_ERR]);
 int        epa_kernel_pid_retire(EpaKernel *actor, uint32_t source_wid, uint32_t pid, char err[EPA_MAX_ERR]);
 int        epa_kernel_acl_grant_by_uid(EpaKernel *actor, uint32_t source_wid,
                                        uint64_t target_kernel_uid, uint64_t remote_kernel_uid,

@@ -178,6 +178,10 @@ EpaFlowRc epa_flow_step(
 
   // Identify flow opcodes here. Everything else => backend.
   switch (op) {
+    case EPA_OP_NOOP:
+      eip->rel_pc = (uint32_t)(pc + need);
+      return EPA_FLOW_YIELDED;
+
     case EPA_OP_BOOT_STAGE_IMAGE: {
       uint64_t handle = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)w->vm.csc[0];
       uint32_t byte_count = w->vm.csc[2];
@@ -198,6 +202,33 @@ EpaFlowRc epa_flow_step(
         w->vm.csc[3] = 1u;
       } else {
         w->vm.csc[3] = 0u;
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
+    case EPA_OP_DYNLIB_IMPORT: {
+      uint32_t alias_lo = 0u;
+      uint32_t alias_hi = 0u;
+      uint32_t module_count = 0u;
+      uint64_t handle = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      uint32_t byte_count = (uint32_t)w->vm.csc[2];
+      uint64_t alias_uid;
+      if (!epa_stack_pop(&w->vm.stack, &alias_hi) ||
+          !epa_stack_pop(&w->vm.stack, &alias_lo)) {
+        snprintf(err, EPA_MAX_ERR, "DYNLIB_IMPORT expected alias uid lo/hi on stack");
+        return EPA_FLOW_ERR;
+      }
+      alias_uid = ((uint64_t)alias_hi << 32) | (uint64_t)alias_lo;
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_dynlib_import &&
+          ctx->hooks.on_dynlib_import(ctx->hooks_user, (uint8_t)w->id, handle, byte_count, alias_uid, &module_count, err)) {
+        w->vm.csc[0] = (int32_t)alias_lo;
+        w->vm.csc[1] = (int32_t)alias_hi;
+        w->vm.csc[2] = (int32_t)module_count;
+        w->vm.csc[3] = 1;
+      } else {
+        w->vm.csc[2] = 0;
+        w->vm.csc[3] = 0;
       }
       return EPA_FLOW_YIELDED;
     }

@@ -465,6 +465,9 @@ static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx,
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_boot_stage_image_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_boot_reset_to_staged_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_dynamic_import_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -866,6 +869,9 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"far_signal", emit_far_signal_builtin},
     {"request_threads", emit_request_threads_builtin},
     {"request_at", emit_request_at_builtin},
+    {"boot_stage_image", emit_boot_stage_image_builtin},
+    {"boot_reset_to_staged", emit_boot_reset_to_staged_builtin},
+    {"dynamic_import", emit_dynamic_import_builtin},
     {"ghs_alloc", emit_ghs_alloc_builtin},
     {"ghs_alloc_from_local", emit_ghs_alloc_from_local_builtin},
     {"rgm_publish", emit_rgm_publish_builtin},
@@ -1965,6 +1971,110 @@ static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   fputs("PUSH 8\n", out);
   emit_indent(out, depth);
   fputs("REQUEST 2\n", out);
+  return 1;
+}
+
+static int emit_boot_stage_image_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int slot = 0u;
+  int use_current_worker_payload = 0;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; boot_stage_image expects (ghs_image, flags), got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (expr->as.call.args[0] && expr->as.call.args[0]->kind == E_EXPR_IDENT &&
+      ctx->current_worker && ctx->current_worker->param_count == 1u &&
+      strcmp(ctx->current_worker->params[0].name, expr->as.call.args[0]->as.ident) == 0) {
+    use_current_worker_payload = 1;
+  } else if (!expr->as.call.args[0] || expr->as.call.args[0]->kind != E_EXPR_IDENT ||
+             !type_ref_vm_local_slot_for_name(ctx, expr->as.call.args[0]->as.ident, &slot)) {
+    emit_indent(out, depth);
+    fputs("; boot_stage_image first arg must be a GHS-backed local/type reference\n", out);
+    return 0;
+  }
+
+  if (!use_current_worker_payload) {
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot);
+    emit_indent(out, depth);
+    fputs("POP R0\n", out);
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot + 1u);
+    emit_indent(out, depth);
+    fputs("POP R1\n", out);
+    emit_indent(out, depth);
+    fputs("G_META\n", out);
+  }
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("BOOT_STAGE_IMAGE\n", out);
+  return 1;
+}
+
+static int emit_boot_reset_to_staged_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; boot_reset_to_staged expects (flags), got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  emit_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("BOOT_RESET_TO_STAGED\n", out);
+  return 1;
+}
+
+static int emit_dynamic_import_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int slot = 0u;
+  uint64_t uid;
+  char normalized[512];
+  int use_current_worker_payload = 0;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; dynamic_import expects (ghs_blob, local_name), got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!expr->as.call.args[1] || expr->as.call.args[1]->kind != E_EXPR_STRING) {
+    emit_indent(out, depth);
+    fputs("; dynamic_import local_name must be a string literal\n", out);
+    return 0;
+  }
+  if (expr->as.call.args[0] && expr->as.call.args[0]->kind == E_EXPR_IDENT &&
+      ctx->current_worker && ctx->current_worker->param_count == 1u &&
+      strcmp(ctx->current_worker->params[0].name, expr->as.call.args[0]->as.ident) == 0) {
+    use_current_worker_payload = 1;
+  } else if (!expr->as.call.args[0] || expr->as.call.args[0]->kind != E_EXPR_IDENT ||
+             !type_ref_vm_local_slot_for_name(ctx, expr->as.call.args[0]->as.ident, &slot)) {
+    emit_indent(out, depth);
+    fputs("; dynamic_import first arg must be a GHS-backed local/type reference\n", out);
+    return 0;
+  }
+
+  if (!use_current_worker_payload) {
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot);
+    emit_indent(out, depth);
+    fputs("POP R0\n", out);
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot + 1u);
+    emit_indent(out, depth);
+    fputs("POP R1\n", out);
+    emit_indent(out, depth);
+    fputs("G_META\n", out);
+  }
+  uid = fnv1a64_bytes(normalized_string_token(expr->as.call.args[1]->as.string_lit, normalized, sizeof(normalized)));
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", (unsigned int)(uid & 0xFFFFFFFFu));
+  emit_indent(out, depth);
+  fprintf(out, "PUSH %u\n", (unsigned int)((uid >> 32) & 0xFFFFFFFFu));
+  emit_indent(out, depth);
+  fputs("DYNLIB_IMPORT\n", out);
   return 1;
 }
 

@@ -28,6 +28,7 @@ static EpaNonFlowRc epa_null_nf_exec_one(void *impl, const EpaProgramDesc *prog,
 static const EpaNonFlowBackendVTable epa_null_nf_vt = { epa_null_nf_exec_one };
 static const EpaNonFlowBackend epa_null_nf_backend = { &epa_null_nf_vt, NULL };
 static void kernel_install_standard_hooks(EpaKernel *k);
+static void module_free_entries(EpaKernelModule *module);
 static int epa_kernel_ingress_push_framed(EpaKernel *k, uint32_t wid, uint32_t tag,
                                           const void *data, uint32_t len,
                                           uint64_t source_kernel_uid,
@@ -269,6 +270,26 @@ static int process_add_kernel_locked(uint32_t pid, EpaKernel *kernel, char err[E
     node->cap = next_cap;
   }
   node->kernels[node->count++] = kernel;
+  return 1;
+}
+
+static int kernel_take_dynamic_module(EpaKernel *owner, EpaKernelModule *module, char err[EPA_MAX_ERR]) {
+  EpaKernelModule **next;
+  if (!owner || !module) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: bad owner/module");
+    return 0;
+  }
+  if (owner->owned_dynamic_module_count == owner->owned_dynamic_module_cap) {
+    size_t next_cap = owner->owned_dynamic_module_cap ? owner->owned_dynamic_module_cap * 2u : 4u;
+    next = (EpaKernelModule**)realloc(owner->owned_dynamic_modules, sizeof(*next) * next_cap);
+    if (!next) {
+      if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: OOM");
+      return 0;
+    }
+    owner->owned_dynamic_modules = next;
+    owner->owned_dynamic_module_cap = next_cap;
+  }
+  owner->owned_dynamic_modules[owner->owned_dynamic_module_count++] = module;
   return 1;
 }
 
@@ -515,6 +536,13 @@ void epa_kernel_destroy(EpaKernel *k) {
   k->staged_boot_image_len = 0;
   k->staged_boot_image_flags = 0;
   k->boot_reset_pending = 0;
+  for (size_t mi = 0; mi < k->owned_dynamic_module_count; mi++) {
+    epa_kernel_module_destroy(k->owned_dynamic_modules[mi]);
+  }
+  free(k->owned_dynamic_modules);
+  k->owned_dynamic_modules = NULL;
+  k->owned_dynamic_module_count = 0;
+  k->owned_dynamic_module_cap = 0;
   free(k->last_host_signal_bytes);
   k->last_host_signal_bytes = NULL;
   k->last_host_signal_len = 0;
@@ -1035,6 +1063,7 @@ static void kernel_install_standard_hooks(EpaKernel *k) {
   k->hooks.on_request_threads = hook_request_threads;
   k->hooks.on_request_at   = hook_request_at;
   k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
+  k->hooks.on_dynlib_import = hook_dynlib_import;
 }
 
 static int epa_kernel_load_blob_internal(EpaKernel *k, const uint8_t *blob, size_t blob_len,
@@ -1653,7 +1682,8 @@ static void* module_kernel_thread_main(void *arg) {
 }
 
 static EpaKernelModule* epa_kernel_module_load_bundle_bytes_internal(const uint8_t *buf, size_t file_len,
-                                                                     uint32_t pid, char err[EPA_MAX_ERR]) {
+                                                                     uint32_t pid, uint64_t first_override_uid,
+                                                                     char err[EPA_MAX_ERR]) {
   EpaKernelModule *module = NULL;
   uint32_t version;
   uint32_t count;
@@ -1735,7 +1765,8 @@ static EpaKernelModule* epa_kernel_module_load_bundle_bytes_internal(const uint8
       free(module);
       return NULL;
     }
-    if (!epa_kernel_load_blob_internal(kernel, dst->blob, dst->blob_len, pid, 0u, err)) {
+    uint64_t override_uid = (i == 0u) ? first_override_uid : 0u;
+    if (!epa_kernel_load_blob_internal(kernel, dst->blob, dst->blob_len, pid, override_uid, err)) {
       epa_kernel_destroy(kernel);
       module_free_entries(module);
       free(module);
@@ -1799,7 +1830,7 @@ EpaKernelModule* epa_kernel_module_load_bundle(const char *bundle_path, char err
   if (file_len && fread(buf, 1, file_len, f) != file_len) { fclose(f); free(buf); if (err) snprintf(err, EPA_MAX_ERR, "bundle load: read failed"); return NULL; }
   fclose(f);
 
-  module = epa_kernel_module_load_bundle_bytes_internal(buf, file_len, 0u, err);
+  module = epa_kernel_module_load_bundle_bytes_internal(buf, file_len, 0u, 0u, err);
   free(buf);
   return module;
 }
@@ -1827,10 +1858,150 @@ EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t
   }
   pthread_mutex_unlock(&g_kernel_registry_mu);
 
-  module = epa_kernel_module_load_bundle_bytes_internal(bundle, bundle_len, requested_pid, err);
+  module = epa_kernel_module_load_bundle_bytes_internal(bundle, bundle_len, requested_pid, 0u, err);
   if (!module) return NULL;
   if (out_pid) *out_pid = requested_pid;
   return module;
+}
+
+static EpaKernelModule* epa_kernel_module_load_single_blob_dynamic(const uint8_t *blob, size_t blob_len,
+                                                                   uint32_t pid, uint64_t override_uid,
+                                                                   char err[EPA_MAX_ERR]) {
+  EpaKernelModule *module;
+  EpaKernel *kernel;
+  char path_id[80];
+  if (err) err[0] = 0;
+  module = (EpaKernelModule*)calloc(1, sizeof(*module));
+  if (!module) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: OOM");
+    return NULL;
+  }
+  module->count = 1u;
+  module->entries = (EpaKernelModuleEntry*)calloc(1u, sizeof(EpaKernelModuleEntry));
+  if (!module->entries) {
+    free(module);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: OOM");
+    return NULL;
+  }
+  snprintf(path_id, sizeof(path_id), "dynlib.%016llx", (unsigned long long)override_uid);
+  module->entries[0].path_id = kernel_strdup(path_id);
+  module->entries[0].blob = (uint8_t*)malloc(blob_len ? blob_len : 1u);
+  if (!module->entries[0].path_id || !module->entries[0].blob) {
+    module_free_entries(module);
+    free(module);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: OOM");
+    return NULL;
+  }
+  memcpy(module->entries[0].blob, blob, blob_len);
+  module->entries[0].blob_len = blob_len;
+
+  kernel = epa_kernel_create(err);
+  if (!kernel) {
+    module_free_entries(module);
+    free(module);
+    return NULL;
+  }
+  if (!epa_kernel_load_blob_internal(kernel, module->entries[0].blob, module->entries[0].blob_len, pid, override_uid, err)) {
+    epa_kernel_destroy(kernel);
+    module_free_entries(module);
+    free(module);
+    return NULL;
+  }
+  pthread_mutex_lock(&g_kernel_registry_mu);
+  if (!process_add_kernel_locked(pid, kernel, err)) {
+    pthread_mutex_unlock(&g_kernel_registry_mu);
+    epa_kernel_destroy(kernel);
+    module_free_entries(module);
+    free(module);
+    return NULL;
+  }
+  pthread_mutex_unlock(&g_kernel_registry_mu);
+  if (!epa_kernel_set_scheduler(kernel, EPA_SCHED_CPU_THREAD, err)) {
+    epa_kernel_destroy(kernel);
+    module_free_entries(module);
+    free(module);
+    return NULL;
+  }
+  module->entries[0].kernel = kernel;
+  return module;
+}
+
+EpaKernelModule* epa_kernel_process_import_dynamic_library_bytes(EpaKernel *actor, uint32_t source_wid,
+                                                                 const uint8_t *blob, size_t blob_len,
+                                                                 uint64_t local_name_uid,
+                                                                 char err[EPA_MAX_ERR]) {
+  EpaKernelModule *module;
+  uint64_t override_uid;
+  if (err) err[0] = 0;
+  if (!actor || !blob || blob_len == 0u || local_name_uid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: bad args");
+    return NULL;
+  }
+  if (actor->pid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: actor is not inside a PID child group");
+    return NULL;
+  }
+  if (!kernel_actor_has_privilege(actor, source_wid, EPA_PRIVILEGE_ACL_ADMIN, "dynamic import", err)) {
+    return NULL;
+  }
+  override_uid = epa_kernel_namespace_uid(actor->pid, local_name_uid);
+  if (blob_len >= 8u && memcmp(blob, EPA_BUNDLE_MAGIC, 8u) == 0) {
+    module = epa_kernel_module_load_bundle_bytes_internal(blob, blob_len, actor->pid, override_uid, err);
+  } else {
+    module = epa_kernel_module_load_single_blob_dynamic(blob, blob_len, actor->pid, override_uid, err);
+  }
+  if (!module) return NULL;
+  if (!epa_kernel_module_start_all_kernels(module, err)) {
+    epa_kernel_module_destroy(module);
+    return NULL;
+  }
+  if (!kernel_take_dynamic_module(actor, module, err)) {
+    epa_kernel_module_destroy(module);
+    return NULL;
+  }
+  return module;
+}
+
+int epa_kernel_process_import_dynamic_library_ghs(EpaKernel *actor, uint32_t source_wid,
+                                                  uint64_t ghs_handle, uint32_t byte_count,
+                                                  uint64_t local_name_uid, uint32_t *out_module_count,
+                                                  char err[EPA_MAX_ERR]) {
+  uint8_t *bytes;
+  epa_ghs_meta_t meta;
+  epa_ghs_err_t ge;
+  EpaKernelModule *module;
+  if (err) err[0] = 0;
+  if (out_module_count) *out_module_count = 0u;
+  if (!actor || !actor->impl.ghs || ghs_handle == 0u || byte_count == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: bad GHS args");
+    return 0;
+  }
+  ge = epa_ghs_get_meta(actor->impl.ghs, ghs_handle, &meta);
+  if (ge != EPA_GHS_OK) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: invalid GHS handle err=%d", (int)ge);
+    return 0;
+  }
+  if (byte_count > meta.size_bytes) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: byte_count %u exceeds handle size %u",
+                      (unsigned)byte_count, (unsigned)meta.size_bytes);
+    return 0;
+  }
+  bytes = (uint8_t*)malloc(byte_count);
+  if (!bytes) {
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: OOM");
+    return 0;
+  }
+  ge = epa_ghs_read_bytes(actor->impl.ghs, ghs_handle, 0u, bytes, byte_count);
+  if (ge != EPA_GHS_OK) {
+    free(bytes);
+    if (err) snprintf(err, EPA_MAX_ERR, "dynamic import: GHS read failed err=%d", (int)ge);
+    return 0;
+  }
+  module = epa_kernel_process_import_dynamic_library_bytes(actor, source_wid, bytes, byte_count, local_name_uid, err);
+  free(bytes);
+  if (!module) return 0;
+  if (out_module_count) *out_module_count = (uint32_t)epa_kernel_module_count(module);
+  return 1;
 }
 
 int epa_kernel_pid_retire(EpaKernel *actor, uint32_t source_wid, uint32_t pid, char err[EPA_MAX_ERR]) {
