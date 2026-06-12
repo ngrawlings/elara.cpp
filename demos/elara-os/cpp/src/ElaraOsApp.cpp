@@ -1782,7 +1782,12 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String partition_io_run_result;
     String boot_kernel_ingress_result;
     String boot_kernel_run_result;
+    String boot_walk_ingress_result;
+    String boot_walk_payload_hex_result;
     String filesystem_run_result;
+    String filesystem_mailbox_result;
+    String filesystem_response_mailbox_result;
+    String block_io_mailbox_before_pump_result;
     String block_io_device_read_result("{}");
     String entry_post_block_run_result;
     String registry_post_block_run_result;
@@ -2006,8 +2011,23 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     error_message = String("failed to queue root mount registration");
                     return false;
                 }
+                if (!epaDbgCall(
+                        String("epa.debug.run"),
+                        String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+                        filesystem_run_result)) {
+                    error_message = String("epa.debug.run failed while staging root mount before directory entries");
+                    if (epa_dbg_last_error.length()) {
+                        error_message = error_message + String(": ") + epa_dbg_last_error;
+                    }
+                    return false;
+                }
 
+                for (int boot_entry_pass = 0; boot_entry_pass < 2; ++boot_entry_pass) {
                 for (size_t di = 0; di < root_dir_entries.size(); ++di) {
+                    bool is_boot_entry = root_dir_entries[di].name == "boot";
+                    if ((boot_entry_pass == 0 && is_boot_entry) || (boot_entry_pass == 1 && !is_boot_entry)) {
+                        continue;
+                    }
                     std::string directory_entry_hex;
                     appendLeU32Hex(directory_entry_hex, 1u);
                     appendLeU32Hex(directory_entry_hex, 2u);
@@ -2019,11 +2039,29 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     if (!epaDbgCall(
                             String("epa.debug.ingressPushHex"),
                             String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
-                                + String(",\"wid\":3,\"payload_hex\":") + jsonQuoteString(String(directory_entry_hex.c_str())) + String("}"),
+                                + String(",\"wid\":6,\"payload_hex\":") + jsonQuoteString(String(directory_entry_hex.c_str())) + String("}"),
                             ingress_result)) {
                         error_message = String("failed to queue root directory entry registration");
                         return false;
                     }
+                    if (is_boot_entry) {
+                        std::string boot_walk_hex;
+                        appendLeU32Hex(boot_walk_hex, 2u);
+                        appendLeU32Hex(boot_walk_hex, (uint32_t)partitions[p].partition_drive_id);
+                        appendLeU32Hex(boot_walk_hex, root_dir_entries[di].inode_number);
+                        appendLeU32Hex(boot_walk_hex, block_size);
+                        appendLeU32Hex(boot_walk_hex, 0u);
+                        boot_walk_payload_hex_result = String(boot_walk_hex.c_str());
+                        if (!epaDbgCall(
+                                String("epa.debug.ingressPushHex"),
+                                String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
+                                    + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(boot_walk_hex.c_str())) + String("}"),
+                                boot_walk_ingress_result)) {
+                            error_message = String("failed to queue filesystem boot inode walk");
+                            return false;
+                        }
+                    }
+                }
                 }
 
                 std::string registry_mount_hex;
@@ -2121,6 +2159,8 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         }
         return false;
     }
+    epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"filesystem_authority\"}"), filesystem_mailbox_result);
+    epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"block_io_authority\"}"), block_io_mailbox_before_pump_result);
 
     sendHostDebugEvent("state", "\"status\":\"servicing EPA block I/O read requests\"");
     int block_io_serviced_count = 0;
@@ -2212,7 +2252,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         if (!epaDbgCall(
                 String("epa.debug.ingressPushHex"),
                 String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
-                    + String(",\"wid\":6,\"payload_hex\":") + jsonQuoteString(String(response_hex.c_str())) + String("}"),
+                    + String(",\"wid\":4,\"payload_hex\":") + jsonQuoteString(String(response_hex.c_str())) + String("}"),
                 block_io_response_ingress_result)) {
             block_io_device_read_result = String("{\"serviced\":")
                 + String(block_io_serviced_count)
@@ -2225,6 +2265,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             String("epa.debug.run"),
             String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             filesystem_block_result_run);
+        epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"filesystem_authority\"}"), filesystem_response_mailbox_result);
         block_io_serviced_count = block_io_serviced_count + 1;
         block_io_device_read_result =
             String("{\"serviced\":") + String(block_io_serviced_count)
@@ -2233,6 +2274,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             + String(",\"last_block_count\":") + String(request_block_count)
             + String(",\"last_bytes\":") + String((int)block_payload.size())
             + String(",\"last_ingress\":") + (block_io_response_ingress_result.length() ? block_io_response_ingress_result : String("{}"))
+            + String(",\"last_filesystem_mailbox\":") + (filesystem_response_mailbox_result.length() ? filesystem_response_mailbox_result : String("{}"))
             + String(",\"last_filesystem_run\":") + (filesystem_block_result_run.length() ? filesystem_block_result_run : String("{}"))
             + String("}");
     }
@@ -2340,7 +2382,11 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"block_io_run\":") + (block_io_run_result.length() ? block_io_run_result : String("{}"))
         + String(",\"partition_io_run\":") + (partition_io_run_result.length() ? partition_io_run_result : String("{}"))
         + String(",\"registry_partition_run\":") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
+        + String(",\"boot_walk_ingress\":") + (boot_walk_ingress_result.length() ? boot_walk_ingress_result : String("{}"))
+        + String(",\"boot_walk_payload_hex\":") + jsonQuoteString(boot_walk_payload_hex_result)
         + String(",\"filesystem_run\":") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
+        + String(",\"filesystem_mailbox\":") + (filesystem_mailbox_result.length() ? filesystem_mailbox_result : String("{}"))
+        + String(",\"block_io_mailbox_before_pump\":") + (block_io_mailbox_before_pump_result.length() ? block_io_mailbox_before_pump_result : String("{}"))
         + String(",\"block_io_read_run\":") + (block_io_read_run_result.length() ? block_io_read_run_result : String("{}"))
         + String(",\"block_io_mailbox\":") + (block_io_mailbox_result.length() ? block_io_mailbox_result : String("{}"))
         + String(",\"block_io_response_ingress\":") + (block_io_response_ingress_result.length() ? block_io_response_ingress_result : String("{}"))

@@ -66,7 +66,7 @@ type FileSystemRequest(int opcode, int mount_id, int path_handle, int arg0) {
   return opcode;
 }
 
-type FileSystemBootAssetRequest(int opcode, int mount_id, int phase, int flags) {
+type FileSystemBootAssetRequest(int opcode, int mount_id, int phase, int flags, int reserved) {
   return opcode;
 }
 

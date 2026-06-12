@@ -67,7 +67,6 @@ worker block_io_ingress(BlockIoRequest request) {
   if (request.opcode == block_io_opcode_read_blocks()) {
     frame_begin(block_io_mailbox_magic(), request.drive_id, request.opcode, request.lba, request.block_count);
     frame_commit();
-    retire_worker();
   } else {
     host_signal();
   }
