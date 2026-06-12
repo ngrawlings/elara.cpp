@@ -36,6 +36,7 @@ EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
 const uint8_t* epa_kernel_last_host_signal_bytes(const EpaKernel *k);
 uint32_t   epa_kernel_last_host_signal_len(const EpaKernel *k);
 uint32_t   epa_kernel_last_host_signal_wid(const EpaKernel *k);
+void       epa_kernel_clear_last_host_signal(EpaKernel *k);
 int        epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 int        epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]);
 uint32_t   epa_kernel_get_pid(const EpaKernel *k);

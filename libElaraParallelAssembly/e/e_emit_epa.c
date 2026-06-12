@@ -2386,12 +2386,59 @@ static int emit_local_store_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *c
 }
 
 static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EExpr *source;
+  const EWorker *worker;
+  const EFunctionParamCheck *param;
+  const EGhsField *field;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 2u) {
     emit_indent(out, depth);
     fprintf(out, "; local_load_i32 expects (local_ref, byte_offset), got %zu\n",
             expr->as.call.arg_count);
     return 0;
+  }
+  source = expr->as.call.args[0];
+  worker = ctx ? ctx->current_worker : NULL;
+  if (source && source->kind == E_EXPR_FIELD && source->as.field.base &&
+      source->as.field.base->kind == E_EXPR_IDENT && worker && worker->param_count == 1u &&
+      strcmp(worker->params[0].name, source->as.field.base->as.ident) == 0) {
+    param = find_param_check_by_name(ctx, source->as.field.base->as.ident);
+    field = find_field_layout(ctx->model, worker->params[0].type.name, source->as.field.field);
+    if (field && field->is_flexible_tail) {
+      emit_expr(out, expr->as.call.args[1], ctx, depth);
+      if (param && param->vm_local_words == 2u) {
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);
+      } else {
+        emit_indent(out, depth);
+        fputs("SET_R 0 0\n", out);
+        emit_indent(out, depth);
+        fputs("SET_R 1 0\n", out);
+      }
+      emit_indent(out, depth);
+      fputs("POP R2\n", out);
+      if (field->ghs_offset > 0u) {
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);
+      }
+      emit_indent(out, depth);
+      fputs("GR_MOV4 0\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      return 1;
+    }
   }
   emit_expr(out, expr->as.call.args[0], ctx, depth);
   emit_expr(out, expr->as.call.args[1], ctx, depth);
@@ -2417,12 +2464,63 @@ static int emit_local_load_i32_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
 }
 
 static int emit_local_load_u8_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const EExpr *source;
+  const EWorker *worker;
+  const EFunctionParamCheck *param;
+  const EGhsField *field;
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 2u) {
     emit_indent(out, depth);
     fprintf(out, "; local_load_u8 expects (local_ref, byte_offset), got %zu\n",
             expr->as.call.arg_count);
     return 0;
+  }
+  source = expr->as.call.args[0];
+  worker = ctx ? ctx->current_worker : NULL;
+  if (source && source->kind == E_EXPR_FIELD && source->as.field.base &&
+      source->as.field.base->kind == E_EXPR_IDENT && worker && worker->param_count == 1u &&
+      strcmp(worker->params[0].name, source->as.field.base->as.ident) == 0) {
+    param = find_param_check_by_name(ctx, source->as.field.base->as.ident);
+    field = find_field_layout(ctx->model, worker->params[0].type.name, source->as.field.field);
+    if (field && field->is_flexible_tail) {
+      emit_expr(out, expr->as.call.args[1], ctx, depth);
+      if (param && param->vm_local_words == 2u) {
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot);
+        emit_indent(out, depth);
+        fputs("POP R0\n", out);
+        emit_indent(out, depth);
+        EMIT_LOAD_L(out, ctx, param->vm_local_slot + 1u);
+        emit_indent(out, depth);
+        fputs("POP R1\n", out);
+      } else {
+        emit_indent(out, depth);
+        fputs("SET_R 0 0\n", out);
+        emit_indent(out, depth);
+        fputs("SET_R 1 0\n", out);
+      }
+      emit_indent(out, depth);
+      fputs("POP R2\n", out);
+      if (field->ghs_offset > 0u) {
+        emit_indent(out, depth);
+        fputs("PUSH R2\n", out);
+        emit_indent(out, depth);
+        fprintf(out, "PUSH %zu\n", field->ghs_offset);
+        emit_indent(out, depth);
+        fputs("ADD_I32\n", out);
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);
+      }
+      emit_indent(out, depth);
+      fputs("GR_MOV4 0\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH R0\n", out);
+      emit_indent(out, depth);
+      fputs("PUSH 255\n", out);
+      emit_indent(out, depth);
+      fputs("AND_I32\n", out);
+      return 1;
+    }
   }
   emit_expr(out, expr->as.call.args[0], ctx, depth);
   emit_expr(out, expr->as.call.args[1], ctx, depth);

@@ -10,7 +10,16 @@ type BlockDeviceRegistration(
   return drive_id;
 }
 
-type BlockIoRequest(int opcode, int drive_id, int lba, int block_count) {
+type BlockIoRequest(
+  int opcode,
+  int drive_id,
+  int lba,
+  int block_count,
+  int phase,
+  int target_inode,
+  int block_size,
+  int inode_table_block
+) {
   return opcode;
 }
 
@@ -20,6 +29,12 @@ type BlockIoReadResult(
   int lba,
   int block_count,
   int byte_count,
+  int phase,
+  int target_inode,
+  int block_size,
+  int inode_table_block,
+  int arg0,
+  int arg1,
   byte[] payload
 ) {
   return opcode;

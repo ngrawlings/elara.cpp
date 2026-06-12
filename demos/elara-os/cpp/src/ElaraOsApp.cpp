@@ -2185,10 +2185,19 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         if (mailbox_len < ORANGE_FORTRESS_EPA_FRAME_HEADER_BYTES ||
             !decodeHexBytes(mailbox_hex, mailbox_bytes) ||
             (int)mailbox_bytes.size() != mailbox_len) {
-            block_io_device_read_result =
-                String("{\"serviced\":") + String(block_io_serviced_count)
-                + String(",\"done\":true,\"reason\":\"no block request\",\"mailbox_len\":")
-                + String(mailbox_len) + String("}");
+            if (block_io_serviced_count > 0 && block_io_device_read_result.length()) {
+                block_io_device_read_result =
+                    String("{\"serviced\":") + String(block_io_serviced_count)
+                    + String(",\"done\":true,\"reason\":\"no block request\",\"mailbox_len\":")
+                    + String(mailbox_len)
+                    + String(",\"previous\":") + block_io_device_read_result
+                    + String("}");
+            } else {
+                block_io_device_read_result =
+                    String("{\"serviced\":") + String(block_io_serviced_count)
+                    + String(",\"done\":true,\"reason\":\"no block request\",\"mailbox_len\":")
+                    + String(mailbox_len) + String("}");
+            }
             break;
         }
 
@@ -2201,9 +2210,20 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             break;
         }
 
-        int request_drive_id = (int)block_header.height;
+        int request_drive_id = (int)(block_header.height & 0xffffu);
+        int request_target_inode = (int)((block_header.height >> 16) & 0xffffu);
         int request_lba = (int)block_header.frame_id;
-        int request_block_count = (int)block_header.record_count;
+        int request_block_count = (int)(block_header.record_count & 0xffu);
+        int request_phase = (int)((block_header.record_count >> 8) & 0xffu);
+        int request_block_size = request_block_count * 512;
+        int request_inode_table_block = (int)(block_header.record_count >> 16);
+        if ((request_phase == 2 || request_phase == 5) && request_target_inode > 0 && request_block_size > 0) {
+            if (request_inode_table_block == 0) {
+                int inode_index = request_target_inode - 1;
+                uint64_t inode_table_byte_offset = ((uint64_t)request_lba * 512ull) - ((uint64_t)inode_index * 256ull);
+                request_inode_table_block = (int)(inode_table_byte_offset / (uint64_t)request_block_size);
+            }
+        }
         const BootDriveInfo *source_drive = NULL;
         const GptPartitionInfo *source_partition = NULL;
         for (size_t pi = 0; pi < discovered_partitions.size(); ++pi) {
@@ -2241,6 +2261,20 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 + String("\"}");
             break;
         }
+        uint32_t response_arg0 = 0u;
+        uint32_t response_arg1 = 0u;
+        if (request_phase == 1 && block_payload.size() >= 12u) {
+            response_arg0 = readLeU32At(block_payload.data() + 8u);
+        } else if ((request_phase == 2 || request_phase == 5) && request_target_inode > 0 && request_block_size > 0) {
+            uint64_t inode_index = (uint64_t)(request_target_inode - 1);
+            uint64_t inode_table_byte_offset = (uint64_t)request_inode_table_block * (uint64_t)request_block_size;
+            uint64_t inode_byte_offset = inode_table_byte_offset + (inode_index * 256ull);
+            uint64_t inode_payload_offset = inode_byte_offset - ((uint64_t)request_lba * 512ull);
+            if (inode_payload_offset + 64ull <= block_payload.size()) {
+                response_arg0 = (uint32_t)readLeU16At(block_payload.data() + inode_payload_offset + 40ull);
+                response_arg1 = readLeU32At(block_payload.data() + inode_payload_offset + 60ull);
+            }
+        }
 
         std::string response_hex;
         appendLeU32Hex(response_hex, 2u);
@@ -2248,6 +2282,12 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         appendLeU32Hex(response_hex, (uint32_t)request_lba);
         appendLeU32Hex(response_hex, (uint32_t)request_block_count);
         appendLeU32Hex(response_hex, (uint32_t)block_payload.size());
+        appendLeU32Hex(response_hex, (uint32_t)request_phase);
+        appendLeU32Hex(response_hex, (uint32_t)request_target_inode);
+        appendLeU32Hex(response_hex, (uint32_t)request_block_size);
+        appendLeU32Hex(response_hex, (uint32_t)request_inode_table_block);
+        appendLeU32Hex(response_hex, response_arg0);
+        appendLeU32Hex(response_hex, response_arg1);
         appendBytesHex(response_hex, block_payload);
         if (!epaDbgCall(
                 String("epa.debug.ingressPushHex"),

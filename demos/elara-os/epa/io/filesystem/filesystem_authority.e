@@ -60,8 +60,24 @@ function int fs_boot_walk_phase_boot_inode_parsed() {
   return 3;
 }
 
+function int fs_boot_walk_phase_boot_directory() {
+  return 4;
+}
+
+function int fs_boot_walk_phase_elara_inode() {
+  return 5;
+}
+
+function int fs_boot_walk_phase_elara_directory() {
+  return 6;
+}
+
 function int fs_path_hash_boot() {
   return 0 - 795565611;
+}
+
+function int fs_path_hash_elara() {
+  return 0 - 1471800830;
 }
 
 function int fs_result_payload_u8(BlockIoReadResult result, int payload_offset) {
@@ -274,6 +290,10 @@ worker filesystem_boot_assets_ingress(FileSystemBootAssetRequest request) {
             block_request.drive_id = drive_id;
             block_request.lba = group_desc_lba;
             block_request.block_count = group_desc_block_count;
+            block_request.phase = fs_boot_walk_phase_group_desc();
+            block_request.target_inode = target_inode;
+            block_request.block_size = block_size;
+            block_request.inode_table_block = 0;
             frame_begin(7357001, drive_id, target_inode, group_desc_lba, group_desc_block_count);
             frame_commit();
             far_signal("elara.os.block_io", 2, block_request);
@@ -300,6 +320,9 @@ worker filesystem_boot_shell_image_ingress(ShellProcessImage image) {
 }
 
 worker filesystem_block_read_result_ingress(BlockIoReadResult result) {
+  static int boot_target_inode;
+  static int boot_block_size;
+  static int boot_inode_table_block;
   int slot = dyn_alloc(fs_block_probes);
   int walk_slot = 0 - 1;
   int inode_index = 0;
@@ -307,6 +330,16 @@ worker filesystem_block_read_result_ingress(BlockIoReadResult result) {
   int inode_lba = 0;
   int inode_block_count = 1;
   int inode_payload_offset = 0;
+  int dir_offset = 0;
+  int entry_inode = 0;
+  int entry_meta = 0;
+  int entry_rec_len = 0;
+  int entry_name_len = 0;
+  int entry_file_type = 0;
+  int entry_name_word0 = 0;
+  int entry_name_byte4 = 0;
+  int found_inode = 0;
+  int entry_candidate = 0;
   local FileSystemBlockProbeState state;
   local FileSystemBootWalkState walk;
   local BlockIoRequest block_request;
@@ -321,56 +354,211 @@ worker filesystem_block_read_result_ingress(BlockIoReadResult result) {
   frame_begin(7357002, result.drive_id, result.lba, result.byte_count, slot);
   frame_commit();
 
-  walk = fs_boot_walks[1:2];
-  if (walk.phase > 0) {
-    if (walk.drive_id == result.drive_id) {
-      if (walk.last_lba == result.lba) {
-        if (walk.phase == fs_boot_walk_phase_group_desc()) {
+  if (result.phase == fs_boot_walk_phase_group_desc()) {
           if (result.byte_count > 11) {
-            if (walk.target_inode > 0) {
-              walk_slot = 0;
-              walk.inode_table_block = fs_result_payload_u32_le(result, 8);
-              walk.phase = fs_boot_walk_phase_boot_inode();
-              inode_index = walk.target_inode - 1;
-              inode_byte_offset = (walk.inode_table_block * walk.block_size) + (inode_index * walk.inode_size);
+            if (result.target_inode > 0) {
+              boot_target_inode = result.target_inode;
+              boot_block_size = result.block_size;
+              boot_inode_table_block = result.arg0;
+              inode_index = boot_target_inode - 1;
+              inode_byte_offset = (boot_inode_table_block * boot_block_size) + (inode_index * 256);
               inode_lba = inode_byte_offset / 512;
-              inode_block_count = walk.block_size / 512;
+              inode_block_count = boot_block_size / 512;
               if (inode_block_count < 1) {
                 inode_block_count = 1;
               }
               if (inode_block_count > 8) {
                 inode_block_count = 8;
               }
-              walk.last_lba = inode_lba;
-              walk.last_block_count = inode_block_count;
-              walk.parsed0 = walk.inode_table_block;
-              walk.parsed1 = inode_byte_offset;
-              fs_boot_walks[walk_slot] = walk;
 
               block_request.opcode = block_io_opcode_read_blocks();
-              block_request.drive_id = walk.drive_id;
+              block_request.drive_id = result.drive_id;
               block_request.lba = inode_lba;
               block_request.block_count = inode_block_count;
+              block_request.phase = fs_boot_walk_phase_boot_inode();
+              block_request.target_inode = boot_target_inode;
+              block_request.block_size = boot_block_size;
+              block_request.inode_table_block = boot_inode_table_block;
+              far_signal("elara.os.block_io", 2, block_request);
+            }
+          }
+  }
+
+        if (result.phase == fs_boot_walk_phase_boot_inode()) {
+          if (result.byte_count > 127) {
+            walk_slot = dyn_alloc(fs_boot_walks);
+            inode_index = result.target_inode - 1;
+            inode_byte_offset = (result.inode_table_block * result.block_size) + (inode_index * 256);
+            inode_payload_offset = inode_byte_offset - (result.lba * 512);
+            walk.phase = fs_boot_walk_phase_boot_inode_parsed();
+            walk.parsed0 = result.arg0;
+            walk.parsed1 = result.arg1;
+            fs_boot_walks[walk_slot] = walk;
+
+            if (result.arg1 > 0) {
+              inode_lba = (result.arg1 * result.block_size) / 512;
+              inode_block_count = result.block_size / 512;
+              if (inode_block_count < 1) {
+                inode_block_count = 1;
+              }
+              if (inode_block_count > 8) {
+                inode_block_count = 8;
+              }
+
+              block_request.opcode = block_io_opcode_read_blocks();
+              block_request.drive_id = result.drive_id;
+              block_request.lba = inode_lba;
+              block_request.block_count = inode_block_count;
+              block_request.phase = fs_boot_walk_phase_boot_directory();
+              block_request.target_inode = result.target_inode;
+              block_request.block_size = result.block_size;
+              block_request.inode_table_block = result.inode_table_block;
               far_signal("elara.os.block_io", 2, block_request);
             }
           }
         }
 
-        if (walk.phase == fs_boot_walk_phase_boot_inode()) {
-          if (result.byte_count > 127) {
-            walk_slot = dyn_alloc(fs_boot_walks);
-            inode_index = walk.target_inode - 1;
-            inode_byte_offset = (walk.inode_table_block * walk.block_size) + (inode_index * walk.inode_size);
-            inode_payload_offset = inode_byte_offset - (walk.last_lba * 512);
-            walk.phase = fs_boot_walk_phase_boot_inode_parsed();
-            walk.parsed0 = fs_result_payload_u16_le(result, inode_payload_offset + 40);
-            walk.parsed1 = fs_result_payload_u32_le(result, inode_payload_offset + 60);
-            fs_boot_walks[walk_slot] = walk;
+        if (result.phase == fs_boot_walk_phase_boot_directory()) {
+          dir_offset = 0;
+          found_inode = 0;
+          while (dir_offset < result.byte_count) {
+            if (found_inode == 0) {
+              entry_inode = local_load_i32(result.payload, dir_offset);
+              entry_meta = local_load_i32(result.payload, dir_offset + 4);
+              entry_rec_len = bit_and_i32(entry_meta, 65535);
+              entry_name_len = bit_and_i32(entry_meta / 65536, 255);
+              entry_file_type = bit_and_i32(entry_meta / 16777216, 255);
+              entry_candidate = 1;
+
+              if (entry_rec_len < 8) {
+                entry_candidate = 0;
+                dir_offset = result.byte_count;
+              }
+              if (entry_inode <= 0) {
+                entry_candidate = 0;
+              }
+              if (entry_name_len != 5) {
+                entry_candidate = 0;
+              }
+              if (entry_file_type != ext4_dir_file_type_directory()) {
+                entry_candidate = 0;
+              }
+
+              if (entry_name_len == 5) {
+                entry_name_word0 = local_load_i32(result.payload, dir_offset + 8);
+                entry_name_byte4 = local_load_u8(result.payload, dir_offset + 12);
+                frame_begin(7357005, entry_inode, entry_name_word0, entry_name_byte4, entry_file_type);
+                frame_commit();
+              }
+
+              if (entry_candidate == 1) {
+                if (entry_name_word0 != 1918987365) {
+                  entry_candidate = 0;
+                }
+                if (entry_name_byte4 != 97) {
+                  entry_candidate = 0;
+                }
+              }
+
+                if (entry_candidate == 1) {
+                  found_inode = entry_inode;
+                frame_begin(7357003, result.drive_id, entry_inode, result.target_inode, entry_file_type);
+                frame_commit();
+
+                inode_index = entry_inode - 1;
+                inode_byte_offset = (result.inode_table_block * result.block_size) + (inode_index * 256);
+                inode_lba = inode_byte_offset / 512;
+                inode_block_count = result.block_size / 512;
+                if (inode_block_count < 1) {
+                  inode_block_count = 1;
+                }
+                if (inode_block_count > 8) {
+                  inode_block_count = 8;
+                }
+
+                block_request.opcode = block_io_opcode_read_blocks();
+                block_request.drive_id = result.drive_id;
+                block_request.lba = inode_lba;
+                block_request.block_count = inode_block_count;
+                block_request.phase = fs_boot_walk_phase_elara_inode();
+                block_request.target_inode = entry_inode;
+                block_request.block_size = result.block_size;
+                block_request.inode_table_block = result.inode_table_block;
+                far_signal("elara.os.block_io", 2, block_request);
+                dir_offset = result.byte_count;
+              }
+
+              if (found_inode == 0) {
+                if (entry_rec_len >= 8) {
+                  dir_offset = dir_offset + entry_rec_len;
+                }
+              }
+            } else {
+              dir_offset = result.byte_count;
+            }
           }
         }
-      }
-    }
-  }
+
+        if (result.phase == fs_boot_walk_phase_elara_inode()) {
+          if (result.byte_count > 127) {
+            walk_slot = dyn_alloc(fs_boot_walks);
+            walk.phase = fs_boot_walk_phase_elara_inode();
+            walk.parsed0 = result.arg0;
+            walk.parsed1 = result.arg1;
+            fs_boot_walks[walk_slot] = walk;
+            frame_begin(7357004, result.drive_id, result.target_inode, result.arg0, result.arg1);
+            frame_commit();
+
+            if (result.arg1 > 0) {
+              inode_lba = (result.arg1 * result.block_size) / 512;
+              inode_block_count = result.block_size / 512;
+              if (inode_block_count < 1) {
+                inode_block_count = 1;
+              }
+              if (inode_block_count > 8) {
+                inode_block_count = 8;
+              }
+
+              block_request.opcode = block_io_opcode_read_blocks();
+              block_request.drive_id = result.drive_id;
+              block_request.lba = inode_lba;
+              block_request.block_count = inode_block_count;
+              block_request.phase = fs_boot_walk_phase_elara_directory();
+              block_request.target_inode = result.target_inode;
+              block_request.block_size = result.block_size;
+              block_request.inode_table_block = result.inode_table_block;
+              far_signal("elara.os.block_io", 2, block_request);
+            }
+          }
+        }
+
+        if (result.phase == fs_boot_walk_phase_elara_directory()) {
+          dir_offset = 0;
+          while (dir_offset < result.byte_count) {
+            entry_inode = local_load_i32(result.payload, dir_offset);
+            entry_meta = local_load_i32(result.payload, dir_offset + 4);
+            entry_rec_len = bit_and_i32(entry_meta, 65535);
+            entry_name_len = bit_and_i32(entry_meta / 65536, 255);
+            entry_file_type = bit_and_i32(entry_meta / 16777216, 255);
+
+            if (entry_rec_len < 8) {
+              dir_offset = result.byte_count;
+            }
+
+            if (entry_inode > 0) {
+              if (entry_name_len > 2) {
+                entry_name_word0 = local_load_i32(result.payload, dir_offset + 8);
+                entry_name_byte4 = local_load_u8(result.payload, dir_offset + 12);
+                frame_begin(7357006, entry_inode, entry_name_word0, entry_name_byte4, entry_file_type);
+                frame_commit();
+              }
+            }
+
+            if (entry_rec_len >= 8) {
+              dir_offset = dir_offset + entry_rec_len;
+            }
+          }
+        }
 
   host_signal();
 }

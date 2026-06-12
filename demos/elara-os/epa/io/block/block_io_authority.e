@@ -65,7 +65,13 @@ worker block_io_ingress(BlockIoRequest request) {
   device_iter = device_iter;
 
   if (request.opcode == block_io_opcode_read_blocks()) {
-    frame_begin(block_io_mailbox_magic(), request.drive_id, request.opcode, request.lba, request.block_count);
+    frame_begin(
+      block_io_mailbox_magic(),
+      request.drive_id + (request.target_inode * 65536),
+      request.opcode,
+      request.lba,
+      request.block_count + (request.phase * 256) + (request.inode_table_block * 65536)
+    );
     frame_commit();
   } else {
     host_signal();

@@ -32,6 +32,7 @@ EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
 const uint8_t* epa_kernel_last_host_signal_bytes(const EpaKernel *k);
 uint32_t epa_kernel_last_host_signal_len(const EpaKernel *k);
 uint32_t epa_kernel_last_host_signal_wid(const EpaKernel *k);
+void epa_kernel_clear_last_host_signal(EpaKernel *k);
 void epa_kernel_set_signal_callback(EpaKernel *k, int (*cb)(uint8_t wid, const char *msg, const int msg_len));
 int epa_kernel_load_asm(EpaKernel *k, const char *asm_path, char err[EPA_MAX_ERR]);
 int epa_kernel_ingress_push(EpaKernel *k, uint32_t wid, const void *data, uint32_t len);

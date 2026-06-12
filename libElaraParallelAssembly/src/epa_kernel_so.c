@@ -649,6 +649,12 @@ uint32_t epa_kernel_last_host_signal_wid(const EpaKernel *k) {
   return k ? k->last_host_signal_wid : 0u;
 }
 
+void epa_kernel_clear_last_host_signal(EpaKernel *k) {
+  if (!k) return;
+  k->last_host_signal_len = 0;
+  k->last_host_signal_wid = 0;
+}
+
 int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_t target_kernel_uid,
                                  uint32_t target_wid_hint,
                                  const void *payload, uint32_t payload_len, uint32_t payload_tag,

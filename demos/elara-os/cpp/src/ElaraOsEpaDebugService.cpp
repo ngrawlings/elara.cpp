@@ -530,8 +530,15 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         return true;
     }
     if (routed_method == String("debug.clearMailbox")) {
-        last_mailbox_bytes.clear();
-        last_mailbox_wid = 0;
+        String path_id;
+        parseStringField(params_json, String("path_id"), path_id);
+        EpaKernel *mailbox_kernel = path_id.length() ? kernelForPathId(path_id) : NULL;
+        if (mailbox_kernel) {
+            epa_kernel_clear_last_host_signal(mailbox_kernel);
+        } else {
+            last_mailbox_bytes.clear();
+            last_mailbox_wid = 0;
+        }
         result_json = String("{\"cleared\":true}");
         return true;
     }
