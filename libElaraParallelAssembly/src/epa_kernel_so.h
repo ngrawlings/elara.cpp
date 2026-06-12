@@ -33,6 +33,9 @@ int        epa_kernel_set_id(EpaKernel *k, const char *kernel_id, char err[EPA_M
 const char* epa_kernel_get_id(const EpaKernel *k);
 void       epa_kernel_set_signal_callback(EpaKernel *k, EpaKernelSignal cb);
 EpaKernel* epa_kernel_find_by_id(const char *kernel_id);
+const uint8_t* epa_kernel_last_host_signal_bytes(const EpaKernel *k);
+uint32_t   epa_kernel_last_host_signal_len(const EpaKernel *k);
+uint32_t   epa_kernel_last_host_signal_wid(const EpaKernel *k);
 int        epa_kernel_retire_by_uid(uint64_t kernel_uid, char err[EPA_MAX_ERR]);
 int        epa_kernel_retire_by_id(const char *kernel_id, char err[EPA_MAX_ERR]);
 uint32_t   epa_kernel_get_pid(const EpaKernel *k);
@@ -43,6 +46,10 @@ EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t
                                                       const uint8_t *bundle, size_t bundle_len,
                                                       uint32_t requested_pid, uint32_t *out_pid,
                                                       char err[EPA_MAX_ERR]);
+int        epa_kernel_process_load_bundle_ghs(EpaKernel *actor, uint32_t source_wid,
+                                              uint64_t ghs_handle, uint32_t byte_count,
+                                              uint32_t requested_pid, uint32_t *out_pid,
+                                              char err[EPA_MAX_ERR]);
 // Imports a dynamic module into actor's PID namespace; returned pointer is inspectable, actor owns lifetime.
 EpaKernelModule* epa_kernel_process_import_dynamic_library_bytes(EpaKernel *actor, uint32_t source_wid,
                                                                  const uint8_t *blob, size_t blob_len,

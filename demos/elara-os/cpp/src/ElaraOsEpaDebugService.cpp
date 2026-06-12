@@ -124,7 +124,8 @@ EpaKernel *ElaraOsEpaDebugService::kernelForPathId(const String &path_id) const 
     }
     int idx = host.findKernelIndex(path_id);
     if (idx >= 0) return host.rawKernelAt((size_t)idx);
-    return NULL;
+    String path_copy(path_id);
+    return epa_kernel_find_by_id(path_copy.operator char *());
 }
 
 std::string ElaraOsEpaDebugService::workerDebugKey(const String &path_id, uint32_t wid) const {
@@ -456,10 +457,15 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         EpaKernel *target = kernelForPathId(path_id);
         if (!target) { error_code = String("kernel_not_found"); error_message = String("no kernel matches path_id"); return false; }
         int idx = path_id.length() ? host.findKernelIndex(path_id) : -1;
-        bool ok = (idx >= 0)
-            ? host.ingressPushTaggedToKernel((size_t)idx, wid, tag, bytes.data(), (uint32_t)bytes.size())
-            : host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size());
-        if (!ok) { error_code = String("ingress_push_failed"); error_message = host.lastError(); return false; }
+        bool ok = false;
+        if (idx >= 0) {
+            ok = host.ingressPushTaggedToKernel((size_t)idx, wid, tag, bytes.data(), (uint32_t)bytes.size());
+        } else if (!path_id.length()) {
+            ok = host.ingressPushTagged(wid, tag, bytes.data(), (uint32_t)bytes.size());
+        } else {
+            ok = epa_kernel_ingress_push_tagged(target, wid, tag, bytes.data(), (uint32_t)bytes.size()) != 0;
+        }
+        if (!ok) { error_code = String("ingress_push_failed"); error_message = path_id.length() && idx < 0 ? String("epa_kernel_ingress_push_tagged failed") : host.lastError(); return false; }
         result_json = String("{\"queued\":true")
                     + String(",\"path_id\":") + jsonQuote(path_id)
                     + String(",\"kernel_index\":") + String(idx)
@@ -497,18 +503,24 @@ bool ElaraOsEpaDebugService::call(const String &method, const String &params_jso
         result_json = buildSnapshotJson(kernelForPathId(path_id), path_id); return true;
     }
     if (routed_method == String("debug.getMailbox")) {
+        String path_id;
+        parseStringField(params_json, String("path_id"), path_id);
+        EpaKernel *mailbox_kernel = path_id.length() ? kernelForPathId(path_id) : NULL;
+        const uint8_t *mailbox_bytes = mailbox_kernel ? epa_kernel_last_host_signal_bytes(mailbox_kernel) : (last_mailbox_bytes.empty() ? NULL : &last_mailbox_bytes[0]);
+        size_t mailbox_len = mailbox_kernel ? epa_kernel_last_host_signal_len(mailbox_kernel) : last_mailbox_bytes.size();
+        uint32_t mailbox_wid = mailbox_kernel ? epa_kernel_last_host_signal_wid(mailbox_kernel) : last_mailbox_wid;
         String hex;
         char tmp[3];
-        for (size_t i = 0; i < last_mailbox_bytes.size(); i++) {
-            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)last_mailbox_bytes[i]);
+        for (size_t i = 0; i < mailbox_len; i++) {
+            snprintf(tmp, sizeof(tmp), "%02x", (unsigned)mailbox_bytes[i]);
             hex += String(tmp);
         }
         ElaraOsEpaFrameHeader frame_header = orangeFortressParseEgressFrameHeader(
-            last_mailbox_bytes.empty() ? NULL : &last_mailbox_bytes[0],
-            last_mailbox_bytes.size()
+            mailbox_bytes,
+            mailbox_len
         );
-        result_json = String("{\"wid\":") + String((int)last_mailbox_wid)
-                    + String(",\"len\":") + String((int)last_mailbox_bytes.size())
+        result_json = String("{\"wid\":") + String((int)mailbox_wid)
+                    + String(",\"len\":") + String((int)mailbox_len)
                     + String(",\"frame\":") + orangeFortressFrameHeaderJson(
                         frame_header,
                         String("egress"),

@@ -233,6 +233,27 @@ EpaFlowRc epa_flow_step(
       return EPA_FLOW_YIELDED;
     }
 
+    case EPA_OP_PROCESS_SPAWN: {
+      uint32_t requested_pid = 0u;
+      uint32_t spawned_pid = 0u;
+      uint64_t handle = ((uint64_t)w->vm.csc[1] << 32) | (uint64_t)(uint32_t)w->vm.csc[0];
+      uint32_t byte_count = (uint32_t)w->vm.csc[2];
+      if (!epa_stack_pop(&w->vm.stack, &requested_pid)) {
+        snprintf(err, EPA_MAX_ERR, "PROCESS_SPAWN expected requested pid on stack");
+        return EPA_FLOW_ERR;
+      }
+      eip->rel_pc = (uint32_t)(pc + need);
+      if (ctx->hooks.on_process_spawn &&
+          ctx->hooks.on_process_spawn(ctx->hooks_user, (uint8_t)w->id, handle, byte_count, requested_pid, &spawned_pid, err)) {
+        w->vm.csc[0] = (int32_t)spawned_pid;
+        w->vm.csc[3] = 1;
+      } else {
+        w->vm.csc[0] = 0;
+        w->vm.csc[3] = 0;
+      }
+      return EPA_FLOW_YIELDED;
+    }
+
     case EPA_OP_END:
       return EPA_FLOW_OK;
 

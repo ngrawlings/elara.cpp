@@ -1094,6 +1094,11 @@ bool ElaraOsApp::updateSurfaceCommandsFromMailbox(const String &mailbox_json, St
     size_t offset = header.header_bytes;
     String commands("[");
     int emitted = 0;
+    int texture_width = 0;
+    int texture_height = 0;
+    int texture_pixels_expected = 0;
+    int texture_pixels_seen = 0;
+    String texture_rgb("[");
     appendJsonCommand(
         commands,
         emitted,
@@ -1157,9 +1162,66 @@ bool ElaraOsApp::updateSurfaceCommandsFromMailbox(const String &mailbox_json, St
             );
             continue;
         }
+        if (opcode == 3u) {
+            if (offset + 8u > bytes.size()) break;
+            texture_width = (int)orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            texture_height = (int)orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            if (texture_width > 0 && texture_height > 0 && texture_width <= 256 && texture_height <= 256) {
+                texture_pixels_expected = texture_width * texture_height;
+                texture_pixels_seen = 0;
+                texture_rgb = String("[");
+            } else {
+                texture_pixels_expected = 0;
+                texture_pixels_seen = 0;
+            }
+            continue;
+        }
+        if (opcode == 4u) {
+            if (offset + 4u > bytes.size()) break;
+            uint32_t rgb = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            if (texture_pixels_expected > 0 && texture_pixels_seen < texture_pixels_expected) {
+                if (texture_pixels_seen > 0) texture_rgb += String(",");
+                texture_rgb += String((int)((rgb >> 16) & 255u));
+                texture_rgb += String(",");
+                texture_rgb += String((int)((rgb >> 8) & 255u));
+                texture_rgb += String(",");
+                texture_rgb += String((int)(rgb & 255u));
+                texture_pixels_seen++;
+            }
+            continue;
+        }
+        if (opcode == 5u) {
+            if (offset + 16u > bytes.size()) break;
+            uint32_t x = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t y = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t w = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            uint32_t h = orangeFortressReadLeU32(bytes.data() + offset); offset += 4u;
+            appendJsonCommand(
+                commands,
+                emitted,
+                String("{\"op\":\"textured_rect\",\"x\":") + String((int)x)
+                    + String(",\"y\":") + String((int)y)
+                    + String(",\"w\":") + String((int)w)
+                    + String(",\"h\":") + String((int)h)
+                    + String("}")
+            );
+            continue;
+        }
         break;
     }
     commands += String("]");
+    texture_rgb += String("]");
+
+    if (texture_pixels_expected > 0 && texture_pixels_seen == texture_pixels_expected) {
+        String texture_json = String("{\"width\":") + String(texture_width)
+            + String(",\"height\":") + String(texture_height)
+            + String(",\"rgb\":") + texture_rgb
+            + String("}");
+        if (!setSectionJson(String("app.surface"), String("texture"), texture_json)) {
+            error_message = String("failed to update Vulkan surface texture");
+            return false;
+        }
+    }
 
     if (!setSectionJson(String("app.surface"), String("commands"), commands)) {
         error_message = String("failed to update Vulkan surface commands");
@@ -1714,10 +1776,14 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     String registry_partition_run_result;
     String registry_mount_run_result;
     String block_io_run_result;
+    String block_io_read_run_result;
+    String block_io_mailbox_result;
+    String block_io_response_ingress_result;
     String partition_io_run_result;
     String boot_kernel_ingress_result;
     String boot_kernel_run_result;
     String filesystem_run_result;
+    String block_io_device_read_result("{}");
     String entry_post_block_run_result;
     String registry_post_block_run_result;
     String frame_run_result;
@@ -1784,6 +1850,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
     }
     bool root_mount_registered = false;
     uint32_t root_mount_path_hash = hashU32Literal("/");
+    std::vector<GptPartitionInfo> discovered_partitions;
     for (size_t i = 0; i < boot_drives.size(); ++i) {
         std::string payload_hex;
         String ingress_result;
@@ -1809,6 +1876,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         }
 
         for (size_t p = 0; p < partitions.size(); ++p) {
+            discovered_partitions.push_back(partitions[p]);
             std::string partition_hex;
             appendLeU32Hex(partition_hex, (uint32_t)partitions[p].drive_id);
             appendLeU32Hex(partition_hex, (uint32_t)partitions[p].partition_drive_id);
@@ -1864,6 +1932,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 std::vector<Ext4DirectoryEntrySummary> root_dir_entries;
                 std::vector<unsigned char> kernel_image;
                 std::string read_error;
+                bool kernel_image_loaded = false;
                 if (!readPartitionBytes(boot_drives[i], partitions[p], 1024u, 1024u, ext4_superblock, read_error)) {
                     error_message = String(read_error.c_str());
                     return false;
@@ -1898,11 +1967,20 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                         readLeU32At(ext4_superblock.data() + 40u),
                         kernel_image,
                         read_error)) {
-                    error_message = String(read_error.c_str());
-                    return false;
+                    kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"error\":\"")
+                        + String(jsonEscape(read_error.c_str()).c_str())
+                        + String("\"}");
+                    sendHostDebugEvent(
+                        "state",
+                        (String("\"status\":\"second-stage kernel image read deferred\",\"error\":\"")
+                            + String(jsonEscape(read_error.c_str()).c_str())
+                            + String("\"")).operator char *()
+                    );
+                } else {
+                    kernel_image_loaded = true;
+                    kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"bytes\":")
+                        + String((int)kernel_image.size()) + String("}");
                 }
-                kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"bytes\":")
-                    + String((int)kernel_image.size()) + String("}");
                 appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 56u));
                 appendLeU32Hex(mount_hex, block_size);
                 appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 4u));
@@ -1963,25 +2041,27 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     return false;
                 }
                 root_mount_registered = true;
-                std::string kernel_hex;
-                appendBytesHex(kernel_hex, kernel_image);
-                if (!epaDbgCall(
-                        String("epa.debug.ingressPushHex"),
-                        String("{\"path_id\":") + jsonQuoteString(boot_path_id)
-                            + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(kernel_hex.c_str())) + String("}"),
-                        boot_kernel_ingress_result)) {
-                    error_message = String("failed to queue second-stage kernel image");
-                    return false;
-                }
-                if (!epaDbgCall(
-                        String("epa.debug.run"),
-                        String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
-                        boot_kernel_run_result)) {
-                    error_message = String("epa.debug.run failed for boot kernel image handoff");
-                    if (epa_dbg_last_error.length()) {
-                        error_message = error_message + String(": ") + epa_dbg_last_error;
+                if (kernel_image_loaded) {
+                    std::string kernel_hex;
+                    appendBytesHex(kernel_hex, kernel_image);
+                    if (!epaDbgCall(
+                            String("epa.debug.ingressPushHex"),
+                            String("{\"path_id\":") + jsonQuoteString(boot_path_id)
+                                + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(kernel_hex.c_str())) + String("}"),
+                            boot_kernel_ingress_result)) {
+                        error_message = String("failed to queue second-stage kernel image");
+                        return false;
                     }
-                    return false;
+                    if (!epaDbgCall(
+                            String("epa.debug.run"),
+                            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+                            boot_kernel_run_result)) {
+                        error_message = String("epa.debug.run failed for boot kernel image handoff");
+                        if (epa_dbg_last_error.length()) {
+                            error_message = error_message + String(": ") + epa_dbg_last_error;
+                        }
+                        return false;
+                    }
                 }
                 sendHostDebugEvent(
                     "state",
@@ -2040,6 +2120,121 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             error_message = error_message + String(": ") + epa_dbg_last_error;
         }
         return false;
+    }
+
+    sendHostDebugEvent("state", "\"status\":\"servicing EPA block I/O read requests\"");
+    int block_io_serviced_count = 0;
+    for (int block_io_pump_iter = 0; block_io_pump_iter < 16; ++block_io_pump_iter) {
+        String clear_block_mailbox_result;
+        epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"block_io_authority\"}"), clear_block_mailbox_result);
+        if (!epaDbgCall(
+                String("epa.debug.run"),
+                String("{\"path_id\":") + jsonQuoteString(block_io_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+                block_io_read_run_result) ||
+            !epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"block_io_authority\"}"), block_io_mailbox_result)) {
+            block_io_device_read_result = String("{\"serviced\":")
+                + String(block_io_serviced_count)
+                + String(",\"error\":\"block_io run or mailbox read failed\"}");
+            break;
+        }
+
+        std::string mailbox_json(block_io_mailbox_result.operator char *() ? block_io_mailbox_result.operator char *() : "");
+        std::string mailbox_hex = jsonStringField(mailbox_json, "hex");
+        int mailbox_len = jsonIntField(mailbox_json, "len", 0);
+        std::vector<unsigned char> mailbox_bytes;
+        if (mailbox_len < ORANGE_FORTRESS_EPA_FRAME_HEADER_BYTES ||
+            !decodeHexBytes(mailbox_hex, mailbox_bytes) ||
+            (int)mailbox_bytes.size() != mailbox_len) {
+            block_io_device_read_result =
+                String("{\"serviced\":") + String(block_io_serviced_count)
+                + String(",\"done\":true,\"reason\":\"no block request\",\"mailbox_len\":")
+                + String(mailbox_len) + String("}");
+            break;
+        }
+
+        ElaraOsEpaFrameHeader block_header = orangeFortressParseEgressFrameHeader(mailbox_bytes.data(), mailbox_bytes.size());
+        if (!block_header.valid || block_header.width != 7253218u || block_header.frame_type != 1u) {
+            block_io_device_read_result =
+                String("{\"serviced\":") + String(block_io_serviced_count)
+                + String(",\"done\":true,\"reason\":\"mailbox was not a block read request\",\"mailbox_len\":")
+                + String(mailbox_len) + String("}");
+            break;
+        }
+
+        int request_drive_id = (int)block_header.height;
+        int request_lba = (int)block_header.frame_id;
+        int request_block_count = (int)block_header.record_count;
+        const BootDriveInfo *source_drive = NULL;
+        const GptPartitionInfo *source_partition = NULL;
+        for (size_t pi = 0; pi < discovered_partitions.size(); ++pi) {
+            if (discovered_partitions[pi].partition_drive_id == request_drive_id) {
+                source_partition = &discovered_partitions[pi];
+                for (size_t di = 0; di < boot_drives.size(); ++di) {
+                    if (boot_drives[di].drive_id == discovered_partitions[pi].drive_id) {
+                        source_drive = &boot_drives[di];
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+        if (!source_drive || !source_partition || request_block_count <= 0 || request_block_count > 8) {
+            block_io_device_read_result =
+                String("{\"serviced\":") + String(block_io_serviced_count)
+                + String(",\"error\":\"no matching partition or invalid block count\",\"drive_id\":")
+                + String(request_drive_id)
+                + String(",\"lba\":") + String(request_lba)
+                + String(",\"block_count\":") + String(request_block_count)
+                + String("}");
+            break;
+        }
+
+        std::vector<unsigned char> block_payload;
+        std::string read_error;
+        uint64_t byte_offset = (uint64_t)request_lba * 512ull;
+        uint64_t byte_count = (uint64_t)request_block_count * 512ull;
+        if (!readPartitionBytes(*source_drive, *source_partition, byte_offset, byte_count, block_payload, read_error)) {
+            block_io_device_read_result = String("{\"serviced\":")
+                + String(block_io_serviced_count)
+                + String(",\"error\":\"")
+                + String(jsonEscape(read_error.c_str()).c_str())
+                + String("\"}");
+            break;
+        }
+
+        std::string response_hex;
+        appendLeU32Hex(response_hex, 2u);
+        appendLeU32Hex(response_hex, (uint32_t)request_drive_id);
+        appendLeU32Hex(response_hex, (uint32_t)request_lba);
+        appendLeU32Hex(response_hex, (uint32_t)request_block_count);
+        appendLeU32Hex(response_hex, (uint32_t)block_payload.size());
+        appendBytesHex(response_hex, block_payload);
+        if (!epaDbgCall(
+                String("epa.debug.ingressPushHex"),
+                String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
+                    + String(",\"wid\":6,\"payload_hex\":") + jsonQuoteString(String(response_hex.c_str())) + String("}"),
+                block_io_response_ingress_result)) {
+            block_io_device_read_result = String("{\"serviced\":")
+                + String(block_io_serviced_count)
+                + String(",\"error\":\"failed to inject block response\"}");
+            break;
+        }
+
+        String filesystem_block_result_run;
+        epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            filesystem_block_result_run);
+        block_io_serviced_count = block_io_serviced_count + 1;
+        block_io_device_read_result =
+            String("{\"serviced\":") + String(block_io_serviced_count)
+            + String(",\"last_drive_id\":") + String(request_drive_id)
+            + String(",\"last_lba\":") + String(request_lba)
+            + String(",\"last_block_count\":") + String(request_block_count)
+            + String(",\"last_bytes\":") + String((int)block_payload.size())
+            + String(",\"last_ingress\":") + (block_io_response_ingress_result.length() ? block_io_response_ingress_result : String("{}"))
+            + String(",\"last_filesystem_run\":") + (filesystem_block_result_run.length() ? filesystem_block_result_run : String("{}"))
+            + String("}");
     }
 
     sendHostDebugEvent("state", "\"status\":\"running Registry Authority mount registration worker\"");
@@ -2146,6 +2341,10 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         + String(",\"partition_io_run\":") + (partition_io_run_result.length() ? partition_io_run_result : String("{}"))
         + String(",\"registry_partition_run\":") + (registry_partition_run_result.length() ? registry_partition_run_result : String("{}"))
         + String(",\"filesystem_run\":") + (filesystem_run_result.length() ? filesystem_run_result : String("{}"))
+        + String(",\"block_io_read_run\":") + (block_io_read_run_result.length() ? block_io_read_run_result : String("{}"))
+        + String(",\"block_io_mailbox\":") + (block_io_mailbox_result.length() ? block_io_mailbox_result : String("{}"))
+        + String(",\"block_io_response_ingress\":") + (block_io_response_ingress_result.length() ? block_io_response_ingress_result : String("{}"))
+        + String(",\"block_io_device_read\":") + block_io_device_read_result
         + String(",\"registry_mount_run\":") + (registry_mount_run_result.length() ? registry_mount_run_result : String("{}"))
         + String(",\"boot_kernel_ingress\":") + (boot_kernel_ingress_result.length() ? boot_kernel_ingress_result : String("{}"))
         + String(",\"boot_kernel_run\":") + (boot_kernel_run_result.length() ? boot_kernel_run_result : String("{}"))

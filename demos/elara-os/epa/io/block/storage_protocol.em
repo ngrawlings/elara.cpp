@@ -1,4 +1,5 @@
 #include "common/hash.em"
+#include "common/bytes.em"
 
 type BlockDeviceRegistration(
   int drive_id,
@@ -10,6 +11,17 @@ type BlockDeviceRegistration(
 }
 
 type BlockIoRequest(int opcode, int drive_id, int lba, int block_count) {
+  return opcode;
+}
+
+type BlockIoReadResult(
+  int opcode,
+  int drive_id,
+  int lba,
+  int block_count,
+  int byte_count,
+  byte[] payload
+) {
   return opcode;
 }
 
@@ -54,12 +66,28 @@ type FileSystemRequest(int opcode, int mount_id, int path_handle, int arg0) {
   return opcode;
 }
 
+type FileSystemBootAssetRequest(int opcode, int mount_id, int phase, int flags) {
+  return opcode;
+}
+
 function int block_device_flag_root_filesystem() {
   return 1;
 }
 
+function int block_io_opcode_read_blocks() {
+  return 1;
+}
+
+function int block_io_opcode_read_result() {
+  return 2;
+}
+
+function int block_io_mailbox_magic() {
+  return 7253218;
+}
+
 function int block_device_is_root_filesystem(int flags) {
-  if (flags == block_device_flag_root_filesystem()) {
+  if (bit_and_i32(flags, block_device_flag_root_filesystem()) == block_device_flag_root_filesystem()) {
     return 1;
   }
   return 0;
@@ -78,10 +106,7 @@ function int filesystem_mount_flag_scan_fstab() {
 }
 
 function int filesystem_mount_is_root(int flags) {
-  if (flags == filesystem_mount_flag_root()) {
-    return 1;
-  }
-  if (flags == (filesystem_mount_flag_root() + filesystem_mount_flag_scan_fstab())) {
+  if (bit_and_i32(flags, filesystem_mount_flag_root()) == filesystem_mount_flag_root()) {
     return 1;
   }
   return 0;
@@ -93,4 +118,12 @@ function int filesystem_mount_path_root() {
 
 function int filesystem_mount_path_etc_fstab() {
   return hash_u32("/etc/fstab");
+}
+
+function int filesystem_boot_assets_opcode_load_shell() {
+  return 1;
+}
+
+function int filesystem_boot_assets_opcode_kick_ext4_walk() {
+  return 2;
 }

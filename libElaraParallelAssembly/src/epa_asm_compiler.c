@@ -816,6 +816,7 @@ static const AsmInsnDesc *find_desc(const char *mn) {
     {"BOOT_STAGE_IMAGE", EPA_OP_BOOT_STAGE_IMAGE, 0,0, 0,{0}, NULL, "BOOT_STAGE_IMAGE (r0/r1=GHS handle,r2=size,r3=flags -> r3=ok)"},
     {"BOOT_RESET_TO_STAGED", EPA_OP_BOOT_RESET_TO_STAGED, 0,0, 0,{0}, NULL, "BOOT_RESET_TO_STAGED (privileged reset to staged EPA image)"},
     {"DYNLIB_IMPORT", EPA_OP_DYNLIB_IMPORT, 0,0, 0,{0}, NULL, "DYNLIB_IMPORT (r0/r1=GHS bundle,r2=size,stack=alias lo/hi -> r2=count,r3=ok)"},
+    {"PROCESS_SPAWN", EPA_OP_PROCESS_SPAWN, 0,0, 0,{0}, NULL, "PROCESS_SPAWN (r0/r1=GHS bundle,r2=size,stack=requested pid -> r0=pid,r3=ok)"},
 
   };
 

@@ -1,6 +1,8 @@
 #include "../block/storage_protocol.em"
+#include "../frame/frame_io_protocol.em"
 #include "../../dynamic_acl_protocol.em"
 #include "ext4_protocol.em"
+#include "../../registry/shell/shell_boot_protocol.em"
 
 type FileSystemMountState(int mount_id, int drive_id, int fs_kind, int flags, int mount_path) {
   return mount_id;
@@ -16,17 +18,88 @@ dynamic ext4_mounts(Ext4MountState, 4, 64, 8);
 dynamic ext4_root_inodes(Ext4RootInodeState, 4, 64, 8);
 dynamic ext4_dir_entries(Ext4DirectoryEntryState, 16, 256, 32);
 
+type FileSystemBlockProbeState(int drive_id, int lba, int byte_count, int signature_lo, int signature_hi) {
+  return drive_id;
+}
+
+dynamic fs_block_probes(FileSystemBlockProbeState, 4, 64, 8);
+
+type FileSystemBootWalkState(
+  int drive_id,
+  int mount_id,
+  int phase,
+  int block_size,
+  int inode_size,
+  int inodes_per_group,
+  int inode_table_block,
+  int target_inode,
+  int target_hash,
+  int last_lba,
+  int last_block_count,
+  int parsed0,
+  int parsed1
+) {
+  return phase;
+}
+
+dynamic fs_boot_walks(FileSystemBootWalkState, 16, 128, 16);
+
+function int fs_boot_walk_phase_group_desc() {
+  return 1;
+}
+
+function int fs_boot_walk_phase_pending_boot_entry() {
+  return 0;
+}
+
+function int fs_boot_walk_phase_boot_inode() {
+  return 2;
+}
+
+function int fs_boot_walk_phase_boot_inode_parsed() {
+  return 3;
+}
+
+function int fs_path_hash_boot() {
+  return 0 - 795565611;
+}
+
+function int fs_result_payload_u8(BlockIoReadResult result, int payload_offset) {
+  return local_load_u8(result, payload_offset + 20);
+}
+
+function int fs_result_payload_u16_le(BlockIoReadResult result, int payload_offset) {
+  return fs_result_payload_u8(result, payload_offset)
+    + (fs_result_payload_u8(result, payload_offset + 1) * 256);
+}
+
+function int fs_result_payload_u32_le(BlockIoReadResult result, int payload_offset) {
+  return fs_result_payload_u8(result, payload_offset)
+    + (fs_result_payload_u8(result, payload_offset + 1) * 256)
+    + (fs_result_payload_u8(result, payload_offset + 2) * 65536)
+    + (fs_result_payload_u8(result, payload_offset + 3) * 16777216);
+}
+
 kernel(VM vm) {
   kernalId("elara.os.filesystem");
+  static {
+    set_worker_privilege(filesystem_boot_shell_image_ingress, 100);
+  }
   start_worker(register_mount);
   start_worker(filesystem_ingress);
   start_worker(register_directory_entry);
+  start_worker(filesystem_boot_assets_ingress);
+  start_worker(filesystem_boot_shell_image_ingress);
+  start_worker(filesystem_block_read_result_ingress);
 }
 
 acl {
   "elara.os.boot" -> register_mount;
+  "elara.os.block_io" -> filesystem_block_read_result_ingress;
   "elara.os.shell" -> filesystem_ingress;
   "elara.app.example" -> filesystem_ingress;
+  "elara.os.filesystem" -> filesystem_boot_assets_ingress;
+  "elara.os.filesystem" -> filesystem_boot_shell_image_ingress;
 }
 
 @attributes signal_mail_box_size:2048
@@ -46,6 +119,8 @@ worker register_mount(FileSystemMount mount) {
   local Ext4MountState ext4_state;
   local Ext4RootInodeState root_inode_state;
   local DynamicACLRequest acl_request;
+  local FileSystemBootAssetRequest boot_assets_request;
+  local FrameRequest frame_request;
 
   static {
     mount_count = 0;
@@ -133,6 +208,23 @@ worker register_mount(FileSystemMount mount) {
     root_mount_id = staged.mount_id;
     root_drive_id = staged.drive_id;
     fstab_scan_pending = 1;
+    boot_assets_request.opcode = filesystem_boot_assets_opcode_load_shell();
+    boot_assets_request.mount_id = staged.mount_id;
+    boot_assets_request.phase = 1;
+    boot_assets_request.flags = 0;
+    far_signal("elara.os.filesystem", filesystem_boot_assets_ingress, boot_assets_request);
+
+    frame_request.opcode = 3;
+    frame_request.surface_id = 1;
+    frame_request.arg0 = 1254;
+    frame_request.arg1 = 1254;
+    far_signal("elara.os.frame_io", 3, frame_request);
+
+    boot_assets_request.opcode = filesystem_boot_assets_opcode_kick_ext4_walk();
+    boot_assets_request.mount_id = staged.mount_id;
+    boot_assets_request.phase = 2;
+    boot_assets_request.flags = 0;
+    far_signal("elara.os.filesystem", filesystem_boot_assets_ingress, boot_assets_request);
   }
 
   mount_count = mount_count + 1;
@@ -143,6 +235,183 @@ worker register_mount(FileSystemMount mount) {
     if (root_mount_id > 0) {
       if (root_drive_id > 0) {
         fstab_scan_pending = 0;
+      }
+    }
+  }
+
+  host_signal();
+}
+
+worker filesystem_boot_assets_ingress(FileSystemBootAssetRequest request) {
+  int opcode = request.opcode;
+  int mount_id = request.mount_id;
+  int phase = request.phase;
+  int flags = request.flags;
+  int mount_iter = dynamic_iterator(ext4_mounts);
+  int pending_iter = dynamic_iterator(fs_boot_walks);
+  int boot_walk_slot = 0 - 1;
+  int group_desc_byte_offset = 0;
+  int group_desc_lba = 0;
+  int group_desc_block_count = 1;
+  local FrameRequest frame_request;
+  local FileSystemBootWalkState boot_walk;
+  local BlockIoRequest block_request;
+
+  // EPA-owned boot asset loading starts here. The next implementation step is
+  // ext4 path lookup + file byte reads for shell.epa.bin, png_decoder.epa.bin,
+  // and assets/logo.png from the mounted root.
+  if (opcode == filesystem_boot_assets_opcode_load_shell()) {
+    frame_request.opcode = 3;
+    frame_request.surface_id = 1;
+    frame_request.arg0 = 1254;
+    frame_request.arg1 = 1254;
+    far_signal("elara.os.frame_io", 3, frame_request);
+  }
+
+  if (opcode == filesystem_boot_assets_opcode_kick_ext4_walk()) {
+    while (Ext4MountState mount = dynamic_next(mount_iter)) {
+      if (mount.mount_id == mount_id) {
+        while (FileSystemBootWalkState pending = dynamic_next(pending_iter)) {
+          if (pending.mount_id == mount_id) {
+            if (pending.phase == fs_boot_walk_phase_pending_boot_entry()) {
+              if (mount.block_size > 0) {
+                boot_walk_slot = dyn_alloc(fs_boot_walks);
+                group_desc_byte_offset = mount.block_size;
+                if (mount.block_size == 1024) {
+                  group_desc_byte_offset = 2048;
+                }
+                group_desc_lba = group_desc_byte_offset / 512;
+                group_desc_block_count = mount.block_size / 512;
+                if (group_desc_block_count < 1) {
+                  group_desc_block_count = 1;
+                }
+                if (group_desc_block_count > 8) {
+                  group_desc_block_count = 8;
+                }
+
+                boot_walk.drive_id = mount.drive_id;
+                boot_walk.mount_id = mount_id;
+                boot_walk.phase = fs_boot_walk_phase_group_desc();
+                boot_walk.block_size = mount.block_size;
+                boot_walk.inode_size = mount.inode_size;
+                boot_walk.inodes_per_group = mount.inodes_per_group;
+                boot_walk.inode_table_block = 0;
+                boot_walk.target_inode = pending.target_inode;
+                boot_walk.target_hash = fs_path_hash_boot();
+                boot_walk.last_lba = group_desc_lba;
+                boot_walk.last_block_count = group_desc_block_count;
+                boot_walk.parsed0 = 0;
+                boot_walk.parsed1 = 0;
+                fs_boot_walks[boot_walk_slot] = boot_walk;
+
+                block_request.opcode = block_io_opcode_read_blocks();
+                block_request.drive_id = mount.drive_id;
+                block_request.lba = group_desc_lba;
+                block_request.block_count = group_desc_block_count;
+                far_signal("elara.os.block_io", 2, block_request);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  opcode = opcode;
+  mount_id = mount_id;
+  phase = phase;
+  flags = flags;
+  host_signal();
+}
+
+worker filesystem_boot_shell_image_ingress(ShellProcessImage image) {
+  static int spawned;
+
+  if (spawned == 0) {
+    process_spawn(image, 2);
+    spawned = 1;
+  }
+
+  host_signal();
+}
+
+worker filesystem_block_read_result_ingress(BlockIoReadResult result) {
+  int slot = dyn_alloc(fs_block_probes);
+  int walk_slot = 0 - 1;
+  int walk_iter = dynamic_iterator(fs_boot_walks);
+  int inode_index = 0;
+  int inode_byte_offset = 0;
+  int inode_lba = 0;
+  int inode_block_count = 1;
+  int inode_payload_offset = 0;
+  local FileSystemBlockProbeState state;
+  local BlockIoRequest block_request;
+
+  state.drive_id = result.drive_id;
+  state.lba = result.lba;
+  state.byte_count = result.byte_count;
+  state.signature_lo = 0;
+  state.signature_hi = 0;
+
+  if (result.byte_count > 7) {
+    state.signature_lo = local_load_u8(result, 20)
+      + (local_load_u8(result, 21) * 256)
+      + (local_load_u8(result, 22) * 65536)
+      + (local_load_u8(result, 23) * 16777216);
+    state.signature_hi = local_load_u8(result, 24)
+      + (local_load_u8(result, 25) * 256)
+      + (local_load_u8(result, 26) * 65536)
+      + (local_load_u8(result, 27) * 16777216);
+  }
+
+  fs_block_probes[slot] = state;
+
+  while (FileSystemBootWalkState walk = dynamic_next(walk_iter)) {
+    if (walk.drive_id == result.drive_id) {
+      if (walk.last_lba == result.lba) {
+        if (walk.phase == fs_boot_walk_phase_group_desc()) {
+          if (result.byte_count > 11) {
+            if (walk.target_inode > 0) {
+              walk_slot = dyn_alloc(fs_boot_walks);
+              walk.inode_table_block = fs_result_payload_u32_le(result, 8);
+              walk.phase = fs_boot_walk_phase_boot_inode();
+              inode_index = walk.target_inode - 1;
+              inode_byte_offset = (walk.inode_table_block * walk.block_size) + (inode_index * walk.inode_size);
+              inode_lba = inode_byte_offset / 512;
+              inode_block_count = walk.block_size / 512;
+              if (inode_block_count < 1) {
+                inode_block_count = 1;
+              }
+              if (inode_block_count > 8) {
+                inode_block_count = 8;
+              }
+              walk.last_lba = inode_lba;
+              walk.last_block_count = inode_block_count;
+              walk.parsed0 = walk.inode_table_block;
+              walk.parsed1 = inode_byte_offset;
+              fs_boot_walks[walk_slot] = walk;
+
+              block_request.opcode = block_io_opcode_read_blocks();
+              block_request.drive_id = walk.drive_id;
+              block_request.lba = inode_lba;
+              block_request.block_count = inode_block_count;
+              far_signal("elara.os.block_io", 2, block_request);
+            }
+          }
+        }
+
+        if (walk.phase == fs_boot_walk_phase_boot_inode()) {
+          if (result.byte_count > 127) {
+            walk_slot = dyn_alloc(fs_boot_walks);
+            inode_index = walk.target_inode - 1;
+            inode_byte_offset = (walk.inode_table_block * walk.block_size) + (inode_index * walk.inode_size);
+            inode_payload_offset = inode_byte_offset - (walk.last_lba * 512);
+            walk.phase = fs_boot_walk_phase_boot_inode_parsed();
+            walk.parsed0 = fs_result_payload_u16_le(result, inode_payload_offset + 40);
+            walk.parsed1 = fs_result_payload_u32_le(result, inode_payload_offset + 60);
+            fs_boot_walks[walk_slot] = walk;
+          }
+        }
       }
     }
   }
@@ -162,8 +431,18 @@ worker filesystem_ingress(FileSystemRequest request) {
 worker register_directory_entry(Ext4DirectoryEntryRegistration entry) {
   int slot = dyn_alloc(ext4_dir_entries);
   int node_slot = 0 - 1;
+  int mount_iter = dynamic_iterator(ext4_mounts);
+  int pending_boot_walk_slot = 0 - 1;
+  int boot_walk_slot = 0 - 1;
+  int group_desc_byte_offset = 0;
+  int group_desc_lba = 0;
+  int group_desc_block_count = 1;
   local Ext4DirectoryEntryState state;
   local FileNodeState node;
+  local FileSystemBootWalkState pending_boot_walk;
+  local FileSystemBootWalkState boot_walk;
+  local BlockIoRequest block_request;
+  local FileSystemBootAssetRequest kick_request;
 
   state.mount_id = entry.mount_id;
   state.parent_inode = entry.parent_inode;
@@ -181,6 +460,73 @@ worker register_directory_entry(Ext4DirectoryEntryRegistration entry) {
     node.object_id = entry.inode_number;
     node.flags = entry.file_type;
     fs_nodes[node_slot] = node;
+  }
+
+  if (entry.parent_inode == ext4_inode_root_number()) {
+    if (entry.name_hash == fs_path_hash_boot()) {
+      pending_boot_walk_slot = dyn_alloc(fs_boot_walks);
+      pending_boot_walk.drive_id = 0;
+      pending_boot_walk.mount_id = entry.mount_id;
+      pending_boot_walk.phase = fs_boot_walk_phase_pending_boot_entry();
+      pending_boot_walk.block_size = 0;
+      pending_boot_walk.inode_size = 0;
+      pending_boot_walk.inodes_per_group = 0;
+      pending_boot_walk.inode_table_block = 0;
+      pending_boot_walk.target_inode = entry.inode_number;
+      pending_boot_walk.target_hash = fs_path_hash_boot();
+      pending_boot_walk.last_lba = 0;
+      pending_boot_walk.last_block_count = 0;
+      pending_boot_walk.parsed0 = 0;
+      pending_boot_walk.parsed1 = 0;
+      fs_boot_walks[pending_boot_walk_slot] = pending_boot_walk;
+
+      kick_request.opcode = filesystem_boot_assets_opcode_kick_ext4_walk();
+      kick_request.mount_id = entry.mount_id;
+      kick_request.phase = 3;
+      kick_request.flags = 0;
+      far_signal("elara.os.filesystem", filesystem_boot_assets_ingress, kick_request);
+
+      while (Ext4MountState mount = dynamic_next(mount_iter)) {
+        if (mount.mount_id == entry.mount_id) {
+          if (mount.block_size > 0) {
+            boot_walk_slot = dyn_alloc(fs_boot_walks);
+            group_desc_byte_offset = mount.block_size;
+            if (mount.block_size == 1024) {
+              group_desc_byte_offset = 2048;
+            }
+            group_desc_lba = group_desc_byte_offset / 512;
+            group_desc_block_count = mount.block_size / 512;
+            if (group_desc_block_count < 1) {
+              group_desc_block_count = 1;
+            }
+            if (group_desc_block_count > 8) {
+              group_desc_block_count = 8;
+            }
+
+            boot_walk.drive_id = mount.drive_id;
+            boot_walk.mount_id = entry.mount_id;
+            boot_walk.phase = fs_boot_walk_phase_group_desc();
+            boot_walk.block_size = mount.block_size;
+            boot_walk.inode_size = mount.inode_size;
+            boot_walk.inodes_per_group = mount.inodes_per_group;
+            boot_walk.inode_table_block = 0;
+            boot_walk.target_inode = entry.inode_number;
+            boot_walk.target_hash = fs_path_hash_boot();
+            boot_walk.last_lba = group_desc_lba;
+            boot_walk.last_block_count = group_desc_block_count;
+            boot_walk.parsed0 = 0;
+            boot_walk.parsed1 = 0;
+            fs_boot_walks[boot_walk_slot] = boot_walk;
+
+            block_request.opcode = block_io_opcode_read_blocks();
+            block_request.drive_id = mount.drive_id;
+            block_request.lba = group_desc_lba;
+            block_request.block_count = group_desc_block_count;
+            far_signal("elara.os.block_io", 2, block_request);
+          }
+        }
+      }
+    }
   }
 
   host_signal();

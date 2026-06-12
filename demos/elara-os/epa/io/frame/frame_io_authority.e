@@ -37,6 +37,7 @@ acl {
   "elara.os.console_view" -> manager_ingress;
   "elara.os.window_manager" -> manager_ingress;
   "elara.os.shell" -> frame_ingress;
+  "elara.os.filesystem" -> frame_ingress;
   "elara.os.hid_io" -> frame_ingress;
   "elara.app.example" -> frame_ingress;
 }
@@ -93,6 +94,7 @@ worker manager_ingress(FrameManagerFrame frame) {
   retire_worker();
 }
 
+@attributes signal_mail_box_size:16384
 worker frame_ingress(FrameRequest request) {
   local FrameIOAuthorityState state;
 
@@ -113,14 +115,17 @@ worker frame_ingress(FrameRequest request) {
   }
 
   if (request.opcode == 3) {
-    frame_begin(1280, 720, 2, state.frame_id, 7);
+    frame_begin(1280, 720, 2, state.frame_id, 1608);
     frame_rect(0, 0, 1280, 720, 10, 14, 20);
     frame_rect(0, 0, 1280, 88, 23, 30, 40);
     frame_rect(72, 116, 1136, 540, 18, 23, 31);
     frame_rect(88, 132, 1104, 508, 26, 34, 46);
     frame_rect(88, 132, 1104, 10, 82, 146, 255);
-    frame_rect(116, 164, 200 + (state.surface_count * 48), 18, 117, 224, 163);
-    frame_rect(116, 208, 160 + (state.focused_surface * 24), 14, 255, 196, 92);
+    frame_rect(512, 172, 256, 256, 5, 8, 12);
+#include "preboot/elara_boot_logo_texture_40x40.em"
+    frame_textured_rect(528, 188, 224, 224);
+    frame_rect(458, 464, 364 + (request.arg0 / 8), 18, 117, 224, 163);
+    frame_rect(502, 504, 252 + (request.arg1 / 8), 14, 255, 196, 92);
     frame_commit();
     state.frame_id = state.frame_id + 1;
   }

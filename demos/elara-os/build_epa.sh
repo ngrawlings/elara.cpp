@@ -5,6 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILDER="${ROOT_DIR}/libElaraParallelAssembly/e/epa_builder.py"
 
+python3 "${SCRIPT_DIR}/tools/generate_boot_logo_texture.py" \
+  --input "${ROOT_DIR}/logo.png" \
+  --output "${SCRIPT_DIR}/epa/io/frame/preboot/elara_boot_logo_texture_40x40.em" \
+  --size 40
+
 python3 "${BUILDER}" --project "${SCRIPT_DIR}" "$@"
 
 # Keep the legacy path available while tools migrate to explicit targets.

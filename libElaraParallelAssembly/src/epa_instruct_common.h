@@ -37,6 +37,7 @@ int hook_request_threads(void *user, uint8_t wid, uint32_t desired_total, char e
 int hook_request_at(void *user, uint8_t wid, const uint32_t *descriptor_words, uint32_t descriptor_word_count, uint32_t *out_request_id, char err[EPA_MAX_ERR]);
 int hook_request_dynamic_pool_capacity(void *user, uint8_t wid, uint32_t pool_id, uint32_t requested_capacity, int hard_order, char err[EPA_MAX_ERR]);
 int hook_dynlib_import(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count, uint64_t local_name_uid, uint32_t *out_module_count, char err[EPA_MAX_ERR]);
+int hook_process_spawn(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count, uint32_t requested_pid, uint32_t *out_pid, char err[EPA_MAX_ERR]);
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 int hook_host_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]);
 
@@ -100,6 +101,7 @@ typedef struct {
   // on_request_dynamic_pool_capacity returns 1=accepted/satisfied, 2=retry later/backpressure, 0=hard error.
   int (*on_request_dynamic_pool_capacity)(void *user, uint8_t wid, uint32_t pool_id, uint32_t requested_capacity, int hard_order, char err[EPA_MAX_ERR]);
   int (*on_dynlib_import)(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count, uint64_t local_name_uid, uint32_t *out_module_count, char err[EPA_MAX_ERR]);
+  int (*on_process_spawn)(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count, uint32_t requested_pid, uint32_t *out_pid, char err[EPA_MAX_ERR]);
 } EpaFlowHooks;
 
 typedef struct {

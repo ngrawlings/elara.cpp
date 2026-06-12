@@ -637,6 +637,18 @@ EpaKernel* epa_kernel_find_by_id(const char *kernel_id) {
   return k;
 }
 
+const uint8_t* epa_kernel_last_host_signal_bytes(const EpaKernel *k) {
+  return k ? k->last_host_signal_bytes : NULL;
+}
+
+uint32_t epa_kernel_last_host_signal_len(const EpaKernel *k) {
+  return k ? k->last_host_signal_len : 0u;
+}
+
+uint32_t epa_kernel_last_host_signal_wid(const EpaKernel *k) {
+  return k ? k->last_host_signal_wid : 0u;
+}
+
 int epa_kernel_far_signal_by_uid(EpaKernel *sender, uint32_t source_wid, uint64_t target_kernel_uid,
                                  uint32_t target_wid_hint,
                                  const void *payload, uint32_t payload_len, uint32_t payload_tag,
@@ -1064,6 +1076,7 @@ static void kernel_install_standard_hooks(EpaKernel *k) {
   k->hooks.on_request_at   = hook_request_at;
   k->hooks.on_request_dynamic_pool_capacity = hook_request_dynamic_pool_capacity;
   k->hooks.on_dynlib_import = hook_dynlib_import;
+  k->hooks.on_process_spawn = hook_process_spawn;
 }
 
 static int epa_kernel_load_blob_internal(EpaKernel *k, const uint8_t *blob, size_t blob_len,
@@ -1862,6 +1875,49 @@ EpaKernelModule* epa_kernel_process_load_bundle_bytes(EpaKernel *actor, uint32_t
   if (!module) return NULL;
   if (out_pid) *out_pid = requested_pid;
   return module;
+}
+
+int epa_kernel_process_load_bundle_ghs(EpaKernel *actor, uint32_t source_wid,
+                                       uint64_t ghs_handle, uint32_t byte_count,
+                                       uint32_t requested_pid, uint32_t *out_pid,
+                                       char err[EPA_MAX_ERR]) {
+  uint8_t *bytes;
+  epa_ghs_meta_t meta;
+  EpaKernelModule *module;
+  if (err) err[0] = 0;
+  if (out_pid) *out_pid = 0u;
+  if (!actor || !actor->impl.ghs || !ghs_handle || !byte_count || requested_pid == 0u) {
+    if (err) snprintf(err, EPA_MAX_ERR, "process load ghs: bad args");
+    return 0;
+  }
+  if (epa_ghs_get_meta(actor->impl.ghs, (epa_ghs_handle_t)ghs_handle, &meta) != EPA_GHS_OK) {
+    if (err) snprintf(err, EPA_MAX_ERR, "process load ghs: bad handle");
+    return 0;
+  }
+  if (byte_count > meta.size_bytes) byte_count = meta.size_bytes;
+  bytes = (uint8_t*)malloc(byte_count ? byte_count : 1u);
+  if (!bytes) {
+    if (err) snprintf(err, EPA_MAX_ERR, "process load ghs: OOM");
+    return 0;
+  }
+  if (epa_ghs_read_bytes(actor->impl.ghs, (epa_ghs_handle_t)ghs_handle, 0u, bytes, byte_count) != EPA_GHS_OK) {
+    free(bytes);
+    if (err) snprintf(err, EPA_MAX_ERR, "process load ghs: read failed");
+    return 0;
+  }
+  module = epa_kernel_process_load_bundle_bytes(actor, source_wid, bytes, byte_count,
+                                                requested_pid, out_pid, err);
+  free(bytes);
+  if (!module) return 0;
+  if (!epa_kernel_module_start_all_kernels(module, err)) {
+    epa_kernel_module_destroy(module);
+    return 0;
+  }
+  if (!kernel_take_dynamic_module(actor, module, err)) {
+    epa_kernel_module_destroy(module);
+    return 0;
+  }
+  return 1;
 }
 
 static EpaKernelModule* epa_kernel_module_load_single_blob_dynamic(const uint8_t *blob, size_t blob_len,

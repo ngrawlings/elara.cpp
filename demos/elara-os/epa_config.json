@@ -47,8 +47,19 @@
         "epa/registry/registry_authority.e",
         "epa/registry/security/security_authority.e",
         "epa/io/stream/stream_io_authority.e",
-        "epa/registry/shell/shell_desktop.e",
         "epa/io/frame/window/window_manager.e"
+      ]
+    },
+    {
+      "name": "shell_process",
+      "out": "build/app/elara_shell.epa.bin",
+      "env": {
+        "ELARA_OS_IMAGE": "app",
+        "ELARA_OS_STAGE": "shell-process",
+        "ELARA_OS_VERSION": "0.1.0"
+      },
+      "files": [
+        "epa/app/shell/entry.e"
       ]
     },
     {

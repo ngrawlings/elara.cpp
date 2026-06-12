@@ -461,6 +461,9 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
 static int emit_frame_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_texture_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_texture_pixel_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_frame_textured_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_kernel_get_ghs_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_request_threads_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -468,6 +471,7 @@ static int emit_request_at_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
 static int emit_boot_stage_image_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_boot_reset_to_staged_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_dynamic_import_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_process_spawn_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_ghs_alloc_from_local_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_rgm_publish_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -865,6 +869,9 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"frame_begin", emit_frame_begin_builtin},
     {"frame_rect", emit_frame_rect_builtin},
     {"frame_line", emit_frame_line_builtin},
+    {"frame_texture_begin", emit_frame_texture_begin_builtin},
+    {"frame_texture_pixel", emit_frame_texture_pixel_builtin},
+    {"frame_textured_rect", emit_frame_textured_rect_builtin},
     {"frame_commit", emit_frame_commit_builtin},
     {"far_signal", emit_far_signal_builtin},
     {"request_threads", emit_request_threads_builtin},
@@ -872,6 +879,7 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"boot_stage_image", emit_boot_stage_image_builtin},
     {"boot_reset_to_staged", emit_boot_reset_to_staged_builtin},
     {"dynamic_import", emit_dynamic_import_builtin},
+    {"process_spawn", emit_process_spawn_builtin},
     {"ghs_alloc", emit_ghs_alloc_builtin},
     {"ghs_alloc_from_local", emit_ghs_alloc_from_local_builtin},
     {"rgm_publish", emit_rgm_publish_builtin},
@@ -1804,6 +1812,59 @@ static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   return 1;
 }
 
+static int emit_frame_texture_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_texture_begin expects 2 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_texture_begin only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 3, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[0], ctx, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[1], ctx, depth);
+  return 1;
+}
+
+static int emit_frame_texture_pixel_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 1u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_texture_pixel expects 1 arg, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_texture_pixel only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 4, depth);
+  emit_mailbox_write_expr(out, expr->as.call.args[0], ctx, depth);
+  return 1;
+}
+
+static int emit_frame_textured_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  size_t i;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 4u) {
+    emit_indent(out, depth);
+    fprintf(out, "; frame_textured_rect expects 4 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; frame_textured_rect only valid in workers\n", out);
+    return 0;
+  }
+  emit_mailbox_write_i32(out, 5, depth);
+  for (i = 0; i < 4u; i++) emit_mailbox_write_expr(out, expr->as.call.args[i], ctx, depth);
+  return 1;
+}
+
 static int emit_frame_commit_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   if (!expr || expr->kind != E_EXPR_CALL) return 0;
   if (expr->as.call.arg_count != 0u) {
@@ -2075,6 +2136,44 @@ static int emit_dynamic_import_builtin(FILE *out, const EExpr *expr, EmitCtx *ct
   fprintf(out, "PUSH %u\n", (unsigned int)((uid >> 32) & 0xFFFFFFFFu));
   emit_indent(out, depth);
   fputs("DYNLIB_IMPORT\n", out);
+  return 1;
+}
+
+static int emit_process_spawn_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  unsigned int slot = 0u;
+  int use_current_worker_payload = 0;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 2u) {
+    emit_indent(out, depth);
+    fprintf(out, "; process_spawn expects (ghs_bundle, requested_pid), got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (expr->as.call.args[0] && expr->as.call.args[0]->kind == E_EXPR_IDENT &&
+      ctx->current_worker && ctx->current_worker->param_count == 1u &&
+      strcmp(ctx->current_worker->params[0].name, expr->as.call.args[0]->as.ident) == 0) {
+    use_current_worker_payload = 1;
+  } else if (!expr->as.call.args[0] || expr->as.call.args[0]->kind != E_EXPR_IDENT ||
+             !type_ref_vm_local_slot_for_name(ctx, expr->as.call.args[0]->as.ident, &slot)) {
+    emit_indent(out, depth);
+    fputs("; process_spawn first arg must be a GHS-backed local/type reference\n", out);
+    return 0;
+  }
+
+  if (!use_current_worker_payload) {
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot);
+    emit_indent(out, depth);
+    fputs("POP R0\n", out);
+    emit_indent(out, depth);
+    EMIT_LOAD_L(out, ctx, slot + 1u);
+    emit_indent(out, depth);
+    fputs("POP R1\n", out);
+    emit_indent(out, depth);
+    fputs("G_META\n", out);
+  }
+  emit_expr(out, expr->as.call.args[1], ctx, depth);
+  emit_indent(out, depth);
+  fputs("PROCESS_SPAWN\n", out);
   return 1;
 }
 

@@ -63,5 +63,12 @@ worker register_block_device(BlockDeviceRegistration registration) {
 worker block_io_ingress(BlockIoRequest request) {
   int device_iter = dynamic_iterator(block_devices);
   device_iter = device_iter;
-  host_signal();
+
+  if (request.opcode == block_io_opcode_read_blocks()) {
+    frame_begin(block_io_mailbox_magic(), request.drive_id, request.opcode, request.lba, request.block_count);
+    frame_commit();
+    retire_worker();
+  } else {
+    host_signal();
+  }
 }

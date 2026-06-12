@@ -561,6 +561,13 @@ int hook_dynlib_import(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t by
                                                        local_name_uid, out_module_count, err);
 }
 
+int hook_process_spawn(void *user, uint8_t wid, uint64_t ghs_handle, uint32_t byte_count,
+                       uint32_t requested_pid, uint32_t *out_pid, char err[EPA_MAX_ERR]) {
+  EpaKernel *k = (EpaKernel*)user;
+  return epa_kernel_process_load_bundle_ghs(k, wid, ghs_handle, byte_count,
+                                            requested_pid, out_pid, err);
+}
+
 int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
   EpaKernel *k = (EpaKernel*)user;
   EpaWorkerState *w;

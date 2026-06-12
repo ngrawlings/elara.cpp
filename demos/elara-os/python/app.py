@@ -195,7 +195,14 @@ class ExtLogicTkMonitor:
                         )
                         self._append(f"[boot] host ingress result:\n{json.dumps(ingress['ingress'], indent=2)}\n")
                         self._append(f"[action] {command} boot payload queued through C++ host\n")
-                        self._set_status(f"{command.capitalize()} payload queued")
+                        if command == "power":
+                            self._set_status("Powering EPA boot")
+                            run_result = _continue_boot_descriptor(client)
+                            self._append(f"[boot] host continue result:\n{json.dumps(run_result, indent=2)}\n")
+                            self._append("[action] power completed EPA boot run\n")
+                            self._set_status("Powered on")
+                        else:
+                            self._set_status(f"{command.capitalize()} payload queued")
 
                 try:
                     pong = client.ping()
