@@ -8,12 +8,15 @@
 static void worker_free_dynamic_pools(EpaWorkerState *w) {
   uint32_t i;
   if (!w || !w->dynamic_pools) return;
-  for (i = 0; i < w->dynamic_pool_count; i++) {
-    epa_dynamic_pool_free(&w->dynamic_pools[i]);
+  if (w->dynamic_pools_owned) {
+    for (i = 0; i < w->dynamic_pool_count; i++) {
+      epa_dynamic_pool_free(&w->dynamic_pools[i]);
+    }
+    free(w->dynamic_pools);
   }
-  free(w->dynamic_pools);
   w->dynamic_pools = NULL;
   w->dynamic_pool_count = 0u;
+  w->dynamic_pools_owned = 0u;
 }
 
 int epa_worker_init(EpaWorkerState *w, uint32_t block_id,
@@ -176,6 +179,23 @@ int epa_worker_configure_dynamic_pools(EpaWorkerState *w,
 
   w->dynamic_pools = pools;
   w->dynamic_pool_count = config_count;
+  w->dynamic_pools_owned = 1u;
+  return 1;
+}
+
+int epa_worker_attach_dynamic_pools(EpaWorkerState *w,
+                                    EpaDynamicPool *pools,
+                                    uint32_t pool_count,
+                                    char err[EPA_MAX_ERR]) {
+  if (err) err[0] = 0;
+  if (!w || !w->inited) {
+    snprintf(err, EPA_MAX_ERR, "worker dynamic attach: worker not initialized");
+    return 0;
+  }
+  worker_free_dynamic_pools(w);
+  w->dynamic_pools = pools;
+  w->dynamic_pool_count = pool_count;
+  w->dynamic_pools_owned = 0u;
   return 1;
 }
 

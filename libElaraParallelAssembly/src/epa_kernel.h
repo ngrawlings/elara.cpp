@@ -84,6 +84,8 @@ typedef struct {
 
   epa_ghs_t* ghs;
   epa_rgm_t* rgm;
+  EpaDynamicPool *dynamic_pools;
+  uint32_t dynamic_pool_count;
   EpaSystemAtRequestRing atq;
   EpaSystemMemoryRequestRing memq;
 

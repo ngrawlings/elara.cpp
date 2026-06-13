@@ -242,6 +242,7 @@ static unsigned int intern_string_const(EmitCtx *ctx, const char *literal) {
 static void collect_strings_in_expr(EmitCtx *ctx, const EExpr *expr);
 static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static unsigned int next_label(EmitCtx *ctx);
+static unsigned int label_namespace_seed(const char *main_file);
 
 static void emit_python_mod_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
   unsigned int zero_label = next_label(ctx);
@@ -458,6 +459,7 @@ static int emit_kernel_wait_signal_builtin(FILE *out, const EExpr *expr, EmitCtx
 static int emit_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_host_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
+static int emit_far_signal_current_payload_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_begin_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_rect_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
 static int emit_frame_line_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth);
@@ -874,6 +876,7 @@ static int emit_call_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int dep
     {"frame_textured_rect", emit_frame_textured_rect_builtin},
     {"frame_commit", emit_frame_commit_builtin},
     {"far_signal", emit_far_signal_builtin},
+    {"far_signal_current_payload", emit_far_signal_current_payload_builtin},
     {"request_threads", emit_request_threads_builtin},
     {"request_at", emit_request_at_builtin},
     {"boot_stage_image", emit_boot_stage_image_builtin},
@@ -1950,6 +1953,84 @@ static int emit_far_signal_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, i
   validator = find_validator_binding(ctx->model, binding->type_name);
   emit_indent(out, depth);
   fprintf(out, "PUSH %u\n", validator ? validator->validator_id : 0u);
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
+  emit_indent(out, depth);
+  if (target_wid_placeholder) {
+    fprintf(out, "PUSH <<%s>>\n", target_wid_placeholder);
+  } else {
+    fprintf(out, "PUSH %u\n", target_wid);
+  }
+  emit_indent(out, depth);
+  fputs("FAR_SIGNAL\n", out);
+  return 1;
+}
+
+static int emit_far_signal_current_payload_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
+  const ELocalBinding *binding;
+  unsigned int target_wid;
+  const char *target_wid_placeholder = NULL;
+  if (!expr || expr->kind != E_EXPR_CALL) return 0;
+  if (expr->as.call.arg_count != 3u) {
+    emit_indent(out, depth);
+    fprintf(out, "; far_signal_current_payload expects 3 args, got %zu\n", expr->as.call.arg_count);
+    return 0;
+  }
+  if (!ctx->current_worker) {
+    emit_indent(out, depth);
+    fputs("; far_signal_current_payload only valid in workers\n", out);
+    return 0;
+  }
+  if (!emit_target_kernel_uid_to_regs(out, expr->as.call.args[0], ctx, depth)) {
+    emit_indent(out, depth);
+    fputs("; far_signal_current_payload target_id must be a string literal\n", out);
+    return 0;
+  }
+  if (expr->as.call.args[1]->kind == E_EXPR_IDENT) {
+    const char *wname = expr->as.call.args[1]->as.ident;
+    target_wid = worker_entry_id_for_name(ctx->model, wname);
+    if (target_wid == 0u && expr->as.call.args[0]->kind == E_EXPR_STRING) {
+      char norm_kernel[512];
+      target_wid = e_cross_kernel_lookup(&ctx->model->cross_kernel,
+                                          normalized_string_token(expr->as.call.args[0]->as.string_lit, norm_kernel, sizeof(norm_kernel)),
+                                          wname);
+    }
+    if (target_wid == 0u) {
+      if (ctx->model->cross_kernel.count == 0u && expr->as.call.args[0]->kind == E_EXPR_STRING) {
+        emit_indent(out, depth);
+        fprintf(out, "; far_signal_current_payload target worker unresolved in single-file compile: %s\n", wname);
+        target_wid_placeholder = wname;
+      }
+      if (!target_wid_placeholder) {
+        emit_indent(out, depth);
+        fprintf(out, "// error: far_signal_current_payload: worker '%s' not found in compilation unit or cross-kernel index\n", wname);
+        return 0;
+      }
+    }
+  } else if (expr->as.call.args[1]->kind == E_EXPR_INT) {
+    target_wid = (unsigned int)expr->as.call.args[1]->as.int_lit;
+  } else {
+    emit_indent(out, depth);
+    fputs("; far_signal_current_payload worker must be a worker name or integer index\n", out);
+    return 0;
+  }
+  if (expr->as.call.args[2]->kind != E_EXPR_IDENT) {
+    emit_indent(out, depth);
+    fputs("; far_signal_current_payload header must be a local area variable identifier\n", out);
+    return 0;
+  }
+  binding = find_local_binding_by_name(active_frame_for_ctx(ctx), expr->as.call.args[2]->as.ident);
+  if (!binding || (binding->storage != E_LOCAL_ARENA_SCOPED && binding->storage != E_LOCAL_STACK_STATIC) || binding->vm_local_words != 2u) {
+    emit_indent(out, depth);
+    fputs("; far_signal_current_payload header must be a local or static declared type variable\n", out);
+    return 0;
+  }
+  emit_indent(out, depth);
+  EMIT_LOAD_L(out, ctx, binding->vm_local_slot);
+  emit_indent(out, depth);
+  fputs("POP R3\n", out);
+  emit_indent(out, depth);
+  fputs("PUSH 4294967295\n", out);
   emit_indent(out, depth);
   EMIT_LOAD_L(out, ctx, binding->vm_local_slot + 1u);
   emit_indent(out, depth);
@@ -3734,6 +3815,18 @@ static unsigned int next_label(EmitCtx *ctx) {
   return ctx->next_label_id++;
 }
 
+static unsigned int label_namespace_seed(const char *main_file) {
+  unsigned int h = 2166136261u;
+  const unsigned char *p = (const unsigned char *)(main_file ? main_file : "");
+  while (*p) {
+    h ^= (unsigned int)(*p++);
+    h *= 16777619u;
+  }
+  h &= 0x000fffffu;
+  if (h == 0u) h = 1u;
+  return h * 4096u;
+}
+
 static void emit_scratch_load_reg(FILE *out, int depth, unsigned int reg, unsigned int byte_offset) {
   emit_indent(out, depth);
   fputs("POP R0\n", out);
@@ -4582,7 +4675,7 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
 
   if (err) err[0] = 0;
   memset(&ctx, 0, sizeof(ctx));
-  ctx.next_label_id = 1u;
+  ctx.next_label_id = label_namespace_seed(main_file);
   ctx.next_worker_id = 1u;
   ctx.next_func_id = 1u;
   ctx.next_string_id = 1u;

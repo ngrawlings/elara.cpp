@@ -607,6 +607,43 @@ int hook_far_signal(void *user, uint8_t wid, char err[EPA_MAX_ERR]) {
     return 0;
   }
 
+  if (payload_tag == 0xffffffffu) {
+    epa_ghs_meta_t meta;
+    uint8_t *payload_copy;
+    epa_ghs_err_t ge;
+    if (!w->has_current_ghs) {
+      snprintf(err, EPA_MAX_ERR, "hook_far_signal: current payload patch requested without current ingress GHS");
+      return 0;
+    }
+    ge = epa_ghs_get_meta(k->impl.ghs, w->current_ghs, &meta);
+    if (ge != EPA_GHS_OK) {
+      snprintf(err, EPA_MAX_ERR, "hook_far_signal: current payload meta failed err=%d", ge);
+      return 0;
+    }
+    if (payload_size > meta.size_bytes) {
+      snprintf(err, EPA_MAX_ERR, "hook_far_signal: patch header exceeds current payload size");
+      return 0;
+    }
+    payload_copy = (uint8_t*)malloc((size_t)meta.size_bytes);
+    if (!payload_copy) {
+      snprintf(err, EPA_MAX_ERR, "hook_far_signal: OOM copying current payload");
+      return 0;
+    }
+    ge = epa_ghs_read_bytes(k->impl.ghs, w->current_ghs, 0u, payload_copy, meta.size_bytes);
+    if (ge != EPA_GHS_OK) {
+      free(payload_copy);
+      snprintf(err, EPA_MAX_ERR, "hook_far_signal: current payload read failed err=%d", ge);
+      return 0;
+    }
+    memcpy(payload_copy, w->vm.lbytes + payload_off, (size_t)payload_size);
+    if (!epa_kernel_far_signal_by_uid(k, wid, target_uid, target_wid, payload_copy, meta.size_bytes, 0u, err)) {
+      free(payload_copy);
+      return 0;
+    }
+    free(payload_copy);
+    return 1;
+  }
+
   if (!epa_kernel_far_signal_by_uid(k, wid, target_uid, target_wid, w->vm.lbytes + payload_off, payload_size, payload_tag, err)) {
     return 0;
   }

@@ -12,6 +12,7 @@ typedef struct EpaKernel EpaKernel;
 #define ELARAOS_EPA_DEBUG_MAX_WORKERS 256
 #define ELARAOS_EPA_DEBUG_STACK_PREVIEW 8
 #define ELARAOS_EPA_DEBUG_LOCALS 32
+#define ELARAOS_EPA_DEBUG_DYNAMIC_POOLS 16
 
 typedef struct {
   uint8_t block_type;
@@ -52,6 +53,9 @@ typedef struct {
   uint32_t current_wid;
   uint32_t interrupt_requested;
   uint32_t worker_count;
+  uint32_t dynamic_pool_count;
+  uint32_t dynamic_pool_live_count[ELARAOS_EPA_DEBUG_DYNAMIC_POOLS];
+  uint32_t dynamic_pool_cap[ELARAOS_EPA_DEBUG_DYNAMIC_POOLS];
 } ElaraOsEpaDebugKernelSnapshot;
 
 int ElaraOs_epa_debug_capture_kernel(EpaKernel *kernel, ElaraOsEpaDebugKernelSnapshot *out_snapshot);

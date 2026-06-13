@@ -83,6 +83,7 @@ typedef struct {
 
   EpaDynamicPool *dynamic_pools;
   uint32_t dynamic_pool_count;
+  uint8_t dynamic_pools_owned;
 
 } EpaWorkerState;
 
@@ -99,4 +100,8 @@ int  epa_worker_configure_dynamic_pools(EpaWorkerState *w,
                                         const EpaDynamicPoolConfig *configs,
                                         uint32_t config_count,
                                         char err[EPA_MAX_ERR]);
+int  epa_worker_attach_dynamic_pools(EpaWorkerState *w,
+                                     EpaDynamicPool *pools,
+                                     uint32_t pool_count,
+                                     char err[EPA_MAX_ERR]);
 int  epa_worker_round_enter(EpaWorkerState *w, char err[EPA_MAX_ERR]);

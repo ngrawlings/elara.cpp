@@ -8,12 +8,18 @@
 
 int ElaraOs_epa_debug_capture_kernel(EpaKernel *kernel, ElaraOsEpaDebugKernelSnapshot *out_snapshot) {
   uint32_t wid;
+  uint32_t pool_index;
   if (!kernel || !out_snapshot) return 0;
   memset(out_snapshot, 0, sizeof(*out_snapshot));
   out_snapshot->prog_loaded = (uint32_t)kernel->prog_loaded;
   out_snapshot->rr_cursor = kernel->impl.rr_cursor;
   out_snapshot->current_wid = kernel->impl.cur_wid;
   out_snapshot->interrupt_requested = (uint32_t)kernel->impl.interrupt_requested;
+  out_snapshot->dynamic_pool_count = kernel->impl.dynamic_pool_count;
+  for (pool_index = 0; pool_index < kernel->impl.dynamic_pool_count && pool_index < ELARAOS_EPA_DEBUG_DYNAMIC_POOLS; pool_index++) {
+    out_snapshot->dynamic_pool_live_count[pool_index] = kernel->impl.dynamic_pools ? kernel->impl.dynamic_pools[pool_index].count : 0u;
+    out_snapshot->dynamic_pool_cap[pool_index] = kernel->impl.dynamic_pools ? kernel->impl.dynamic_pools[pool_index].cap : 0u;
+  }
   for (wid = 0; wid < EPA_MAX_WORKERS; wid++) {
     if (kernel->impl.workers[wid].inited) out_snapshot->worker_count++;
   }

@@ -2080,26 +2080,10 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 }
                 root_mount_registered = true;
                 if (kernel_image_loaded) {
-                    std::string kernel_hex;
-                    appendBytesHex(kernel_hex, kernel_image);
-                    if (!epaDbgCall(
-                            String("epa.debug.ingressPushHex"),
-                            String("{\"path_id\":") + jsonQuoteString(boot_path_id)
-                                + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(kernel_hex.c_str())) + String("}"),
-                            boot_kernel_ingress_result)) {
-                        error_message = String("failed to queue second-stage kernel image");
-                        return false;
-                    }
-                    if (!epaDbgCall(
-                            String("epa.debug.run"),
-                            String("{\"path_id\":") + jsonQuoteString(boot_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
-                            boot_kernel_run_result)) {
-                        error_message = String("epa.debug.run failed for boot kernel image handoff");
-                        if (epa_dbg_last_error.length()) {
-                            error_message = error_message + String(": ") + epa_dbg_last_error;
-                        }
-                        return false;
-                    }
+                    sendHostDebugEvent(
+                        "state",
+                        "\"status\":\"second-stage kernel image present; handoff deferred while root kernel owns filesystem boot\""
+                    );
                 }
                 sendHostDebugEvent(
                     "state",
@@ -2210,20 +2194,9 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             break;
         }
 
-        int request_drive_id = (int)(block_header.height & 0xffffu);
-        int request_target_inode = (int)((block_header.height >> 16) & 0xffffu);
+        int request_drive_id = (int)block_header.height;
         int request_lba = (int)block_header.frame_id;
-        int request_block_count = (int)(block_header.record_count & 0xffu);
-        int request_phase = (int)((block_header.record_count >> 8) & 0xffu);
-        int request_block_size = request_block_count * 512;
-        int request_inode_table_block = (int)(block_header.record_count >> 16);
-        if ((request_phase == 2 || request_phase == 5) && request_target_inode > 0 && request_block_size > 0) {
-            if (request_inode_table_block == 0) {
-                int inode_index = request_target_inode - 1;
-                uint64_t inode_table_byte_offset = ((uint64_t)request_lba * 512ull) - ((uint64_t)inode_index * 256ull);
-                request_inode_table_block = (int)(inode_table_byte_offset / (uint64_t)request_block_size);
-            }
-        }
+        int request_block_count = (int)block_header.record_count;
         const BootDriveInfo *source_drive = NULL;
         const GptPartitionInfo *source_partition = NULL;
         for (size_t pi = 0; pi < discovered_partitions.size(); ++pi) {
@@ -2261,44 +2234,36 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                 + String("\"}");
             break;
         }
-        uint32_t response_arg0 = 0u;
-        uint32_t response_arg1 = 0u;
-        if (request_phase == 1 && block_payload.size() >= 12u) {
-            response_arg0 = readLeU32At(block_payload.data() + 8u);
-        } else if ((request_phase == 2 || request_phase == 5) && request_target_inode > 0 && request_block_size > 0) {
-            uint64_t inode_index = (uint64_t)(request_target_inode - 1);
-            uint64_t inode_table_byte_offset = (uint64_t)request_inode_table_block * (uint64_t)request_block_size;
-            uint64_t inode_byte_offset = inode_table_byte_offset + (inode_index * 256ull);
-            uint64_t inode_payload_offset = inode_byte_offset - ((uint64_t)request_lba * 512ull);
-            if (inode_payload_offset + 64ull <= block_payload.size()) {
-                response_arg0 = (uint32_t)readLeU16At(block_payload.data() + inode_payload_offset + 40ull);
-                response_arg1 = readLeU32At(block_payload.data() + inode_payload_offset + 60ull);
-            }
-        }
-
         std::string response_hex;
         appendLeU32Hex(response_hex, 2u);
         appendLeU32Hex(response_hex, (uint32_t)request_drive_id);
         appendLeU32Hex(response_hex, (uint32_t)request_lba);
         appendLeU32Hex(response_hex, (uint32_t)request_block_count);
         appendLeU32Hex(response_hex, (uint32_t)block_payload.size());
-        appendLeU32Hex(response_hex, (uint32_t)request_phase);
-        appendLeU32Hex(response_hex, (uint32_t)request_target_inode);
-        appendLeU32Hex(response_hex, (uint32_t)request_block_size);
-        appendLeU32Hex(response_hex, (uint32_t)request_inode_table_block);
-        appendLeU32Hex(response_hex, response_arg0);
-        appendLeU32Hex(response_hex, response_arg1);
+        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, 0u);
         appendBytesHex(response_hex, block_payload);
+        appendLeU32Hex(response_hex, 0u);
         if (!epaDbgCall(
                 String("epa.debug.ingressPushHex"),
-                String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
-                    + String(",\"wid\":4,\"payload_hex\":") + jsonQuoteString(String(response_hex.c_str())) + String("}"),
+                String("{\"path_id\":") + jsonQuoteString(block_io_path_id)
+                    + String(",\"wid\":3,\"payload_hex\":") + jsonQuoteString(String(response_hex.c_str())) + String("}"),
                 block_io_response_ingress_result)) {
             block_io_device_read_result = String("{\"serviced\":")
                 + String(block_io_serviced_count)
                 + String(",\"error\":\"failed to inject block response\"}");
             break;
         }
+
+        String block_io_result_dispatch_run;
+        epaDbgCall(
+            String("epa.debug.run"),
+            String("{\"path_id\":") + jsonQuoteString(block_io_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
+            block_io_result_dispatch_run);
 
         String filesystem_block_result_run;
         epaDbgCall(
@@ -2314,6 +2279,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             + String(",\"last_block_count\":") + String(request_block_count)
             + String(",\"last_bytes\":") + String((int)block_payload.size())
             + String(",\"last_ingress\":") + (block_io_response_ingress_result.length() ? block_io_response_ingress_result : String("{}"))
+            + String(",\"last_block_io_dispatch_run\":") + (block_io_result_dispatch_run.length() ? block_io_result_dispatch_run : String("{}"))
             + String(",\"last_filesystem_mailbox\":") + (filesystem_response_mailbox_result.length() ? filesystem_response_mailbox_result : String("{}"))
             + String(",\"last_filesystem_run\":") + (filesystem_block_result_run.length() ? filesystem_block_result_run : String("{}"))
             + String("}");

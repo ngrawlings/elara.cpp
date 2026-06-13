@@ -360,6 +360,16 @@ String ElaraOsEpaDebugService::buildSnapshotJson(EpaKernel *kernel, const String
     result += String(",\"current_wid\":") + String((int)kernel_snapshot.current_wid);
     result += String(",\"interrupt_requested\":") + String((int)kernel_snapshot.interrupt_requested);
     result += String(",\"worker_count\":") + String((int)kernel_snapshot.worker_count);
+    result += String(",\"dynamic_pool_count\":") + String((int)kernel_snapshot.dynamic_pool_count);
+    result += String(",\"dynamic_pools\":[");
+    for (uint32_t pi = 0; pi < kernel_snapshot.dynamic_pool_count && pi < ELARAOS_EPA_DEBUG_DYNAMIC_POOLS; pi++) {
+        if (pi) result += String(",");
+        result += String("{\"pool_id\":") + String((int)pi)
+            + String(",\"live\":") + String((int)kernel_snapshot.dynamic_pool_live_count[pi])
+            + String(",\"cap\":") + String((int)kernel_snapshot.dynamic_pool_cap[pi])
+            + String("}");
+    }
+    result += String("]");
     result += String("},\"workers\":[");
     for (size_t i = 0; i < worker_count; i++) {
         if (i) result += String(",");

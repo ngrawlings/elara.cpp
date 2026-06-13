@@ -508,6 +508,14 @@ void epa_kernel_destroy(EpaKernel *k) {
     if (k->impl.workers[i].inited) epa_worker_free(&k->impl.workers[i]);
     memset(&k->impl.workers[i], 0, sizeof(k->impl.workers[i]));
   }
+  if (k->impl.dynamic_pools) {
+    for (uint32_t i = 0; i < k->impl.dynamic_pool_count; i++) {
+      epa_dynamic_pool_free(&k->impl.dynamic_pools[i]);
+    }
+    free(k->impl.dynamic_pools);
+    k->impl.dynamic_pools = NULL;
+    k->impl.dynamic_pool_count = 0u;
+  }
 
   if (k->impl.ghs) {
   	  epa_ghs_destroy(k->impl.ghs);
@@ -923,11 +931,20 @@ int epa_kernel_far_signal_by_id(EpaKernel *sender, uint32_t source_wid, const ch
 static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, char err[EPA_MAX_ERR]) {
   EpaDynamicPoolConfig dynamic_cfgs[256];
   uint32_t dynamic_cfg_count = 0u;
+  uint32_t i;
   // wipe old workers and reset active-worker linked list
-  for (uint32_t i = 0; i < EPA_MAX_WORKERS; i++) {
+  for (i = 0; i < EPA_MAX_WORKERS; i++) {
     if (k->workers[i].inited) epa_worker_free(&k->workers[i]);
     memset(&k->workers[i], 0, sizeof(k->workers[i]));
     k->worker_next[i] = EPA_MAX_WORKERS; // nil sentinel
+  }
+  if (k->dynamic_pools) {
+    for (i = 0; i < k->dynamic_pool_count; i++) {
+      epa_dynamic_pool_free(&k->dynamic_pools[i]);
+    }
+    free(k->dynamic_pools);
+    k->dynamic_pools = NULL;
+    k->dynamic_pool_count = 0u;
   }
   k->n_workers   = 0;
   k->worker_head = EPA_MAX_WORKERS; // empty list
@@ -949,6 +966,30 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     dynamic_cfgs[dynamic_cfg_count].grow_by = prog->dynamic_pools[dynamic_cfg_count].grow_by;
   }
 
+  if (dynamic_cfg_count > 0u) {
+    k->dynamic_pools = (EpaDynamicPool*)calloc(dynamic_cfg_count, sizeof(EpaDynamicPool));
+    if (!k->dynamic_pools) {
+      snprintf(err, EPA_MAX_ERR, "kernel dynamic pool config: OOM");
+      return 0;
+    }
+    k->dynamic_pool_count = dynamic_cfg_count;
+    for (i = 0; i < dynamic_cfg_count; i++) {
+      if (!epa_dynamic_pool_init(&k->dynamic_pools[i],
+                                 dynamic_cfgs[i].min_free,
+                                 dynamic_cfgs[i].max_free,
+                                 dynamic_cfgs[i].grow_by,
+                                 dynamic_cfgs[i].element_size,
+                                 err)) {
+        uint32_t j;
+        for (j = 0; j < i; j++) epa_dynamic_pool_free(&k->dynamic_pools[j]);
+        free(k->dynamic_pools);
+        k->dynamic_pools = NULL;
+        k->dynamic_pool_count = 0u;
+        return 0;
+      }
+    }
+  }
+
   for (uint32_t id = 0; id < 256; id++) {
     if (!prog->entry_present[id]) continue;
 
@@ -968,7 +1009,7 @@ static int init_workers_from_prog(KernelImpl *k, const EpaProgramDesc *prog, cha
     }
     k->workers[id].privilege = prog->worker_privilege[id];
     k->workers[id].ignore_max_ticks = prog->worker_ignore_max_ticks[id] ? 1u : 0u;
-    if (!epa_worker_configure_dynamic_pools(&k->workers[id], dynamic_cfgs, dynamic_cfg_count, err)) {
+    if (!epa_worker_attach_dynamic_pools(&k->workers[id], k->dynamic_pools, k->dynamic_pool_count, err)) {
       return 0;
     }
 
