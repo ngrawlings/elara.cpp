@@ -59,6 +59,7 @@ struct EmitCtx {
   const char *main_file;
   int inside_worker_static_block;
   int inside_kernel_static_block;
+  int function_scoped; /* 1 when inside a function body that has L_SCOPE_ENTER */
 };
 
 static void emit_indent(FILE *out, int depth) {
@@ -1143,6 +1144,26 @@ static void emit_expr(FILE *out, const EExpr *expr, EmitCtx *ctx, int depth) {
           }
         }
         if (!found_field) {
+          fprintf(out, "; expr ident %s\n", expr->as.ident);
+        }
+      } else if (ctx->current_worker) {
+        /* Worker incoming GHS param passed as a function argument.
+           Emit 0,0 as the handle placeholder; GR_MOV4 in the callee
+           falls back to w->current_ghs which stays valid throughout
+           the worker's execution. */
+        size_t _pi;
+        int _found_wp = 0;
+        for (_pi = 0; _pi < ctx->current_worker->param_count; _pi++) {
+          if (strcmp(ctx->current_worker->params[_pi].name, expr->as.ident) == 0) {
+            emit_indent(out, depth);
+            fputs("PUSH 0\n", out);
+            emit_indent(out, depth);
+            fputs("PUSH 0\n", out);
+            _found_wp = 1;
+            break;
+          }
+        }
+        if (!_found_wp) {
           fprintf(out, "; expr ident %s\n", expr->as.ident);
         }
       } else {
@@ -2603,6 +2624,57 @@ static int emit_local_load_u8_builtin(FILE *out, const EExpr *expr, EmitCtx *ctx
       return 1;
     }
   }
+  /* PATH 1.5: function param whose type has a flexible (payload) tail.
+     When local_load_u8(result.payload, N) is called from inside a function
+     that received result as a GHS-type parameter, use GR_MOV4 (not LBR_MOV1)
+     since the payload lives in the GHS, not in lbytes. */
+  if (source && source->kind == E_EXPR_FIELD && source->as.field.base &&
+      source->as.field.base->kind == E_EXPR_IDENT && ctx && ctx->current_function) {
+    const EFunctionParamCheck *fparam = find_param_check_by_name(ctx, source->as.field.base->as.ident);
+    if (fparam) {
+      const char *fn_type_name = ctx->current_function->params[fparam->param_index].type.name;
+      const EGhsField *fn_field = find_field_layout(ctx->model, fn_type_name, source->as.field.field);
+      if (fn_field && fn_field->is_flexible_tail) {
+        emit_expr(out, expr->as.call.args[1], ctx, depth);
+        if (fparam->vm_local_words == 2u) {
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, fparam->vm_local_slot);
+          emit_indent(out, depth);
+          fputs("POP R0\n", out);
+          emit_indent(out, depth);
+          EMIT_LOAD_L(out, ctx, fparam->vm_local_slot + 1u);
+          emit_indent(out, depth);
+          fputs("POP R1\n", out);
+        } else {
+          emit_indent(out, depth);
+          fputs("SET_R 0 0\n", out);
+          emit_indent(out, depth);
+          fputs("SET_R 1 0\n", out);
+        }
+        emit_indent(out, depth);
+        fputs("POP R2\n", out);
+        if (fn_field->ghs_offset > 0u) {
+          emit_indent(out, depth);
+          fputs("PUSH R2\n", out);
+          emit_indent(out, depth);
+          fprintf(out, "PUSH %zu\n", fn_field->ghs_offset);
+          emit_indent(out, depth);
+          fputs("ADD_I32\n", out);
+          emit_indent(out, depth);
+          fputs("POP R2\n", out);
+        }
+        emit_indent(out, depth);
+        fputs("GR_MOV4 0\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH R0\n", out);
+        emit_indent(out, depth);
+        fputs("PUSH 255\n", out);
+        emit_indent(out, depth);
+        fputs("AND_I32\n", out);
+        return 1;
+      }
+    }
+  }
   emit_expr(out, expr->as.call.args[0], ctx, depth);
   emit_expr(out, expr->as.call.args[1], ctx, depth);
   emit_indent(out, depth);
@@ -4029,6 +4101,10 @@ static void emit_stmt(FILE *out, const EStmt *stmt, EmitCtx *ctx, int depth, con
     }
     case E_STMT_RETURN:
       if (stmt->as.ret.value) emit_expr(out, stmt->as.ret.value, ctx, depth);
+      if (ctx->function_scoped) {
+        emit_indent(out, depth);
+        fputs("L_SCOPE_LEAVE\n", out);
+      }
       emit_indent(out, depth);
       fputs("RET\n", out);
       break;
@@ -4927,7 +5003,11 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
                       pi, pool->name, pool->min_free);
             }
           }
+          emit_indent(out, 1);
+          fputs("L_SCOPE_ENTER\n", out);
           emit_stmt(out, top->as.worker.body, &ctx, 1, NULL, NULL);
+          emit_indent(out, 1);
+          fputs("L_SCOPE_LEAVE\n", out);
           emit_indent(out, 1);
           fprintf(out, "JMP E_WORKER_WAIT_%u\n", loop_id);
           ctx.current_worker = NULL;
@@ -4942,7 +5022,10 @@ int e_emit_epa_asm(FILE *out, FILE *map_out,
         ctx.iter_binding_count = 0u;
         ctx.current_function = &top->as.func;
         ctx.current_frame = find_frame(model, top->as.func.name);
+        ctx.function_scoped = 1;
+        fputs("  L_SCOPE_ENTER\n", out);
         emit_stmt(out, top->as.func.body, &ctx, 1, NULL, NULL);
+        ctx.function_scoped = 0;
         fputs("FUNC_END\n\n", out);
         ctx.current_function = NULL;
         ctx.current_frame = NULL;

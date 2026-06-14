@@ -1931,78 +1931,16 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             sendHostDebugEvent("state", partition_payload);
 
             if (!root_mount_registered && partitions[p].flags == 1) {
+                // Minimal mount: EPA owns all ext4 traversal; host only provides drive identity.
                 std::string mount_hex;
-                std::vector<unsigned char> ext4_superblock;
-                Ext4RootInodeSummary root_inode_summary;
-                std::vector<Ext4DirectoryEntrySummary> root_dir_entries;
-                std::vector<unsigned char> kernel_image;
-                std::string read_error;
-                bool kernel_image_loaded = false;
-                if (!readPartitionBytes(boot_drives[i], partitions[p], 1024u, 1024u, ext4_superblock, read_error)) {
-                    error_message = String(read_error.c_str());
-                    return false;
-                }
-                root_ext4_json = ext4SuperblockSummaryJson(partitions[p], ext4_superblock);
                 appendLeU32Hex(mount_hex, 1u);
                 appendLeU32Hex(mount_hex, (uint32_t)partitions[p].partition_drive_id);
                 appendLeU32Hex(mount_hex, 1u);
                 appendLeU32Hex(mount_hex, 3u);
                 appendLeU32Hex(mount_hex, root_mount_path_hash);
-                uint32_t log_block_size = readLeU32At(ext4_superblock.data() + 24u);
-                uint32_t block_size = 1024u;
-                for (uint32_t bi = 0; bi < log_block_size && bi < 16u; ++bi) {
-                    block_size *= 2u;
+                for (int fi = 0; fi < 17; ++fi) {
+                    appendLeU32Hex(mount_hex, 0u);
                 }
-                uint32_t inode_size = (uint32_t)readLeU16At(ext4_superblock.data() + 88u);
-                if (!readExt4RootInodeSummary(boot_drives[i], partitions[p], block_size, inode_size, root_inode_summary, read_error)) {
-                    error_message = String(read_error.c_str());
-                    return false;
-                }
-                root_inode_json = ext4RootInodeSummaryJson(root_inode_summary);
-                if (!readExt4RootDirectoryEntries(boot_drives[i], partitions[p], block_size, root_inode_summary, root_dir_entries, read_error)) {
-                    error_message = String(read_error.c_str());
-                    return false;
-                }
-                root_dir_json = ext4DirectoryEntriesSummaryJson(root_dir_entries);
-                if (!readExt4KernelImage(
-                        boot_drives[i],
-                        partitions[p],
-                        block_size,
-                        inode_size,
-                        readLeU32At(ext4_superblock.data() + 40u),
-                        kernel_image,
-                        read_error)) {
-                    kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"error\":\"")
-                        + String(jsonEscape(read_error.c_str()).c_str())
-                        + String("\"}");
-                    sendHostDebugEvent(
-                        "state",
-                        (String("\"status\":\"second-stage kernel image read deferred\",\"error\":\"")
-                            + String(jsonEscape(read_error.c_str()).c_str())
-                            + String("\"")).operator char *()
-                    );
-                } else {
-                    kernel_image_loaded = true;
-                    kernel_image_json = String("{\"path\":\"/boot/elara/epa_kernel.bin\",\"bytes\":")
-                        + String((int)kernel_image.size()) + String("}");
-                }
-                appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 56u));
-                appendLeU32Hex(mount_hex, block_size);
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 4u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 0u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 32u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 40u));
-                appendLeU32Hex(mount_hex, (uint32_t)readLeU16At(ext4_superblock.data() + 88u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 92u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 96u));
-                appendLeU32Hex(mount_hex, readLeU32At(ext4_superblock.data() + 100u));
-                appendLeU32Hex(mount_hex, root_inode_summary.mode);
-                appendLeU32Hex(mount_hex, root_inode_summary.size_lo);
-                appendLeU32Hex(mount_hex, root_inode_summary.blocks_lo);
-                appendLeU32Hex(mount_hex, root_inode_summary.flags);
-                appendLeU32Hex(mount_hex, root_inode_summary.extent_magic);
-                appendLeU32Hex(mount_hex, root_inode_summary.extent_entries);
-                appendLeU32Hex(mount_hex, root_inode_summary.extent_depth);
                 if (!epaDbgCall(
                         String("epa.debug.ingressPushHex"),
                         String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
@@ -2011,57 +1949,22 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     error_message = String("failed to queue root mount registration");
                     return false;
                 }
-                if (!epaDbgCall(
-                        String("epa.debug.run"),
-                        String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
-                        filesystem_run_result)) {
-                    error_message = String("epa.debug.run failed while staging root mount before directory entries");
-                    if (epa_dbg_last_error.length()) {
-                        error_message = error_message + String(": ") + epa_dbg_last_error;
-                    }
-                    return false;
-                }
 
-                for (int boot_entry_pass = 0; boot_entry_pass < 2; ++boot_entry_pass) {
-                for (size_t di = 0; di < root_dir_entries.size(); ++di) {
-                    bool is_boot_entry = root_dir_entries[di].name == "boot";
-                    if ((boot_entry_pass == 0 && is_boot_entry) || (boot_entry_pass == 1 && !is_boot_entry)) {
-                        continue;
-                    }
-                    std::string directory_entry_hex;
-                    appendLeU32Hex(directory_entry_hex, 1u);
-                    appendLeU32Hex(directory_entry_hex, 2u);
-                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].inode_number);
-                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].name_hash);
-                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].file_type);
-                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].name_len);
-                    appendLeU32Hex(directory_entry_hex, root_dir_entries[di].rec_len);
-                    if (!epaDbgCall(
-                            String("epa.debug.ingressPushHex"),
-                            String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
-                                + String(",\"wid\":6,\"payload_hex\":") + jsonQuoteString(String(directory_entry_hex.c_str())) + String("}"),
-                            ingress_result)) {
-                        error_message = String("failed to queue root directory entry registration");
-                        return false;
-                    }
-                    if (is_boot_entry) {
-                        std::string boot_walk_hex;
-                        appendLeU32Hex(boot_walk_hex, 2u);
-                        appendLeU32Hex(boot_walk_hex, (uint32_t)partitions[p].partition_drive_id);
-                        appendLeU32Hex(boot_walk_hex, root_dir_entries[di].inode_number);
-                        appendLeU32Hex(boot_walk_hex, block_size);
-                        appendLeU32Hex(boot_walk_hex, 0u);
-                        boot_walk_payload_hex_result = String(boot_walk_hex.c_str());
-                        if (!epaDbgCall(
-                                String("epa.debug.ingressPushHex"),
-                                String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
-                                    + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(boot_walk_hex.c_str())) + String("}"),
-                                boot_walk_ingress_result)) {
-                            error_message = String("failed to queue filesystem boot inode walk");
-                            return false;
-                        }
-                    }
-                }
+                // Kick EPA ext4 walk from root inode (inode 2); EPA reads superblock then walks down.
+                std::string boot_walk_hex;
+                appendLeU32Hex(boot_walk_hex, 2u);
+                appendLeU32Hex(boot_walk_hex, (uint32_t)partitions[p].partition_drive_id);
+                appendLeU32Hex(boot_walk_hex, 2u);
+                appendLeU32Hex(boot_walk_hex, 0u);
+                appendLeU32Hex(boot_walk_hex, 0u);
+                boot_walk_payload_hex_result = String(boot_walk_hex.c_str());
+                if (!epaDbgCall(
+                        String("epa.debug.ingressPushHex"),
+                        String("{\"path_id\":") + jsonQuoteString(filesystem_path_id)
+                            + String(",\"wid\":2,\"payload_hex\":") + jsonQuoteString(String(boot_walk_hex.c_str())) + String("}"),
+                        boot_walk_ingress_result)) {
+                    error_message = String("failed to queue filesystem ext4 walk kick");
+                    return false;
                 }
 
                 std::string registry_mount_hex;
@@ -2079,15 +1982,9 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
                     return false;
                 }
                 root_mount_registered = true;
-                if (kernel_image_loaded) {
-                    sendHostDebugEvent(
-                        "state",
-                        "\"status\":\"second-stage kernel image present; handoff deferred while root kernel owns filesystem boot\""
-                    );
-                }
                 sendHostDebugEvent(
                     "state",
-                    (String("\"status\":\"root partition mounted and registered\",\"mount\":\"/\",\"partition_drive_id\":")
+                    (String("\"status\":\"root partition queued for EPA ext4 walk\",\"partition_drive_id\":")
                         + String(partitions[p].partition_drive_id)
                         + String(",\"mount_path_hash\":")
                         + String((int)root_mount_path_hash)).operator char *()
@@ -2148,7 +2045,7 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
 
     sendHostDebugEvent("state", "\"status\":\"servicing EPA block I/O read requests\"");
     int block_io_serviced_count = 0;
-    for (int block_io_pump_iter = 0; block_io_pump_iter < 16; ++block_io_pump_iter) {
+    for (int block_io_pump_iter = 0; block_io_pump_iter < 32; ++block_io_pump_iter) {
         String clear_block_mailbox_result;
         epaDbgCall(String("epa.debug.clearMailbox"), String("{\"path_id\":\"block_io_authority\"}"), clear_block_mailbox_result);
         if (!epaDbgCall(
@@ -2197,6 +2094,19 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         int request_drive_id = (int)block_header.height;
         int request_lba = (int)block_header.frame_id;
         int request_block_count = (int)block_header.record_count;
+
+        // Read walk state from frame_rect payload (emitted after frame_begin's 7 words = 28 bytes).
+        // frame_rect layout: [tag=1][phase][target_inode][block_size][inode_table_block][0][0][0]
+        uint32_t walk_phase = 0;
+        uint32_t walk_target_inode = 0;
+        uint32_t walk_block_size = 0;
+        uint32_t walk_inode_table_block = 0;
+        if (mailbox_bytes.size() >= 48u) {
+            walk_phase             = readLeU32At(mailbox_bytes.data() + 32u);
+            walk_target_inode      = readLeU32At(mailbox_bytes.data() + 36u);
+            walk_block_size        = readLeU32At(mailbox_bytes.data() + 40u);
+            walk_inode_table_block = readLeU32At(mailbox_bytes.data() + 44u);
+        }
         const BootDriveInfo *source_drive = NULL;
         const GptPartitionInfo *source_partition = NULL;
         for (size_t pi = 0; pi < discovered_partitions.size(); ++pi) {
@@ -2240,10 +2150,10 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
         appendLeU32Hex(response_hex, (uint32_t)request_lba);
         appendLeU32Hex(response_hex, (uint32_t)request_block_count);
         appendLeU32Hex(response_hex, (uint32_t)block_payload.size());
-        appendLeU32Hex(response_hex, 0u);
-        appendLeU32Hex(response_hex, 0u);
-        appendLeU32Hex(response_hex, 0u);
-        appendLeU32Hex(response_hex, 0u);
+        appendLeU32Hex(response_hex, walk_phase);
+        appendLeU32Hex(response_hex, walk_target_inode);
+        appendLeU32Hex(response_hex, walk_block_size);
+        appendLeU32Hex(response_hex, walk_inode_table_block);
         appendLeU32Hex(response_hex, 0u);
         appendLeU32Hex(response_hex, 0u);
         appendBytesHex(response_hex, block_payload);
@@ -2271,6 +2181,14 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             String("{\"path_id\":") + jsonQuoteString(filesystem_path_id) + String(",\"max_ticks\":65536,\"watchdog_ms\":100}"),
             filesystem_block_result_run);
         epaDbgCall(String("epa.debug.getMailbox"), String("{\"path_id\":\"filesystem_authority\"}"), filesystem_response_mailbox_result);
+        {
+            std::string fs_mb_json(filesystem_response_mailbox_result.operator char *() ? filesystem_response_mailbox_result.operator char *() : "");
+            std::string fs_mb_hex = jsonStringField(fs_mb_json, "hex");
+            int fs_mb_len = jsonIntField(fs_mb_json, "len", 0);
+            std::vector<unsigned char> fs_mb_bytes;
+            decodeHexBytes(fs_mb_hex, fs_mb_bytes);
+            ElaraOsEpaFrameHeader fh = orangeFortressParseEgressFrameHeader(fs_mb_bytes.data(), fs_mb_bytes.size());
+        }
         block_io_serviced_count = block_io_serviced_count + 1;
         block_io_device_read_result =
             String("{\"serviced\":") + String(block_io_serviced_count)
@@ -2283,6 +2201,60 @@ bool ElaraOsApp::continueBootDescriptor(String &result_json, String &error_messa
             + String(",\"last_filesystem_mailbox\":") + (filesystem_response_mailbox_result.length() ? filesystem_response_mailbox_result : String("{}"))
             + String(",\"last_filesystem_run\":") + (filesystem_block_result_run.length() ? filesystem_block_result_run : String("{}"))
             + String("}");
+    }
+
+    // EPA's kernel_inode phase (11) emits frame 7357031 with the kernel binary's
+    // partition-relative block address and file size. The host reads those bytes
+    // via raw block IO — no ext4 parsing here, EPA did all traversal.
+    {
+        std::string kb_mb_json(filesystem_response_mailbox_result.operator char *() ? filesystem_response_mailbox_result.operator char *() : "");
+        std::string kb_mb_hex = jsonStringField(kb_mb_json, "hex");
+        int kb_mb_len = jsonIntField(kb_mb_json, "len", 0);
+        std::vector<unsigned char> kb_mb_bytes;
+        if (kb_mb_len >= (int)ORANGE_FORTRESS_EPA_FRAME_HEADER_BYTES &&
+            !kb_mb_hex.empty() && decodeHexBytes(kb_mb_hex, kb_mb_bytes) &&
+            (int)kb_mb_bytes.size() >= kb_mb_len) {
+            ElaraOsEpaFrameHeader kb_header = orangeFortressParseEgressFrameHeader(kb_mb_bytes.data(), kb_mb_bytes.size());
+            if (kb_header.valid && kb_header.width == 7357031u) {
+                int kb_drive_id = (int)kb_header.height;
+                uint32_t kb_file_size = kb_header.frame_type;
+                uint64_t kb_extent_start = (uint64_t)kb_header.frame_id;
+                uint32_t kb_block_size = kb_header.record_count;
+                if (kb_file_size > 0u && kb_extent_start > 0u && kb_block_size > 0u) {
+                    const GptPartitionInfo *kb_partition = NULL;
+                    const BootDriveInfo *kb_drive = NULL;
+                    for (size_t pi = 0; pi < discovered_partitions.size(); ++pi) {
+                        if (discovered_partitions[pi].partition_drive_id == kb_drive_id) {
+                            kb_partition = &discovered_partitions[pi];
+                            for (size_t di = 0; di < boot_drives.size(); ++di) {
+                                if (boot_drives[di].drive_id == discovered_partitions[pi].drive_id) {
+                                    kb_drive = &boot_drives[di];
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if (kb_drive && kb_partition) {
+                        uint64_t kb_byte_offset = kb_extent_start * (uint64_t)kb_block_size;
+                        std::vector<unsigned char> kb_bytes;
+                        std::string kb_error;
+                        sendHostDebugEvent("state", (std::string("\"status\":\"reading kernel binary from disk\",\"drive_id\":") + std::to_string(kb_drive_id) + ",\"byte_offset\":" + std::to_string(kb_byte_offset) + ",\"byte_count\":" + std::to_string(kb_file_size)).c_str());
+                        if (readPartitionBytes(*kb_drive, *kb_partition, kb_byte_offset, (size_t)kb_file_size, kb_bytes, kb_error)) {
+                            kernel_image_json = String("{\"drive_id\":") + String(kb_drive_id)
+                                + String(",\"byte_offset\":") + String((int)kb_byte_offset)
+                                + String(",\"byte_count\":") + String((int)kb_file_size)
+                                + String(",\"block_size\":") + String((int)kb_block_size)
+                                + String(",\"extent_start\":") + String((int)kb_extent_start)
+                                + String(",\"loaded\":true}");
+                            sendHostDebugEvent("state", "\"status\":\"kernel binary read from disk successfully\"");
+                        } else {
+                            kernel_image_json = String("{\"error\":\"") + String(jsonEscape(kb_error.c_str()).c_str()) + String("\"}");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     sendHostDebugEvent("state", "\"status\":\"running Registry Authority mount registration worker\"");

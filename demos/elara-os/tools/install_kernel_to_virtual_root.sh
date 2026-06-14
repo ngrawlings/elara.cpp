@@ -32,9 +32,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-mkdir -p "$stage_dir/boot/elara" "$stage_dir/proc" "$stage_dir/etc"
-cp "$KERNEL_IMAGE" "$stage_dir/boot/elara/epa_kernel.bin"
-cat > "$stage_dir/boot/elara/kernel.manifest" <<EOF
+mkdir -p "$stage_dir/elara" "$stage_dir/proc" "$stage_dir/etc" "$stage_dir/boot"
+cp "$KERNEL_IMAGE" "$stage_dir/elara/epa_kernel.bin"
+cat > "$stage_dir/elara/kernel.manifest" <<EOF
 name=elara-os
 image=epa_kernel.bin
 format=epa-bundle
@@ -44,4 +44,4 @@ EOF
 mkfs.ext4 -F -q -b "$FS_BLOCK_SIZE" -L rootfs -d "$stage_dir" \
   -E offset="$PARTITION_OFFSET_BYTES" "$ROOT_DRIVE" "$fs_blocks"
 
-echo "Installed $KERNEL_IMAGE -> $ROOT_DRIVE:/boot/elara/epa_kernel.bin"
+echo "Installed $KERNEL_IMAGE -> $ROOT_DRIVE:/elara/epa_kernel.bin"

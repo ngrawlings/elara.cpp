@@ -226,6 +226,35 @@ acl {
 }
 
 worker registry_ingress(RegistryRequest request) {
+  static int _lw0;
+  static int _lw1;
+  static int _lw2;
+  static int _lw3;
+  static int _lw4;
+  static int _lw5;
+  static int _lw6;
+  static int _lw7;
+  static int _lw8;
+  static int _lw9;
+  static int _lw10;
+  static int _lw11;
+  static int _lw12;
+  static int _lw13;
+  static int _lw14;
+  static int _lw15;
+  static int _lw16;
+  static int _lw17;
+  static int _lw18;
+  static int _lw19;
+  static int _lw20;
+  static int _lw21;
+  static int _lw22;
+  static int _lw23;
+  static int _lw24;
+  static int _lw25;
+  static int _lw26;
+  static int _lw27;
+  static int _lw28;
   static int initialized;
   static int root_id;
   static int proc_id;

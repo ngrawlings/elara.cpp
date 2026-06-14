@@ -46,11 +46,11 @@ if [[ ! -w "$ROOT_MOUNT" && ! -w "$ROOT_MOUNT/boot" ]]; then
   INSTALL_AS=(sudo)
 fi
 
-"${INSTALL_AS[@]}" install -d "$ROOT_MOUNT/boot/elara/apps" "$ROOT_MOUNT/boot/elara/assets" "$ROOT_MOUNT/boot/elara/lib" "$ROOT_MOUNT/proc" "$ROOT_MOUNT/etc"
-"${INSTALL_AS[@]}" install -m 0644 "$KERNEL_IMAGE" "$ROOT_MOUNT/boot/elara/epa_kernel.bin"
-"${INSTALL_AS[@]}" install -m 0644 "$SHELL_IMAGE" "$ROOT_MOUNT/boot/elara/apps/shell.epa.bin"
-"${INSTALL_AS[@]}" install -m 0644 "$PNG_DECODER_LIB" "$ROOT_MOUNT/boot/elara/lib/png_decoder.epa.bin"
-"${INSTALL_AS[@]}" install -m 0644 "$LOGO_IMAGE" "$ROOT_MOUNT/boot/elara/assets/logo.png"
+"${INSTALL_AS[@]}" install -d "$ROOT_MOUNT/elara/apps" "$ROOT_MOUNT/elara/assets" "$ROOT_MOUNT/elara/lib" "$ROOT_MOUNT/proc" "$ROOT_MOUNT/etc" "$ROOT_MOUNT/boot"
+"${INSTALL_AS[@]}" install -m 0644 "$KERNEL_IMAGE" "$ROOT_MOUNT/elara/epa_kernel.bin"
+"${INSTALL_AS[@]}" install -m 0644 "$SHELL_IMAGE" "$ROOT_MOUNT/elara/apps/shell.epa.bin"
+"${INSTALL_AS[@]}" install -m 0644 "$PNG_DECODER_LIB" "$ROOT_MOUNT/elara/lib/png_decoder.epa.bin"
+"${INSTALL_AS[@]}" install -m 0644 "$LOGO_IMAGE" "$ROOT_MOUNT/elara/assets/logo.png"
 
 tmp_manifest="$(mktemp)"
 cleanup() {
@@ -63,16 +63,16 @@ name=elara-os
 image=epa_kernel.bin
 format=epa-bundle
 stage=second-stage
-shell=/boot/elara/apps/shell.epa.bin
-png_decoder=/boot/elara/lib/png_decoder.epa.bin
-logo=/boot/elara/assets/logo.png
+shell=/elara/apps/shell.epa.bin
+png_decoder=/elara/lib/png_decoder.epa.bin
+logo=/elara/assets/logo.png
 EOF
 
-"${INSTALL_AS[@]}" install -m 0644 "$tmp_manifest" "$ROOT_MOUNT/boot/elara/kernel.manifest"
+"${INSTALL_AS[@]}" install -m 0644 "$tmp_manifest" "$ROOT_MOUNT/elara/kernel.manifest"
 
 echo "Installed compiled Elara OS files into $ROOT_MOUNT"
-echo "  /boot/elara/epa_kernel.bin <- $KERNEL_IMAGE"
-echo "  /boot/elara/apps/shell.epa.bin <- $SHELL_IMAGE"
-echo "  /boot/elara/lib/png_decoder.epa.bin <- $PNG_DECODER_LIB"
-echo "  /boot/elara/kernel.manifest"
-echo "  /boot/elara/assets/logo.png <- $LOGO_IMAGE"
+echo "  /elara/epa_kernel.bin <- $KERNEL_IMAGE"
+echo "  /elara/apps/shell.epa.bin <- $SHELL_IMAGE"
+echo "  /elara/lib/png_decoder.epa.bin <- $PNG_DECODER_LIB"
+echo "  /elara/kernel.manifest"
+echo "  /elara/assets/logo.png <- $LOGO_IMAGE"

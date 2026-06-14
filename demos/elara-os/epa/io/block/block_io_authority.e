@@ -9,21 +9,6 @@ type BlockIoStatus(int drive_id, int status, int arg0, int arg1) {
   return status;
 }
 
-type PendingBlockIoRequest(
-  int drive_id,
-  int lba,
-  int block_count,
-  int phase,
-  int target_inode,
-  int block_size,
-  int inode_table_block
-) {
-  return drive_id;
-}
-
-dynamic block_devices(BlockDeviceState, 4, 64, 8);
-dynamic block_io_pending(PendingBlockIoRequest, 8, 128, 16);
-
 kernel(VM vm) {
   kernalId("elara.os.block_io");
   start_worker(register_block_device);
@@ -41,6 +26,7 @@ acl {
 worker register_block_device(BlockDeviceRegistration registration) {
   static int registered_count;
   static int registered;
+  dynamic block_devices(BlockDeviceState, 4, 64, 8);
   int slot = dyn_alloc(block_devices);
   local BlockDeviceState device;
   local BlockDeviceRegistration staged;
@@ -74,23 +60,10 @@ worker register_block_device(BlockDeviceRegistration registration) {
   host_signal();
 }
 
+// Walk state travels in the frame payload (frame_rect) so the C++ host echoes
+// it back opaquely in the block result — no cross-worker dynamic pool needed.
 worker block_io_ingress(BlockIoRequest request) {
-  int device_iter = dynamic_iterator(block_devices);
-  int pending_slot = 0 - 1;
-  local PendingBlockIoRequest pending;
-  device_iter = device_iter;
-
   if (request.opcode == block_io_opcode_read_blocks()) {
-    pending_slot = dyn_alloc(block_io_pending);
-    pending.drive_id = request.drive_id;
-    pending.lba = request.lba;
-    pending.block_count = request.block_count;
-    pending.phase = request.phase;
-    pending.target_inode = request.target_inode;
-    pending.block_size = request.block_size;
-    pending.inode_table_block = request.inode_table_block;
-    block_io_pending[pending_slot] = pending;
-
     frame_begin(
       block_io_mailbox_magic(),
       request.drive_id,
@@ -98,6 +71,7 @@ worker block_io_ingress(BlockIoRequest request) {
       request.lba,
       request.block_count
     );
+    frame_rect(request.phase, request.target_inode, request.block_size, request.inode_table_block, 0, 0, 0);
     frame_commit();
   } else {
     host_signal();
@@ -105,7 +79,6 @@ worker block_io_ingress(BlockIoRequest request) {
 }
 
 worker block_io_read_result_ingress(BlockIoReadResult raw_result) {
-  int pending_iter = dynamic_iterator(block_io_pending);
   local BlockIoReadResult result;
 
   result.opcode = raw_result.opcode;
@@ -113,27 +86,12 @@ worker block_io_read_result_ingress(BlockIoReadResult raw_result) {
   result.lba = raw_result.lba;
   result.block_count = raw_result.block_count;
   result.byte_count = raw_result.byte_count;
-  result.phase = 0;
-  result.target_inode = 0;
-  result.block_size = 0;
-  result.inode_table_block = 0;
+  result.phase = raw_result.phase;
+  result.target_inode = raw_result.target_inode;
+  result.block_size = raw_result.block_size;
+  result.inode_table_block = raw_result.inode_table_block;
   result.arg0 = 0;
   result.arg1 = 0;
-
-  while (PendingBlockIoRequest pending = dynamic_next(pending_iter)) {
-    if (result.phase == 0) {
-      if (pending.drive_id == raw_result.drive_id) {
-        if (pending.lba == raw_result.lba) {
-          if (pending.block_count == raw_result.block_count) {
-            result.phase = pending.phase;
-            result.target_inode = pending.target_inode;
-            result.block_size = pending.block_size;
-            result.inode_table_block = pending.inode_table_block;
-          }
-        }
-      }
-    }
-  }
 
   far_signal_current_payload("elara.os.filesystem", 4, result);
 }

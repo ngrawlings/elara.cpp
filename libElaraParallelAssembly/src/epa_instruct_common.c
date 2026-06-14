@@ -1896,10 +1896,9 @@ case EPA_OP_GR_MOV4: {
 	  ge = epa_ghs_read_bytes(k->impl.ghs, h, (uint32_t)w->vm.csc[2], &w->vm.csc[rid], 4);
 	}
 	if (ge != EPA_GHS_OK) {
-	  snprintf(err, EPA_MAX_ERR, "GR_MOV4 failed off=%u err=%d", (unsigned)w->vm.csc[2], ge);
+	  snprintf(err, EPA_MAX_ERR, "GR_MOV4 failed off=%u err=%d", (unsigned)(uint32_t)w->vm.csc[2], ge);
 	  return EPA_FLOW_ERR;
 	}
-
 	eip->rel_pc = (uint32_t)(pc + need);
 	return EPA_FLOW_YIELDED;
 }
